@@ -1,0 +1,4 @@
+# Rime prelude's email recognizer; '@' is an explicit Latin-input boundary.
+# Keep the narrower bopomofo URL recognizer: '.' is also the ㄡ key.
+patch:
+  recognizer/patterns/email: "^[A-Za-z][-_.0-9A-Za-z]*@.*$"

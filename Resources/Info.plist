@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>app.meowpuut.inputmethod.Meowpuut</string>
+<key>CFBundleName</key><string>Meowpuut</string>
+<key>CFBundleIconFile</key><string>Meowpuut.icns</string>
+<key>CFBundleExecutable</key><string>Meowpuut</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>LSMinimumSystemVersion</key><string>27.0</string>
+<key>LSBackgroundOnly</key><false/>
+<key>LSUIElement</key><true/>
+<key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>InputMethodConnectionName</key><string>Meowpuut_Connection</string>
+<key>InputMethodServerControllerClass</key><string>MeowpuutInputController</string>
+<key>TISInputSourceID</key><string>app.meowpuut.inputmethod.Meowpuut</string>
+<key>TISIntendedLanguage</key><string>zh-Hant</string>
+<key>tsInputMethodIconFileKey</key><string>Meowpuut.icns</string>
+<key>ComponentInputModeDict</key><dict>
+  <key>tsInputModeListKey</key><dict>
+    <key>app.meowpuut.inputmethod.Meowpuut.zhuyin</key><dict>
+      <key>TISInputSourceID</key><string>app.meowpuut.inputmethod.Meowpuut.zhuyin</string>
+      <key>TISIntendedLanguage</key><string>zh-Hant</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Hant</string><string>Hans</string></array>
+      <key>tsInputModeDefaultStateKey</key><true/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModePrimaryInScriptKey</key><true/>
+      <key>tsInputModeScriptKey</key><string>smUnicodeScript</string>
+      <key>tsInputModeMenuIconFileKey</key><string>Meowpuut.icns</string>
+      <key>tsInputModePaletteIconFileKey</key><string>Meowpuut.icns</string>
+    </dict>
+  </dict>
+  <key>tsVisibleInputModeOrderedArrayKey</key><array><string>app.meowpuut.inputmethod.Meowpuut.zhuyin</string></array>
+</dict>
+</dict></plist>

@@ -1,0 +1,3 @@
+.build/
+Vendor/*/.git/
+.DS_Store
