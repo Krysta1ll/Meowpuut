@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+BUNDLE="${3%/}/Library/Input Methods/Meowpuut.app"
+ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUNDLE/Contents/Info.plist")
+[ "$ID" = "app.meowpuut.inputmethod.Meowpuut" ] || exit 1
+# Installer can retain a renamed resource from an older receipt. Remove only
+# the retired generated icon, never settings or personal dictionary data.
+/bin/rm -f "$BUNDLE/Contents/Resources/MeowpuutInputGlyph.tiff"
+/usr/bin/codesign --verify --strict "$BUNDLE"

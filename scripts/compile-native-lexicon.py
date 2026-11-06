@@ -249,6 +249,14 @@ def main(destination, converter):
             add("pinyin", re.sub("[1-5]", "", short), short, hant, hans, max(1, weight // 8))
         for reading in aliases: add("pinyin", re.sub("[1-5]", "", reading), reading, hant, hans, weight)
         if len(hant) > 1: context[hant] = max(context.get(hant, 0), weight)
+    # Context-only observations steer adjacent word segments without creating
+    # artificial dictionary entries or changing the standalone word order.
+    for number, fields in authored("context.tsv"):
+        if len(fields) != 2: raise ValueError(f"context.tsv:{number}: expected 2 fields")
+        phrase, priority = fields
+        if not 2 <= len(phrase) <= 5 or not all('\u3400' <= c <= '\u9fff' for c in phrase) or not priority.isdigit() or not 1 <= int(priority) <= 10000:
+            raise ValueError(f"context.tsv:{number}: invalid phrase or priority")
+        context[phrase] = max(context.get(phrase, 0), int(priority))
     for mode, entries in rows.items():
         with (output / f"native-{mode}.tsv").open("w") as dest:
             dest.write(f"MEOWPUUT-{mode.upper()}-1\n")
@@ -269,13 +277,13 @@ def main(destination, converter):
     if database.exists(): database.unlink()
     db = sqlite3.connect(database)
     db.execute("CREATE TABLE words(language TEXT, reading TEXT, word TEXT, weight INTEGER, PRIMARY KEY(language,reading,word)) WITHOUT ROWID")
-    db.execute("CREATE TABLE lexicon(reading TEXT, phonetic TEXT, bare TEXT, hant TEXT, hans TEXT, weight INTEGER, PRIMARY KEY(reading,phonetic,hant,hans)) WITHOUT ROWID")
+    db.execute("CREATE TABLE lexicon(reading TEXT, phonetic TEXT, bare TEXT, hant TEXT, hans TEXT, weight INTEGER, toned TEXT, PRIMARY KEY(reading,phonetic,hant,hans)) WITHOUT ROWID")
     def record(language, reading, word, weight):
         db.execute("INSERT INTO words VALUES(?,?,?,?) ON CONFLICT DO UPDATE SET weight=max(weight,excluded.weight)", (language, reading, word, weight))
     for (hant, hans, code), weight in words.items():
         reading = re.sub("[1-5 ]", "", code)
         phonetic = "".join(encode(sound) for sound in code.split())
-        db.execute("INSERT OR REPLACE INTO lexicon VALUES(?,?,?,?,?,?)", (reading, phonetic, re.sub("[ 6347]", "", phonetic), hant, hans, weight))
+        db.execute("INSERT OR REPLACE INTO lexicon VALUES(?,?,?,?,?,?,?)", (reading, phonetic, re.sub("[ 6347]", "", phonetic), hant, hans, weight, code.replace(" ", "")))
     for reading, items in japanese.items():
         for item in items: record("ja", reading.replace("'", ""), item["text"], item["weight"])
     db.execute("CREATE INDEX lexicon_phonetic ON lexicon(phonetic)")

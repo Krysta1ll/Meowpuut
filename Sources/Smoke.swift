@@ -1,15 +1,84 @@
 import AppKit
+import InputMethodKit
 
 func runIndependentSmoke() -> Never {
     setbuf(stdout, nil)
     var failures = 0
     func check(_ ok: Bool, _ message: String) { print("\(ok ? "PASS" : "FAIL")：\(message)"); if !ok { failures += 1 } }
+    let menuItem = NSMenuItem(title: "測試皮膚", action: nil, keyEquivalent: "")
+    menuItem.representedObject = true
+    check(SystemInput.menuItem(from: [kIMKCommandMenuItemName: menuItem]) === menuItem, "系統輸入選單解析 IMK 指令字典")
+    check(SystemInput.menuItem(from: menuItem) === menuItem && SystemInput.menuItem(from: [:]) == nil, "選單兼容直接點選並拒絕空指令")
+    let testScreens = [NSRect(x: 0, y: 0, width: 1000, height: 1000)]
+    let caret = NSRect(x: 180, y: 170, width: 1, height: 20)
+    var queried: [Int] = []
+    let initial = SystemInput.caretRect(markedText: nil, screens: testScreens) { index in queried.append(index); return caret }
+    check(initial == caret && queried == [0], "沒有組字時查詢目前選區")
+    queried = []
+    let end = SystemInput.caretRect(markedText: "你好🐈", screens: testScreens) { index in queried.append(index); return caret }
+    check(end == caret && queried == [4], "組字使用 UTF-16 末尾定位游標")
+    queried = []
+    let fallback = SystemInput.caretRect(markedText: "你好🐈", screens: testScreens) { index in
+        queried.append(index)
+        return index == 4 ? .zero : caret
+    }
+    check(fallback == caret && queried == [4, 2], "末尾無效時回退到最後完整字元")
+    queried = []
+    let invalid = SystemInput.caretRect(markedText: "你好", screens: testScreens) { index in
+        queried.append(index)
+        return NSRect(x: 2000, y: 2000, width: 1, height: 20)
+    }
+    check(invalid == nil && queried == [2, 1], "座標無效時保留先前錨點")
     Preferences.shared.simplified = false
     Preferences.shared.rememberChoices = false
     Preferences.shared.pins = [:]
+    let appearanceDefaults = UserDefaults(suiteName: "app.meowpuut.smoke")!
+    Preferences.shared.candidateTone = .light
+    Preferences.shared.candidatePalette = .sage
+    Preferences.shared.glassStrength = .vivid
+    check(appearanceDefaults.string(forKey: "glassStrength") == "vivid", "玻璃強度會儲存")
+    check(appearanceDefaults.string(forKey: "candidateTone") == "light" && appearanceDefaults.string(forKey: "candidatePalette") == "sage", "深淺色調與色系分開持久儲存")
+    Preferences.shared.catGlassSkin = true
+    check(Preferences.shared.candidateTone == .light && Preferences.shared.candidatePalette == .sage, "切換皮膚保留共用配色")
     let engine = Engine()
     check(engine.isReady, "自研注音核心載入")
     func type(_ value: String) { for key in value.utf8 { engine.key(Int32(key)) } }
+    let physicalCharacters: [UInt16: (String, String)] = [
+        44: ("/", "?"), 42: ("\\", "|"), 27: ("-", "_"), 39: ("'", "\""),
+        29: ("0", ")"), 18: ("1", "!"), 19: ("2", "@"), 20: ("3", "#"),
+        21: ("4", "$"), 23: ("5", "%"), 22: ("6", "^"), 26: ("7", "&"),
+        28: ("8", "*"), 25: ("9", "(")
+    ]
+    func physical(_ keyCode: UInt16, shift: Bool = false, option: Bool = false) -> Bool {
+        var flags: NSEvent.ModifierFlags = []
+        if shift { flags.insert(.shift) }
+        if option { flags.insert(.option) }
+        let chars = physicalCharacters[keyCode] ?? ("", "")
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: flags, timestamp: 0, windowNumber: 0,
+                context: nil, characters: shift ? chars.1 : chars.0, charactersIgnoringModifiers: chars.0,
+                isARepeat: false, keyCode: keyCode), let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else { return false }
+        return engine.key(key, modifiers: modifiers)
+    }
+    func layoutEvent(_ keyCode: UInt16, _ characters: String, shift: Bool = false) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? [.shift] : [],
+                         timestamp: 0, windowNumber: 0, context: nil, characters: characters,
+                         charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
+    }
+    let azerty = layoutEvent(0, "q")
+    check(inputKey(azerty, mode: .pinyin)?.0 == 113 && inputKey(azerty, mode: .pinyin, english: true)?.0 == 113, "拼音與英文跟隨實際鍵盤佈局")
+    check(inputKey(azerty, mode: .zhuyin)?.0 == 97, "注音保留大千實體鍵位")
+    check(inputKey(layoutEvent(0, "é"), mode: .pinyin) == nil && inputKey(layoutEvent(0, ""), mode: .pinyin, english: true) == nil, "非 ASCII 與死鍵交給系統")
+    check(inputKey(layoutEvent(22, "§", shift: true), mode: .pinyin, composing: true)?.0 == 94, "拼音聲調保留大千實體快捷鍵")
+    check(inputKey(layoutEvent(22, "§", shift: true), mode: .pinyin) == nil, "沒有組字時非 ASCII 標點交給系統")
+    check(inputKey(layoutEvent(76, "\r"), mode: .pinyin)?.0 == 0xff0d, "小鍵盤 Enter 映射為確認")
+    engine.selectMode(.pinyin)
+    if let (key, modifiers) = inputKey(azerty, mode: .pinyin) { engine.key(key, modifiers: modifiers) }
+    check(engine.snapshot.input == "q", "非 US 按鍵實際輸入拼音字母")
+    engine.clear(); type("nihao")
+    if let (key, modifiers) = inputKey(layoutEvent(76, "\r"), mode: .pinyin, composing: true) { engine.key(key, modifiers: modifiers) }
+    check(engine.takeCommit() == "你好", "小鍵盤 Enter 實際確認中文")
+    engine.clear()
     func expect(_ mode: InputMode, _ input: String, _ expected: String) {
         engine.clear(); engine.selectMode(mode); type(input)
         print("\(mode.rawValue) \(input) → \(engine.snapshot.candidates)")
@@ -196,6 +265,27 @@ func runIndependentSmoke() -> Never {
     check(englishSentence == "hello world this is a test", "英文句子空格不丟失")
     engine.clear(); engine.selectMode(.zhuyin); type("internationalization")
     check(engine.snapshot.candidates.first == "internationalization", "注音模式保留長英文")
+    engine.clear(); engine.selectMode(.pinyin); engine.english = false
+    type("ma"); engine.key(32, modifiers: 1)
+    check(engine.snapshot.input == "ma1" && !engine.english && engine.snapshot.candidates.contains("媽") && !engine.snapshot.candidates.contains("馬"), "Shift 空格標一聲，排除錯聲調詞庫補詞")
+    engine.key(35, modifiers: 1)
+    check(engine.snapshot.input == "ma3" && engine.snapshot.candidates.contains("馬") && !engine.snapshot.candidates.contains("媽"), "Shift 3 標三聲並可修正上一聲調")
+    engine.key(0xff08)
+    check(engine.snapshot.input == "ma" && engine.snapshot.candidates.contains("媽"), "退格刪除聲調恢復無調候選")
+    engine.clear(); type("ni"); engine.key(35, modifiers: 1); type("hao"); engine.key(35, modifiers: 1)
+    check(engine.snapshot.input == "ni3hao3" && engine.snapshot.candidates.contains("你好"), "多音節拼音聲調解碼")
+    let toneChoice = engine.snapshot.candidates.first ?? ""
+    engine.key(49)
+    check(engine.takeCommit() == toneChoice, "帶調拼音仍用普通數字選詞")
+    for (key, value) in [(Int32(94), "ma2"), (36, "ma4"), (38, "ma5")] {
+        engine.clear(); type("ma"); engine.key(key, modifiers: 1)
+        check(engine.snapshot.input == value, "Shift 大千聲調位置 \(value)")
+    }
+    engine.clear(); engine.key(35, modifiers: 1)
+    check(engine.takeCommit() == "#", "空組字保留 Shift 英文符號")
+    engine.key(Engine.toggleEnglishKey); engine.key(35, modifiers: 1)
+    check(engine.english && engine.takeCommit() == "#", "英文模式不攔截聲調快捷鍵")
+    engine.key(Engine.toggleEnglishKey)
     engine.clear(); engine.selectMode(.pinyin); type("nihao,")
     check(engine.takeCommit() == "你好，", "拼音直接輸入中文逗號")
     engine.key(46); check(engine.takeCommit() == "。", "無組字拼音中文句號")
@@ -223,12 +313,37 @@ func runIndependentSmoke() -> Never {
     engine.clear(); engine.selectMode(.zhuyin); type("nihao")
     check(!engine.snapshot.candidates.contains("你好"), "注音不借用拼音候選")
     check(engine.snapshot.preedit != "nihao", "注音保留注音組字")
-    expect(.zhuyin, "sushi", "寿司")
+    for raw in ["sushi", "suki", "neko", "a"] {
+        engine.clear(); engine.selectMode(.zhuyin); type(raw)
+        check(engine.snapshot.japaneseCandidates.isEmpty && engine.snapshot.requiredCandidate == nil, "注音不混日語 " + raw)
+        check(!engine.snapshot.candidates.contains("寿司") && !engine.snapshot.candidates.contains("好き"), "注音不插入日語詞 " + raw)
+    }
     engine.clear(); engine.selectMode(.pinyin); type("su3cl3")
     check(!engine.snapshot.candidates.contains("你好"), "拼音不借用注音候選")
     expect(.pinyin, "nihao", "你好")
     expect(.pinyin, "sushi", "寿司")
     expect(.pinyin, "neko", "猫")
+    engine.clear(); type("wosukini")
+    let mixedSnapshot = engine.snapshot
+    let mixedPhraseVisible = collapsedCandidateIndices(mixedSnapshot).map { mixedSnapshot.candidates[$0] }
+    check(mixedSnapshot.input == "wosukini" && mixedPhraseVisible.last == "我好き你", "拼音整段中日混合候選收合可見")
+    check(mixedPhraseVisible.filter { mixedSnapshot.japaneseCandidates.contains($0) }.count == 1 && mixedSnapshot.candidates.first != "我好き你", "混合詞不擠掉首選中文且只顯示一個日語")
+    if let index = mixedSnapshot.candidates.firstIndex(of: "我好き你") { engine.choose(index) }
+    check(engine.takeCommit() == "我好き你" && engine.snapshot.preedit.isEmpty, "混合詞完整上屏")
+    engine.clear(); type("wosukini"); engine.choose(0)
+    check(!engine.takeCommit().isEmpty && !engine.snapshot.input.isEmpty && "wosukini".hasSuffix(engine.snapshot.input), "混合讀音部分選詞保留未轉換後綴")
+    engine.clear(); type("wosukini"); engine.key(0xff08)
+    check(engine.snapshot.input == "wosukin", "混合輸入退格保留原文")
+    engine.clear(); type("nihaosuki")
+    check(engine.snapshot.candidates.contains("你好好き"), "混合詞支持中文前綴")
+    engine.clear(); type("wosukihanyu")
+    check(engine.snapshot.candidates.contains("我好き漢語"), "混合詞支持繁體中文後綴")
+    Preferences.shared.simplified = true
+    engine.clear(); engine.modeChanged(); type("wosukihanyu")
+    check(engine.snapshot.candidates.contains("我好き汉语"), "混合詞支持簡體中文後綴")
+    Preferences.shared.simplified = false
+    engine.clear(); engine.modeChanged(); type("nihao")
+    check(engine.snapshot.candidates.first == "你好" && engine.snapshot.requiredCandidate != "你好", "純中文不受混合候選影響")
     engine.clear(); type("sushi")
     check(engine.snapshot.candidates.first == "蘇軾", "真實中文詞優先")
     check(collapsedCandidateIndices(engine.snapshot).map { engine.snapshot.candidates[$0] }.contains("寿司"), "高可信日語保留收合位置")
@@ -243,6 +358,41 @@ func runIndependentSmoke() -> Never {
     check(engine.takeCommit() == "你好。", "拼音標點不丟字")
     engine.clear(); engine.selectMode(.pinyin); type("nihao,")
     check(engine.takeCommit() == "你好，", "自研拼音標點不丟字")
+    engine.clear(); engine.selectMode(.pinyin)
+    check(physical(44) && engine.takeCommit() == "？", "拼音斜線鍵直接輸入中文問號")
+    type("nihao")
+    check(physical(44, option: true) && engine.takeCommit() == "你好/", "拼音 Option 加斜線提交中文並輸入英文斜線")
+    check(physical(44, shift: true) && engine.takeCommit() == "?", "拼音 Shift 加斜線保留英文問號")
+    type("nihao")
+    check(physical(42, shift: true) && engine.takeCommit() == "你好\\", "拼音 Shift 加反斜線提交英文反斜線")
+    type("nihao")
+    check(physical(27) && engine.takeCommit() == "你好-", "拼音減號不會被誤當組字")
+    check(physical(27, shift: true) && engine.takeCommit() == "_", "拼音下劃線可直接輸入")
+    check(physical(39) && engine.takeCommit() == "‘", "空組字的引號可上屏")
+    let digitKeys: [UInt16] = [29,18,19,20,21,23,22,26,28,25]
+    var digits = ""
+    for key in digitKeys { _ = physical(key); digits += engine.takeCommit() }
+    check(digits == "0123456789" && engine.snapshot.preedit.isEmpty, "拼音空組字的所有數字直接上屏")
+    type("nihao")
+    check(physical(28) && engine.takeCommit() == "你好8", "拼音組字後的非選詞數字保留")
+    type("vvvvvv")
+    check(physical(18) && engine.takeCommit() == "vvvvvv1", "無候選時數字不會誤當聲調或吞字")
+    type("woxianghekafei")
+    check(engine.snapshot.candidates.count < 7 && physical(26) && engine.takeCommit() == "我想喝咖啡7", "選詞位置不存在時數字不會被吞掉")
+    engine.clear(); engine.selectMode(.zhuyin)
+    check(physical(44) && engine.snapshot.input == "/" && !engine.snapshot.preedit.isEmpty, "注音斜線鍵仍輸入ㄥ")
+    engine.clear(); type("su3cl3")
+    check(physical(44, shift: true) && engine.takeCommit() == "你好？", "注音 Shift 加斜線仍輸入中文問號")
+    type("su3cl3")
+    check(physical(44, option: true) && engine.takeCommit() == "你好/", "注音 Option 加斜線直接輸入英文斜線")
+    engine.key(96)
+    while !engine.snapshot.lastPage && !engine.snapshot.candidates.contains("/") { engine.key(0xff56) }
+    if let index = engine.snapshot.candidates.firstIndex(of: "/") { engine.choose(index) }
+    check(engine.takeCommit() == "/", "注音標點選單可輸入英文斜線")
+    engine.clear(); engine.selectMode(.pinyin); engine.key(Engine.toggleEnglishKey)
+    check(physical(44) && engine.takeCommit() == "/" && physical(44, shift: true) && engine.takeCommit() == "?", "英文模式保留斜線與問號實體鍵")
+    check(!physical(44, option: true), "英文模式保留系統 Option 加斜線")
+    engine.key(Engine.toggleEnglishKey)
     engine.clear(); engine.selectMode(.pinyin); type("sushix"); engine.key(0xff08)
     check(engine.snapshot.candidates.contains("寿司"), "拼音輸入退格重算")
     engine.key(0xff1b); check(engine.snapshot.preedit.isEmpty, "Escape 取消")
@@ -252,9 +402,9 @@ func runIndependentSmoke() -> Never {
     engine.choose(0); check(engine.takeCommit() == selected, "翻頁選詞索引")
     engine.clear(); engine.selectMode(.pinyin); type("qqqqqq")
     engine.key(0xff0d, modifiers: 1); check(engine.takeCommit() == "qqqqqq", "原始字母可取回")
-    engine.key(32, modifiers: 1); type("GitHub")
+    engine.key(Engine.toggleEnglishKey); type("GitHub")
     check(engine.english, "英文模式")
-    engine.key(32, modifiers: 1)
+    engine.key(Engine.toggleEnglishKey)
     engine.clear(); engine.openModules(); type("hello"); check(!engine.snapshot.candidates.isEmpty, "模組候選")
     let longRow = Snapshot(candidates: ["這是一個很長的中文候選詞", "另一個很長的中文候選詞", "こんにちは"], requiredCandidate: "こんにちは")
     check(collapsedCandidateIndices(longRow) == [0, 2], "長詞保留中文與日文")

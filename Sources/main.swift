@@ -17,20 +17,15 @@ class MeowpuutInputController: IMKInputController {
     private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
     private var shiftTap = ShiftTapTracker()
     private var panel: NSPanel?
-    private var catHosting: NSHostingView<CatCandidateView>?
+    private var catHosting: NSHostingView<GlassCandidateView>?
     private var displayedCatSkin = false
-    private var candidateGlass: NSGlassEffectView?
-    private var toggleGlass: NSGlassEffectView?
     private var anchor: NSRect?
     private var composing = false
     private var lastPanelAnchor: NSRect?
     private var candidatesExpanded = false {
         didSet {
             if let catHosting { catHosting.rootView.expanded = candidatesExpanded }
-            guard candidatesExpanded != oldValue,
-                  let hosting = candidateGlass?.contentView as? NSHostingView<CandidateStrip> else { return }
-            hosting.rootView.expanded = candidatesExpanded
-            updateToggle()
+
         }
     }
 
@@ -49,30 +44,13 @@ class MeowpuutInputController: IMKInputController {
         }
     }
 
-    private func updateToggle() {
-        guard let button = toggleGlass?.contentView as? NSButton else { return }
-        let title = candidatesExpanded ? "收起候選" : "展開候選"
-        let symbol = candidatesExpanded ? "chevron.up" : "chevron.down"
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
-            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
-        button.toolTip = candidatesExpanded ? "收起候選（Esc）" : "展開候選（↓）"
-        button.setAccessibilityLabel(title)
-    }
 
-    @objc private func toggleCandidates(_ sender: NSButton) {
-        guard let client = self.client() else { return }
-        setCandidatesExpanded(!candidatesExpanded)
-        deliver(client)
-    }
-
-    private func caret(_ client: IMKTextInput) -> NSRect? {
-        // This index is relative to the marked text. Zero also works before marking.
-        var rect = NSRect.zero
-        _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
-        guard rect.width.isFinite, rect.width >= 0, rect.height.isFinite, rect.height > 0,
-              NSScreen.screens.contains(where: { $0.frame.contains(NSPoint(x: rect.midX, y: rect.midY)) })
-        else { return nil }
-        return rect
+    private func caret(_ client: IMKTextInput, markedText: String? = nil) -> NSRect? {
+        SystemInput.caretRect(markedText: markedText, screens: NSScreen.screens.map(\.frame)) { index in
+            var rect = NSRect.zero
+            _ = client.attributes(forCharacterIndex: index, lineHeightRectangle: &rect)
+            return rect
+        }
     }
 
     override func recognizedEvents(_ sender: Any!) -> Int {
@@ -85,7 +63,7 @@ class MeowpuutInputController: IMKInputController {
             other: !event.modifierFlags.intersection([.command, .control, .option, .capsLock]).isEmpty)
         if event.type == .flagsChanged {
             if shiftOnly, engine.inputMode == .pinyin {
-                engine.key(32, modifiers: 1)
+                engine.key(Engine.toggleEnglishKey)
                 setCandidatesExpanded(false)
                 deliver(client)
                 return true
@@ -106,7 +84,7 @@ class MeowpuutInputController: IMKInputController {
             deliver(client)
             return true
         }
-        guard let (key, modifiers) = inputKey(event) else { return false }
+        guard let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else { return false }
         if modifiers == 0, key == 0xff1b, candidatesExpanded {
             setCandidatesExpanded(false)
             deliver(client)
@@ -153,83 +131,20 @@ class MeowpuutInputController: IMKInputController {
             panel?.orderOut(nil)
             return
         }
-        anchor = caret(client) ?? anchor
+        anchor = caret(client, markedText: preedit) ?? anchor
         let catSkin = Preferences.shared.catGlassSkin
         if panel != nil && displayedCatSkin != catSkin {
             panel?.orderOut(nil)
             panel = nil
             catHosting = nil
-            candidateGlass = nil
-            toggleGlass = nil
         }
         displayedCatSkin = catSkin
-        if catSkin {
-            deliverCatPanel(client)
-            return
-        }
-        if panel == nil {
-            panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            panel?.level = .popUpMenu; panel?.isOpaque = false; panel?.backgroundColor = .clear; panel?.hasShadow = true
-            let glass = NSGlassEffectView()
-            glass.style = .clear
-            glass.cornerRadius = 13
-            glass.effectIsInteractive = true
-            glass.contentView = NSHostingView(rootView: CandidateStrip(engine: engine, onChoose: { [weak self] index in
-                guard let self, let client = self.client() else { return }
-                self.engine.choose(index)
-                self.deliver(client)
-            }, onPage: { [weak self] key in
-                guard let self, let client = self.client() else { return }
-                self.engine.key(key)
-                self.deliver(client)
-            }, compact: true, expanded: candidatesExpanded))
-            candidateGlass = glass
-
-            let lens = NSGlassEffectView()
-            lens.style = .clear
-            lens.cornerRadius = 14.5
-            lens.effectIsInteractive = true
-            let button = NSButton(title: "", target: self, action: #selector(toggleCandidates(_:)))
-            button.isBordered = false
-            button.imagePosition = .imageOnly
-            lens.contentView = button
-            toggleGlass = lens
-            updateToggle()
-
-            let surfaces = NSView()
-            surfaces.addSubview(glass)
-            surfaces.addSubview(lens)
-            let container = NSGlassEffectContainerView()
-            container.spacing = 7
-            container.contentView = surfaces
-            panel?.contentView = container
-        }
-        guard let panel, let glass = candidateGlass, let lens = toggleGlass,
-              let content = glass.contentView else { return }
-        content.layoutSubtreeIfNeeded()
-        let size = content.fittingSize
-        glass.cornerRadius = candidatesExpanded ? 15 : size.height / 2
-        let showLens = candidatesExpanded || canExpandCandidates
-        let lensSide: CGFloat = 29
-        let gap: CGFloat = 4
-        let panelSize = NSSize(width: size.width + (showLens ? gap + lensSide : 0), height: size.height)
-        let pointer = NSEvent.mouseLocation
-        let rect = anchor ?? NSRect(origin: pointer, size: .zero)
-        let point = NSPoint(x: rect.midX, y: rect.midY)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main else { return }
-        let frame = candidateFrame(size: panelSize, anchor: rect, bounds: screen.visibleFrame)
-        presentPanel(panel, frame: frame, anchor: rect) { animated in
-            let glassFrame = NSRect(origin: .zero, size: size)
-            let lensFrame = NSRect(x: size.width + gap, y: size.height - lensSide - 2, width: lensSide, height: lensSide)
-            if animated { glass.animator().frame = glassFrame; lens.animator().frame = lensFrame }
-            else { glass.frame = glassFrame; lens.frame = lensFrame }
-            lens.isHidden = !showLens
-        }
+        deliverCandidatePanel(client)
     }
 
-    private func deliverCatPanel(_ client: IMKTextInput) {
+    private func deliverCandidatePanel(_ client: IMKTextInput) {
         if catHosting == nil {
-            let view = CatCandidateView(engine: engine, expanded: candidatesExpanded, canExpand: canExpandCandidates,
+            let view = GlassCandidateView(engine: engine, cats: Preferences.shared.catGlassSkin, expanded: candidatesExpanded, canExpand: canExpandCandidates,
                 onChoose: { [weak self] index in
                     guard let self, let client = self.client() else { return }
                     self.engine.choose(index)
@@ -241,6 +156,9 @@ class MeowpuutInputController: IMKInputController {
                 }, onToggle: { [weak self] in
                     guard let self, let client = self.client() else { return }
                     self.setCandidatesExpanded(!self.candidatesExpanded)
+                    self.deliver(client)
+                }, onAppearanceChange: { [weak self] in
+                    guard let self, let client = self.client() else { return }
                     self.deliver(client)
                 })
             let hosting = NSHostingView(rootView: view)
@@ -255,6 +173,7 @@ class MeowpuutInputController: IMKInputController {
             panel = window
         }
         guard let panel, let catHosting else { return }
+        catHosting.rootView.cats = Preferences.shared.catGlassSkin
         catHosting.rootView.canExpand = canExpandCandidates
         catHosting.layoutSubtreeIfNeeded()
         let rect = anchor ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
@@ -322,14 +241,32 @@ class MeowpuutInputController: IMKInputController {
             choice.state = engine.inputMode == mode ? .on : .off
         }
         menu.addItem(.separator())
-        menu.addItem(.separator())
         for (title, cats) in [("皮膚 · 雙貓玻璃", true), ("皮膚 · 簡潔玻璃", false)] {
             let choice = menu.addItem(withTitle: title, action: #selector(switchSkin(_:)), keyEquivalent: "")
             choice.target = self
             choice.representedObject = cats
             choice.state = Preferences.shared.catGlassSkin == cats ? .on : .off
         }
+        for (title, values) in [("色調", CandidateTone.allCases.map { ($0.title, "tone:" + $0.rawValue) }),
+                                ("玻璃強度", GlassStrength.allCases.map { ($0.title, "glass:" + $0.rawValue) }),
+                                ("色系", CandidatePalette.allCases.map { ($0.title, "palette:" + $0.rawValue) })] {
+            let parent = menu.addItem(withTitle: title, action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: title)
+            for (name, value) in values {
+                let item = submenu.addItem(withTitle: name, action: #selector(switchAppearance(_:)), keyEquivalent: "")
+                item.target = self; item.representedObject = value
+                item.state = (value == "tone:" + Preferences.shared.candidateTone.rawValue || value == "glass:" + Preferences.shared.glassStrength.rawValue || value == "palette:" + Preferences.shared.candidatePalette.rawValue) ? .on : .off
+            }
+            parent.submenu = submenu
+        }
         return menu
+    }
+    @objc private func switchAppearance(_ sender: Any) {
+        guard let item = SystemInput.menuItem(from: sender), let value = item.representedObject as? String else { return }
+        if value.hasPrefix("tone:"), let tone = CandidateTone(rawValue: String(value.dropFirst(5))) { Preferences.shared.candidateTone = tone }
+        if value.hasPrefix("glass:"), let strength = GlassStrength(rawValue: String(value.dropFirst(6))) { Preferences.shared.glassStrength = strength }
+        if value.hasPrefix("palette:"), let palette = CandidatePalette(rawValue: String(value.dropFirst(8))) { Preferences.shared.candidatePalette = palette }
+        if let client = self.client() { deliver(client) }
     }
     private func changeInputMode(_ mode: InputMode, client: IMKTextInput) {
         if composing { engine.finishComposition(); deliver(client) }
@@ -340,13 +277,13 @@ class MeowpuutInputController: IMKInputController {
         } else { NSSound.beep() }
         deliver(client)
     }
-    @objc private func switchInputMode(_ item: NSMenuItem) {
-        guard let name = item.representedObject as? String, let mode = InputMode(rawValue: name),
+    @objc private func switchInputMode(_ sender: Any) {
+        guard let item = SystemInput.menuItem(from: sender), let name = item.representedObject as? String, let mode = InputMode(rawValue: name),
               let client = self.client() else { return }
         changeInputMode(mode, client: client)
     }
-    @objc private func switchSkin(_ item: NSMenuItem) {
-        guard let cats = item.representedObject as? Bool else { return }
+    @objc private func switchSkin(_ sender: Any) {
+        guard let item = SystemInput.menuItem(from: sender), let cats = item.representedObject as? Bool else { return }
         Preferences.shared.catGlassSkin = cats
         if let client = self.client() { deliver(client) }
     }

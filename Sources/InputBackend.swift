@@ -103,12 +103,31 @@ final class WordEvidence {
         let column = mode == .pinyin ? "reading" : (input.contains(where: { " 6347".contains($0) }) ? "phonetic" : "bare")
         let text = simplified ? "hans" : "hant"
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT \(text),weight FROM lexicon WHERE \(column)=? ORDER BY weight DESC LIMIT 256", -1, &statement, nil) == SQLITE_OK else { return [:] }
+        guard sqlite3_prepare_v2(db, "SELECT \(text),weight,toned FROM lexicon WHERE \(column)=? ORDER BY weight DESC LIMIT 256", -1, &statement, nil) == SQLITE_OK else { return [:] }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         reading.withCString { _ = sqlite3_bind_text(statement, 1, $0, -1, transient) }
+        var constraints: [Int: Character] = [:]
+        var position = 0
+        if mode == .pinyin {
+            for ch in input.lowercased() {
+                if "12345".contains(ch) { constraints[position] = ch }
+                else if ch.isLetter { position += 1 }
+            }
+        }
         var result: [String: Int] = [:]
         while sqlite3_step(statement) == SQLITE_ROW {
+            if !constraints.isEmpty {
+                guard let value = sqlite3_column_text(statement, 2) else { continue }
+                var tones: [Int: Character] = [:]
+                var offset = 0
+                for ch in String(cString: value) {
+                    if "12345".contains(ch) { tones[offset] = ch }
+                    else if ch.isLetter { offset += 1 }
+                }
+                if !constraints.allSatisfy({ tones[$0.key] == $0.value }) { continue }
+            }
+
             if let word = sqlite3_column_text(statement, 0) { let value = String(cString: word); result[value] = max(result[value] ?? 0, Int(sqlite3_column_int64(statement, 1))) }
         }
         return result
@@ -192,7 +211,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
         guard locked == nil, choices.indices.contains(index) else { return 0 }
         if choices[index].source == -2 { return -1 }
         if choices[index].source == -3 { return 0 }
-        if choices[index].source == 1 || choices[index].source == -1 || choices[index].source == -4 { return 2 }
+        if choices[index].source == 1 || choices[index].source == -1 || choices[index].source == -4 || choices[index].source == -5 { return 2 }
         return mode != .pinyin || exactChinese.contains(choices[index].text) ? 0 : 1
     }
     func candidates(limit: Int) -> [IndexedCandidate] {
@@ -234,6 +253,20 @@ final class ChineseWithJapaneseBackend: InputBackend {
         if state.preedit.isEmpty { self.locked = nil; raw = ""; choices = []; engines.forEach { $0.clear() } }
     }
     func key(_ key: Int32, modifiers: Int32) -> Bool {
+        if mode == .pinyin, (49...53).contains(key) {
+            if let locked {
+                guard locked == 0, let last = state.input.last, last.isLetter || "12345".contains(last) else { return false }
+                if "12345".contains(last) { _ = engines[locked].key(0xff08, modifiers: 0) }
+                let handled = engines[locked].key(key, modifiers: 0)
+                readLocked()
+                return handled
+            }
+            guard let last = raw.last, last.isLetter || "12345".contains(last) else { return false }
+            if "12345".contains(last) { raw.removeLast() }
+            raw.append(Character(UnicodeScalar(UInt32(key))!))
+            rebuild()
+            return true
+        }
         if key == 32, mode == .pinyin, !state.input.isEmpty {
             let text = state.input + " "
             clear(); englishContext = true; state.commit = text
@@ -303,6 +336,36 @@ final class ChineseWithJapaneseBackend: InputBackend {
         state.page = page; state.pageSize = 7; state.lastPage = (page + 1) * 7 >= choices.count
         state.highlighted = 0
     }
+    // Keep mixed readings conservative: a complete Japanese dictionary word
+    // must be surrounded by complete, high-confidence Chinese readings.
+    private func mixedCandidate(_ input: String) -> String? {
+        let chars = Array(input.lowercased())
+        guard (5...24).contains(chars.count), chars.allSatisfy({ $0.isASCII && $0.isLetter }),
+              JapaneseBackend.knownWord(input.lowercased()) == nil else { return nil }
+        var chinese: [String: (String, Int)?] = [:]
+        func word(_ reading: String) -> (String, Int)? {
+            if reading.isEmpty { return ("", 0) }
+            if let cached = chinese[reading] { return cached }
+            let entries = WordEvidence.shared.dictionary(input: reading, mode: .pinyin, simplified: simplified)
+            let best = entries.filter { $0.value >= 2000 }.sorted {
+                $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value
+            }.first.map { ($0.key, $0.value) }
+            chinese.updateValue(best, forKey: reading)
+            return best
+        }
+        var best: (text: String, score: Int)?
+        for start in 0..<(chars.count - 2) {
+            for end in (start + 3)...min(chars.count, start + 10) {
+                guard start > 0 || end < chars.count,
+                      let japanese = JapaneseBackend.knownWord(String(chars[start..<end])), japanese.weight >= 4000,
+                      let before = word(String(chars[..<start])), let after = word(String(chars[end...])) else { continue }
+                let candidate = (text: before.0 + japanese.text + after.0,
+                                 score: before.1 + japanese.weight + after.1)
+                if best == nil || candidate.score > best!.score { best = candidate }
+            }
+        }
+        return best?.text
+    }
     private func rebuild(appending key: Int32? = nil) {
         guard !raw.isEmpty else { clear(); return }
         var snapshots: [Snapshot] = []
@@ -311,13 +374,14 @@ final class ChineseWithJapaneseBackend: InputBackend {
                 _ = backend.key(key, modifiers: 0)
             } else {
                 backend.clear()
-                if index == 0 || raw.count <= 64 {
+                if index == 0 || (mode == .pinyin && raw.count <= 64) {
                     for scalar in raw.unicodeScalars { _ = backend.key(Int32(scalar.value), modifiers: 0) }
                 }
             }
             snapshots.append(backend.snapshot())
         }
         let pinyinFirst = mode == .pinyin
+        let hasTones = pinyinFirst && raw.contains { "12345".contains($0) }
         let primary = 0
         var pools = engines.map { $0.candidates(limit: 256) }
         for index in pools.indices where !snapshots[index].commit.isEmpty || snapshots[index].input.isEmpty { pools[index] = [] }
@@ -337,13 +401,14 @@ final class ChineseWithJapaneseBackend: InputBackend {
         if pinyinFirst {
             chinese = chinese.filter { knownChinese[$0.text] != nil } + chinese.filter { knownChinese[$0.text] == nil }
         }
-        let knownJapanese = WordEvidence.shared.words(language: "ja", input: raw)
+        let knownJapanese = pinyinFirst ? WordEvidence.shared.words(language: "ja", input: raw) : [:]
         let japanese = pools[1].filter { knownJapanese[$0.text] != nil }
             .sorted { (knownJapanese[$0.text] ?? 0) > (knownJapanese[$1.text] ?? 0) }
         var required: String?
-        let literal = EnglishEvidence.prefers(raw, context: englishContext,
+        let literal = !hasTones && EnglishEvidence.prefers(raw, context: englishContext,
             chinese: pinyinFirst && !dictionary.isEmpty,
             japanese: !knownJapanese.isEmpty)
+        let mixed = pinyinFirst && !hasTones && !literal ? mixedCandidate(raw) : nil
         if literal { append(raw, source: -2, index: 0) }
         let script = simplified ? "s:" : "t:"
         let memoryKey = (pinyinFirst ? "py:" : "") + script + raw
@@ -356,12 +421,16 @@ final class ChineseWithJapaneseBackend: InputBackend {
         let chineseSource = primary
         for item in chinese.prefix(2) { append(item.text, source: chineseSource, index: item.index) }
         let reading = snapshots[1].preedit.replacingOccurrences(of: " ", with: "")
-        let japaneseReading = !reading.isEmpty && reading.unicodeScalars.allSatisfy { (0x3040...0x30ff).contains($0.value) }
+        let japaneseReading = pinyinFirst && !hasTones && !reading.isEmpty && reading.unicodeScalars.allSatisfy { (0x3040...0x30ff).contains($0.value) }
+        if let mixed {
+            append(mixed, source: -5, index: 0)
+            required = mixed
+        }
         if japaneseReading {
             // Keep only the leading whole-reading Japanese interpretation before kana alternatives.
             if let item = japanese.first {
                 append(item.text, source: 1, index: item.index)
-                required = item.text
+                if required == nil { required = item.text }
             }
             if required == nil { required = reading }
             append(reading, source: -1, index: 0)
@@ -385,7 +454,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
             choices.insert(candidate, at: literal ? 3 : 2)
         }
         state = Snapshot(preedit: pinyinFirst || literal ? raw : snapshots[0].preedit, input: raw, requiredCandidate: required, literalCandidate: literal, confidentCandidates: dictionary.filter { $0.value >= 2000 }.map(\.key), candidateWeights: dictionary)
-        state.japaneseCandidates = Array(Set(japanese.map(\.text) + (japaneseReading ? [reading, reading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? reading] : []))).filter { !exactChinese.contains($0) }
+        state.japaneseCandidates = Array(Set(japanese.map(\.text) + (japaneseReading ? [reading, reading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? reading] : []) + (mixed.map { [$0] } ?? []))).filter { !exactChinese.contains($0) }
         let japaneseTexts = Set(state.japaneseCandidates)
         let strongTexts = Set(state.confidentCandidates)
         let literals = choices.filter { $0.source == -2 }

@@ -32,13 +32,16 @@ struct BrandMark: View {
     #if os(macOS)
     private static let image: NSImage? = Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png")
         .flatMap { NSImage(contentsOf: $0) }
+    #elseif os(iOS)
+    private static let image: UIImage? = Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png")
+        .flatMap { UIImage(contentsOfFile: $0.path) }
     #endif
 
     private var image: Image {
         #if os(macOS)
         Self.image.map { Image(nsImage: $0) } ?? Image(systemName: "cat")
         #else
-        Image(decorative: "MeowpuutMark", bundle: .main)
+        Self.image.map { Image(uiImage: $0) } ?? Image(systemName: "cat")
         #endif
     }
 

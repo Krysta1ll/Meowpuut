@@ -63,6 +63,12 @@ final class JapaneseBackend: InputBackend {
               let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode([String: [Entry]].self, from: data)
     }()
+    // Return only independently recorded complete words; kana guesses do not
+    // provide enough evidence to split a mixed-language composition.
+    static func knownWord(_ reading: String) -> (text: String, weight: Int)? {
+        guard let entry = dictionary?[reading]?.first else { return nil }
+        return (entry.text, entry.weight)
+    }
     private var raw = ""
     private var state = Snapshot()
     private var choices: [String] = []

@@ -15,13 +15,13 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.0</string>
+	<string>0.4.1</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>25</string>
+	<string>26</string>
 	<key>ComponentInputModeDict</key>
 	<dict>
 		<key>tsInputModeListKey</key>
@@ -42,9 +42,9 @@
 				<key>tsInputModeIsVisibleKey</key>
 				<true/>
 				<key>tsInputModeMenuIconFileKey</key>
-				<string>MeowpuutInputGlyph.tiff</string>
+				<string>MeowpuutCatTemplate.tiff</string>
 				<key>tsInputModePaletteIconFileKey</key>
-				<string>MeowpuutInputGlyph.tiff</string>
+				<string>MeowpuutCatTemplate.tiff</string>
 				<key>tsInputModePrimaryInScriptKey</key>
 				<true/>
 				<key>tsInputModeScriptKey</key>
@@ -75,6 +75,6 @@
 	<key>TISIntendedLanguage</key>
 	<string>zh-Hant</string>
 	<key>tsInputMethodIconFileKey</key>
-	<string>MeowpuutInputGlyph.tiff</string>
+	<string>MeowpuutCatTemplate.tiff</string>
 </dict>
 </plist>

@@ -10,6 +10,9 @@ struct MeowpuutApp: App {
 private struct TrialScreen: View {
     @State private var text = ""
     @State private var showsSetup = false
+    @State private var settings = SharedKeyboardSettings()
+    @State private var settingsError = false
+    @State private var confirmClear = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -68,12 +71,71 @@ private struct TrialScreen: View {
     private var setup: some View {
         NavigationStack {
             Form {
+                Section("輸入") {
+                    Picker("輸入方式", selection: setting(\.inputMode)) {
+                        Text("沿用鍵盤現有設定").tag(nil as String?)
+                        Text("注音").tag("zhuyin" as String?)
+                        Text("拼音").tag("pinyin" as String?)
+                        Text("日本語 · ローマ字").tag("japanese" as String?)
+                    }
+                    Picker("中文", selection: setting(\.simplified)) {
+                        Text("沿用鍵盤現有設定").tag(nil as Bool?)
+                        Text("繁體").tag(false as Bool?)
+                        Text("简体").tag(true as Bool?)
+                    }
+                }
+                Section("外觀") {
+                    Picker("皮膚", selection: setting(\.catGlassSkin)) {
+                        Text("沿用鍵盤現有設定").tag(nil as Bool?)
+                        Text("雙貓玻璃").tag(true as Bool?)
+                        Text("簡潔玻璃").tag(false as Bool?)
+                    }
+                    Picker("色調", selection: setting(\.candidateTone)) {
+                        Text("沿用鍵盤現有設定").tag(nil as String?)
+                        Text("跟隨系統").tag("system" as String?)
+                        Text("淺色").tag("light" as String?)
+                        Text("深色").tag("dark" as String?)
+                    }
+                    Picker("玻璃強度", selection: setting(\.glassStrength)) {
+                        Text("沿用鍵盤現有設定").tag(nil as String?)
+                        Text("柔和").tag("soft" as String?)
+                        Text("標準").tag("balanced" as String?)
+                        Text("鮮明").tag("vivid" as String?)
+                    }
+                    Picker("色系", selection: setting(\.candidatePalette)) {
+                        Text("沿用鍵盤現有設定").tag(nil as String?)
+                        Text("玫瑰奶茶").tag("rose" as String?)
+                        Text("海鹽藍").tag("ocean" as String?)
+                        Text("鼠尾草綠").tag("sage" as String?)
+                        Text("霧紫").tag("lavender" as String?)
+                        Text("琥珀蜜").tag("amber" as String?)
+                        Text("石墨").tag("graphite" as String?)
+                    }
+                }
+                Section("選詞記憶") {
+                    Picker("記住選詞", selection: setting(\.rememberChoices)) {
+                        Text("沿用鍵盤現有設定").tag(nil as Bool?)
+                        Text("啟用").tag(true as Bool?)
+                        Text("停用").tag(false as Bool?)
+                    }
+                    Button("清除選詞記錄", role: .destructive) { confirmClear = true }
+                    Text("選詞記錄保存在鍵盤的本機空間。清除會在下次開啟喵撲鍵盤時執行。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("加入鍵盤") {
                     Text("設定 → 一般 → 鍵盤 → 鍵盤 → 加入新鍵盤 → Meowpuut").font(.subheadline)
                     Button("打開設定") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                 }
-                Section("選詞記憶") { Text("在 Meowpuut 鍵盤中點設定，即可停用或清除選詞記錄。").font(.subheadline) }
             }
+            .onAppear { settings = SharedKeyboardSettings.read() ?? SharedKeyboardSettings() }
+            .alert("無法儲存設定", isPresented: $settingsError) { Button("好", role: .cancel) {} }
+            .confirmationDialog("清除選詞記錄？", isPresented: $confirmClear) {
+                Button("清除選詞記錄", role: .destructive) {
+                    var next = settings
+                    next.clearMemoryRequest = UUID().uuidString
+                    save(next)
+                }
+            } message: { Text("下次開啟喵撲鍵盤時，將清除本機的選詞記錄。") }
             .navigationTitle("鍵盤設定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -83,5 +145,18 @@ private struct TrialScreen: View {
             }
             .tint(Brand.accent)
         }
+    }
+
+    private func setting<Value>(_ keyPath: WritableKeyPath<SharedKeyboardSettings, Value?>) -> Binding<Value?> {
+        Binding(get: { settings[keyPath: keyPath] }, set: { value in
+            var next = settings
+            next[keyPath: keyPath] = value
+            save(next)
+        })
+    }
+
+    private func save(_ next: SharedKeyboardSettings) {
+        do { try next.save(); settings = next }
+        catch { settingsError = true }
     }
 }
