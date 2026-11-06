@@ -1,0 +1,19 @@
+{
+  "source": "https://github.com/openvanilla/McBopomofo",
+  "revision": "df084385e546287fc072dfce486d46f102ef9bd4",
+  "license": "MIT",
+  "files": {
+    "BPMFBase.txt": "46e64a53dc9c6baa2cbe6e0b1af572f8ef6aafb50597178b5fd53df804316ce7",
+    "BPMFMappings.txt": "63a2f0d3a6e2ecfd04fa66012bfc57d82c89529d8edf4b8b79cba04aa1b8887e",
+    "LICENSE.txt": "72ed32193b0c629def66df63791b2fb125946b593a3251380e6b949488f47b72",
+    "heterophony1.list": "7fddbb6a66022b1809181484c7627d79dee4231849cb2d3c8c8cd4578b3d22cb",
+    "heterophony2.list": "4afd69a2702ae3af533cd01b755f81d77a430ace91311a8229319334aec24e37",
+    "heterophony3.list": "8be3f37fe419744c3792df1bdfc67a0abdb215dbbb759c92204d4f8d68a32cd9",
+    "phrase.occ": "f0115b77093a9f9b9a51df45605f7bbe72ffc210225fb2b3917937594befb6af"
+  },
+  "data_updates": {
+    "BPMFMappings.txt": "2026-11-04T23:08:53Z",
+    "phrase.occ": "2026-11-04T23:08:53Z",
+    "BPMFBase.txt": "2026-09-02T04:43:16Z"
+  }
+}

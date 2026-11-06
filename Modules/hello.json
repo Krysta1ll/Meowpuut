@@ -1,0 +1,7 @@
+{
+  "id": "meowpuut.phrases.hello",
+  "apiVersion": 1,
+  "name": "打个招呼",
+  "trigger": "/hello",
+  "phrases": ["你好，很高兴认识你。", "Hello, nice to meet you.", "收到，谢谢！"]
+}
