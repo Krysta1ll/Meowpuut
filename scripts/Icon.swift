@@ -19,13 +19,9 @@ func renderIcon(pixels: Int, rounded: Bool) throws -> Data {
     NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
     NSGraphicsContext.current?.imageInterpolation = .high
     NSColor(srgbRed: 0.93, green: 0.89, blue: 0.85, alpha: 1).setFill()
-    if rounded {
-        let inset = CGFloat(pixels) * 0.05
-        let radius = CGFloat(pixels) * 0.21
-        NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset), xRadius: radius, yRadius: radius).fill()
-    } else {
-        rect.fill()
-    }
+    // macOS thumbnails keep the two cats as the silhouette, without a square tile.
+    // iOS still requires an opaque full-square source icon.
+    if !rounded { rect.fill() }
     let inset = CGFloat(pixels) * 0.08
     mark.draw(in: rect.insetBy(dx: inset, dy: inset), from: .zero, operation: .sourceOver, fraction: 1)
     NSGraphicsContext.restoreGraphicsState()
@@ -55,31 +51,24 @@ func inputMenuIcon() throws -> Data {
         context.setLineJoin(.round)
         context.setLineWidth(1.15)
 
-        // Two overlapping heads, with the nearer cat interrupting the rear silhouette.
-        context.move(to: CGPoint(x: 6.3, y: 3.1))
-        context.addQuadCurve(to: CGPoint(x: 1.7, y: 8.3), control: CGPoint(x: 0.5, y: 3.5))
-        context.addLine(to: CGPoint(x: 1.9, y: 13.4))
-        context.addLine(to: CGPoint(x: 5.0, y: 11.2))
-        context.addQuadCurve(to: CGPoint(x: 7.2, y: 11.5), control: CGPoint(x: 6, y: 11.5))
-        context.addLine(to: CGPoint(x: 9.3, y: 14.6))
-        context.addLine(to: CGPoint(x: 10.1, y: 10.4))
+        // A single open cat silhouette remains legible at menu-bar scale.
+        context.move(to: CGPoint(x: 2.0, y: 8.5))
+        context.addLine(to: CGPoint(x: 2.1, y: 13.4))
+        context.addQuadCurve(to: CGPoint(x: 5.5, y: 11.3), control: CGPoint(x: 2.4, y: 14.1))
+        context.addQuadCurve(to: CGPoint(x: 10.5, y: 11.3), control: CGPoint(x: 8, y: 12.2))
+        context.addQuadCurve(to: CGPoint(x: 13.9, y: 13.4), control: CGPoint(x: 13.6, y: 14.1))
+        context.addLine(to: CGPoint(x: 14, y: 8.5))
+        context.addCurve(to: CGPoint(x: 2, y: 8.5), control1: CGPoint(x: 15.5, y: 0.8), control2: CGPoint(x: 0.5, y: 0.8))
+        context.closePath()
         context.strokePath()
-
-        context.move(to: CGPoint(x: 7.7, y: 7))
-        context.addLine(to: CGPoint(x: 7.8, y: 10.1))
-        context.addLine(to: CGPoint(x: 10.3, y: 8.5))
-        context.addQuadCurve(to: CGPoint(x: 12, y: 8.6), control: CGPoint(x: 11.1, y: 8.8))
-        context.addLine(to: CGPoint(x: 14.5, y: 10.1))
-        context.addLine(to: CGPoint(x: 14.6, y: 6.7))
-        context.addCurve(to: CGPoint(x: 7.7, y: 7), control1: CGPoint(x: 17, y: 1), control2: CGPoint(x: 4.5, y: 1))
-        context.strokePath()
-
-        for center in [CGPoint(x: 4.2, y: 7.8), CGPoint(x: 6.3, y: 8.4),
-                       CGPoint(x: 9.8, y: 5.8), CGPoint(x: 12.7, y: 5.8)] {
-            context.fillEllipse(in: CGRect(x: center.x - 0.49, y: center.y - 0.65, width: 0.98, height: 1.3))
+        for x in [5.5, 10.5] {
+            context.fillEllipse(in: CGRect(x: x - 0.65, y: 6.7, width: 1.3, height: 2.0))
         }
         guard let glyph = context.makeImage() else { throw CocoaError(.fileWriteUnknown) }
         let rep = NSBitmapImageRep(cgImage: glyph)
+        precondition(rep.colorAt(x: 0, y: 0)!.alphaComponent == 0, "Template icon must have transparent corners")
+        let coverage = (0..<pixels).flatMap { y in (0..<pixels).map { x in rep.colorAt(x: x, y: y)!.alphaComponent } }.filter { $0 > 0.5 }.count
+        precondition(coverage > pixels * pixels / 10 && coverage < pixels * pixels / 2, "Cat glyph must not become an opaque square")
         rep.size = image.size
         image.addRepresentation(rep)
     }
@@ -92,7 +81,7 @@ try FileManager.default.createDirectory(at: destination, withIntermediateDirecto
 if CommandLine.arguments.contains("--ios") {
     try renderIcon(pixels: 1024, rounded: false).write(to: destination.appendingPathComponent("AppIcon.png"))
 } else {
-    try inputMenuIcon().write(to: destination.deletingLastPathComponent().appendingPathComponent("MeowpuutInputGlyph.tiff"))
+    try inputMenuIcon().write(to: destination.deletingLastPathComponent().appendingPathComponent("MeowpuutCatTemplate.tiff"))
     for size in [16, 32, 128, 256, 512] {
         for scale in [1, 2] {
             let suffix = scale == 2 ? "@2x" : ""

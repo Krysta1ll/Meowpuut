@@ -52,6 +52,25 @@ struct PhraseModule: Codable, Identifiable {
     var phrases: [String]
 }
 
+enum CandidateTone: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String { switch self { case .system: "跟隨系統"; case .light: "淺色"; case .dark: "深色" } }
+}
+enum GlassStrength: String, CaseIterable, Identifiable {
+    case soft, balanced, vivid
+    var id: String { rawValue }
+    var title: String { switch self { case .soft: "柔和"; case .balanced: "標準"; case .vivid: "鮮明" } }
+}
+enum CandidatePalette: String, CaseIterable, Identifiable {
+    case rose, ocean, sage, lavender, amber, graphite
+    var id: String { rawValue }
+    var title: String { switch self {
+        case .rose: "玫瑰奶茶"; case .ocean: "海鹽藍"; case .sage: "鼠尾草綠"
+        case .lavender: "霧紫"; case .amber: "琥珀蜜"; case .graphite: "石墨"
+    } }
+}
+
 final class Preferences: ObservableObject {
     static let shared = Preferences()
     static let testing = CommandLine.arguments.contains("--smoke-languages") || CommandLine.arguments.contains("--smoke")
@@ -60,10 +79,10 @@ final class Preferences: ObservableObject {
     @Published var simplified: Bool { didSet { defaults.set(simplified, forKey: "simplified") } }
     @Published var modulesEnabled: Bool { didSet { defaults.set(modulesEnabled, forKey: "modulesEnabled") } }
     @Published var rememberChoices: Bool { didSet { defaults.set(rememberChoices, forKey: "rememberChoices") } }
-    var catGlassSkin: Bool {
-        get { defaults.bool(forKey: "catGlassSkin") }
-        set { defaults.set(newValue, forKey: "catGlassSkin") }
-    }
+    @Published var catGlassSkin: Bool { didSet { defaults.set(catGlassSkin, forKey: "catGlassSkin") } }
+    @Published var candidateTone: CandidateTone { didSet { defaults.set(candidateTone.rawValue, forKey: "candidateTone") } }
+    @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
+    @Published var candidatePalette: CandidatePalette { didSet { defaults.set(candidatePalette.rawValue, forKey: "candidatePalette") } }
     var inputMode: InputMode {
         get { InputMode(rawValue: defaults.string(forKey: "inputMode") ?? "") ?? .zhuyin }
         set { defaults.set(newValue.rawValue, forKey: "inputMode") }
@@ -81,12 +100,38 @@ final class Preferences: ObservableObject {
             .appendingPathComponent(enginePreview ? "Meowpuut Engine Preview" : "Meowpuut")
     var moduleDirectory: URL { Self.directory.appendingPathComponent("Modules") }
     private init() {
+        #if os(iOS)
+        catGlassSkin = defaults.object(forKey: "catGlassSkin") as? Bool ?? true
+        #else
+        catGlassSkin = defaults.bool(forKey: "catGlassSkin")
+        #endif
+        candidateTone = CandidateTone(rawValue: defaults.string(forKey: "candidateTone") ?? "") ?? .system
+        glassStrength = GlassStrength(rawValue: defaults.string(forKey: "glassStrength") ?? "") ?? .balanced
+        candidatePalette = CandidatePalette(rawValue: defaults.string(forKey: "candidatePalette") ?? "") ?? .rose
         simplified = defaults.bool(forKey: "simplified")
         modulesEnabled = defaults.object(forKey: "modulesEnabled") as? Bool ?? true
         rememberChoices = defaults.object(forKey: "rememberChoices") as? Bool ?? (Self.testing || !Self.enginePreview)
         pins = defaults.dictionary(forKey: "candidatePins") as? [String: String] ?? [:]
         reload()
     }
+    #if os(iOS)
+    // Only explicit choices from the containing app override existing keyboard
+    // preferences. The keyboard never writes to the shared group container.
+    func applySharedSettings() {
+        guard let settings = SharedKeyboardSettings.read() else { return }
+        if let value = settings.inputMode, let mode = InputMode(rawValue: value) { inputMode = mode }
+        if let value = settings.simplified, simplified != value { simplified = value }
+        if let value = settings.catGlassSkin, catGlassSkin != value { catGlassSkin = value }
+        if let value = settings.rememberChoices, rememberChoices != value { rememberChoices = value }
+        if let value = settings.candidateTone, let tone = CandidateTone(rawValue: value), candidateTone != tone { candidateTone = tone }
+        if let value = settings.glassStrength, let strength = GlassStrength(rawValue: value), glassStrength != strength { glassStrength = strength }
+        if let value = settings.candidatePalette, let palette = CandidatePalette(rawValue: value), candidatePalette != palette { candidatePalette = palette }
+        if let request = settings.clearMemoryRequest, request != defaults.string(forKey: "lastClearMemoryRequest") {
+            ChoiceMemory.shared.clear()
+            if ChoiceMemory.shared.flush() { defaults.set(request, forKey: "lastClearMemoryRequest") }
+        }
+    }
+    #endif
     func reload() {
         do {
             try FileManager.default.createDirectory(at: moduleDirectory, withIntermediateDirectories: true)
@@ -111,7 +156,9 @@ final class Preferences: ObservableObject {
 }
 
 final class Engine: ObservableObject {
+    static let toggleEnglishKey: Int32 = 0x100001
     static let modulesKey: Int32 = 0x100000 // Explicit command; '/' is the ㄥ key.
+    static let literalSlashKey: Int32 = 0x100002
     @Published private(set) var inputMode: InputMode = .zhuyin
     @Published private(set) var backendKind: InputBackendKind = .meowpuut
     private var learningTail: (reading: String, text: String, time: TimeInterval)?
@@ -305,7 +352,7 @@ final class Engine: ObservableObject {
         guard let backend else { return false }
         if code == 0xff1b { learningTail = nil }
         if code == Self.modulesKey { openModules(); return true }
-        if code == 32 && modifiers == 1 {
+        if code == Self.toggleEnglishKey || (inputMode != .pinyin && code == 32 && modifiers == 1) {
             let next = !english
             finishComposition()
             english = next
@@ -318,6 +365,21 @@ final class Engine: ObservableObject {
             }
             return false
         }
+        if code == Self.literalSlashKey {
+            finishComposition()
+            let committed = takeCommit()
+            clear(); learningTail = nil
+            snapshot.commit = committed + "/"
+            return true
+        }
+        // Shift + Da-Chien tone positions are independent of ordinary digit selection.
+        if inputMode == .pinyin, modifiers == 1, moduleBuffer == nil,
+           !snapshot.input.isEmpty, let tone = [Int32(32): Int32(49), 94: 50, 35: 51, 36: 52, 38: 53][code] {
+            let handled = backend.key(tone, modifiers: 0)
+            refresh()
+            return handled
+        }
+        if inputMode == .pinyin, code == 32, modifiers == 1 { return false }
         if code == 96, modifiers == 0, inputMode != .japanese {
             if moduleBuffer == "`" { clear(); return true }
             finishComposition()
@@ -330,14 +392,18 @@ final class Engine: ObservableObject {
         // Zhuyin uses unshifted comma/period/semicolon as phonetic keys.
         // Shift punctuation and unused bracket/backslash keys remain unambiguous.
         let zhuyinPunctuation: [Int32: String] = [60: "，", 62: "。", 63: "？", 58: "：", 33: "！", 40: "（", 41: "）", 91: "「", 93: "」", 92: "、", 123: "『", 125: "』"]
-        let pinyinPunctuation: [Int32: String] = [44: "，", 46: "。", 59: "；", 47: "？", 58: "：", 33: "！", 40: "（", 41: "）", 91: "「", 93: "」", 92: "、", 34: "“", 123: "『", 125: "』"]
+        let pinyinPunctuation: [Int32: String] = [44: "，", 46: "。", 59: "；", 47: "？", 45: "-", 58: "：", 33: "！", 40: "（", 41: "）", 91: "「", 93: "」", 92: "、", 34: "“", 123: "『", 125: "』"]
         var mark: String?
         if inputMode == .pinyin {
             if modifiers == 1 {
                 let unshifted: [Int32: String] = [60: ",", 62: ".", 63: "?", 58: ";", 34: "'", 123: "[", 125: "]", 124: "\\"]
                 mark = unshifted[code]
                 if mark == nil, let scalar = UnicodeScalar(UInt32(bitPattern: code)), !Character(scalar).isLetter && (33...126).contains(code) { mark = String(scalar) }
-            } else { mark = pinyinPunctuation[code] }
+            } else {
+                // Apostrophes split syllables in an active reading; on their
+                // own they should not start an unselectable composition.
+                mark = code == 39 && snapshot.input.isEmpty ? "‘" : pinyinPunctuation[code]
+            }
         } else if inputMode == .zhuyin { mark = zhuyinPunctuation[code] }
         if moduleBuffer == nil, let mark,
            !(inputMode == .zhuyin && code == 33 && modifiers == 1 && !snapshot.candidates.isEmpty) {
@@ -361,12 +427,18 @@ final class Engine: ObservableObject {
             clear(); snapshot.commit = literal
             return true
         }
-        if moduleBuffer == nil, !snapshot.candidates.isEmpty {
-            if inputMode == .pinyin, modifiers == 0, (49...55).contains(code) {
-                let index = Int(code - 49)
-                if snapshot.candidates.indices.contains(index) { choose(index) }
-                return true
+        if inputMode == .pinyin, moduleBuffer == nil, modifiers == 0, (48...57).contains(code) {
+            if (49...55).contains(code), snapshot.candidates.indices.contains(Int(code - 49)) {
+                choose(Int(code - 49))
+            } else {
+                if !snapshot.input.isEmpty { finishComposition() }
+                let committed = takeCommit()
+                clear()
+                snapshot.commit = committed + String(UnicodeScalar(UInt32(code))!)
             }
+            return true
+        }
+        if moduleBuffer == nil, !snapshot.candidates.isEmpty {
             if inputMode == .zhuyin, backendKind == .meowpuut, code == 32, modifiers == 0,
                let last = snapshot.input.last, " 6347".contains(last) {
                 finishComposition()
@@ -418,7 +490,7 @@ final class Engine: ObservableObject {
     private func moduleSnapshot(page requestedPage: Int = 0) {
         guard let buffer = moduleBuffer else { snapshot = Snapshot(); return }
         let matches = Preferences.shared.modules.filter { buffer == $0.trigger || $0.trigger.hasPrefix(buffer) }
-        let phrases = buffer == "`" ? ["，", "。", "？", "！", "、", "；", "：", "「", "」", "『", "』", "（", "）", "……", "——", "《", "》", "〈", "〉", "·", "～"] : matches.flatMap(\.phrases)
+        let phrases = buffer == "`" ? ["，", "。", "？", "！", "、", "；", "：", "「", "」", "『", "』", "（", "）", "……", "——", "《", "》", "〈", "〉", "·", "～", "/", "\\", "-", "_", "?"] : matches.flatMap(\.phrases)
         let page = max(0, min(requestedPage, max(0, (phrases.count - 1) / 7)))
         snapshot = Snapshot(preedit: buffer == "`" ? "標點" : buffer, candidates: Array(phrases.dropFirst(page * 7).prefix(7)), page: page, lastPage: (page + 1) * 7 >= phrases.count, input: buffer)
     }
@@ -455,18 +527,31 @@ struct ShiftTapTracker {
         return toggle
     }
 }
-func inputKey(_ event: NSEvent) -> (Int32, Int32)? {
+func inputKey(_ event: NSEvent, mode: InputMode = .zhuyin, english: Bool = false, composing: Bool = false) -> (Int32, Int32)? {
     if event.keyCode == 49, event.modifierFlags.intersection([.command, .control, .option]) == [.option] { return (Engine.modulesKey, 0) }
+    if event.modifierFlags.intersection([.command, .control, .option, .shift]) == [.option],
+       (mode == .zhuyin && !english && event.keyCode == 44) || event.charactersIgnoringModifiers == "/" {
+        return (Engine.literalSlashKey, 0)
+    }
     if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty { return nil }
-    let special: [UInt16: Int32] = [36:0xff0d, 48:0xff09, 51:0xff08, 53:0xff1b, 123:0xff51, 124:0xff53, 125:0xff54, 126:0xff52, 116:0xff55, 121:0xff56, 97:0xffc3, 98:0xffc4]
+    let special: [UInt16: Int32] = [36:0xff0d, 76:0xff0d, 48:0xff09, 51:0xff08, 53:0xff1b, 123:0xff51, 124:0xff53, 125:0xff54, 126:0xff52, 116:0xff55, 121:0xff56, 97:0xffc3, 98:0xffc4]
+    if let key = special[event.keyCode] { return (key, event.modifierFlags.contains(.shift) ? 1 : 0) }
     let usKeys: [UInt16:String] = [0:"a",1:"s",2:"d",3:"f",4:"h",5:"g",6:"z",7:"x",8:"c",9:"v",11:"b",12:"q",13:"w",14:"e",15:"r",16:"y",17:"t",18:"1",19:"2",20:"3",21:"4",22:"6",23:"5",24:"=",25:"9",26:"7",27:"-",28:"8",29:"0",30:"]",31:"o",32:"u",33:"[",34:"i",35:"p",37:"l",38:"j",39:"'",40:"k",41:";",42:"\\",43:",",44:"/",45:"n",46:"m",47:".",49:" ",50:"`"]
     let shifted = ["1":"!", "2":"@", "3":"#", "4":"$", "5":"%", "6":"^", "7":"&", "8":"*", "9":"(", "0":")", "-":"_", "=":"+", "[":"{", "]":"}", ";":":", "'":"\"", ",":"<", ".":">", "/":"?", "\\":"|", "`":"~"]
+    let physicalTone = mode == .pinyin && !english && composing && event.modifierFlags.contains(.shift) && [UInt16(49), 22, 20, 21, 26].contains(event.keyCode)
+    if english || (mode != .zhuyin && !physicalTone) {
+        // Passing through non-ASCII, composed sequences and dead keys lets the
+        // client apply the active macOS keyboard layout without losing text.
+        guard let characters = event.characters, characters.unicodeScalars.count == 1,
+              let scalar = characters.unicodeScalars.first, (32...126).contains(scalar.value) else { return nil }
+        return (Int32(scalar.value), event.modifierFlags.contains(.shift) ? 1 : 0)
+    }
     let character = usKeys[event.keyCode].map { key -> String in
         let shift = event.modifierFlags.contains(.shift)
         if key.uppercased() != key.lowercased() { return shift != event.modifierFlags.contains(.capsLock) ? key.uppercased() : key }
         return shift ? shifted[key] ?? key : key
     }
-    let code = special[event.keyCode] ?? (character ?? event.characters)?.unicodeScalars.first.map { Int32($0.value) }
+    let code = (character ?? event.characters)?.unicodeScalars.first.map { Int32($0.value) }
     return code.map { ($0, event.modifierFlags.contains(.shift) ? 1 : 0) }
 }
 #endif

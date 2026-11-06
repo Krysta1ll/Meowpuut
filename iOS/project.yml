@@ -17,12 +17,14 @@ targets:
     platform: iOS
     sources:
       - App
+      - SharedKeyboardSettings.swift
       - ../Sources/Brand.swift
       - ../assets/brand/MeowpuutMark.png
       - Generated/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.meowpuut.ios
+        CODE_SIGN_ENTITLEMENTS: AppGroup.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: 喵撲
@@ -36,12 +38,14 @@ targets:
     platform: iOS
     sources:
       - Keyboard
+      - SharedKeyboardSettings.swift
       - ../Sources/Engine.swift
       - ../Sources/InputBackend.swift
       - ../Sources/JapaneseBackend.swift
       - ../Core
       - ../Sources/ChoiceMemory.swift
       - ../Sources/Brand.swift
+      - ../Sources/CandidatePalette.swift
       - ../Sources/Bridge.h
       - path: Generated/Licenses
         type: folder
@@ -66,8 +70,9 @@ targets:
         INFOPLIST_FILE: Keyboard/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         PRODUCT_BUNDLE_IDENTIFIER: app.meowpuut.ios.keyboard
+        CODE_SIGN_ENTITLEMENTS: AppGroup.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
-        SWIFT_OBJC_BRIDGING_HEADER: ../Sources/Bridge.h
+        SWIFT_OBJC_BRIDGING_HEADER: Keyboard/Bridge.h
         OTHER_LDFLAGS: ["$(inherited)", "-lc++", "-lsqlite3"]
 
 schemes:

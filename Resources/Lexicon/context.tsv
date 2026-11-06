@@ -1,0 +1,10 @@
+# Traditional context phrase|editorial priority (1–10000). These are not word entries.
+# The portable decoder uses these only when scoring adjacent segments.
+條魚|10000
+部動漫|10000
+部動畫|10000
+部電影|10000
+部小說|10000
+部作品|10000
+新包|6500
+上嗑糖|10000

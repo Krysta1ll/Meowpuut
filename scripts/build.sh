@@ -22,10 +22,10 @@ swiftc -target "$TARGET" scripts/Icon.swift -o .build/icon
 cp assets/brand/MeowpuutMark.png "$APP/Contents/Resources/"
 .build/icon assets/brand/MeowpuutMark.png .build/Meowpuut.iconset
 iconutil -c icns .build/Meowpuut.iconset -o "$APP/Contents/Resources/Meowpuut.icns"
-cp .build/MeowpuutInputGlyph.tiff "$APP/Contents/Resources/"
+cp .build/MeowpuutCatTemplate.tiff "$APP/Contents/Resources/"
 swiftc -target "$TARGET" scripts/Register.swift -o .build/register-input-source
 clang++ -target "$TARGET" -std=c++17 -O2 -c Core/MeowpuutCore.cpp -o .build/MeowpuutCore.o
-swiftc Sources/Engine.swift Sources/InputBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Brand.swift Sources/CatGlass.swift Sources/Interface.swift Sources/SystemInput.swift Sources/Smoke.swift Sources/main.swift .build/MeowpuutCore.o \
+swiftc Sources/Engine.swift Sources/InputBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Brand.swift Sources/CandidatePalette.swift Sources/CatGlass.swift Sources/Interface.swift Sources/SystemInput.swift Sources/Smoke.swift Sources/main.swift .build/MeowpuutCore.o \
   -target "$TARGET" -import-objc-header Sources/Bridge.h -lc++ -lsqlite3 \
   -framework AppKit -framework SwiftUI -framework InputMethodKit \
   -o "$APP/Contents/MacOS/Meowpuut"

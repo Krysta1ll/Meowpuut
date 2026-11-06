@@ -24,8 +24,14 @@ final class KeyboardViewController: UIInputViewController {
             if !handled && code == 0xff0d { self.textDocumentProxy.insertText("\n") }
             if !handled && code == 32 { self.textDocumentProxy.insertText(" ") }
             if !handled, code > 32, code < 0xff00, let scalar = UnicodeScalar(UInt32(code)) { self.textDocumentProxy.insertText(String(scalar)) }
+        }, insertSymbol: { [weak self] text in
+            guard let self else { return }
+            self.engine.finishComposition(); self.deliver()
+            self.textDocumentProxy.insertText(text)
         }, choose: { [weak self] index in self?.engine.choose(index); self?.deliver() },
-        erase: { [weak self] in self?.erase() }, refresh: { [weak self] in self?.engine.modeChanged(); self?.deliver() },
+        erase: { [weak self] in self?.erase() },
+        beginCursor: { [weak self] in self?.engine.finishComposition(); self?.deliver() },
+        moveCursor: { [weak self] offset in self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) },
         keyboardController: { [weak self] in self })
         let hosting = UIHostingController(rootView: root)
         addChild(hosting)
@@ -39,16 +45,26 @@ final class KeyboardViewController: UIInputViewController {
             hosting.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         hosting.didMove(toParent: self)
-        let height = view.heightAnchor.constraint(equalToConstant: 360)
+        let height = view.heightAnchor.constraint(equalToConstant: 312)
         height.priority = .defaultHigh
         height.isActive = true
+        updateContext()
+    }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        Preferences.shared.applySharedSettings()
+        if engine.inputMode != Preferences.shared.inputMode {
+            engine.finishComposition(); deliver()
+            engine.selectMode(Preferences.shared.inputMode)
+        }
+        engine.modeChanged()
         updateContext()
     }
     private func deliver() {
         guard !delivering else { return }
         delivering = true
         defer { delivering = false }
-        primaryLanguage = engine.english ? "en-US" : Preferences.shared.simplified ? "zh-Hans" : "zh-Hant"
+        primaryLanguage = engine.english ? "en-US" : engine.inputMode == .japanese ? "ja-JP" : Preferences.shared.simplified ? "zh-Hans" : "zh-Hant"
         let commit = engine.takeCommit()
         if !commit.isEmpty {
             if hasMarkedText {
@@ -76,15 +92,21 @@ final class KeyboardViewController: UIInputViewController {
         updateContext()
     }
     private func updateContext() {
-        let id = textDocumentProxy.documentIdentifier
-        if documentID != id {
-            engine.clear(); hasMarkedText = false
-            switch textDocumentProxy.keyboardType ?? .default {
-            case .URL, .emailAddress, .asciiCapable, .asciiCapableNumberPad: engine.english = true
-            default: engine.english = false
+        if let id = MPKeyboardDocumentIdentifier(textDocumentProxy) {
+            let changedDocument = documentID.map { $0 != id } ?? false
+            if changedDocument {
+                engine.clear(); hasMarkedText = false
             }
+            // The proxy may acquire its first identifier after the first key.
+            // That is attachment to the same document, not a document switch.
+            if changedDocument || (documentID == nil && !hasMarkedText && engine.snapshot.preedit.isEmpty) {
+                switch textDocumentProxy.keyboardType ?? .default {
+                case .URL, .emailAddress, .asciiCapable, .asciiCapableNumberPad: engine.english = true
+                default: engine.english = false
+                }
+            }
+            documentID = id
         }
-        documentID = id
         switch textDocumentProxy.returnKeyType ?? .default {
         case .search: keyboardContext.returnTitle = "搜尋"
         case .send: keyboardContext.returnTitle = "傳送"
@@ -95,7 +117,7 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
     override func viewWillDisappear(_ animated: Bool) {
-        if documentID == textDocumentProxy.documentIdentifier { engine.finishComposition(); deliver() }
+        if let id = MPKeyboardDocumentIdentifier(textDocumentProxy), documentID == id { engine.finishComposition(); deliver() }
         else { engine.clear(); hasMarkedText = false }
         super.viewWillDisappear(animated)
     }
@@ -120,108 +142,133 @@ private struct KeyboardPanel: View {
     @ObservedObject var engine: Engine
     @ObservedObject var context: KeyboardContext
     @ObservedObject var preferences = Preferences.shared
-    @ObservedObject var memory = ChoiceMemory.shared
     var key: (Int32, Int32) -> Void
+    var insertSymbol: (String) -> Void
     var choose: (Int) -> Void
     var erase: () -> Void
-    var refresh: () -> Void
+    var beginCursor: () -> Void
+    var moveCursor: (Int) -> Void
     var keyboardController: () -> UIInputViewController?
     @State private var expanded = false
-    @State private var settings = false
-    @State private var confirmingClear = false
-    @State private var uppercase = false
+    @State private var capitalization = CapitalizationState()
     @State private var symbolsPage = 0
-    private let accent = Brand.accent
+    @Environment(\.colorScheme) private var systemScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    private var scheme: ColorScheme {
+        switch preferences.candidateTone {
+        case .system: systemScheme
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+    private var accent: Color { preferences.candidatePalette.color(dark: scheme == .dark) }
     private let zhuyin: [[(String, String)]] = [
-        [("ㄅ","1"),("ㄉ","2"),("ˇ","3"),("ˋ","4"),("ㄓ","5"),("ˊ","6"),("˙","7"),("ㄚ","8"),("ㄞ","9"),("ㄢ","0")],
+        [("ㄅ","1"),("ㄉ","2"),("ˇ","3"),("ˋ","4"),("ㄓ","5"),("ˊ","6"),("˙","7"),("ㄚ","8"),("ㄞ","9"),("ㄢ","0"),("ㄦ","-")],
         [("ㄆ","q"),("ㄊ","w"),("ㄍ","e"),("ㄐ","r"),("ㄔ","t"),("ㄗ","y"),("ㄧ","u"),("ㄛ","i"),("ㄟ","o"),("ㄣ","p")],
         [("ㄇ","a"),("ㄋ","s"),("ㄎ","d"),("ㄑ","f"),("ㄕ","g"),("ㄘ","h"),("ㄨ","j"),("ㄜ","k"),("ㄠ","l"),("ㄤ",";")],
         [("ㄈ","z"),("ㄌ","x"),("ㄏ","c"),("ㄒ","v"),("ㄖ","b"),("ㄙ","n"),("ㄩ","m"),("ㄝ",","),("ㄡ","."),("ㄥ","/")]
     ]
     var body: some View {
         VStack(spacing: 5) {
-            HStack {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(engine.snapshot.preedit.isEmpty ? engine.modeLabel : engine.snapshot.preedit)
-                        .font(.subheadline).lineLimit(1)
-                }
-                HStack(spacing: 0) {
-                    Button { preferences.simplified.toggle(); refresh() } label: {
-                        Text(preferences.simplified ? "简" : "繁").frame(width: 44, height: 44)
-                    }.accessibilityLabel("切換繁簡")
-                    Button { key(Engine.modulesKey, 0) } label: {
-                        Image(systemName: "text.bubble").frame(width: 44, height: 44)
-                    }.accessibilityLabel("常用短語")
-                    Button { settings.toggle(); expanded = false } label: {
-                        Image(systemName: settings ? "keyboard" : "gearshape").frame(width: 44, height: 44)
-                    }.accessibilityLabel(settings ? "返回鍵盤" : "鍵盤設定")
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .capsule)
-            }.frame(height: 44)
-            if settings { settingsPanel }
-            else {
                 HStack(spacing: 0) {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 4) {
-                            ForEach(expanded ? Array(engine.snapshot.candidates.indices) : engine.snapshot.compactIndices, id: \.self) { index in
-                                let text = engine.snapshot.candidates[index]
-                                Button { choose(index) } label: {
-                                    candidateLabel(text).font(.title3).padding(.horizontal, 10).frame(minWidth: 44, minHeight: 44)
-                                        .background(index == engine.snapshot.highlighted ? accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 9))
-                                }.buttonStyle(.plain)
-                                    .accessibilityAddTraits(index == engine.snapshot.highlighted ? .isSelected : [])
+                            ForEach(expanded ? Array(engine.snapshot.candidates.indices) : chineseCandidateIndices, id: \.self) { index in
+                                candidateButton(index)
                             }
                         }
+                    }
+                    if !expanded, let index = japaneseCandidateIndex {
+                        candidateButton(index).frame(maxWidth: 125)
                     }
                     Button {
                         expanded.toggle()
                         if expanded { engine.browse(phrases: false) }
+                        else if engine.browsing { engine.refresh() }
                     } label: { Image(systemName: expanded ? "chevron.up" : "chevron.down").frame(width: 44, height: 44) }
-                        .disabled(engine.snapshot.candidates.isEmpty && !expanded).accessibilityLabel("展開候選詞")
-                }.frame(height: 44)
+                        .disabled(engine.snapshot.candidates.isEmpty && !expanded).accessibilityLabel(expanded ? "收合候選詞" : "展開候選詞")
+                }
+                .frame(height: 44)
+                .modifier(KeyboardCandidateGlass(cats: preferences.catGlassSkin, dark: scheme == .dark,
+                                                  strength: preferences.glassStrength, tint: accent))
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: expanded)
                 if expanded { expandedCandidates }
-                else if engine.english || engine.inputMode != .zhuyin {
+                else if symbolsPage > 0 || engine.english || engine.inputMode != .zhuyin {
                     ForEach(englishRows, id: \.self) { row in
-                        HStack(spacing: 4) {
-                            if row == "zxcvbnm" { keycap(uppercase ? "⇪" : "⇧") { uppercase.toggle() } }
-                            if symbolsPage > 0 && row == englishRows.last { keycap(symbolsPage == 1 ? "#+=" : "123") { symbolsPage = symbolsPage == 1 ? 2 : 1 } }
+                      GlassEffectContainer(spacing: 0) {
+                        HStack(spacing: 0) {
+                            if row == "zxcvbnm" { keycap(capitalization.mode == .locked ? "⇪" : "⇧", role: .utility, rowKey: true) { capitalization.tapShift() } }
+                            if symbolsPage > 0 && row == englishRows.last { keycap(symbolsPage == 1 ? "#+=" : "123", rowKey: true) { symbolsPage = symbolsPage == 1 ? 2 : 1 } }
                             ForEach(Array(row), id: \.self) { character in
-                                keycap(uppercase ? String(character).uppercased() : String(character)) {
-                                    let text = uppercase ? String(character).uppercased() : String(character)
-                                    key(Int32(text.unicodeScalars.first!.value), 0)
+                                let text = symbolsPage > 0
+                                    ? KeyboardSymbols.text(character, chinese: !engine.english && engine.inputMode != .japanese)
+                                    : (engine.english && capitalization.mode != .lowercase ? String(character).uppercased() : String(character))
+                                keycap(text, rowKey: true) {
+                                    if symbolsPage > 0 { insertSymbol(text) }
+                                    else {
+                                        let output = capitalization.consumeLetter(english: engine.english) ? String(character).uppercased() : String(character)
+                                        key(Int32(output.unicodeScalars.first!.value), 0)
+                                    }
                                 }
                             }
+                            if row == englishRows.last { deleteKey(height: rowHeight, rowKey: true) }
                         }
+                        .padding(.horizontal, symbolsPage == 0 && row == "asdfghjkl" ? 18 : 0)
+                      }
                     }
                 } else {
                     ForEach(zhuyin.indices, id: \.self) { row in
-                        HStack(spacing: 4) {
-                            ForEach(zhuyin[row], id: \.1) { symbol, raw in keycap(symbol) { key(Int32(raw.utf8.first!), 0) } }
+                      GlassEffectContainer(spacing: 0) {
+                        HStack(spacing: 0) {
+                            ForEach(zhuyin[row], id: \.1) { symbol, raw in keycap(symbol, rowKey: true) { key(Int32(raw.utf8.first!), 0) } }
+                            if row == zhuyin.count - 1 { deleteKey(height: rowHeight, rowKey: true) }
                         }
+                        .padding(.horizontal, (row == 1 || row == 2) ? 18 : 0)
+                      }
                     }
                 }
-            }
-            HStack(spacing: 4) {
+            GlassEffectContainer(spacing: 0) {
+              HStack(spacing: 4) {
                 if keyboardController()?.needsInputModeSwitchKey == true { InputModeButton(controller: keyboardController).frame(width: 44, height: 44) }
-                keycap(engine.english ? "ㄅ" : "ABC", width: 44) { key(32, 1) }
-                keycap(engine.english ? (symbolsPage == 0 ? "123" : "ABC") : "ㄦ", width: 44) {
-                    if engine.english { symbolsPage = symbolsPage == 0 ? 1 : 0 } else { key(45, 0) }
+                keycap(engine.english ? (engine.inputMode == .pinyin ? "拼" : engine.inputMode == .japanese ? "あ" : "ㄅ") : "ABC", width: 44, role: .utility) { key(Engine.toggleEnglishKey, 0) }
+                keycap(symbolsPage == 0 ? "符號" : (!engine.english && engine.inputMode == .zhuyin ? "注音" : "字母"), width: 44, role: .utility) {
+                    symbolsPage = symbolsPage == 0 ? 1 : 0
                 }
-                keycap(spaceTitle) { key(32, 0) }
-                Button(action: erase) { Image(systemName: "delete.left").frame(width: 44, height: 44) }.buttonStyle(.plain).accessibilityLabel("刪除")
-                keycap(engine.snapshot.preedit.isEmpty ? context.returnTitle : "確認", width: 52) { key(0xff0d, 0) }
+                SpaceCursorButton(title: spaceTitle, onTap: { key(32, 0) }, onBeginCursor: beginCursor,
+                                  onMove: moveCursor, tintColor: scheme == .dark ? .white : .black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(keySurface(.character), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(reduceTransparency ? 0.02 : 0.065)).allowsHitTesting(false))
+                    .glassEffect(keyGlass, in: .rect(cornerRadius: 8))
+                if expanded { deleteKey() }
+                keycap(engine.snapshot.preedit.isEmpty ? context.returnTitle : "確認", width: 72, role: .utility) { key(0xff0d, 0) }
+              }
             }
             if !engine.error.isEmpty { Text(engine.error).font(.caption).foregroundStyle(.red) }
         }.padding(.horizontal, 5).padding(.vertical, 5)
-            .background(Color(UIColor.systemGroupedBackground)).tint(accent)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(LinearGradient(colors: scheme == .dark
+                        ? [Color(white: 0.18), Color(white: 0.11)]
+                        : [Color(white: 0.91), Color(white: 0.81)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(LinearGradient(colors: [accent.opacity(reduceTransparency ? 0.025 : 0.10), .clear],
+                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+                    }
+                    .glassEffect(.regular.tint(accent.opacity(0.04)), in: .rect(cornerRadius: 18))
+            }.tint(accent)
+            .environment(\.colorScheme, scheme)
             .onChange(of: engine.snapshot.preedit) { _, text in if text.isEmpty { expanded = false } }
     }
     private var englishRows: [String] {
         switch symbolsPage {
         case 1: return ["1234567890", "-/:;()$&@", ".,?!'\"", "[]{}#%_="]
         case 2: return ["1234567890", "^*+|\\~`<>", "€£¥•…", ".,?!'\""]
-        default: return ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"]
+        default: return ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
         }
     }
     private var spaceTitle: String {
@@ -231,6 +278,21 @@ private struct KeyboardPanel: View {
         if engine.inputMode == .japanese { return "選詞" }
         if let last = engine.snapshot.input.last, " 6347".contains(last) { return "選詞" }
         return "一聲"
+    }
+    private var japaneseCandidateIndex: Int? {
+        engine.snapshot.compactIndices.first { engine.snapshot.japaneseCandidates.contains(engine.snapshot.candidates[$0]) }
+    }
+    private var chineseCandidateIndices: [Int] {
+        engine.snapshot.compactIndices.filter { !engine.snapshot.japaneseCandidates.contains(engine.snapshot.candidates[$0]) }
+    }
+    private func candidateButton(_ index: Int) -> some View {
+        Button { choose(index) } label: {
+            candidateLabel(engine.snapshot.candidates[index]).font(.title3).lineLimit(1)
+                .padding(.horizontal, 9).frame(minWidth: 44, minHeight: 34)
+                .background(index == engine.snapshot.highlighted ? accent.opacity(0.14) : .clear, in: Capsule())
+                .frame(minHeight: 44)
+        }.buttonStyle(.plain)
+            .accessibilityAddTraits(index == engine.snapshot.highlighted ? .isSelected : [])
     }
     private var expandedCandidates: some View {
         VStack(spacing: 4) {
@@ -245,10 +307,11 @@ private struct KeyboardPanel: View {
             ScrollView {
                 LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 4) {
                     ForEach(Array(engine.snapshot.candidates.enumerated()), id: \.offset) { index, text in
-                        HStack(spacing: 0) {
-                            Button { choose(index) } label: { candidateLabel(text).frame(maxWidth: .infinity, minHeight: 44).lineLimit(2) }.buttonStyle(.plain)
-                            Button { engine.pin(index) } label: { Image(systemName: engine.isPinned(text) ? "pin.fill" : "pin").frame(width: 44, height: 44) }.accessibilityLabel("固定首選")
-                        }.background(Color(UIColor.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 9))
+                        Button { choose(index) } label: {
+                            candidateLabel(text).frame(maxWidth: .infinity, minHeight: 44).lineLimit(2)
+                        }
+                        .buttonStyle(.plain)
+                        .background(Color(UIColor.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 9))
                     }
                 }
             }
@@ -263,32 +326,43 @@ private struct KeyboardPanel: View {
             }
         }
     }
-    private var settingsPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("輸入方式", selection: Binding(get: { engine.inputMode }, set: { mode in
-                engine.finishComposition(); refresh(); engine.selectMode(mode); Preferences.shared.inputMode = mode; refresh()
-            })) {
-                ForEach(InputMode.allCases) { Text($0.title).tag($0) }
-            }
-            Toggle("記住選詞", isOn: $preferences.rememberChoices).onChange(of: preferences.rememberChoices) { _, _ in engine.refresh() }
-            Text("已記住 \(memory.records.count) 組注音").font(.footnote).foregroundStyle(.secondary)
-            if confirmingClear {
-                HStack {
-                    Text("清除選詞記錄？").font(.subheadline)
-                    Button("清除", role: .destructive) { memory.clear(); engine.refresh(); confirmingClear = false }
-                    Button("取消") { confirmingClear = false }
-                }.frame(minHeight: 44)
-            } else { Button("清除選詞記錄") { confirmingClear = true }.frame(minHeight: 44) }
-            if !memory.error.isEmpty { Text(memory.error).font(.caption).foregroundStyle(.red) }
-            Spacer()
-        }.padding(10).frame(height: 240)
+    private enum KeyRole { case character, utility }
+    private var rowHeight: CGFloat {
+        (engine.english || engine.inputMode != .zhuyin) && symbolsPage == 0 ? 50 : 46
     }
-    private func keycap(_ text: String, width: CGFloat? = nil, action: @escaping () -> Void) -> some View {
+    private func deleteKey(height: CGFloat = 44, rowKey: Bool = false) -> some View {
+        RepeatDeleteButton(action: erase, tintColor: scheme == .dark ? .white : .black)
+            .frame(width: 44, height: height)
+            .background(keySurface(.utility), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(0.045)).allowsHitTesting(false))
+            .glassEffect(keyGlass, in: .rect(cornerRadius: 8))
+            .padding(.horizontal, rowKey ? 2 : 0)
+    }
+    private var keyGlass: Glass {
+        guard !reduceTransparency else { return .identity }
+        switch preferences.glassStrength {
+        case .soft: return .regular.tint(accent.opacity(0.025)).interactive()
+        case .balanced: return .clear.tint(accent.opacity(0.04)).interactive()
+        case .vivid: return .clear.tint(accent.opacity(0.075)).interactive()
+        }
+    }
+    private func keySurface(_ role: KeyRole) -> Color {
+        if scheme == .dark { return Color(white: role == .character ? 0.27 : 0.20) }
+        return Color(white: role == .character ? 0.98 : 0.76)
+    }
+    private func keycap(_ text: String, width: CGFloat? = nil, role: KeyRole = .character, rowKey: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text).font(.system(size: text.count > 1 ? 15 : 21)).lineLimit(1)
-                .frame(maxWidth: width == nil ? .infinity : nil, minHeight: 44)
+            Text(text).font(.system(size: text.count > 1 ? 15 : 21, weight: .regular)).lineLimit(1).minimumScaleFactor(0.8)
+                .frame(maxWidth: width == nil ? .infinity : nil)
+                .frame(height: rowKey ? rowHeight : 44)
                 .frame(width: width)
-                .background(Color(UIColor.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7))
+                .background(keySurface(role), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(reduceTransparency ? 0.02 : 0.065)).allowsHitTesting(false))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(scheme == .dark ? 0.06 : 0.48), lineWidth: 0.5))
+                .shadow(color: .black.opacity(scheme == .dark ? 0.16 : 0.10), radius: 0.5, y: 1)
+                .glassEffect(keyGlass, in: .rect(cornerRadius: 8))
+                .padding(.horizontal, rowKey ? 2 : 0)
+                .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(text)
     }
 }

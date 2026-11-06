@@ -64,22 +64,26 @@ final class ChoiceMemory: ObservableObject {
     func clear() { records = [:]; error = ""; save() }
     private let writer = DispatchQueue(label: "app.meowpuut.memory", qos: .utility)
     private var pendingSave: DispatchWorkItem?
-    private func persist(_ snapshot: [String: [RememberedChoice]]) {
+    @discardableResult private func persist(_ snapshot: [String: [RememberedChoice]]) -> Bool {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(snapshot).write(to: file, options: .atomic)
-        } catch { DispatchQueue.main.async { self.error = "選詞記錄未能保存。" } }
+            return true
+        } catch {
+            DispatchQueue.main.async { self.error = "選詞記錄未能保存。" }
+            return false
+        }
     }
     private func save() {
         pendingSave?.cancel()
         let snapshot = records
-        let work = DispatchWorkItem { [weak self] in self?.persist(snapshot) }
+        let work = DispatchWorkItem { [weak self] in _ = self?.persist(snapshot) }
         pendingSave = work
         writer.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
-    func flush() {
+    @discardableResult func flush() -> Bool {
         pendingSave?.cancel()
         let snapshot = records
-        writer.sync { persist(snapshot) }
+        return writer.sync { persist(snapshot) }
     }
 }

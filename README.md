@@ -5,7 +5,7 @@
 <h1 align="center">喵撲 Meowpuut</h1>
 <p align="center">mimimo。</p>
 <p align="center">
-  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.0-alpha.1/Meowpuut-0.4.0-alpha.1-macos-arm64.pkg">直接下載 macOS 測試版</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/Meowpuut-0.4.1-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
   <a href="LICENSE">MIT</a>
@@ -13,7 +13,7 @@
 
 喵撲是一款從日常中文輸入出發的開源輸入法。拼音和注音各有自己的按鍵規則，繁簡共用一份詞庫；偶爾想打日文單字，可以直接輸入羅馬音，不必為幾個字來回切換輸入法。
 
-這是第一個公開測試版。它已能在 macOS 輸入中文，還需要更多真實用法來磨選詞和相容性。遇到不順手的地方，請把按鍵順序和預期文字告訴我.
+目前是公開測試版。它已能在 macOS 輸入中文，選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
 
 ![喵撲的雙貓玻璃候選列：中文在前，日語以貓爪標示並位於最右](assets/screenshots/candidates.png)
 
@@ -21,7 +21,7 @@
 
 左邊是米米莫，右邊是莫莫。貓耳構成玻璃的邊界，尾巴沿著候選列收起，兩張臉留在左右兩端。角色和視窗一起變長、收合；文字仍是中間最重要的部分。
 
-「雙貓玻璃」之外，也有「簡潔玻璃」。兩者都依實際字寬安排候選，短詞可以並排，長句展開閱讀。縮放與展開有輕柔過渡，也會遵守系統的減少動態效果設定。
+「雙貓玻璃」之外，也有「簡潔玻璃」。兩種皮膚共用深色、淺色與跟隨系統的選擇，內建玫瑰奶茶、海鹽藍、鼠尾草綠、霧紫、琥珀蜜、石墨六組配色，玻璃強度亦可調整。兩者都依實際字寬安排候選，短詞可以並排，長句展開閱讀。縮放與展開有輕柔過渡，也會遵守系統的減少動態效果設定。
 
 ## 選字，先照顧中文
 
@@ -55,19 +55,21 @@
 | 保留原始字母 | Shift＋Enter；拼音亦可按空格，會附加空格 |
 | 展開／收合或取消 | ↓／Esc |
 | 翻頁 | Option＋←／→，或 Page Up／Page Down |
-| 中英切換 | 拼音單按 Shift；Shift＋Space 亦可用 |
+| 拼音聲調（可選） | Shift＋空格／6／3／4／7 → 一／二／三／四／輕聲 |
+| 中英切換 | 拼音單按 Shift；注音保留 Shift＋Space |
 | 標點選單 | 反引號 |
+| 中文模式輸入英文斜線 `/` | Option＋斜線 |
 | 本地短語模組 | Option＋Space |
 
 拼音直接按標點鍵輸入中文標點；Shift＋逗號、句號、斜線可輸入英文標點。注音的聲韻鍵保留原功能。繁簡與皮膚可在輸入法選單切換。
 
 ## 下載與平台
 
-[**直接下載 0.4.0 Alpha 1 安裝包（.pkg，38.3 MiB）**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.0-alpha.1/Meowpuut-0.4.0-alpha.1-macos-arm64.pkg) · [SHA-256 校驗值](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.0-alpha.1/SHA256SUMS.txt) · [版本說明](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.4.0-alpha.1)
+[**下載 0.4.1 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/Meowpuut-0.4.1-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/Meowpuut-0.4.1-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/SHA256SUMS.txt)
 
 | 平台 | 本次提供 |
 | --- | --- |
-| macOS 27+，Apple silicon | **0.4.0 Alpha 1** 系統輸入法安裝包 |
+| macOS 27+，Apple silicon | **0.4.1 Alpha 1** 安裝盤與安裝套件 |
 | iOS／iPadOS 27+ | 宿主 App 與鍵盤擴充原始碼；尚未提供 TestFlight／IPA |
 | Windows | C++ 核心可攜；尚無 TSF 接入與安裝包 |
 | Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |

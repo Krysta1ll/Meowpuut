@@ -112,6 +112,29 @@ func expandedCandidateMove(_ candidates: [String], from index: Int, key: Int32) 
     return rows[nextRow][min(column, rows[nextRow].count - 1)]
 }
 
+// A single inexpensive highlight shared by both candidate layouts and skins.
+private struct CandidateSelection: View {
+    var radius: CGFloat
+    @Environment(\.colorScheme) private var scheme
+    @ObservedObject private var preferences = Preferences.shared
+    private var accent: Color { preferences.candidatePalette.color(dark: scheme == .dark) }
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius)
+            .fill(LinearGradient(colors: [
+                accent.opacity(reduceTransparency ? 0.65 : 0.32),
+                accent.opacity(reduceTransparency ? 0.65 : 0.18)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay {
+                RoundedRectangle(cornerRadius: radius).strokeBorder(
+                    LinearGradient(colors: [.white.opacity(contrast == .increased ? 0.7 : 0.28), .white.opacity(0.04)],
+                                   startPoint: .top, endPoint: .bottom), lineWidth: 0.6)
+            }
+    }
+}
+
 struct CandidateStrip: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -172,7 +195,7 @@ struct CandidateStrip: View {
                     .padding(.vertical, 4)
                     .background {
                         if index == engine.snapshot.highlighted {
-                            Capsule().fill(accent.opacity(0.28)).matchedGeometryEffect(id: "selection", in: selection)
+                            CandidateSelection(radius: 20).matchedGeometryEffect(id: "selection", in: selection)
                         }
                     }
                 }
@@ -221,7 +244,7 @@ struct CandidateStrip: View {
                             .contentShape(RoundedRectangle(cornerRadius: 8))
                             .background {
                                 if index == engine.snapshot.highlighted {
-                                    RoundedRectangle(cornerRadius: 8).fill(accent.opacity(0.28))
+                                    CandidateSelection(radius: 8)
                                 }
                             }
                         }
@@ -299,7 +322,7 @@ struct CandidateStrip: View {
                                 }.padding(.horizontal, compact ? 5 : 10).padding(.vertical, compact ? 2 : 8)
                                     .background {
                                         if index == engine.snapshot.highlighted {
-                                            RoundedRectangle(cornerRadius: 9).fill(accent.opacity(0.28))
+                                            CandidateSelection(radius: 9)
                                                 .matchedGeometryEffect(id: "selection", in: selection)
                                         }
                                     }
@@ -336,7 +359,7 @@ struct CandidateStrip: View {
 final class TypingView: NSTextView {
     var engine: Engine?
     override func keyDown(with event: NSEvent) {
-        guard let engine, let (key, modifiers) = inputKey(event) else { super.keyDown(with: event); return }
+        guard let engine, let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else { super.keyDown(with: event); return }
         let handled = engine.key(key, modifiers: modifiers)
         let commit = engine.takeCommit()
         if !commit.isEmpty { insertText(commit, replacementRange: selectedRange()) }
@@ -376,7 +399,7 @@ struct Studio: View {
                     BrandMark(size: 36)
                     Text("Meowpuut").font(.system(size: 22, weight: .black)).tracking(-0.9)
                 }.padding(.top, 20)
-                ForEach(["试打", "候选词", "扩展", "快捷键"], id: \.self) { item in
+                ForEach(["试打", "外觀", "候选词", "扩展", "快捷键"], id: \.self) { item in
                     Button { section = item } label: {
                         Label(item, systemImage: item == "试打" ? "keyboard" : item == "候选词" ? "text.alignleft" : item == "扩展" ? "square.stack.3d.up" : "command")
                             .frame(maxWidth: .infinity, alignment: .leading).padding(12)
@@ -384,7 +407,7 @@ struct Studio: View {
                     }.buttonStyle(.plain)
                 }
                 Spacer()
-                Text("0.1 开发版").font(.caption2).foregroundStyle(.secondary)
+                Text("0.4.1 測試版").font(.caption2).foregroundStyle(.secondary)
             }.padding(20).navigationSplitViewColumnWidth(220)
         } detail: {
             ScrollView {
@@ -410,9 +433,24 @@ struct Studio: View {
                         engine.choose(index)
                         if let text = NSApp.keyWindow?.firstResponder as? TypingView { text.insertText(engine.takeCommit(), replacementRange: text.selectedRange()) }
                     }, onPage: { key in engine.key(key) })
-                    Text("大千键盘 · 空格标一声 · Tab / 方向键选词 · 回车确认\nShift + Space 切换中英 · ⇧数字选词 · Option + Space 短语")
+                    Text("大千键盘 · 空格标一声 · Tab / 方向键选词 · 回车确认\n拼音單按 Shift 切中英 · 注音 ⇧數字選詞 · Option + Space 短语")
                         .font(.caption).foregroundStyle(.secondary).lineSpacing(6)
                     if !engine.error.isEmpty { Text(engine.error).foregroundStyle(.red) }
+                } else if section == "外觀" {
+                    Picker("皮膚", selection: $preferences.catGlassSkin) {
+                        Text("雙貓玻璃").tag(true); Text("簡潔玻璃").tag(false)
+                    }.pickerStyle(.segmented)
+                    Picker("色調", selection: $preferences.candidateTone) {
+                        ForEach(CandidateTone.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented)
+                    Picker("玻璃強度", selection: $preferences.glassStrength) {
+                        ForEach(GlassStrength.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented)
+                    Text("調整材質與底色的通透程度；折射會隨 macOS 和背景變化。").font(.caption).foregroundStyle(.secondary)
+                    Picker("色系", selection: $preferences.candidatePalette) {
+                        ForEach(CandidatePalette.allCases) { Text($0.title).tag($0) }
+                    }
+                    Text("兩種皮膚共用配色。跟隨系統會隨 macOS 的深淺色外觀切換。").font(.caption).foregroundStyle(.secondary)
                 } else if section == "候选词" {
                     Toggle("自動學習用詞", isOn: $preferences.rememberChoices)
                     HStack {
@@ -452,7 +490,7 @@ struct Studio: View {
                     if !preferences.moduleError.isEmpty { Text(preferences.moduleError).foregroundStyle(.red) }
                     Text("添加或编辑模块后，点重新加载。").font(.caption).foregroundStyle(.secondary)
                 } else {
-                    ForEach([("↑ / ↓ · Tab / ⇧Tab", "选择候选"), ("回车", "提交整句"), ("⇧回车", "按原文输出英文"), ("⇧1–7", "选择对应候选"), ("PageUp / PageDown", "翻页"), ("Shift + Space", "切换中英"), ("Escape", "退出筛选 / 取消组合"), ("Option + Space", "打开短语")], id: \.0) { key, action in
+                    ForEach([("↑ / ↓ · Tab / ⇧Tab", "选择候选"), ("回车", "提交整句"), ("⇧回车", "按原文输出英文"), ("⇧1–7", "选择对应候选"), ("PageUp / PageDown", "翻页"), ("單按 Shift", "拼音切換中英"), ("Escape", "退出筛选 / 取消组合"), ("Option + Space", "打开短语")], id: \.0) { key, action in
                         HStack { Text(key).font(.system(.body, design: .monospaced)); Spacer(); Text(action).foregroundStyle(.secondary) }.padding(.vertical, 6)
                     }
                     HStack {
