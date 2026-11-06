@@ -1,0 +1,77 @@
+name: Meowpuut
+options:
+  bundleIdPrefix: app.meowpuut
+  deploymentTarget:
+    iOS: "27.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.4.0"
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Meowpuut:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - ../Sources/Brand.swift
+      - ../assets/brand/MeowpuutMark.png
+      - Generated/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.meowpuut.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: 喵撲
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    dependencies:
+      - target: MeowpuutKeyboard
+        embed: true
+  MeowpuutKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Keyboard
+      - ../Sources/Engine.swift
+      - ../Sources/InputBackend.swift
+      - ../Sources/JapaneseBackend.swift
+      - ../Core
+      - ../Sources/ChoiceMemory.swift
+      - ../Sources/Brand.swift
+      - ../Sources/Bridge.h
+      - path: Generated/Licenses
+        type: folder
+        buildPhase: resources
+      - path: Generated/native-zhuyin.tsv
+        buildPhase: resources
+      - path: Generated/native-pinyin.tsv
+        buildPhase: resources
+      - path: Generated/native-japanese.json
+        buildPhase: resources
+      - path: Generated/mimo-manifest.json
+        buildPhase: resources
+      - path: Generated/associations.json
+        buildPhase: resources
+      - path: Generated/language-evidence.sqlite
+        buildPhase: resources
+      - path: ../Modules
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        INFOPLIST_FILE: Keyboard/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_BUNDLE_IDENTIFIER: app.meowpuut.ios.keyboard
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_OBJC_BRIDGING_HEADER: ../Sources/Bridge.h
+        OTHER_LDFLAGS: ["$(inherited)", "-lc++", "-lsqlite3"]
+
+schemes:
+  Meowpuut:
+    build:
+      targets:
+        Meowpuut: all
