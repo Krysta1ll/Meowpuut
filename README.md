@@ -5,7 +5,7 @@
 <h1 align="center">喵撲 Meowpuut</h1>
 <p align="center">mimimo。</p>
 <p align="center">
-  <a href="https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.4.0-alpha.1">下載 macOS 測試版</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.0-alpha.1/Meowpuut-0.4.0-alpha.1-macos-arm64.pkg">直接下載 macOS 測試版</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
   <a href="LICENSE">MIT</a>
@@ -62,6 +62,8 @@
 拼音直接按標點鍵輸入中文標點；Shift＋逗號、句號、斜線可輸入英文標點。注音的聲韻鍵保留原功能。繁簡與皮膚可在輸入法選單切換。
 
 ## 下載與平台
+
+[**直接下載 0.4.0 Alpha 1 安裝包（.pkg，38.3 MiB）**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.0-alpha.1/Meowpuut-0.4.0-alpha.1-macos-arm64.pkg) · [SHA-256 校驗值](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.0-alpha.1/SHA256SUMS.txt) · [版本說明](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.4.0-alpha.1)
 
 | 平台 | 本次提供 |
 | --- | --- |
