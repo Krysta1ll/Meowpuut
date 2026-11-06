@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">喵撲 Meowpuut</h1>
-<p align="center">好好打中文，偶爾來一句日文。兩隻貓陪你選字。</p>
+<p align="center">mimimo。</p>
 <p align="center">
   <a href="https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.4.0-alpha.1">下載 macOS 測試版</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
@@ -13,7 +13,7 @@
 
 喵撲是一款從日常中文輸入出發的開源輸入法。拼音和注音各有自己的按鍵規則，繁簡共用一份詞庫；偶爾想打日文單字，可以直接輸入羅馬音，不必為幾個字來回切換輸入法。
 
-這是第一個公開測試版。它已能在 macOS 輸入中文，還需要更多真實用法來磨選詞和相容性。遇到不順手的地方，請把按鍵順序和預期文字告訴我們。
+這是第一個公開測試版。它已能在 macOS 輸入中文，還需要更多真實用法來磨選詞和相容性。遇到不順手的地方，請把按鍵順序和預期文字告訴我.
 
 ![喵撲的雙貓玻璃候選列：中文在前，日語以貓爪標示並位於最右](assets/screenshots/candidates.png)
 
