@@ -272,7 +272,20 @@ std::vector<Fallback> fallback(const Lexicon &lexicon, std::string_view input, b
 }
 
 
-std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, bool hans) {
+bool fullPinyin(std::string_view reading) {
+    bool vowel = false;
+    for (char key : reading) {
+        if (is_tone(key, true)) {
+            if (!vowel) return false;
+            vowel = false;
+        } else if (std::string_view("aeiouv").find(key) != std::string_view::npos) {
+            vowel = true;
+        }
+    }
+    return true;
+}
+
+std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, bool hans, bool corrections = true, bool credible = false) {
     const Reading reading(input, lexicon.pinyin);
     const size_t length = reading.sounds.size();
     if (length == 0) return {};
@@ -283,15 +296,20 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
         if (seen.emplace(text).second) results.emplace_back(text);
     };
     const auto whole = lexicon.range(reading.sounds);
+    int first_weight = 0;
     for (size_t index = whole.first; index < whole.second; ++index) {
         const auto &word = lexicon.words[index];
-        if (reading.matches(word, 0, length)) append(word.text(hans));
+        if (!reading.matches(word, 0, length)) continue;
+        if (results.empty()) first_weight = word.weight;
+        if (!credible || word.weight >= first_weight - 980) append(word.text(hans));
         if (results.size() == candidate_limit) return results;
     }
 
+    if (credible && !results.empty()) return results;
+
     // Whole dictionary words stay first; known completions/corrections precede
     // speculative chains such as interpreting a mistyped ending as an abbreviation.
-    if (results.empty() && lexicon.pinyin) {
+    if (corrections && results.empty() && lexicon.pinyin) {
         for (const auto &item : fallback(lexicon, input, hans, false)) append(item.text);
     }
 
@@ -306,7 +324,8 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
             size_t used = 0;
             for (size_t index = options.first; index < options.second; ++index) {
                 const auto &word = lexicon.words[index];
-                if (!reading.matches(word, start, end)) continue;
+                if ((!corrections && lexicon.pinyin && !fullPinyin(word.reading())) ||
+                    !reading.matches(word, start, end)) continue;
                 // Compiler weights are already log-frequency priors. Logging them again
                 // erases the distinction between common phrases and rare fragments.
                 const double score = static_cast<double>(word.weight) / 700.0 - 19.0;
@@ -333,6 +352,7 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
         }
     }
     for (const auto &path : suffixes[0]) {
+        if (credible && path.score < suffixes[0].front().score - 1.4) break;
         append(path.text);
         if (results.size() == candidate_limit) break;
     }
@@ -343,30 +363,95 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
 struct MPNLexicon { std::shared_ptr<const Lexicon> value; };
 struct MPNSession {
     std::shared_ptr<const Lexicon> lexicon;
-    std::string input, preedit, committed;
+    std::string input, preedit, committed, exact;
     std::vector<std::string> candidates;
     std::vector<size_t> consumed;
     size_t page = 0;
+    size_t sentence_count = 0;
+    size_t literal_tail = 0;
     bool hans = false;
+    bool require_full_candidate = false;
 
     void reset() {
         input.clear();
         preedit.clear();
         candidates.clear();
         consumed.clear();
-        page = 0;
+        page = sentence_count = literal_tail = 0;
     }
 
     void refresh() {
         std::string marked;
         if (lexicon->pinyin) marked = input;
         else for (char key : input) marked += symbols[keys.find(key)];
-        auto ranked = decode(*lexicon, input, hans);
+        const bool ordered_pinyin = require_full_candidate && lexicon->pinyin;
+        sentence_count = literal_tail = 0;
+        auto ranked = decode(*lexicon, input, hans, !ordered_pinyin, ordered_pinyin);
         consumed.assign(ranked.size(), input.size());
-        if (ranked.empty()) {
+        if (ranked.empty() && (!require_full_candidate || !lexicon->pinyin)) {
             for (auto &item : fallback(*lexicon, input, hans)) {
                 ranked.push_back(std::move(item.text));
                 consumed.push_back(item.consumed);
+            }
+        }
+        if (require_full_candidate && lexicon->pinyin && !input.empty()) {
+            // Keep only useful whole-composition alternatives before local word choices.
+            ranked.resize(std::min(ranked.size(), size_t(3)));
+            consumed.resize(ranked.size());
+            auto append = [&](std::string_view text, size_t count) {
+                if (std::find(ranked.begin(), ranked.end(), text) == ranked.end()) {
+                    ranked.emplace_back(text);
+                    consumed.push_back(count);
+                }
+            };
+            if (ranked.empty()) {
+                // Probe a bounded trailing portion while the next syllable is incomplete.
+                std::string whole = input;
+                literal_tail = input.size();
+                for (size_t tail = 1; tail <= 16 && tail < input.size(); ++tail) {
+                    auto head = decode(*lexicon, std::string_view(input).substr(0, input.size() - tail), hans, false);
+                    if (!head.empty()) {
+                        whole = head.front() + input.substr(input.size() - tail);
+                        literal_tail = tail;
+                        break;
+                    }
+                }
+                append(whole, input.size());
+            }
+            sentence_count = ranked.size();
+            for (bool words : {true, false}) {
+                const size_t limit = ranked.size() + 4;
+                for (size_t length = std::min(input.size() - 1, lexicon->longest);
+                     length && ranked.size() < limit; --length) {
+                    const Reading prefix(std::string_view(input).substr(0, length), true);
+                    if (prefix.sounds.empty()) continue;
+                    const auto range = lexicon->range(prefix.sounds);
+                    for (size_t i = range.first; i < range.second && ranked.size() < limit; ++i) {
+                        const auto &word = lexicon->words[i];
+                        if (!prefix.matches(word, 0, prefix.sounds.size())) continue;
+                        const auto text = word.text(hans);
+                        const auto characters = std::count_if(text.begin(), text.end(),
+                            [](unsigned char ch) { return (ch & 0xc0) != 0x80; });
+                        if ((characters > 1) == words) append(text, length);
+                    }
+                }
+            }
+            append(input, input.size());
+            for (const auto &item : fallback(*lexicon, input, hans, false))
+                append(item.text, input.size());
+        } else if (require_full_candidate && !input.empty()) {
+            if (ranked.empty() && (!require_full_candidate || !lexicon->pinyin)) {
+                ranked.push_back(marked);
+                consumed.push_back(input.size());
+            } else if (consumed.front() < input.size()) {
+                const auto remainder = std::string_view(input).substr(consumed.front());
+                const auto converted = decode(*lexicon, remainder, hans);
+                std::string sentence = ranked.front();
+                if (!converted.empty()) sentence += converted.front();
+                else if (lexicon->pinyin) sentence += remainder;
+                else for (char key : remainder) sentence += symbols[keys.find(key)];
+                ranked.insert(ranked.begin(), std::move(sentence));
+                consumed.insert(consumed.begin(), input.size());
             }
         }
         preedit.swap(marked);
@@ -394,6 +479,11 @@ MPNSession *mpn_session_create(const MPNLexicon *lexicon) {
     } catch (...) { return nullptr; }
 }
 void mpn_session_destroy(MPNSession *session) { delete session; }
+
+void mpn_require_full_candidate(MPNSession *session) {
+    session->require_full_candidate = true;
+    try { session->refresh(); } catch (...) { session->reset(); }
+}
 
 void mpn_set_simplified(MPNSession *session, int simplified) {
     if (session->hans == (simplified != 0)) return;
@@ -462,6 +552,20 @@ int mpn_key(MPNSession *session, int32_t key) {
     }
 }
 
+const char *mpn_exact_pinyin(MPNSession *session, const char *reading) {
+    session->exact.clear();
+    if (!session->lexicon->pinyin || !reading || std::string_view(reading).size() > max_input)
+        return session->exact.c_str();
+    try {
+        auto words = decode(*session->lexicon, reading, session->hans, false);
+        if (!words.empty()) session->exact = std::move(words.front());
+    } catch (...) {}
+    return session->exact.c_str();
+}
+size_t mpn_candidate_consumed(const MPNSession *session, size_t index) {
+    return index < session->consumed.size() ? session->consumed[index] : 0;
+}
+
 const char *mpn_input(const MPNSession *session) { return session->input.c_str(); }
 const char *mpn_preedit(const MPNSession *session) { return session->preedit.c_str(); }
 const char *mpn_committed(const MPNSession *session) { return session->committed.c_str(); }
@@ -471,3 +575,6 @@ const char *mpn_candidate(const MPNSession *session, size_t index) {
     return index < session->candidates.size() ? session->candidates[index].c_str() : "";
 }
 size_t mpn_page(const MPNSession *session) { return session->page; }
+
+size_t mpn_sentence_count(const MPNSession *session) { return session->sentence_count; }
+size_t mpn_literal_tail(const MPNSession *session) { return session->literal_tail; }
