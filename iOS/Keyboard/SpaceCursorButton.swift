@@ -56,6 +56,9 @@ import SwiftUI
 
 private final class AccessibleSpaceButton: UIButton {
     var activate: (() -> Void)?
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? UIColor.label.withAlphaComponent(0.12) : .clear }
+    }
     override func accessibilityActivate() -> Bool {
         activate?()
         return true
@@ -74,7 +77,7 @@ struct SpaceCursorButton: UIViewRepresentable {
         init(tap: @escaping () -> Void, beginCursor: @escaping () -> Void, move: @escaping (Int) -> Void) {
             driver = SpaceCursorDriver(tap: tap, beginCursor: beginCursor, move: move)
         }
-        @objc func touchDown() { driver.touchDown() }
+        @objc func touchDown() { UIDevice.current.playInputClick(); driver.touchDown() }
         @objc func touchUp() { driver.touchUpInside() }
         @objc func cancelTouch() { driver.cancelTouch() }
         @objc func accessibilityLeft(_ action: UIAccessibilityCustomAction) -> Bool { driver.accessibilityMove(-1); return true }
@@ -94,6 +97,7 @@ struct SpaceCursorButton: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIButton {
         let button = AccessibleSpaceButton(type: .system)
+        button.layer.cornerRadius = 8
         button.titleLabel?.font = .systemFont(ofSize: 15)
         button.titleLabel?.lineBreakMode = .byTruncatingTail
         button.accessibilityLabel = "空格"

@@ -11,14 +11,17 @@ final class ChoiceMemory: ObservableObject {
     static let shared = ChoiceMemory()
     @Published private(set) var records: [String: [RememberedChoice]] = [:]
     @Published private(set) var error = ""
+    // Allows the active composition to reflect an explicit preference change
+    // or a clear operation without storing or copying any user text elsewhere.
+    private(set) var revision: UInt64 = 0
     private let file = Preferences.directory.appendingPathComponent("ChoiceMemory.json")
     // Bound local history: eight alternatives per reading, 500 distinct readings.
     private let readingLimit = 5000
     private let choiceLimit = 8
     init() { reload() }
     func reload() {
-        guard FileManager.default.fileExists(atPath: file.path) else { records = [:]; return }
-        do { records = try JSONDecoder().decode([String: [RememberedChoice]].self, from: Data(contentsOf: file)); error = "" }
+        guard FileManager.default.fileExists(atPath: file.path) else { records = [:]; revision &+= 1; return }
+        do { records = try JSONDecoder().decode([String: [RememberedChoice]].self, from: Data(contentsOf: file)); revision &+= 1; error = "" }
         catch { self.error = "选词记录读取失败，已保留原文件。" }
     }
     func remember(_ selections: [(reading: String, text: String)]) {
@@ -40,6 +43,7 @@ final class ChoiceMemory: ObservableObject {
             let oldest = records.min { ($0.value.map(\.lastUsed).max() ?? 0) < ($1.value.map(\.lastUsed).max() ?? 0) }?.key
             if let oldest { records.removeValue(forKey: oldest) }
         }
+        revision &+= 1
         save()
     }
     private static func rank(_ left: RememberedChoice, _ right: RememberedChoice) -> Bool {
@@ -60,8 +64,8 @@ final class ChoiceMemory: ObservableObject {
         guard Preferences.shared.rememberChoices else { return [] }
         return (records[reading] ?? []).filter { $0.uses >= 2 && $0.text.count <= 8 && $0.text.unicodeScalars.allSatisfy { (0x3400...0x9fff).contains($0.value) } }.sorted(by: Self.rank).map(\.text)
     }
-    func forget(_ reading: String) { records.removeValue(forKey: reading); save() }
-    func clear() { records = [:]; error = ""; save() }
+    func forget(_ reading: String) { if records.removeValue(forKey: reading) != nil { revision &+= 1; save() } }
+    func clear() { records = [:]; revision &+= 1; error = ""; save() }
     private let writer = DispatchQueue(label: "app.meowpuut.memory", qos: .utility)
     private var pendingSave: DispatchWorkItem?
     @discardableResult private func persist(_ snapshot: [String: [RememberedChoice]]) -> Bool {

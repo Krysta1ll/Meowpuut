@@ -44,7 +44,7 @@ func runIndependentSmoke() -> Never {
     check(engine.isReady, "自研注音核心載入")
     func type(_ value: String) { for key in value.utf8 { engine.key(Int32(key)) } }
     let physicalCharacters: [UInt16: (String, String)] = [
-        44: ("/", "?"), 42: ("\\", "|"), 27: ("-", "_"), 39: ("'", "\""),
+        44: ("/", "?"), 42: ("\\", "|"), 27: ("-", "_"), 39: ("'", "\""), 41: (";", ":"),
         29: ("0", ")"), 18: ("1", "!"), 19: ("2", "@"), 20: ("3", "#"),
         21: ("4", "$"), 23: ("5", "%"), 22: ("6", "^"), 26: ("7", "&"),
         28: ("8", "*"), 25: ("9", "(")
@@ -110,7 +110,96 @@ func runIndependentSmoke() -> Never {
     let overflowReading = String(repeating: "su3cl3", count: 44)
     for key in overflowReading.utf8 { engine.key(Int32(key)); overflowText += engine.takeCommit() }
     engine.key(0xff0d, modifiers: 1); overflowText += engine.takeCommit()
-    check(!overflowText.isEmpty && overflowText.hasSuffix(String(overflowReading.suffix(8))), "超出組字上限後仍接收後續按鍵")
+    let limit = Int(mpn_max_input_bytes())
+    let zhuyinSymbols: [Character: String] = ["s": "ㄋ", "u": "ㄧ", "3": "ˇ", "c": "ㄏ", "l": "ㄠ"]
+    let originalPrefix = overflowReading.prefix(limit).map { zhuyinSymbols[$0] ?? String($0) }.joined()
+    check(overflowText.hasPrefix(originalPrefix) && overflowText.hasSuffix(String(overflowReading.suffix(8))),
+          "超出上限保留原注音並接收後續按鍵")
+
+    // Exercise the platform-neutral wrapper directly without consuming each
+    // snapshot: committed readings must survive replay, selection and cancel.
+    do {
+        func atLimit(_ mode: InputMode, key: UInt8, count: Int? = nil,
+                     literalSpaceAddsSpace: Bool = true) throws -> ChineseWithJapaneseBackend {
+            let backend = try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: literalSpaceAddsSpace)
+            for _ in 0..<(count ?? limit) { _ = backend.key(Int32(key), modifiers: 0) }
+            return backend
+        }
+        let rawPinyin = String(repeating: "v", count: limit)
+        let rawZhuyin = String(repeating: "ㄋ", count: limit)
+        for simplified in [false, true] {
+            let pinyin = try atLimit(.pinyin, key: 118)
+            pinyin.setSimplified(simplified)
+            _ = pinyin.key(110, modifiers: 0); _ = pinyin.key(105, modifiers: 0)
+            let pinyinState = pinyin.snapshot()
+            check(pinyinState.commit == rawPinyin && pinyinState.input == "ni" && pinyin.snapshot().commit.isEmpty,
+                  "拼音滿長度保留原讀音、續打且只上屏一次")
+            let zhuyin = try atLimit(.zhuyin, key: 115)
+            zhuyin.setSimplified(simplified)
+            _ = zhuyin.key(117, modifiers: 0); _ = zhuyin.key(51, modifiers: 0)
+            let zhuyinState = zhuyin.snapshot()
+            check(zhuyinState.commit == rawZhuyin && zhuyinState.input == "u3" && zhuyin.snapshot().commit.isEmpty,
+                  "注音滿長度保留原讀音、續打帶調且只上屏一次")
+        }
+        let pinyinTone = try atLimit(.pinyin, key: 118)
+        _ = pinyinTone.key(49, modifiers: 0)
+        let pinyinToneState = pinyinTone.snapshot()
+        check(pinyinToneState.commit == rawPinyin + "1" && pinyinToneState.input.isEmpty, "拼音上限的聲調接在原讀音後")
+        let zhuyinTone = try atLimit(.zhuyin, key: 115)
+        _ = zhuyinTone.key(54, modifiers: 0)
+        let zhuyinToneState = zhuyinTone.snapshot()
+        check(zhuyinToneState.commit == rawZhuyin + "ˊ" && zhuyinToneState.input.isEmpty, "注音上限的聲調接在原讀音後")
+        let zhuyinSpace = try atLimit(.zhuyin, key: 115)
+        _ = zhuyinSpace.key(32, modifiers: 0)
+        let zhuyinSpaceState = zhuyinSpace.snapshot()
+        check(zhuyinSpaceState.commit == rawZhuyin + "ˉ" && zhuyinSpaceState.input.isEmpty, "注音上限的一聲不會丟失")
+        for mode in [InputMode.pinyin, .zhuyin] {
+            let separator = try atLimit(mode, key: mode == .pinyin ? 118 : 115)
+            _ = separator.key(39, modifiers: 0)
+            let separatorState = separator.snapshot()
+            check(separatorState.commit == (mode == .pinyin ? rawPinyin + "'" : rawZhuyin + " ") && separatorState.input.isEmpty,
+                  "拼音和注音上限的分隔符不會丟失")
+        }
+        for addsSpace in [false, true] {
+            let space = try atLimit(.pinyin, key: 118, literalSpaceAddsSpace: addsSpace)
+            _ = space.key(32, modifiers: 0)
+            check(space.snapshot().commit == rawPinyin + (addsSpace ? " " : ""), "滿長度保留各平台拼音空格設定")
+        }
+        let pending = try atLimit(.pinyin, key: 118, count: 2 * limit)
+        _ = pending.key(118, modifiers: 0)
+        let pendingState = pending.snapshot()
+        check(pendingState.commit == rawPinyin + rawPinyin && pendingState.input == "v", "兩次上限切段保留尚未交付的文字")
+        let cancel = try atLimit(.pinyin, key: 118)
+        _ = cancel.key(110, modifiers: 0); _ = cancel.key(0xff1b, modifiers: 0)
+        let cancelState = cancel.snapshot()
+        check(cancelState.commit == rawPinyin && cancelState.input.isEmpty, "取消新組字不會丟棄已切段原文")
+        let noCandidate = try atLimit(.pinyin, key: 118)
+        for _ in 0..<6 { _ = noCandidate.key(118, modifiers: 0) }
+        check(noCandidate.candidates(limit: 1).isEmpty, "滿長度後仍可辨識無候選的後綴")
+        noCandidate.commit()
+        let noCandidateState = noCandidate.snapshot()
+        check(noCandidateState.commit == rawPinyin + "vvvvvv" && noCandidateState.input.isEmpty,
+              "確認無候選後綴保留先前未交付的原讀音")
+        let choice = try atLimit(.pinyin, key: 118)
+        _ = choice.key(110, modifiers: 0); _ = choice.key(105, modifiers: 0)
+        if let candidate = choice.candidates(limit: 256).first(where: { $0.text == "你" }) {
+            _ = choice.choose(candidate.index)
+            let choiceState = choice.snapshot()
+            check(choiceState.commit == rawPinyin + "你" && choiceState.input.isEmpty, "選擇後綴候選不會覆蓋已切段原文")
+        } else { check(false, "切段後可選後綴候選") }
+        let locked = try ChineseWithJapaneseBackend(mode: .zhuyin)
+        for key in "su3cl3v".utf8 { _ = locked.key(Int32(key), modifiers: 0) }
+        if let candidate = locked.candidates(limit: 256).first(where: { $0.text == "你好" }) {
+            _ = locked.choose(candidate.index)
+            let selected = locked.snapshot()
+            check(selected.commit == "你好" && selected.input == "v", "注音部分選詞保留剩餘組字")
+            for _ in 1..<limit { _ = locked.key(118, modifiers: 0) }
+            _ = locked.key(117, modifiers: 0); _ = locked.key(51, modifiers: 0)
+            let lockedState = locked.snapshot()
+            check(lockedState.commit == String(repeating: "ㄒ", count: limit) && lockedState.input == "u3",
+                  "注音部分選詞後滿長度仍保留讀音與新鍵")
+        } else { check(false, "注音部分選詞候選可用") }
+    } catch { check(false, "組字上限測試引擎可載入") }
 
     engine.clear(); engine.selectMode(.zhuyin); type("su3cl3"); engine.key(60, modifiers: 1)
     check(engine.takeCommit() == "你好，", "注音接中文逗號並上屏")
@@ -156,13 +245,37 @@ func runIndependentSmoke() -> Never {
     engine.key(0xff1b); check(engine.snapshot.preedit.isEmpty, "取消後清空輸入欄")
     engine.selectMode(.zhuyin); type("su3cl3")
     check(engine.snapshot.candidates.first == "你好" && engine.candidateShortcut(0) == "⇧1", "注音數字仍作聲調")
+    engine.clear(); type("su"); engine.key(32)
+    check(engine.snapshot.input == "su " && engine.takeCommit().isEmpty, "注音空格仍輸入一聲，不提早選詞")
     engine.clear(); engine.selectMode(.pinyin); type("nadoushi")
     check(engine.snapshot.candidates.first == "那都是" && !engine.snapshot.literalCandidate, "拼音詞中ous不誤判英文")
-    engine.key(32); check(engine.takeCommit() == "nadoushi ", "拼音空格保留原文及空格")
+    engine.key(32); check(engine.takeCommit() == "那都是", "拼音空格選中第一候選")
     type("emoji"); check(engine.snapshot.candidates.first == "emoji", "emoji英文優先")
-    engine.key(32); check(engine.takeCommit() == "emoji ", "英文詞接空格")
+    engine.key(32); check(engine.takeCommit() == "emoji", "macOS 拼音空格保留英文不加空格")
     engine.clear(); type("nihao"); engine.key(32)
-    check(engine.takeCommit() == "nihao ", "有中文候選時空格仍保留拼音原文")
+    check(engine.takeCommit() == "你好", "拼音空格選中中文候選")
+    engine.clear(); type("sushi")
+    engine.key(0xff54)
+    let highlighted = engine.snapshot.candidates[engine.snapshot.highlighted]
+    engine.key(32)
+    check(engine.takeCommit() == highlighted, "拼音空格選中目前高亮的候選")
+    engine.clear(); type("nihaox")
+    if let prefix = engine.snapshot.candidates.firstIndex(of: "你好") {
+        let details = engine.snapshot.candidateDetails
+        check(details.count == engine.snapshot.candidates.count && details[prefix].text == "你好" &&
+              details[prefix].source == 0 && details[prefix].backendIndex != nil &&
+              details[prefix].metadata?.remainingInput == "x", "拼音候選保留後端索引與原始尾碼")
+        engine.snapshot.highlighted = prefix
+        engine.key(32)
+        check(engine.takeCommit() == "你好" && engine.snapshot.input == "x", "空格選取部分詞組時保留未完成讀音")
+    } else { check(false, "空格部分詞組候選可用") }
+    engine.clear(); type("vvvvvv"); engine.key(32)
+    check(engine.takeCommit() == "vvvvvv", "無候選時空格保留原文且不加空格")
+    if let defaultSpace = try? ChineseWithJapaneseBackend(mode: .pinyin) {
+        for key in "nihao".utf8 { _ = defaultSpace.key(Int32(key), modifiers: 0) }
+        _ = defaultSpace.key(32, modifiers: 0)
+        check(defaultSpace.snapshot().commit == "nihao ", "共用引擎保留其他平台的原有空格行為")
+    } else { check(false, "共用引擎可載入") }
     engine.clear(); type("nihao"); engine.key(0xff0d)
     check(engine.takeCommit() == "你好", "Enter仍確認中文")
     for (input, kana) in [("a", "あ"), ("ka", "か"), ("shi", "し"), ("n", "ん"), ("xa", "ぁ")] {
@@ -183,7 +296,7 @@ func runIndependentSmoke() -> Never {
         let kana = Romaji.reading(input)
         check(engine.snapshot.requiredCandidate != nil && engine.snapshot.japaneseCandidates.contains(kana), "完整羅馬音標記 " + input)
         let visible = collapsedCandidateIndices(engine.snapshot)
-        check(visible.contains { engine.snapshot.candidates[$0] == engine.snapshot.requiredCandidate }, "日語候選收合可見 " + input)
+        check(visible.contains { compactCandidateText(engine.snapshot, at: $0) == engine.snapshot.requiredCandidate }, "日語候選收合可見 " + input)
         if let index = engine.snapshot.candidates.firstIndex(of: kana) {
             engine.choose(index)
             check(engine.takeCommit() == kana, "貓爪不隨文字上屏 " + input)
@@ -212,10 +325,95 @@ func runIndependentSmoke() -> Never {
     for input in ["wo", "muao", "sushi"] {
         engine.clear(); engine.selectMode(.pinyin); type(input)
         let visible = collapsedCandidateIndices(engine.snapshot)
-        if let last = visible.last {
-            check(engine.snapshot.japaneseCandidates.contains(engine.snapshot.candidates[last]), "收合日語固定最右 " + input)
+        check((!engine.snapshot.candidates.contains(where: { engine.snapshot.japaneseCandidates.contains($0) }) && engine.snapshot.compactJapanese == nil) ||
+              visible.contains(where: { compactCandidateText(engine.snapshot, at: $0).map(engine.snapshot.japaneseCandidates.contains) ?? false }),
+              "收合保留日語候選 " + input)
+    }
+    let shownOrder = Snapshot(candidates: ["感", "乾", "がん", "敢", "趕", "柑", "ガン"], japaneseCandidates: ["がん", "ガン"])
+    let shownIndices = collapsedCandidateIndices(shownOrder)
+    check(shownIndices.contains(2) && shownIndices == shownIndices.sorted() &&
+          shownIndices.filter { shownOrder.japaneseCandidates.contains(shownOrder.candidates[$0]) }.count == 1,
+          "收合保留日語並遵循引擎次序")
+    check(shownIndices.firstIndex(of: 2).map { $0 < shownIndices.count - 1 } == true,
+          "收合日語不固定排在最後")
+    let laterJapanese = Snapshot(candidates: ["甲", "乙", "丙", "丁", "戊", "己", "庚"],
+        japaneseCandidates: ["寿司"], compactJapanese: IndexedCandidate(index: 9, text: "寿司", source: 1))
+    let laterIndices = collapsedCandidateIndices(laterJapanese)
+    let laterSlot = laterJapanese.candidates.count
+    check(laterIndices.contains(laterSlot) && compactCandidateText(laterJapanese, at: laterSlot) == "寿司" &&
+          laterIndices.filter { $0 < laterSlot }.count == collapsedCandidateIndices(Snapshot(candidates: laterJapanese.candidates)).count,
+          "收合保留後頁日語且不減少中文")
+    if let position = laterIndices.firstIndex(of: laterSlot) {
+        check(collapsedCandidateShortcut(laterJapanese, key: Int32(49 + position), modifiers: 0, shifted: false, english: false) == .choose(laterSlot),
+              "後頁日語快捷鍵對應收合候選")
+    } else { check(false, "後頁日語快捷鍵對應收合候選") }
+    for (ordinal, expected) in shownIndices.enumerated() {
+        check(collapsedCandidateShortcut(shownOrder, key: Int32(49 + ordinal), modifiers: 0, shifted: false, english: false) == .choose(expected),
+              "收合拼音顯示序號對應候選 \(ordinal + 1)")
+        let shiftedKey = Int32(Array("!@#$%^&".utf8)[ordinal])
+        check(collapsedCandidateShortcut(shownOrder, key: shiftedKey, modifiers: 1, shifted: true, english: false) == .choose(expected),
+              "收合注音顯示序號對應候選 \(ordinal + 1)")
+        var navigating = shownOrder
+        navigating.highlighted = expected
+        check(collapsedCandidateMove(navigating, key: 0xff09, modifiers: 0) == shownIndices[(ordinal + 1) % shownIndices.count] &&
+              collapsedCandidateMove(navigating, key: 0xff52, modifiers: 0) == shownIndices[(ordinal + shownIndices.count - 1) % shownIndices.count] &&
+              collapsedCandidateMove(navigating, key: 0xff09, modifiers: 1) == shownIndices[(ordinal + shownIndices.count - 1) % shownIndices.count],
+              "收合方向選擇遵循可見順序 \(ordinal + 1)")
+    }
+    check(collapsedCandidateShortcut(shownOrder, key: 49, modifiers: 0, shifted: false, english: true) == .pass &&
+          collapsedCandidateShortcut(shownOrder, key: 49, modifiers: 0, shifted: true, english: false) == .pass &&
+          collapsedCandidateShortcut(shownOrder, key: 33, modifiers: 1, shifted: false, english: false) == .pass,
+          "英文與注音聲調及拼音聲調不攔截")
+    let hiddenOrder = Snapshot(candidates: ["長詞一二三四五六", "長詞七八九十", "長詞其他", "長詞四", "長詞五", "長詞六", "長詞七"])
+    let hiddenCount = collapsedCandidateIndices(hiddenOrder).count
+    check(hiddenCount < 7 && collapsedCandidateShortcut(hiddenOrder, key: Int32(49 + hiddenCount), modifiers: 0, shifted: false, english: false) == .expand,
+          "未顯示候選的數字先展開避免誤選")
+    for input in ["gan", "jixu", "suki"] {
+        engine.clear(); engine.selectMode(.pinyin); type(input)
+        let snapshot = engine.snapshot
+        let visible = collapsedCandidateIndices(snapshot)
+        let japaneseVisible = visible.filter { compactCandidateText(snapshot, at: $0).map(snapshot.japaneseCandidates.contains) ?? false }
+        check(japaneseVisible.count == (snapshot.compactJapanese != nil || snapshot.candidates.contains(where: { snapshot.japaneseCandidates.contains($0) }) ? 1 : 0) &&
+              visible == visible.sorted(), "真實拼音收合保留日語並遵循引擎次序 \(input)")
+        if let position = japaneseVisible.first.flatMap({ visible.firstIndex(of: $0) }) {
+            let expected = compactCandidateText(snapshot, at: visible[position]) ?? ""
+            if case .choose(let index) = collapsedCandidateShortcut(snapshot, key: Int32(49 + position), modifiers: 0, shifted: false, english: false) {
+                if index == snapshot.candidates.count { engine.chooseCompactJapanese() } else { engine.choose(index) }
+                check(engine.takeCommit() == expected, "真實日語按可見序號上屏 \(input)")
+            } else { check(false, "真實日語按可見序號上屏 \(input)") }
         }
     }
+    engine.clear(); engine.selectMode(.pinyin); type("gan")
+    let arrowSnapshot = engine.snapshot
+    let arrowVisible = collapsedCandidateIndices(arrowSnapshot)
+    if let target = collapsedCandidateMove(arrowSnapshot, key: 0xff52, modifiers: 0), arrowVisible.last == target {
+        let expected = compactCandidateText(arrowSnapshot, at: target) ?? ""
+        engine.snapshot.highlighted = target
+        if target == arrowSnapshot.candidates.count { engine.chooseCompactJapanese() } else { engine.key(0xff0d) }
+        check(engine.takeCommit() == expected, "收合上鍵高亮末項後 Enter 選中同一詞")
+    } else { check(false, "收合上鍵高亮末項後 Enter 選中同一詞") }
+    // Punctuation and mode switches finish the highlighted candidate inside
+    // Engine, without passing through the macOS compact-row shortcut handler.
+    for toggle in [false, true] {
+        engine.clear(); engine.english = false; engine.selectMode(.pinyin); type("gan")
+        if let candidate = engine.snapshot.compactJapanese {
+            engine.snapshot.highlighted = engine.snapshot.candidates.count
+            if toggle { engine.key(Engine.toggleEnglishKey) } else { engine.key(44) }
+            let expected = candidate.text + (toggle ? "" : "，")
+            check(engine.takeCommit() == expected && engine.snapshot.input.isEmpty && (!toggle || engine.english),
+                  toggle ? "高亮頁外日語後切中英提交同一候選" : "高亮頁外日語後輸入標點提交同一候選")
+        } else { check(false, "頁外日語候選可供完成組字測試") }
+    }
+    engine.english = false
+    engine.clear(); engine.selectMode(.zhuyin); type("su3cl3")
+    if case .choose(let target) = collapsedCandidateShortcut(engine.snapshot, key: 33, modifiers: 1, shifted: true, english: false) {
+        engine.choose(target)
+        check(engine.takeCommit() == "你好", "注音收合 Shift 加可見序號實際上屏")
+    } else { check(false, "注音收合 Shift 加可見序號實際上屏") }
+    engine.clear(); engine.selectMode(.pinyin); type("shi"); engine.key(0xff56)
+    let expandedFirst = engine.snapshot.candidates.first ?? ""
+    engine.key(49)
+    check(!expandedFirst.isEmpty && engine.takeCommit() == expandedFirst, "展開翻頁數字仍按頁內原順序上屏")
     var tap = ShiftTapTracker()
     check(!tap.update(keyCode: 56, modifierEvent: true, shift: true, other: false)
         && tap.update(keyCode: 56, modifierEvent: true, shift: false, other: false), "單按Shift釋放切換一次")
@@ -225,14 +423,32 @@ func runIndependentSmoke() -> Never {
     _ = tap.update(keyCode: 60, modifierEvent: true, shift: true, other: false)
     _ = tap.update(keyCode: 55, modifierEvent: true, shift: true, other: true)
     check(!tap.update(keyCode: 60, modifierEvent: true, shift: false, other: false), "Shift組合快捷鍵不切換")
-    let alternating = interleaveLanguages(["強一", "強二", "弱一", "弱二", "日一", "日二", "日三"],
-        japanese: { $0.hasPrefix("日") }, strong: { $0.hasPrefix("強") })
-    check(alternating == ["強一", "強二", "日一", "弱一", "日二", "弱二", "日三"], "日語與低置信中文交替")
+    var inferredTap = ShiftTapTracker()
+    check(!inferredTap.update(keyCode: 0, modifierEvent: true, shift: true, other: false)
+        && inferredTap.update(keyCode: 0, modifierEvent: true, shift: false, other: false), "無實體鍵碼的 Shift 事件可切換")
+    var mixedTap = ShiftTapTracker()
+    check(!mixedTap.update(keyCode: 60, modifierEvent: true, shift: true, other: false)
+        && mixedTap.update(keyCode: 0, modifierEvent: true, shift: false, other: false), "Shift 釋放事件缺鍵碼仍可切換")
+    var shortcutTap = ShiftTapTracker()
+    _ = shortcutTap.update(keyCode: 0, modifierEvent: true, shift: true, other: false)
+    _ = shortcutTap.update(keyCode: 12, modifierEvent: false, shift: true, other: false)
+    check(!shortcutTap.update(keyCode: 0, modifierEvent: true, shift: false, other: false), "缺鍵碼的 Shift 組合鍵不誤切換")
+    engine.clear(); engine.selectMode(.pinyin); engine.english = false
+    engine.key(Engine.toggleEnglishKey)
+    engine.key(Int32(Character("a").asciiValue!))
+    check(engine.english && engine.takeCommit() == "a", "切換英文後直接輸入字母")
+    engine.key(Engine.toggleEnglishKey); type("nihao")
+    check(!engine.english && engine.snapshot.candidates.first == "你好", "再次切換回拼音")
+    if let expandedBackend = try? ChineseWithJapaneseBackend(mode: .pinyin) {
+        engine.clear(); engine.selectMode(.pinyin); type("gan")
+        for byte in "gan".utf8 { _ = expandedBackend.key(Int32(byte), modifiers: 0) }
+        check(engine.snapshot.candidates == expandedBackend.snapshot().candidates, "展開候選保留後端排序")
+    } else { check(false, "展開候選排序引擎可載入") }
     for input in ["a", "sushi", "watashihaneko"] {
         engine.clear(); type(input)
         let snapshot = engine.snapshot
         let visible = collapsedCandidateIndices(snapshot)
-        check(visible.filter { snapshot.japaneseCandidates.contains(snapshot.candidates[$0]) }.count == 1, "收合只顯示一個日語 " + input)
+        check(visible.filter { compactCandidateText(snapshot, at: $0).map(snapshot.japaneseCandidates.contains) ?? false }.count == 1, "收合只顯示一個日語 " + input)
         var japanese = Set(snapshot.candidates.filter { snapshot.japaneseCandidates.contains($0) })
         for _ in 0..<40 where japanese.count < 2 && !engine.snapshot.lastPage {
             engine.key(0xff56)
@@ -244,7 +460,161 @@ func runIndependentSmoke() -> Never {
     check(engine.snapshot.requiredCandidate == nil, "不完整羅馬音不強制日語候選")
     expect(.japanese, "sora", "空")
     expect(.japanese, "me", "目")
+    for (input, expected) in [("oshikatsu", "推し活"), ("tuishihuo", "推し活"), ("seiyuu", "声優"), ("seiyu", "声優"),
+                              ("doujinshi", "同人誌"), ("haishin", "配信"), ("utaite", "歌い手"),
+                              ("shiawase", "幸せ"), ("bangumi", "番組")] {
+        expect(.japanese, input, expected)
+    }
+    engine.clear(); engine.selectMode(.pinyin); type("woxihuanseiyuu")
+    check(engine.snapshot.candidates.contains("我喜歡声優"), "新增日語詞可用於中日混合長句")
+    engine.clear(); type("tuishihuo")
+    check(engine.snapshot.candidates.contains("推し活") && engine.snapshot.japaneseCandidates.contains("推し活"), "拼音別寫可選標記日語的推し活")
+    let oshiVisible = collapsedCandidateIndices(engine.snapshot)
+    let oshiJapanese = oshiVisible.filter { compactCandidateText(engine.snapshot, at: $0).map(engine.snapshot.japaneseCandidates.contains) ?? false }
+    check(oshiJapanese.count == 1 && oshiVisible == oshiVisible.sorted(), "推し活候選收合保留一個日語並遵循引擎次序")
+    if engine.snapshot.candidates.contains(where: { !engine.snapshot.japaneseCandidates.contains($0) && $0.unicodeScalars.contains { (0x4e00...0x9fff).contains(Int($0.value)) } }), let first = oshiVisible.first {
+        check(!engine.snapshot.japaneseCandidates.contains(engine.snapshot.candidates[first]), "推し活別寫有中文時中文優先")
+    }
+    engine.clear(); type("woxihuantuishihuo")
+    check(engine.snapshot.candidates.contains("我喜歡推し活"), "推し活別寫可用於中日混合句")
+    Preferences.shared.simplified = true; engine.modeChanged()
+    engine.clear(); type("woxihuantuishihuo")
+    check(engine.snapshot.candidates.contains("我喜欢推し活"), "推し活別寫可用於簡體中日混合句")
+    Preferences.shared.simplified = false; engine.modeChanged()
     expect(.zhuyin, "u. cj84", "優化")
+    engine.clear(); engine.selectMode(.pinyin)
+    Preferences.shared.rememberChoices = true
+    ChoiceMemory.shared.forget("py:t:bang")
+    for _ in 0..<15 { ChoiceMemory.shared.remember([("py:t:bang", "浜")]) }
+    engine.clear(); type("bang")
+    check(engine.snapshot.candidates.first == "浜", "個人選詞仍可提升較少用的字")
+    let savedBangUses = ChoiceMemory.shared.records["py:t:bang"]?.first?.uses
+    Preferences.shared.rememberChoices = false; engine.refresh()
+    check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == "幫", "停用記憶即時恢復常用字且保留組字")
+    check(ChoiceMemory.shared.records["py:t:bang"]?.first?.uses == savedBangUses, "停用記憶不刪除個人記錄")
+    Preferences.shared.rememberChoices = true; engine.refresh()
+    check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == "浜", "重新啟用記憶可即時恢復個人選詞")
+    ChoiceMemory.shared.forget("py:t:bang"); engine.refresh()
+    check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == "幫", "清除記錄即時更新候選")
+    engine.clear(); type("nihao"); engine.choose(0)
+    Preferences.shared.rememberChoices = false; engine.refresh(); engine.refresh()
+    let queuedCommit = engine.takeCommit()
+    check(queuedCommit == "你好" && engine.takeCommit().isEmpty, "記憶刷新不遺失或重複待上屏文字")
+    engine.clear(); type("nihaox")
+    let prefixIndex = engine.snapshot.candidates.firstIndex(of: "你好")
+    check(prefixIndex != nil, "未完成後綴保留可選詞組")
+    if let prefixIndex {
+        engine.choose(prefixIndex)
+        Preferences.shared.rememberChoices = true; engine.refresh(); engine.refresh()
+        let partialCommit = engine.takeCommit()
+        check(partialCommit == "你好" && engine.takeCommit().isEmpty && engine.snapshot.input == "x", "記憶刷新保留部分上屏和未完成後綴")
+        engine.key(Int32(Character("i").asciiValue!))
+        check(engine.snapshot.input == "xi", "記憶刷新後可繼續輸入後綴")
+    }
+    // Learn only the selected reading, not the unfinished suffix. The test
+    // preferences and memory directory are isolated by the --smoke flag.
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        Preferences.shared.rememberChoices = true
+        let script = simplified ? "s:" : "t:"
+        let prefix = "py:" + script + "nihao"
+        let unfinished = prefix + "x"
+        for key in [prefix, unfinished] { ChoiceMemory.shared.forget(key) }
+        let mixedCase = Engine(.meowpuut, mode: .pinyin)
+        for key in "NiHAOX".utf8 { mixedCase.key(Int32(key)) }
+        if let choice = mixedCase.snapshot.candidates.firstIndex(of: "你好") { mixedCase.choose(choice) }
+        check(mixedCase.takeCommit() == "你好" && mixedCase.snapshot.input == "X", "大小寫部分選詞保留原始後綴（\(script)）")
+        check(ChoiceMemory.shared.records[prefix]?.contains(where: { $0.text == "你好" }) == true, "大小寫拼音共用已選詞記憶（\(script)）")
+        check(ChoiceMemory.shared.records[unfinished]?.contains(where: { $0.text == "你好" }) != true, "大小寫未完成後綴不納入記憶（\(script)）")
+        for key in [prefix, unfinished] { ChoiceMemory.shared.forget(key) }
+    }
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        Preferences.shared.rememberChoices = true
+        let script = simplified ? "s:" : "t:"
+        let phrase = simplified ? "我喜欢" : "我喜歡"
+        let whole = simplified ? "我喜欢你" : "我喜歡你"
+        let selectedKey = "py:" + script + "woxihuan"
+        let unfinishedKey = selectedKey + "n"
+        let wholeKey = selectedKey + "ni"
+        for key in [selectedKey, unfinishedKey, wholeKey, "py:" + script + "ni"] { ChoiceMemory.shared.forget(key) }
+        let segmented = Engine(.meowpuut, mode: .pinyin)
+        for key in "woxihuann".utf8 { segmented.key(Int32(key)) }
+        let choice = segmented.snapshot.candidates.firstIndex(of: phrase)
+        check(choice != nil, "拼音未完成聲母可選前段（\(script)）")
+        if let choice {
+            segmented.choose(choice)
+            check(segmented.takeCommit() == phrase && segmented.snapshot.input == "n", "拼音部分選詞保留聲母（\(script)）")
+            check(ChoiceMemory.shared.records[selectedKey]?.contains(where: { $0.text == phrase }) == true, "記憶只記已選拼音（\(script)）")
+            check(ChoiceMemory.shared.records[unfinishedKey]?.contains(where: { $0.text == phrase }) != true, "未完成後綴不納入記憶（\(script)）")
+            segmented.key(Int32(Character("i").asciiValue!))
+            if let next = segmented.snapshot.candidates.firstIndex(of: "你") { segmented.choose(next) }
+            check(segmented.takeCommit() == "你" && segmented.snapshot.input.isEmpty, "剩餘拼音可完成上屏（\(script)）")
+            check(ChoiceMemory.shared.records[wholeKey]?.contains(where: { $0.text == whole }) == true, "多段選詞記憶完整句（\(script)）")
+        }
+        for key in [selectedKey, unfinishedKey, wholeKey, "py:" + script + "ni", "ctx|" + phrase + "|py:" + script + "ni"] { ChoiceMemory.shared.forget(key) }
+
+        let zhuyinKey = script + "jivu"
+        let zhuyinUnfinished = zhuyinKey + "c"
+        let zhuyinWhole = zhuyinKey + "cj0 "
+        let nextKey = script + "cj0 "
+        let last = simplified ? "欢" : "歡"
+        for key in [zhuyinKey, zhuyinUnfinished, zhuyinWhole, nextKey] { ChoiceMemory.shared.forget(key) }
+        let zhuyin = Engine(.meowpuut, mode: .zhuyin)
+        for key in "jivuc".utf8 { zhuyin.key(Int32(key)) }
+        let zhuyinChoice = zhuyin.snapshot.candidates.firstIndex(of: "我喜")
+        check(zhuyinChoice != nil, "注音未完成聲母可選前段（\(script)）")
+        if let zhuyinChoice {
+            zhuyin.choose(zhuyinChoice)
+            check(zhuyin.takeCommit() == "我喜" && zhuyin.snapshot.input == "c", "注音部分選詞保留聲母（\(script)）")
+            check(ChoiceMemory.shared.records[zhuyinKey]?.contains(where: { $0.text == "我喜" }) == true, "記憶只記已選注音（\(script)）")
+            check(ChoiceMemory.shared.records[zhuyinUnfinished]?.contains(where: { $0.text == "我喜" }) != true, "未完成注音不納入記憶（\(script)）")
+            for key in "j0 ".utf8 { zhuyin.key(Int32(key)) }
+            if let next = zhuyin.snapshot.candidates.firstIndex(of: last) { zhuyin.choose(next) }
+            check(zhuyin.takeCommit() == last && zhuyin.snapshot.input.isEmpty, "剩餘注音可完成上屏（\(script)）")
+            check(ChoiceMemory.shared.records[zhuyinWhole]?.contains(where: { $0.text == ("我喜" + last) }) == true, "注音多段選詞記憶完整詞（\(script)）")
+        }
+        for key in [zhuyinKey, zhuyinUnfinished, zhuyinWhole, nextKey, "ctx|我喜|" + nextKey] { ChoiceMemory.shared.forget(key) }
+    }
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        Preferences.shared.rememberChoices = false
+        let script = simplified ? "s:" : "t:"
+        let like = simplified ? "欢" : "歡"
+        let replace = simplified ? "换" : "換"
+        let control = Engine(.meowpuut, mode: .pinyin)
+        for key in "huan".utf8 { control.key(Int32(key)) }
+        let uncontextualized = control.snapshot.candidates
+        let contextual = Engine(.meowpuut, mode: .pinyin)
+        for key in "woxih".utf8 { contextual.key(Int32(key)) }
+        let prefix = contextual.snapshot.candidates.firstIndex(of: "我喜")
+        check(prefix != nil, "拼音部分選詞可取得上下文（\(script)）")
+        if let prefix {
+            contextual.choose(prefix)
+            check(contextual.takeCommit() == "我喜" && contextual.snapshot.input == "h", "選擇前段保留拼音與已選文字（\(script)）")
+            for key in "uan".utf8 { contextual.key(Int32(key)) }
+            check(contextual.snapshot.candidates.contains(like), "重建後依前段顯示後續詞（\(script)）")
+            // Backspace forces the native backend to clear and replay the
+            // remainder; the same composition must retain its context.
+            contextual.key(0xff08); contextual.key(Int32(Character("n").asciiValue!))
+            check(contextual.snapshot.input == "huan" && contextual.snapshot.candidates.contains(like), "拼音重播保留分段上下文（\(script)）")
+            contextual.clear()
+            for key in "huan".utf8 { contextual.key(Int32(key)) }
+            check(contextual.snapshot.candidates == uncontextualized, "清除後上下文不洩漏到新組字（\(script)）")
+        }
+        let memoryKey = "py:" + script + "huan"
+        ChoiceMemory.shared.forget(memoryKey)
+        Preferences.shared.rememberChoices = true
+        for _ in 0..<20 { ChoiceMemory.shared.remember([(memoryKey, replace)]) }
+        let remembered = Engine(.meowpuut, mode: .pinyin)
+        for key in "woxih".utf8 { remembered.key(Int32(key)) }
+        if let prefix = remembered.snapshot.candidates.firstIndex(of: "我喜") { remembered.choose(prefix); _ = remembered.takeCommit() }
+        for key in "uan".utf8 { remembered.key(Int32(key)) }
+        check(remembered.snapshot.candidates.first == replace, "分段上下文保留個人選詞優先（\(script)）")
+        ChoiceMemory.shared.forget(memoryKey)
+    }
+    Preferences.shared.simplified = false
+    engine.clear()
     Preferences.shared.rememberChoices = true
     for _ in 0..<3 { ChoiceMemory.shared.remember([("py:t:youhua", "油畫")]) }
     expect(.pinyin, "youhua", "優化")
@@ -255,14 +625,22 @@ func runIndependentSmoke() -> Never {
     engine.clear(); type("youhua")
     check(engine.snapshot.candidates.first == "優化" && engine.snapshot.japaneseCandidates.contains("ようふあ"), "優化優先且假名候選有標記")
     engine.clear(); type("kaixin")
-    check(engine.snapshot.candidates.first == "開心" && engine.snapshot.candidates.contains("😊"), "詞義關聯emoji不越過中文")
+    check(engine.snapshot.candidates.first == "開心", "詞義關聯emoji不越過中文")
+    while !engine.snapshot.lastPage && !engine.snapshot.candidates.contains("😊") { engine.key(0xff56) }
     if let index = engine.snapshot.candidates.firstIndex(of: "😊") { engine.choose(index); check(engine.takeCommit() == "😊", "emoji候選可上屏") }
+    else { check(false, "emoji候選可上屏") }
     engine.clear(); type("hello")
     check(engine.snapshot.candidates.first == "hello" && engine.snapshot.literalCandidate, "英文單字首選原文")
-    var englishSentence = ""
-    for key in " world this is a test".utf8 { engine.key(Int32(key)); englishSentence += engine.takeCommit() }
-    engine.key(0xff0d); englishSentence += engine.takeCommit()
-    check(englishSentence == "hello world this is a test", "英文句子空格不丟失")
+    engine.key(32)
+    check(engine.takeCommit() == "hello", "拼音空格輸出英文原文不添加空格")
+    check(!engine.key(32), "無組字時空格交由應用程式輸入")
+    engine.english = true
+    check(engine.key(32) && engine.takeCommit() == " ", "英文模式空格照常輸入")
+    engine.english = false
+    engine.clear(); type("ni"); engine.browse(phrases: true)
+    check(!engine.snapshot.candidates.contains("ni"), "詞組篩選不顯示中文讀音原文")
+    engine.clear(); type("hello"); engine.browse(phrases: true)
+    check(engine.snapshot.candidates.contains("hello"), "詞組篩選保留英文首選")
     engine.clear(); engine.selectMode(.zhuyin); type("internationalization")
     check(engine.snapshot.candidates.first == "internationalization", "注音模式保留長英文")
     engine.clear(); engine.selectMode(.pinyin); engine.english = false
@@ -310,6 +688,28 @@ func runIndependentSmoke() -> Never {
     engine.clear(); type("neko"); engine.key(0xffc3); check(engine.takeCommit() == "ねこ", "F6 平假名")
     Preferences.shared.simplified = false
     expect(.zhuyin, "su3cl3", "你好")
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        engine.clear(); engine.selectMode(.zhuyin); engine.modeChanged()
+        type("ji3ap7rup wu0 fm4d042u04u/3")
+        let full = simplified ? "我们今天去看电影" : "我們今天去看電影"
+        let prefix = simplified ? "我们今天去" : "我們今天去"
+        let film = simplified ? "看电影" : "看電影"
+        check(engine.snapshot.candidates.first == full, "注音完整句保留首選")
+        if let index = engine.snapshot.candidates.firstIndex(of: prefix) { engine.choose(index) }
+        check(engine.takeCommit() == prefix && engine.snapshot.input == "d042u04u/3", "注音分段選詞保留完整後綴")
+        if let index = engine.snapshot.candidates.firstIndex(of: film) { engine.choose(index) }
+        check(engine.takeCommit() == film && engine.snapshot.input.isEmpty, "注音後續分段完整上屏")
+        engine.clear(); type("su3cl3v")
+        check(engine.snapshot.candidates.first == "你好", "注音未完成聲母保留已完成詞組")
+        check(engine.snapshot.candidateDetails.first?.metadata?.remainingInput == "v" &&
+              engine.snapshot.candidateDetails.first?.source == 0, "注音候選保留原始尾碼")
+        engine.choose(0)
+        check(engine.takeCommit() == "你好" && engine.snapshot.input == "v", "注音分段保留未完成聲母")
+        type("u3cj0 ")
+        check(engine.snapshot.candidates.contains(simplified ? "喜欢" : "喜歡"), "注音分段後繼續輸入")
+    }
+    Preferences.shared.simplified = false
     engine.clear(); engine.selectMode(.zhuyin); type("nihao")
     check(!engine.snapshot.candidates.contains("你好"), "注音不借用拼音候選")
     check(engine.snapshot.preedit != "nihao", "注音保留注音組字")
@@ -321,19 +721,212 @@ func runIndependentSmoke() -> Never {
     engine.clear(); engine.selectMode(.pinyin); type("su3cl3")
     check(!engine.snapshot.candidates.contains("你好"), "拼音不借用注音候選")
     expect(.pinyin, "nihao", "你好")
+    for (simplified, expected) in [(false, "我喜歡你"), (true, "我喜欢你")] {
+        Preferences.shared.simplified = simplified
+        engine.clear(); engine.modeChanged(); type("woxihuannid")
+        check(engine.snapshot.candidates.first == expected, "長句未完成尾音保留整句候選")
+        engine.choose(0)
+        check(engine.takeCommit() == expected && engine.snapshot.input == "d", "長句選詞保留未完成尾音")
+        type("e")
+        check(engine.snapshot.input == "de" && engine.snapshot.candidates.contains("的"), "未完成尾音可繼續輸入")
+        engine.clear(); type("womenjintianq")
+        let incompleteOnset = simplified ? "我们今天" : "我們今天"
+        check(engine.snapshot.candidates.first == incompleteOnset, "不完整聲母優先顯示已完成句段")
+        engine.choose(0)
+        check(engine.takeCommit() == incompleteOnset && engine.snapshot.input == "q", "已完成句段保留剩餘聲母")
+        engine.clear(); type("womenjintianbang")
+        check(engine.snapshot.candidates.first == (simplified ? "我们今天帮" : "我們今天幫"), "完整音節不被提前切分")
+        engine.clear(); type("womenjintianquk")
+        let firstSegment = simplified ? "我们今天去" : "我們今天去"
+        let secondSegment = simplified ? "看电影" : "看電影"
+        let lastSegment = simplified ? "再见" : "再見"
+        check(engine.snapshot.candidates.first == firstSegment, "長句首段候選")
+        engine.choose(0)
+        check(engine.takeCommit() == firstSegment && engine.snapshot.input == "k", "首段上屏後保留尾音")
+        type("andianyingz")
+        check(engine.snapshot.candidates.first == secondSegment, "後續句段候選")
+        engine.choose(0)
+        check(engine.takeCommit() == secondSegment && engine.snapshot.input == "z", "後續句段上屏保留尾音")
+        type("aijian")
+        if let index = engine.snapshot.candidates.firstIndex(of: lastSegment) { engine.choose(index) }
+        check(engine.takeCommit() == lastSegment && engine.snapshot.preedit.isEmpty, "多段輸入最終完整上屏")
+    }
+    Preferences.shared.simplified = false
+    engine.modeChanged()
     expect(.pinyin, "sushi", "寿司")
     expect(.pinyin, "neko", "猫")
     engine.clear(); type("wosukini")
     let mixedSnapshot = engine.snapshot
-    let mixedPhraseVisible = collapsedCandidateIndices(mixedSnapshot).map { mixedSnapshot.candidates[$0] }
-    check(mixedSnapshot.input == "wosukini" && mixedPhraseVisible.last == "我好き你", "拼音整段中日混合候選收合可見")
-    check(mixedPhraseVisible.filter { mixedSnapshot.japaneseCandidates.contains($0) }.count == 1 && mixedSnapshot.candidates.first != "我好き你", "混合詞不擠掉首選中文且只顯示一個日語")
+    let mixedPhraseVisible = collapsedCandidateIndices(mixedSnapshot).compactMap { compactCandidateText(mixedSnapshot, at: $0) }
+    check(mixedSnapshot.input == "wosukini" && mixedPhraseVisible.first == "我好き你", "完整中日混句優先於單字回退且收合可見")
+    check(mixedPhraseVisible.filter { mixedSnapshot.japaneseCandidates.contains($0) }.count == 1, "完整混句保留日語標記且收合只顯示一個")
     if let index = mixedSnapshot.candidates.firstIndex(of: "我好き你") { engine.choose(index) }
     check(engine.takeCommit() == "我好き你" && engine.snapshot.preedit.isEmpty, "混合詞完整上屏")
-    engine.clear(); type("wosukini"); engine.choose(0)
+    for (reading, expected) in [("suki", "好き"), ("haoki", "好き"), ("xingku", "行く")] {
+        engine.clear(); type(reading)
+        check(engine.snapshot.candidates.contains(expected) && engine.snapshot.japaneseCandidates.contains(expected), "\(reading) 可選日語詞並標示語言")
+    }
+    check(!engine.snapshot.candidates.contains { text in
+        text.contains("x") && text.unicodeScalars.contains { (0x3040...0x30ff).contains($0.value) }
+    }, "未完成羅馬字不產生混有原文字母的假名候選")
+    engine.clear(); type("wohaokini")
+    let hybrid = engine.snapshot
+    let hybridVisible = collapsedCandidateIndices(hybrid).compactMap { compactCandidateText(hybrid, at: $0) }
+    check(hybridVisible.first == "我好き你" && hybrid.candidates.first == "我好き你" && hybridVisible.filter { hybrid.japaneseCandidates.contains($0) }.count == 1, "拼音與假名混寫完整句優於單字回退")
+    engine.clear(); type("woxiangshiberusushiheramen")
+    check(engine.snapshot.candidates.contains("我想食べる寿司和ラーメン"), "中日長句可包含三段日語")
+    engine.clear(); type("wohaokiyinyue")
+    check(engine.snapshot.candidates.contains("我好き音楽"), "日語證據下可用拼音輸入日語漢字")
+    engine.clear(); type("woxihuanyinyue")
+    check(engine.snapshot.candidates.first == "我喜歡音樂" && !engine.snapshot.candidates.contains("我喜歡音楽"), "純中文音樂不被日語拼音別名改寫")
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        for suffix in ["ki", "kir", "kire"] {
+            engine.clear(); engine.modeChanged(); type("jinwandeyueliang" + suffix)
+            let prefix = "今晚的月亮"
+            let compact = collapsedCandidateIndices(engine.snapshot).compactMap { compactCandidateText(engine.snapshot, at: $0) }
+            check(compact.contains(prefix), "未完成日語尾音仍顯示整段中文")
+            if let index = engine.snapshot.candidates.firstIndex(of: prefix) { engine.choose(index) }
+            check(engine.takeCommit() == prefix && engine.snapshot.input == suffix, "中日前段選詞保留未完成羅馬字")
+        }
+        engine.clear(); engine.modeChanged(); type("jinwandeyueliangkirei")
+        // The Japanese dictionary word retains its own spelling in both modes.
+        let complete = "今晚的月亮綺麗"
+        let compact = collapsedCandidateIndices(engine.snapshot).compactMap { compactCandidateText(engine.snapshot, at: $0) }
+        check(engine.snapshot.candidates.first == complete && compact.first == complete,
+              "完整中日長句優先於首字回退並收合可見")
+        check(engine.snapshot.japaneseCandidates.contains(complete) && compact.filter { engine.snapshot.japaneseCandidates.contains($0) }.count == 1,
+              "完整中日長句保留標記且收合僅一個日語")
+        engine.choose(0)
+        check(engine.takeCommit() == complete && engine.snapshot.input.isEmpty, "完整中日長句選取後準確上屏")
+    }
+    Preferences.shared.simplified = false; engine.clear(); engine.modeChanged()
+    let mixedMemoryKey = "py:t:jinwandeyueliangkirei"
+    ChoiceMemory.shared.forget(mixedMemoryKey)
+    Preferences.shared.rememberChoices = true
+    for _ in 0..<15 { ChoiceMemory.shared.remember([(mixedMemoryKey, "進")]) }
+    type("jinwandeyueliangkirei")
+    check(engine.snapshot.candidates.first == "進", "明確個人選詞保留在完整混句之前")
+    ChoiceMemory.shared.forget(mixedMemoryKey)
+    Preferences.shared.rememberChoices = false
+    engine.clear(); type("hello")
+    check(engine.snapshot.literalCandidate && engine.snapshot.candidates.first == "hello", "英文首選不被日語拼音別名改寫")
+    if let native = try? NativeBackend(mode: .pinyin) {
+        check(native.mixedPinyin("woyaoauni", simplified: false) == "我要会う你", "實際日語詞表將短讀音 au 註冊至共用核心")
+        let shortPrefix = native.mixedPinyinPrefix("aunihao", simplified: false)
+        check(shortPrefix?.text == "会う" && shortPrefix?.consumed == 2, "短日語前段選詞保留完整中文後綴")
+        check(["audio", "auto", "autumn", "author", "authentication", "automobile"].allSatisfy { native.mixedPinyin($0, simplified: false) == nil }, "短日語讀音不把英文猜成中日混寫")
+    } else { check(false, "短讀音日語測試引擎可載入") }
+    if let segments = try? ChineseWithJapaneseBackend(mode: .pinyin) {
+        func enterSegmentReading(_ text: String) {
+            segments.clear()
+            for key in text.utf8 { _ = segments.key(Int32(key), modifiers: 0) }
+        }
+        func selectSegment(_ text: String) -> Bool {
+            guard let candidate = segments.candidates(limit: 256).first(where: { $0.text == text }) else { return false }
+            return segments.choose(candidate.index)
+        }
+        enterSegmentReading("wosukinihao")
+        check(selectSegment("我好き"), "可選完整中日前半段")
+        var segmentState = segments.snapshot()
+        check(segmentState.commit == "我好き" && segmentState.input == "nihao" && segmentState.candidates.contains("你好"), "選中混合前半後保留中文後綴")
+        check(selectSegment("你好"), "可繼續選擇中文後半段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input.isEmpty, "分段選詞各自上屏一次")
+        enterSegmentReading("niHAO")
+        check(selectSegment("你好"), "大小寫混合拼音可選完整詞")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input.isEmpty, "大小寫拼音選詞不丟字符")
+        enterSegmentReading("NiHAOX")
+        check(selectSegment("你好"), "大小寫拼音可選部分詞")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input == "X", "部分選詞保留原始大小寫後綴")
+        for key in "iao".utf8 { _ = segments.key(Int32(key), modifiers: 0) }
+        segmentState = segments.snapshot()
+        check(segmentState.input == "Xiao" && segments.candidates(limit: 256).contains(where: { $0.text == "小" }), "保留大寫後綴可繼續組字")
+        enterSegmentReading("HelloWORLD")
+        _ = segments.key(32, modifiers: 0)
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "HelloWORLD " && segmentState.input.isEmpty, "英文原文保留大小寫")
+        enterSegmentReading("ni''hao")
+        segmentState = segments.snapshot()
+        check(segmentState.input == "ni''hao" && segmentState.candidates.first == "ni''hao", "無效分隔符保留完整原文候選")
+        for _ in 0..<4 { _ = segments.key(0xff08, modifiers: 0) }
+        for key in "hao".utf8 { _ = segments.key(Int32(key), modifiers: 0) }
+        check(selectSegment("你好"), "刪除多餘分隔符後恢復中文候選")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input.isEmpty, "修正後中文正常上屏")
+        enterSegmentReading("ni''hao")
+        _ = segments.key(32, modifiers: 0)
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "ni''hao " && segmentState.input.isEmpty, "無效分隔符原文可安全上屏")
+        enterSegmentReading("xi'an")
+        check(selectSegment("西安"), "有效拼音分隔符仍可轉換")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "西安" && segmentState.input.isEmpty, "有效分隔符正確消耗")
+        enterSegmentReading("WoHAoKiNiHao")
+        check(selectSegment("我好き"), "大小寫混合讀音可選中日前段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "我好き" && segmentState.input == "NiHao", "中日前段保留後綴原始大小寫")
+        check(selectSegment("你好"), "混合大小寫後綴可繼續轉換")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input.isEmpty, "大小寫混合中日分段上屏一次")
+        enterSegmentReading("wohaokinihao")
+        check(selectSegment("我好き"), "拼音假名混寫可選前半段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "我好き" && segmentState.input == "nihao", "拼音假名前半保留後續讀音")
+        check(selectSegment("你好"), "拼音假名混寫可繼續選中文")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input.isEmpty, "拼音假名分段只各上屏一次")
+        enterSegmentReading("aunihao")
+        check(selectSegment("会う"), "短讀音日語可選前半段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "会う" && segmentState.input == "nihao" && segments.candidates(limit: 256).contains(where: { $0.text == "你好" }), "短讀音日語保留並重建中文後綴")
+        check(selectSegment("你好"), "短讀音後可繼續選中文")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "你好" && segmentState.input.isEmpty, "短讀音分段不漏字且各自上屏一次")
+        enterSegmentReading("sukinihao")
+        check(selectSegment("好き"), "可選日語前半段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "好き" && segmentState.input == "nihao", "日語前半段不吞中文讀音")
+        enterSegmentReading("wosukini")
+        check(selectSegment("我"), "可選中文前半段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "我" && segmentState.input == "sukini" && segments.candidates(limit: 256).contains(where: { $0.text == "好き你" }), "中文前半後恢復中日混合候選")
+        check(selectSegment("好き你"), "可繼續選擇日中後半段")
+        segmentState = segments.snapshot()
+        check(segmentState.commit == "好き你" && segmentState.input.isEmpty, "中日分段完成不丟字")
+        enterSegmentReading("nihao")
+        segmentState = segments.snapshot()
+        check(segmentState.candidates.first == "你好" && !segmentState.japaneseCandidates.contains("你好"), "純中文首選不受混合影響")
+    } else { check(false, "分段測試引擎可載入") }
+    engine.clear(); type("wosukini")
+    if let index = engine.snapshot.candidates.firstIndex(of: "我") { engine.choose(index) }
     check(!engine.takeCommit().isEmpty && !engine.snapshot.input.isEmpty && "wosukini".hasSuffix(engine.snapshot.input), "混合讀音部分選詞保留未轉換後綴")
     engine.clear(); type("wosukini"); engine.key(0xff08)
     check(engine.snapshot.input == "wosukin", "混合輸入退格保留原文")
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        engine.clear(); engine.modeChanged(); type("wosukin")
+        let partialMixed = engine.snapshot
+        let macPartial = collapsedCandidateIndices(partialMixed).compactMap { compactCandidateText(partialMixed, at: $0) }
+        let iosPartial = partialMixed.compactIndices.map { partialMixed.candidates[$0] }
+        check(macPartial.contains("我好き") && iosPartial.contains("我好き"), "未完成中文後綴時收合欄保留可選中日前段")
+        check(macPartial.filter { partialMixed.japaneseCandidates.contains($0) } == ["我好き"] &&
+              iosPartial.filter { partialMixed.japaneseCandidates.contains($0) } == ["我好き"],
+              "已記錄中日前段優先於推測假名且收合只顯示一個日語")
+        if let ordinal = macPartial.firstIndex(of: "我好き"),
+           let index = partialMixed.candidates.firstIndex(of: "我好き") {
+            let shortcut = collapsedCandidateShortcut(partialMixed, key: Int32(49 + ordinal),
+                                                      modifiers: 0, shifted: false, english: false)
+            check(shortcut == .choose(index), "中日前段的收合編號對應可見候選")
+            if case .choose(let selected) = shortcut { engine.choose(selected) }
+        } else { check(false, "中日前段具有可用收合編號") }
+        check(engine.takeCommit() == "我好き" && engine.snapshot.input == "n", "選中日片段僅消耗其讀音並保留未完成後綴")
+        type("i")
+        check(engine.snapshot.candidates.contains("你"), "保留的後綴可以繼續選字")
+    }
+    Preferences.shared.simplified = false; engine.clear(); engine.modeChanged()
     engine.clear(); type("nihaosuki")
     check(engine.snapshot.candidates.contains("你好好き"), "混合詞支持中文前綴")
     engine.clear(); type("wosukihanyu")
@@ -346,7 +939,7 @@ func runIndependentSmoke() -> Never {
     check(engine.snapshot.candidates.first == "你好" && engine.snapshot.requiredCandidate != "你好", "純中文不受混合候選影響")
     engine.clear(); type("sushi")
     check(engine.snapshot.candidates.first == "蘇軾", "真實中文詞優先")
-    check(collapsedCandidateIndices(engine.snapshot).map { engine.snapshot.candidates[$0] }.contains("寿司"), "高可信日語保留收合位置")
+    check(collapsedCandidateIndices(engine.snapshot).compactMap { compactCandidateText(engine.snapshot, at: $0) }.contains("寿司"), "高可信日語保留收合位置")
     Preferences.shared.rememberChoices = true
     let reading = engine.pinKey
     if let index = engine.snapshot.candidates.firstIndex(of: "寿司") { engine.choose(index); _ = engine.takeCommit() }
@@ -359,6 +952,15 @@ func runIndependentSmoke() -> Never {
     engine.clear(); engine.selectMode(.pinyin); type("nihao,")
     check(engine.takeCommit() == "你好，", "自研拼音標點不丟字")
     engine.clear(); engine.selectMode(.pinyin)
+    check(physical(41, shift: true) && engine.takeCommit() == ":", "拼音 Shift 分號鍵輸入英文冒號")
+    type("nihao")
+    check(physical(41, shift: true) && engine.takeCommit() == "你好:", "拼音組字後英文冒號不丟字")
+    type("nihao")
+    check(engine.key(58) && engine.takeCommit() == "你好：", "拼音直接輸入中文冒號")
+    engine.key(96)
+    while !engine.snapshot.lastPage && !engine.snapshot.candidates.contains(";") { engine.key(0xff56) }
+    if let index = engine.snapshot.candidates.firstIndex(of: ";") { engine.choose(index) }
+    check(engine.takeCommit() == ";", "標點選單仍可輸入英文分號")
     check(physical(44) && engine.takeCommit() == "？", "拼音斜線鍵直接輸入中文問號")
     type("nihao")
     check(physical(44, option: true) && engine.takeCommit() == "你好/", "拼音 Option 加斜線提交中文並輸入英文斜線")
@@ -378,8 +980,12 @@ func runIndependentSmoke() -> Never {
     type("vvvvvv")
     check(physical(18) && engine.takeCommit() == "vvvvvv1", "無候選時數字不會誤當聲調或吞字")
     type("woxianghekafei")
-    check(engine.snapshot.candidates.count < 7 && physical(26) && engine.takeCommit() == "我想喝咖啡7", "選詞位置不存在時數字不會被吞掉")
+    let missingDigit = engine.snapshot.candidates.count + 1
+    check((1...9).contains(missingDigit) && physical(digitKeys[missingDigit]) && engine.takeCommit() == "我想喝咖啡\(missingDigit)", "選詞位置不存在時數字不會被吞掉")
     engine.clear(); engine.selectMode(.zhuyin)
+    check(physical(41, shift: true) && engine.takeCommit() == "：", "注音 Shift 分號鍵輸入中文冒號")
+    type("su3cl3")
+    check(physical(41, shift: true) && engine.takeCommit() == "你好：", "注音組字後冒號不丟字")
     check(physical(44) && engine.snapshot.input == "/" && !engine.snapshot.preedit.isEmpty, "注音斜線鍵仍輸入ㄥ")
     engine.clear(); type("su3cl3")
     check(physical(44, shift: true) && engine.takeCommit() == "你好？", "注音 Shift 加斜線仍輸入中文問號")
@@ -390,6 +996,7 @@ func runIndependentSmoke() -> Never {
     if let index = engine.snapshot.candidates.firstIndex(of: "/") { engine.choose(index) }
     check(engine.takeCommit() == "/", "注音標點選單可輸入英文斜線")
     engine.clear(); engine.selectMode(.pinyin); engine.key(Engine.toggleEnglishKey)
+    check(physical(41, shift: true) && engine.takeCommit() == ":", "英文模式 Shift 分號鍵輸入冒號")
     check(physical(44) && engine.takeCommit() == "/" && physical(44, shift: true) && engine.takeCommit() == "?", "英文模式保留斜線與問號實體鍵")
     check(!physical(44, option: true), "英文模式保留系統 Option 加斜線")
     engine.key(Engine.toggleEnglishKey)

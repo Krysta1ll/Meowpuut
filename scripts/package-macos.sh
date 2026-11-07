@@ -6,9 +6,8 @@ VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/C
 LABEL="${MEOWPUUT_RELEASE_LABEL:-$VERSION-alpha.1}"
 ARCH=$(uname -m)
 OUT="$PWD/.build/releases"
-mkdir -p "$PWD/.build"
-# Each package gets a fresh stage so removed resources cannot leak into updates.
 STAGE="$(mktemp -d "$PWD/.build/package-stage.XXXXXX")"
+trap 'rm -rf "$STAGE"' EXIT
 codesign --verify --strict "$APP"
 mkdir -p "$OUT" "$STAGE/Library/Input Methods" "$PWD/.build/installer-resources"
 cp assets/brand/MeowpuutMark.png "$PWD/.build/installer-resources/Mark.png"

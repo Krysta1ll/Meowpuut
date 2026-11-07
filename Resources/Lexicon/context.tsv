@@ -7,4 +7,16 @@
 部小說|10000
 部作品|10000
 新包|6500
+個新包|10000
+了新包|8500
+買新包|10000
+換新包|10000
+醫生檢查|10000
+檢查心包|10000
+個醫生|10000
+醫生說|10000
 上嗑糖|10000
+# Disambiguate fan and media terms in common contexts without changing standalone order.
+日本聲優|10000
+動畫聲優|10000
+配音聲優|10000

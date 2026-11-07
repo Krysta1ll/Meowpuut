@@ -20,6 +20,10 @@
 
 不打包或連結 Rime，也不使用舊 Terra Pinyin、essay、Mozc、JMdict 或 OpenCC 詞表。舊資料及其分發建置產物已移除。
 
-日語詞條與羅馬字組字器由本專案編寫。執行時使用 Apple 系統框架、系統 SQLite 和 C++ 標準庫；建置時用 Foundation 做基礎繁簡字形轉換，修訂檔可明確覆蓋詞面。圖示使用自有雙貓素材及系統 SF Symbols。
+## UniDic 日語常用詞精選（BSD-3-Clause）
 
-本文件適用於本次發布的原始碼與安裝包。專案原創程式碼與隨附素材見根目錄 LICENSE；上游詞庫仍依各自原始 MIT 聲明分發。
+- 以國立國語研究所 UniDic-CWJ 2025.12 為上游，從 UniDic-to-Mozc v1.1.0 衍生表人工挑選 50 個常用詞；版本、來源、雜湊與授權保留於 `DataSources/UniDic/`。
+- 已選擇 UniDic 多重授權中的修訂 BSD 條款；衍生表及原始 UniDic 2025.12 的 BSD 聲明均隨 macOS/iOS 安裝包附上。人工補充的漢字拼音、羅馬字和排序分數不代表 UniDic 詞頻。Windows 詞庫分發須一併附上這些聲明，見 `Windows/README.md`。
+- 其他日語詞條與羅馬字組字器由本專案編寫。執行時使用 Apple 系統框架、系統 SQLite 和 C++ 標準庫；建置時用 Foundation 做基礎繁簡字形轉換，修訂檔可明確覆蓋詞面。圖示使用自有雙貓素材及系統 SF Symbols。
+
+本文件適用於本次發布的原始碼與安裝包。專案原創程式碼與隨附素材見根目錄 LICENSE；上游詞庫分別依各自的 MIT 或 BSD 授權聲明分發。

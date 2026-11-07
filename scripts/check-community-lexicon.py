@@ -51,6 +51,26 @@ community = [
     ('chi1 gu3', '吃谷', '吃谷'),
     ('jin1 ju4', '金句', '金句'),
     ('ji4 zhang4', '記賬', '记账'),
+    ('pin1 dan1', '拼單', '拼单'),
+    ('chai1 he2', '拆盒', '拆盒'),
+    ('ka3 tao4', '卡套', '卡套'),
+    ('zi4 yin4', '自印', '自印'),
+    ('chang3 kan1', '場刊', '场刊'),
+    ('he2 zhi4', '合誌', '合志'),
+    ('zhuan3 tui1', '轉推', '转推'),
+    ('cun2 tu2', '存圖', '存图'),
+    ('hu4 guan1', '互關', '互关'),
+    ('ping2 lun4 qu1', '評論區', '评论区'),
+    ('zhui1 geng1', '追更', '追更'),
+    ('fan1 zu3', '番組', '番组'),
+    ('tu2 tou4', '圖透', '图透'),
+    ('ju4 tou4', '劇透', '剧透'),
+    ('chao1 hua4', '超話', '超话'),
+    ('tong2 ren2 zhan3', '同人展', '同人展'),
+    ('sheng1 you1', '聲優', '声优'),
+    ('ji2 ka3', '集卡', '集卡'),
+    ('huan4 gu3', '換谷', '换谷'),
+    ('bu3 kuan3', '補款', '补款'),
 ]
 # Everyday phrases must remain reachable as the community vocabulary grows.
 everyday = [
@@ -95,6 +115,18 @@ sentences = [
     ('zhe4 jia1 dian4 de5 ka1 fei1 hen3 hao3 he1', '這家店的咖啡很好喝', '这家店的咖啡很好喝'),
     ('wo3 bu4 zhi1 dao4 zen3 me5 hui2 da2', '我不知道怎麼回答', '我不知道怎么回答'),
     ('wo3 ye3 shi4 zhe4 yang4 ren4 wei2 de5', '我也是這樣認為的', '我也是这样认为的'),
+    ('mai3 le5 yi2 ge5 xin1 bao1', '買了一個新包', '买了一个新包'),
+    ('wo3 mai3 le5 yi2 ge5 xin1 bao1', '我買了一個新包', '我买了一个新包'),
+    ('wo3 xi3 huan1 zhe4 ge5 xin1 bao1', '我喜歡這個新包', '我喜欢这个新包'),
+    ('jin1 tian1 mai3 le5 xin1 bao1', '今天買了新包', '今天买了新包'),
+    ('zhe4 ge5 xin1 bao1 hen3 hao3 kan4', '這個新包很好看', '这个新包很好看'),
+    ('yi1 sheng1 jian3 cha2 xin1 bao1', '醫生檢查心包', '医生检查心包'),
+    ('ta1 shi4 yi1 ge4 yi1 sheng1', '他是一個醫生', '他是一个医生'),
+    ('wo3 ting1 dao4 yi1 sheng1 ju4 xiang3', '我聽到一聲巨響', '我听到一声巨响'),
+    ('wo3 xiang3 kan4 zhe4 ge5 fan1 zu3', '我想看這個番組', '我想看这个番组'),
+    ('wo3 xiang3 mai3 zhe4 ge5 ka3 tao4', '我想買這個卡套', '我想买这个卡套'),
+    ('wo3 men5 yi4 qi3 pin1 dan1', '我們一起拼單', '我们一起拼单'),
+    ('ta1 shi4 ri4 ben3 sheng1 you1', '他是日本聲優', '他是日本声优'),
 ]
 # Untoned homophones should not let a niche use displace the everyday expression.
 conflicts = [
@@ -110,6 +142,20 @@ conflicts = [
     ('hui4 shi1', ('會師', '会师'), ('繪師', '绘师')),
     ('chi1 gu3', ('持股', '持股'), ('吃谷', '吃谷')),
     ('da3 zhou2', ('大洲', '大洲'), ('打軸', '打轴')),
+    ('xin1 bao1', ('心包', '心包'), ('新包', '新包')),
+    ('sheng1 you1', ('省油', '省油'), ('聲優', '声优')),
+    ('ju4 tou4', ('巨頭', '巨头'), ('劇透', '剧透')),
+    ('chang3 kan1', ('常看', '常看'), ('場刊', '场刊')),
+    ('he2 zhi4', ('何止', '何止'), ('合誌', '合志')),
+]
+# These contexts have unambiguous expected first choices; the standalone
+# homophone comparison above also protects the medical reading.
+preferred_sentences = [
+    ('ta1 shi4 ri4 ben3 sheng1 you1', '他是日本聲優', '他是日本声优'),
+    ('mai3 le5 yi2 ge5 xin1 bao1', '買了一個新包', '买了一个新包'),
+    ('wo3 xi3 huan1 zhe4 ge5 xin1 bao1', '我喜歡這個新包', '我喜欢这个新包'),
+    ('yi1 sheng1 jian3 cha2 xin1 bao1', '醫生檢查心包', '医生检查心包'),
+    ('wo3 ting1 dao4 yi1 sheng1 ju4 xiang3', '我聽到一聲巨響', '我听到一声巨响'),
 ]
 
 with tempfile.TemporaryDirectory(prefix='meowpuut-community-') as temp:
@@ -174,6 +220,11 @@ with tempfile.TemporaryDirectory(prefix='meowpuut-community-') as temp:
                     actual = candidates(reading, True)
                     expected = (hant, hans)[simplified]
                     assert expected in actual[:3], f'{mode} {reading}: {expected} missing from first 3: {actual[:7]}'
+                    count += 1
+                for reading, hant, hans in preferred_sentences:
+                    actual = candidates(reading, True)
+                    expected = (hant, hans)[simplified]
+                    assert actual and actual[0] == expected, f'{mode} {reading}: expected first {expected}, got {actual[:7]}'
                     count += 1
         finally:
             lib.mpn_session_destroy(session)

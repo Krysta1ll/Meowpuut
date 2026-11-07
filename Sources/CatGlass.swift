@@ -35,6 +35,67 @@ private struct CandidateGlassOutline: Shape {
     }
 }
 
+// A short, fixed-width coat fades into the glass without changing shape when
+// the candidate window grows. The muted warm sheen keeps the black cat legible
+// on both pale and dark backgrounds.
+private struct BlackCatCoat: View {
+    var dark: Bool
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            LinearGradient(stops: [
+                .init(color: Color(white: 0.025).opacity(0.98), location: 0),
+                .init(color: Color(white: 0.035).opacity(0.96), location: 0.26),
+                .init(color: Color(red: 0.10, green: 0.09, blue: 0.09).opacity(0.88), location: 0.48),
+                .init(color: Color(red: 0.16, green: 0.14, blue: 0.14).opacity(0.58), location: 0.68),
+                .init(color: Color(red: 0.19, green: 0.17, blue: 0.17).opacity(0.22), location: 0.84),
+                .init(color: .clear, location: 1)
+            ], startPoint: .leading, endPoint: .trailing)
+            RadialGradient(colors: [Color.white.opacity(dark ? 0.10 : 0.13), .clear],
+                           center: UnitPoint(x: 0.58, y: 0.12), startRadius: 0, endRadius: 46)
+        }
+        .frame(width: 70)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct BlackCatEarLight: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { p in
+            p.move(to: CGPoint(x: 8, y: 19))
+            p.addCurve(to: CGPoint(x: 12, y: 3), control1: CGPoint(x: 7, y: 6), control2: CGPoint(x: 8, y: 1))
+            p.addLine(to: CGPoint(x: 27, y: 12))
+            p.addCurve(to: CGPoint(x: 39, y: 1), control1: CGPoint(x: 32, y: 10), control2: CGPoint(x: 35, y: -1))
+            p.addQuadCurve(to: CGPoint(x: 48, y: 21), control: CGPoint(x: 43, y: 3))
+        }
+    }
+}
+
+// Keep the light inside the glass boundary so the edge stays delicate even
+// against a busy desktop. The native glass remains responsible for refraction.
+private struct CandidateGlassRim: View {
+    var cats: Bool
+    var expanded: Bool
+    var dark: Bool
+    var highContrast: Bool
+
+    var body: some View {
+        CandidateGlassOutline(cats: cats, expanded: expanded)
+            .stroke(
+                LinearGradient(stops: [
+                    .init(color: .white.opacity(highContrast ? 0.72 : (dark ? 0.46 : 0.76)), location: 0),
+                    .init(color: .white.opacity(dark ? 0.12 : 0.32), location: 0.38),
+                    .init(color: .black.opacity(dark ? 0.22 : 0.15), location: 1)
+                ], startPoint: .topLeading, endPoint: .bottomTrailing),
+                lineWidth: 0.8
+            )
+            .clipShape(CandidateGlassOutline(cats: cats, expanded: expanded))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 struct GlassCandidateView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -45,6 +106,7 @@ struct GlassCandidateView: View {
     var cats = true
     var expanded: Bool
     var canExpand: Bool
+    var maxPanelHeight: CGFloat = .greatestFiniteMagnitude
     var onChoose: (Int) -> Void
     var onPage: (Int32) -> Void
     var onToggle: () -> Void
@@ -60,7 +122,8 @@ struct GlassCandidateView: View {
     private var dark: Bool { scheme == .dark }
     private var tint: Color { preferences.candidatePalette.color(dark: dark) }
     private var glass: Glass {
-        switch preferences.glassStrength {
+        guard !reduceTransparency, contrast != .increased else { return .identity }
+        return switch preferences.glassStrength {
         case .soft: .regular.tint(tint.opacity(0.04))
         case .balanced: .clear.tint(tint.opacity(0.035))
         case .vivid: .clear.tint(tint.opacity(0.01))
@@ -71,9 +134,11 @@ struct GlassCandidateView: View {
     }
     var body: some View {
         CandidateStrip(engine: engine, onChoose: onChoose, onPage: onPage,
-                       compact: true, expanded: expanded)
+                       compact: true, expanded: expanded,
+                       maximumContentHeight: max(16, maxPanelHeight - (expanded ? 110 : (cats ? 31 : 9))))
             .foregroundStyle(dark ? Color.white : Color(white: 0.12))
-            .padding(.leading, cats ? (expanded ? 12 : 39) : 3)
+            // Keep the first label clear of the dark coat in both layouts.
+            .padding(.leading, cats ? 39 : 3)
             .padding(.trailing, cats ? (expanded ? 12 : 35) : (canExpand || expanded ? 25 : 3))
             .padding(.top, cats ? 23 : 3)
             .padding(.bottom, cats ? 8 : 6)
@@ -83,15 +148,14 @@ struct GlassCandidateView: View {
                         CandidateGlassOutline(cats: cats, expanded: expanded)
                             .fill(dark ? Color.black.opacity(reduceTransparency || contrast == .increased ? 1 : shade)
                                        : Brand.paper.opacity(reduceTransparency || contrast == .increased ? 1 : shade + 0.02))
+                        if !reduceTransparency && contrast != .increased {
+                            // A restrained tint gives both skins a common material
+                            // without obscuring the desktop behind the glass.
+                            LinearGradient(colors: [tint.opacity(dark ? 0.09 : 0.07), .clear, .white.opacity(dark ? 0.025 : 0.06)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                        }
                         if cats {
-                            // Fixed optical width: typing a longer word must not stretch the cat's shading.
-                            LinearGradient(stops: [
-                                .init(color: .black.opacity(0.90), location: 0),
-                                .init(color: .black.opacity(0.78), location: 0.42),
-                                .init(color: .black.opacity(0.24), location: 0.78),
-                                .init(color: .clear, location: 1)
-                            ], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 64, height: geometry.size.height)
+                            BlackCatCoat(dark: dark).frame(height: geometry.size.height)
                         }
                     }
                     .clipShape(CandidateGlassOutline(cats: cats, expanded: expanded))
@@ -99,9 +163,18 @@ struct GlassCandidateView: View {
             }
             .glassEffect(glass, in: CandidateGlassOutline(cats: cats, expanded: expanded))
             .overlay {
+                CandidateGlassRim(cats: cats, expanded: expanded, dark: dark, highContrast: contrast == .increased)
+            }
+            .overlay {
                 if cats { GeometryReader { geometry in
                     let w = geometry.size.width
                     let h = geometry.size.height
+                    BlackCatEarLight()
+                        .stroke(LinearGradient(colors: [Color.white.opacity(dark ? 0.27 : 0.38), .clear],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                                style: StrokeStyle(lineWidth: 0.65, lineCap: .round, lineJoin: .round))
+                        .frame(width: 50, height: 24, alignment: .topLeading)
+                        .position(x: 25, y: 12)
                     Canvas { context, _ in
                         let tail = Path { p in
                             p.move(to: CGPoint(x: 28, y: h - 3))
@@ -232,13 +305,18 @@ private struct CatFace: View {
                     eye.move(to: CGPoint(x: x, y: 8))
                     eye.addLine(to: CGPoint(x: x + 10, y: x < 10 ? 11 : 4))
                     eye.addQuadCurve(to: CGPoint(x: x, y: 8), control: CGPoint(x: x + 8, y: 21))
-                    context.fill(eye, with: .color(Brand.paper))
+                    context.fill(eye, with: .linearGradient(
+                        Gradient(colors: [Brand.paper, Color(red: 0.89, green: 0.85, blue: 0.78)]),
+                        startPoint: CGPoint(x: x, y: 7), endPoint: CGPoint(x: x + 9, y: 18)))
                     // The old pupil extended above its almond-shaped eye. Clip only the pupil,
                     // not the glass surface, so the lens keeps its native edge rendering.
                     var pupil = context
                     pupil.clip(to: eye)
                     pupil.fill(Path(ellipseIn: CGRect(x: x + 5, y: 6, width: 2.6, height: 8)),
-                               with: .color(Color(red: 0.56, green: 0.42, blue: 0.16)))
+                               with: .linearGradient(Gradient(colors: [Color(red: 0.72, green: 0.57, blue: 0.28), Color(red: 0.40, green: 0.29, blue: 0.11)]),
+                                                     startPoint: CGPoint(x: x + 5, y: 6), endPoint: CGPoint(x: x + 7, y: 14)))
+                    pupil.fill(Path(ellipseIn: CGRect(x: x + 5.5, y: 9, width: 0.65, height: 0.9)),
+                               with: .color(Brand.paper.opacity(0.62)))
                 }
                 for y in [18.0, 22.0] {
                     var whisker = Path()
