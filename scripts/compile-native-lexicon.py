@@ -293,8 +293,8 @@ def main(destination, converter):
         for reading in readings.split(","):
             add_japanese(reading, word, int(weight))
     unidic = ROOT / "DataSources/UniDic"
-    manifest = json.loads((unidic / "SOURCE.json").read_text())
-    daily = (unidic / "daily.tsv").read_bytes()
+    manifest = json.loads((unidic / "SOURCE.json").read_text(encoding="utf-8"))
+    daily = (unidic / "daily.tsv").read_bytes().replace(b"\r\n", b"\n")
     if hashlib.sha256(daily).hexdigest() != manifest["curated_sha256"]:
         raise ValueError("UniDic curated data changed; update the pinned source record")
     for number, line in enumerate(daily.decode("utf-8").splitlines(), 1):

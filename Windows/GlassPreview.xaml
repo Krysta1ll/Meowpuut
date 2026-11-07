@@ -1,0 +1,175 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Meowpuut · 喵撲" Width="672" Height="118.4" WindowStyle="None"
+        ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <PathGeometry x:Key="CatOutline" Figures="M 17,72 C 24,57 26,51 25,33 C 24,16 29,10 36,17 L 64,35 C 75,27 81,7 89,13 C 98,18 102,38 106,52 C 152,64 606,59 732,54 L 747,29 Q 751,23 757,33 L 768,50 L 799,32 Q 807,27 806,48 C 805,56 815,62 814,74 L 825,76 Q 830,77 827,94 C 826,122 815,135 788,136 L 55,136 C 19,136 7,116 17,72 Z"/>
+    </Window.Resources>
+    <StackPanel>
+        <Border x:Name="LongCandidate" Visibility="Collapsed" Margin="14,7,14,-11"
+                Padding="13,9" CornerRadius="16" BorderThickness="1" BorderBrush="#87DFC0B4">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0.9,1">
+                    <GradientStop Color="#F260494E" Offset="0"/>
+                    <GradientStop Color="#EC44363D" Offset="0.32"/>
+                    <GradientStop Color="#ED2B252C" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+            <DockPanel>
+                <Border x:Name="PrimaryBadge" DockPanel.Dock="Left" CornerRadius="8" Width="23" Height="23"
+                        Background="#56B58170" BorderBrush="#90F0C7AF" BorderThickness="1"
+                        Margin="0,0,10,0" VerticalAlignment="Top">
+                    <TextBlock x:Name="PrimaryNumber" Text="1" Foreground="#FFF1E4" FontSize="13"
+                               FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock x:Name="LongCandidateText" TextWrapping="Wrap" Foreground="#FFF3E7"
+                           FontFamily="Microsoft JhengHei UI, Yu Gothic UI" FontWeight="SemiBold"
+                           FontSize="21" LineHeight="28" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+        <Viewbox Height="118.4">
+            <Canvas Width="840" Height="148" Clip="{StaticResource CatOutline}">
+                <Image x:Name="Backdrop" Canvas.Left="-24" Canvas.Top="-24" Width="888" Height="196"
+                       Stretch="Fill" IsHitTestVisible="False">
+                    <Image.Effect><BlurEffect Radius="17" RenderingBias="Performance"/></Image.Effect>
+                </Image>
+                <Image x:Name="Refraction" Width="840" Height="148" Stretch="Fill" IsHitTestVisible="False">
+                    <Image.Effect><BlurEffect Radius="1.8" RenderingBias="Performance"/></Image.Effect>
+                </Image>
+                <Rectangle x:Name="GlassSurface" Width="840" Height="148">
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.5">
+                            <GradientStop Color="#F71D1D1D" Offset="0"/>
+                            <GradientStop Color="#F72C2C2B" Offset="0.08"/>
+                            <GradientStop Color="#9B525150" Offset="0.24"/>
+                            <GradientStop Color="#95595857" Offset="0.81"/>
+                            <GradientStop Color="#EF96938D" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                <Path StrokeThickness="1.5"
+                      Data="{StaticResource CatOutline}">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0.45,1">
+                            <GradientStop Color="#6EFFF9EE" Offset="0"/>
+                            <GradientStop Color="#32F7EFE1" Offset="0.52"/>
+                            <GradientStop Color="#71FFF0D9" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                </Path>
+                <Path StrokeThickness="0.85" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M 108,54 C 178,64 607,61 732,56 M 58,134 C 256,130 602,136 785,134 Q 817,134 825,100">
+                    <Path.Stroke>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0.22">
+                            <GradientStop Color="#00FFF3DF" Offset="0"/>
+                            <GradientStop Color="#50FFF3DF" Offset="0.16"/>
+                            <GradientStop Color="#12FFF3DF" Offset="0.56"/>
+                            <GradientStop Color="#72FFF3DF" Offset="0.94"/>
+                            <GradientStop Color="#00FFF3DF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Path.Stroke>
+                </Path>
+                <Path Data="M 60,133 C 137,110 317,137 548,132 C 709,131 774,130 802,99 C 814,87 818,97 825,87 C 823,116 811,131 789,134 C 726,137 201,131 60,133 Z"
+                      Stroke="#91F8EFDE" StrokeThickness="0.8">
+                    <Path.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#BFB4AA" Offset="0"/>
+                            <GradientStop Color="#65EFE7D8" Offset="0.4"/>
+                            <GradientStop Color="#F4EDE1" Offset="0.94"/>
+                        </LinearGradientBrush>
+                    </Path.Fill>
+                </Path>
+
+                <!-- 米米莫 -->
+                <Path Fill="#FFF4DF" Data="M 32,56 L 52,62 Q 48,83 32,56 Z M 68,57 L 88,48 Q 83,79 68,57 Z"/>
+                <Path Fill="#302820" Data="M 42,59 L 47,61 Q 46,71 43,69 Z M 78,52 L 82,50 Q 85,63 82,67 Z"/>
+                <Path Stroke="#DCCFBB" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M 27,79 L 40,75 M 27,88 L 40,84"/>
+
+                <!-- 莫莫 -->
+                <Ellipse Canvas.Left="747" Canvas.Top="47" Width="67" Height="53">
+                    <Ellipse.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#FFF4E2" Offset="0"/>
+                            <GradientStop Color="#C6B29F" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+                <Ellipse Canvas.Left="760" Canvas.Top="58" Width="45" Height="33" Fill="#BB9C85"/>
+                <Ellipse Canvas.Left="766" Canvas.Top="62" Width="6" Height="12" Fill="#29241F"/>
+                <Ellipse Canvas.Left="795" Canvas.Top="62" Width="6" Height="12" Fill="#29241F"/>
+                <Path Stroke="#29241F" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M 775,79 Q 783,85 784,75 Q 786,84 792,80"/>
+                <Path Stroke="#292B2B" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M 787,101 L 795,109 L 803,101"/>
+
+                <Grid x:Name="CompositionHeader" Canvas.Left="112" Canvas.Top="60" Width="604"
+                      Height="22" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="Preedit" Margin="5,0,12,1" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Foreground="#FFF3E7"
+                               FontFamily="Segoe UI" FontSize="15" FontWeight="Medium"/>
+                    <Border x:Name="PageChip" Grid.Column="1" Background="#33221E23"
+                            BorderBrush="#40FFF3E7" BorderThickness="1" CornerRadius="9"
+                            Padding="8,0" Margin="0,1,0,2" Visibility="Collapsed">
+                        <TextBlock x:Name="PageIndicator" VerticalAlignment="Center" Foreground="#FFF3E7"
+                                   FontFamily="Segoe UI" FontSize="12" FontWeight="Medium"/>
+                    </Border>
+                    <Rectangle Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" IsHitTestVisible="False">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#00FFF3E7" Offset="0"/>
+                                <GradientStop Color="#35FFF3E7" Offset="0.22"/>
+                                <GradientStop Color="#35FFF3E7" Offset="0.78"/>
+                                <GradientStop Color="#00FFF3E7" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                    </Rectangle>
+                </Grid>
+                <StackPanel x:Name="Candidates" Canvas.Left="102" Canvas.Top="64" Orientation="Horizontal">
+                    <StackPanel.Resources>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="#FFFAF7"/>
+                            <Setter Property="BorderBrush" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                            <Setter Property="Width" Value="98"/>
+                            <Setter Property="Height" Value="50"/>
+                            <Setter Property="Margin" Value="0,0,6,0"/>
+                            <Setter Property="FontFamily" Value="Microsoft JhengHei UI, Yu Gothic UI"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Cursor" Value="Hand"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Pill" Background="{TemplateBinding Background}" CornerRadius="22"
+                                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                                <Setter TargetName="Pill" Property="BorderBrush" Value="#B8FFF4E6"/>
+                                                <Setter TargetName="Pill" Property="BorderThickness" Value="1"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </StackPanel.Resources>
+                </StackPanel>
+                <Path x:Name="JapanesePaw" Fill="#ADFFFFFF" IsHitTestVisible="False"
+                      Data="M 718,93 C 716,90 717,87 720,85 C 723,83 727,87 727,90 C 727,93 724,92 722,93 C 720,95 719,95 718,93 Z
+                            M 716,86 A 2,3 0 1 1 720,86 A 2,3 0 1 1 716,86
+                            M 721,83 A 2,3 0 1 1 725,83 A 2,3 0 1 1 721,83
+                            M 726,85 A 2,3 0 1 1 730,85 A 2,3 0 1 1 726,85
+                            M 729,89 A 2,3 0 1 1 733,89 A 2,3 0 1 1 729,89"/>
+            </Canvas>
+        </Viewbox>
+    </StackPanel>
+</Window>
