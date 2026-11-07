@@ -1,0 +1,6 @@
+<resources>
+    <style name="MeowpuutTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#B82E1F</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

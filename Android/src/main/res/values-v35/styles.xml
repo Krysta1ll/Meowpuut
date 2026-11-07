@@ -1,0 +1,8 @@
+<resources>
+    <style name="MeowpuutTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#B82E1F</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#FAF2E6</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>
