@@ -71,7 +71,8 @@
 | --- | --- |
 | macOS 27+，Apple silicon | **0.4.1 Alpha 1** 安裝盤與安裝套件 |
 | iOS／iPadOS 27+ | 宿主 App 與鍵盤擴充原始碼；尚未提供 TestFlight／IPA |
-| Windows | C++ 核心可攜；尚無 TSF 接入與安裝包 |
+| Android 7.0+ | [下載 0.1.0 Alpha APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/Meowpuut-0.1.0-alpha-android.apk) · [建置與安裝](Android/README.md) |
+| Windows 10／11 x64 | **Alpha 原始碼** · [建置、安裝與鍵位](Windows/README.md) |
 | Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |
 
 測試包尚未取得 Developer ID 簽署與 Apple 公證。下載前請讀[安裝與移除說明](docs/INSTALL.md)，Release 同時提供 SHA-256。不需要帳號，也不需要雲端服務。

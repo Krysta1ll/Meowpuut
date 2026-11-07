@@ -1,0 +1,51 @@
+plugins {
+    id 'com.android.application' version '8.7.3'
+}
+
+android {
+    namespace 'app.meowpuut.android'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'app.meowpuut.android'
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-alpha'
+        externalNativeBuild {
+            cmake { arguments '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON' }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    androidResources { noCompress += 'tsv' }
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('keyboardAssets/assets'))
+    sourceSets.main.res.srcDir(layout.buildDirectory.dir('keyboardAssets/res'))
+}
+
+tasks.register('prepareKeyboardAssets', Sync) {
+    from('../assets/brand/MeowpuutMark.png') {
+        rename { 'meowpuut_mark.png' }
+        into 'res/drawable-nodpi'
+    }
+    from('Generated') { include 'native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.json'; into 'assets' }
+    from('../LICENSE') { rename { 'Meowpuut-MIT.txt' }; into 'assets/licenses' }
+    from('../DataSources/McBopomofo/LICENSE.txt') { rename { 'McBopomofo-MIT.txt' }; into 'assets/licenses' }
+    from('../DataSources/PinyinPro/LICENSE') { rename { 'PinyinPro-MIT.txt' }; into 'assets/licenses' }
+    into layout.buildDirectory.dir('keyboardAssets')
+    doLast {
+        ['native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.json'].each { name ->
+            if (!file("Generated/${name}").isFile()) {
+                throw new GradleException('Generate the Android dictionaries first. See Android/README.md.')
+            }
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn('prepareKeyboardAssets') }

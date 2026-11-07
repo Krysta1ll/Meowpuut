@@ -60,28 +60,43 @@ def encode(syllable):
 
 
 def authored(name):
-    for number, line in enumerate((ROOT / "Resources/Lexicon" / name).read_text().splitlines(), 1):
+    for number, line in enumerate((ROOT / "Resources/Lexicon" / name).read_text(encoding="utf-8").splitlines(), 1):
         if not line or line.startswith("#"): continue
         fields = line.split("|")
         yield number, fields
 
 
 
+def convert_script(converter, words, traditional=False):
+    if converter == "--uconv":
+        transform = "Simplified-Traditional" if traditional else "Traditional-Simplified"
+        command = ["uconv", "-f", "UTF-8", "-t", "UTF-8", "-x", transform]
+    else:
+        command = [converter, "--traditional"] if traditional else [converter]
+    return subprocess.run(command, input="\n".join(words) + "\n", encoding="utf-8",
+                          capture_output=True, check=True).stdout.splitlines()
+
+
+def upstream_checksum(path):
+    # Git for Windows may check out the pinned LF source data with CRLF.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def imported_words(converter):
     root = ROOT / "DataSources/McBopomofo"
-    manifest = json.loads((root / "SOURCE.json").read_text())
+    manifest = json.loads((root / "SOURCE.json").read_text(encoding="utf-8"))
     for name, checksum in manifest["files"].items():
-        if hashlib.sha256((root / name).read_bytes()).hexdigest() != checksum:
+        if upstream_checksum(root / name) != checksum:
             raise ValueError(f"Upstream data changed: {name}; put edits in Resources/Lexicon instead")
     frequency = {}
-    for line in (root / "phrase.occ").read_text().splitlines():
+    for line in (root / "phrase.occ").read_text(encoding="utf-8").splitlines():
         fields = line.split()
         if len(fields) == 2: frequency[fields[0]] = int(fields[1])
     mapping = {}
     entries = {}
     skipped = 0
     # Establish reading aliases using the upstream explicit per-character pinyin.
-    for line in (root / "BPMFBase.txt").read_text().splitlines():
+    for line in (root / "BPMFBase.txt").read_text(encoding="utf-8").splitlines():
         fields = line.split()
         if len(fields) < 4: continue
         word, bpmf, pinyin = fields[:3]
@@ -94,7 +109,7 @@ def imported_words(converter):
         mapping.setdefault(bpmf, pinyin)
         if any(ord(char) < 0x3400 for char in word): continue
         entries[(word, pinyin)] = max(1, round(700 * math.log1p(frequency.get(word, 0))))
-    for line in (root / "BPMFMappings.txt").read_text().splitlines():
+    for line in (root / "BPMFMappings.txt").read_text(encoding="utf-8").splitlines():
         fields = line.split()
         if len(fields) < 2: continue
         word, syllables = fields[0], fields[1:]
@@ -108,7 +123,7 @@ def imported_words(converter):
         entries[(word, code)] = max(1, round(700 * math.log1p(frequency.get(word, 0))))
     # A common reading gets the full character prior; other readings are discounted.
     main_reading = {}
-    for line in (root / "heterophony1.list").read_text().splitlines():
+    for line in (root / "heterophony1.list").read_text(encoding="utf-8").splitlines():
         fields = line.split()
         if len(fields) == 2 and fields[1] in mapping: main_reading[fields[0]] = mapping[fields[1]]
     for key in entries:
@@ -116,7 +131,7 @@ def imported_words(converter):
         if len(word) == 1 and word in main_reading and main_reading[word] != code:
             entries[key] = max(1, entries[key] // 8)
     text = sorted({word for word, _ in entries})
-    converted = subprocess.run([converter], input="\n".join(text) + "\n", text=True, capture_output=True, check=True).stdout.splitlines()
+    converted = convert_script(converter, text)
     if len(converted) != len(text): raise ValueError("Script conversion count mismatch")
     hans = dict(zip(text, converted))
     print(f"MIT source: {len(entries):,} accepted readings; {skipped} unsupported/mismatched rows excluded")
@@ -134,11 +149,11 @@ def numbered_pinyin(syllable):
 
 def merge_simplified(words, converter):
     root = ROOT / "DataSources/PinyinPro"
-    manifest = json.loads((root / "SOURCE.json").read_text())
+    manifest = json.loads((root / "SOURCE.json").read_text(encoding="utf-8"))
     for name, expected in manifest["files"].items():
-        if hashlib.sha256((root / name).read_bytes()).hexdigest() != expected:
+        if upstream_checksum(root / name) != expected:
             raise ValueError(f"Simplified source checksum mismatch: {name}")
-    source = json.loads((root / "complete.json").read_text())
+    source = json.loads((root / "complete.json").read_text(encoding="utf-8"))
     canonical = {}
     for (hant, hans, reading), weight in words.items():
         if (hans, reading) not in canonical or canonical[(hans, reading)][1] < weight:
@@ -152,7 +167,7 @@ def merge_simplified(words, converter):
         if len(reading.split()) != len(hans) or not all(encode(x) for x in reading.split()): skipped += 1; continue
         valid.append((hans, reading, float(values[1])))
     missing = sorted({hans for hans, reading, _ in valid if (hans, reading) not in canonical})
-    converted = subprocess.run([converter, "--traditional"], input="\n".join(missing) + "\n", text=True, capture_output=True, check=True).stdout.splitlines()
+    converted = convert_script(converter, missing, traditional=True)
     if len(converted) != len(missing): raise ValueError("Traditional conversion mismatch")
     traditional = dict(zip(missing, converted))
     # Align the two corpus scales using shared readings, then modestly prefer
@@ -185,8 +200,8 @@ def merge_simplified(words, converter):
 def main(destination, converter):
     output = pathlib.Path(destination)
     output.mkdir(parents=True, exist_ok=True)
-    associations = json.loads((ROOT / "Resources/Lexicon/associations.json").read_text())
-    (output / "associations.json").write_text(json.dumps(associations, ensure_ascii=False))
+    associations = json.loads((ROOT / "Resources/Lexicon/associations.json").read_text(encoding="utf-8"))
+    (output / "associations.json").write_text(json.dumps(associations, ensure_ascii=False), encoding="utf-8")
     words, native_keys, merge_report = merge_simplified(imported_words(converter), converter)
     (output / "lexicon-merge-report.json").write_text(json.dumps(merge_report, indent=2))
     authored_count = 0
@@ -258,7 +273,7 @@ def main(destination, converter):
             raise ValueError(f"context.tsv:{number}: invalid phrase or priority")
         context[phrase] = max(context.get(phrase, 0), int(priority))
     for mode, entries in rows.items():
-        with (output / f"native-{mode}.tsv").open("w") as dest:
+        with (output / f"native-{mode}.tsv").open("w", encoding="utf-8", newline="\n") as dest:
             dest.write(f"MEOWPUUT-{mode.upper()}-1\n")
             for (bare, reading, hant, hans), weight in sorted(entries.items(), key=lambda row: (row[0][0], -row[1], row[0][1:])):
                 dest.write(f"{bare}\t{reading}\t{hant}\t{hans}\t{weight}\n")
@@ -272,7 +287,7 @@ def main(destination, converter):
             if not re.fullmatch("[a-z'-]+", reading): raise ValueError(f"japanese.tsv:{number}: invalid reading")
             japanese.setdefault(reading, []).append({"text": word, "weight": int(weight)})
     for values in japanese.values(): values.sort(key=lambda value: (-value["weight"], value["text"]))
-    (output / "native-japanese.json").write_text(json.dumps(japanese, ensure_ascii=False, sort_keys=True))
+    (output / "native-japanese.json").write_text(json.dumps(japanese, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     database = output / "language-evidence.sqlite"
     if database.exists(): database.unlink()
     db = sqlite3.connect(database)
