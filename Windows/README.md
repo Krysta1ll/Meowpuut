@@ -1,4 +1,12 @@
-# Windows 雙貓玻璃候選窗預覽
+# Meowpuut Windows x64 Alpha
+
+## 直接下載安裝
+
+從 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.0-alpha) 下載 Windows x64 ZIP，完整解壓後雙擊 Install.cmd。Windows 會要求管理員權限，以註冊系統輸入法。安裝後按 Win + 空白鍵，從繁體中文切換到 Meowpuut Pinyin。
+
+此 Alpha 發佈包未簽署。Windows 應用程式控制政策可能阻止安裝或啟動玻璃渲染器。
+
+## 雙貓玻璃候選窗預覽
 
 在倉庫根目錄用 PowerShell 建置並執行：
 
@@ -13,7 +21,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Windows\build-preview.ps1
 
 ## Windows 系統輸入法（x64 Alpha）
 
-在 Windows 10／11 x64 使用 Python 3 和 LLVM-MinGW 的 x64 編譯器建置。此分支提供原始碼，預設產物未簽署。安裝時 Windows 會要求以系統管理員權限將輸入服務安裝至 Program Files 並註冊 TSF。安裝程式會在目前登入工作階段啟用輸入法。
+在 Windows 10／11 x64 使用 Python 3 和 LLVM-MinGW 的 x64 編譯器建置。預設建置產物未簽署。安裝時 Windows 會要求以系統管理員權限將輸入服務安裝至 Program Files 並註冊 TSF。安裝程式會在目前登入工作階段啟用輸入法。
 
 ```powershell
 .\Windows\build-ime.ps1 -Compiler C:\path\to\x86_64-w64-mingw32-clang++.exe
