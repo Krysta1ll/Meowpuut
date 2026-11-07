@@ -31,6 +31,7 @@ void mpn_clear_commit(MPNSession *session);
 size_t mpn_candidate_count(const MPNSession *session);
 const char *mpn_candidate(const MPNSession *session, size_t index);
 size_t mpn_page(const MPNSession *session);
+size_t mpn_candidate_consumed(const MPNSession *session, size_t index);
 
 #ifdef __cplusplus
 }
