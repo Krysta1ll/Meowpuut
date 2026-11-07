@@ -2,9 +2,9 @@
 
 ## 直接下載安裝
 
-從 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.0-alpha) 下載 Windows x64 ZIP，完整解壓後雙擊 Install.cmd。Windows 會要求管理員權限，以註冊系統輸入法。安裝後按 Win + 空白鍵，從繁體中文切換到 Meowpuut Pinyin。
+從 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.1-alpha) 下載 Windows x64 ZIP，完整解壓後雙擊 Install.cmd。Windows 會要求管理員權限，以註冊系統輸入法。安裝後按 Win + 空白鍵，從繁體中文切換到 Meowpuut Pinyin。
 
-此 Alpha 發佈包未簽署。Windows 應用程式控制政策可能阻止安裝或啟動玻璃渲染器。0.1.0 以拼音為主；注音尚未接入 Windows 系統輸入法。下載包是早期版本，與目前原始碼不完全相同；切換文字欄位或上屏失敗時，尚未提交的文字可能遺失。
+此 Alpha 發佈包未簽署，Windows 應用程式控制政策可能阻止安裝或啟動玻璃渲染器。0.1.1 以拼音為主，注音尚未接入。安裝、焦點切換及上屏保護均未在 Windows 實測；應用關閉、宿主拒絕輸入或服務停止時，未提交的文字仍可能遺失。套件內的 BUILD-INFO.md 列出建置來源與驗證範圍。
 
 ## 雙貓玻璃候選窗預覽
 
