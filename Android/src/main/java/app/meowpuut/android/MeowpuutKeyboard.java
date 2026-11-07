@@ -916,10 +916,23 @@ public final class MeowpuutKeyboard extends InputMethodService {
         if (isPinyin(handle)) {
             PinyinChoice choice = pinyinChoices.get(index);
             if (choice.engineIndex < 0) {
-                commit(choice.text);
+                MixedSelection selection = MixedSelection.split(choice.text, choice.rawTail);
+                InputConnection connection = getCurrentInputConnection();
+                if (connection == null || !connection.commitText(selection.converted, 1)) return;
+                marked = false;
                 expanded = false;
                 clear();
-                rebuild();
+                for (int i = 0; i < selection.remaining.length(); i++) {
+                    if (!engineKey(handle, selection.remaining.charAt(i))) {
+                        // If replay unexpectedly fails, preserve the complete raw tail in order.
+                        String rawTail = engineRaw(handle) + selection.remaining.substring(i);
+                        clear();
+                        connection.commitText(rawTail, 1);
+                        rebuild();
+                        return;
+                    }
+                }
+                publishCommit(handle);
                 return;
             }
             if (pinnedStart >= 0) pinnedStart -= consumed(handle, choice.engineIndex);

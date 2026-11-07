@@ -24,7 +24,7 @@
 | Android | [下載 APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/Meowpuut-0.1.0-alpha-android.apk) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/SHA256SUMS.txt) | 0.1.0 Alpha，Android 7+ |
 | iOS／iPadOS | [原始碼與建置說明](iOS/README.md) | 尚無公開 TestFlight 或 IPA |
 
-Windows 和 Android 的下載包是較早的 Alpha，功能與新版 macOS 不完全相同。macOS 安裝包尚未公證，Windows 套件未簽署；安裝前請讀各平台說明並核對 SHA-256。Intel Mac 與較舊的 macOS 尚未驗證。
+Windows 和 Android 的下載包是較早的 Alpha，功能與新版 macOS 不完全相同；Windows 0.1.0 目前以拼音為主，切換文字欄位或上屏失敗時未提交的文字可能遺失。macOS 安裝包尚未公證，Windows 套件未簽署；安裝前請讀各平台說明並核對 SHA-256。Intel Mac 與較舊的 macOS 尚未驗證。
 
 ## 今天想打什麼？
 
