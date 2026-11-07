@@ -471,3 +471,6 @@ const char *mpn_candidate(const MPNSession *session, size_t index) {
     return index < session->candidates.size() ? session->candidates[index].c_str() : "";
 }
 size_t mpn_page(const MPNSession *session) { return session->page; }
+size_t mpn_candidate_consumed(const MPNSession *session, size_t index) {
+    return index < session->consumed.size() ? session->consumed[index] : 0;
+}

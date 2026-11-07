@@ -1,0 +1,32 @@
+name: Windows build
+
+on:
+  push:
+    branches: [windows]
+  pull_request:
+    branches: [windows]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build x64 input service and glass renderer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'llvm-mingw-20261104-ucrt-x86_64'
+          $archive = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/$name.zip" -OutFile $archive
+          $expected = '552191b5754c49a5a20723276a6fc56541ea1922c4c50b7b669022333fc1b40f'
+          if ((Get-FileHash -LiteralPath $archive).Hash -ne $expected) {
+              throw 'LLVM-MinGW archive hash mismatch.'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
+          $compiler = Join-Path $env:RUNNER_TEMP "$name/bin/x86_64-w64-mingw32-clang++.exe"
+          & ./Windows/build-ime.ps1 -Compiler $compiler
+          & ./Windows/build-preview.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
