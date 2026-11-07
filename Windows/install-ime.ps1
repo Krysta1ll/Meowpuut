@@ -1,4 +1,4 @@
-param([switch]$Register, [switch]$Signed)
+param([switch]$Register, [switch]$Signed, [switch]$Prebuilt, [switch]$VerifyOnly)
 
 $ErrorActionPreference = 'Stop'
 $build = Join-Path (Split-Path $PSScriptRoot) '.build/windows/ime'
@@ -7,6 +7,14 @@ $sourceLexicon = Join-Path $build 'native-pinyin.tsv'
 $sourceJapanese = Join-Path $build 'japanese.tsv'
 $sourceEvidence = Join-Path $build 'language-evidence.sqlite'
 $renderer = Join-Path (Split-Path $build) 'MeowpuutGlassPreview.exe'
+if ($Prebuilt) {
+    $build = Join-Path $PSScriptRoot 'payload'
+    $sourceDll = Join-Path $build 'MeowpuutTip.dll'
+    $sourceLexicon = Join-Path $build 'native-pinyin.tsv'
+    $sourceJapanese = Join-Path $build 'japanese.tsv'
+    $sourceEvidence = Join-Path $build 'language-evidence.sqlite'
+    $renderer = Join-Path $build 'MeowpuutGlassPreview.exe'
+}
 
 if ($Register) {
     $packageFiles = $sourceDll, $sourceLexicon, $sourceJapanese, $sourceEvidence, $renderer
@@ -35,11 +43,19 @@ if ($Signed) {
             throw "A valid Authenticode signature is required for $binary."
         }
     }
-} else {
+} elseif (!$Prebuilt) {
     & (Join-Path $PSScriptRoot 'build-preview.ps1') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Glass renderer build failed.' }
 }
+if (!(Test-Path -LiteralPath $renderer -PathType Leaf)) {
+    throw 'The glass renderer is missing from the installation files.'
+}
+if ($VerifyOnly) {
+    Write-Output 'All Meowpuut installation files are present.'
+    return
+}
 $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Register'
+if ($Prebuilt) { $arguments += ' -Prebuilt' }
 $setup = Start-Process -FilePath "$env:WINDIR/System32/WindowsPowerShell/v1.0/powershell.exe" -ArgumentList $arguments -Verb RunAs -PassThru -Wait -WindowStyle Hidden
 if ($setup.ExitCode -ne 0) {
     throw "TSF registration failed with exit code $($setup.ExitCode)."
