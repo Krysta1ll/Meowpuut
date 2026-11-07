@@ -418,6 +418,9 @@ struct Candidate {
     std::string text;
     size_t consumed;
     CandidateMetadata metadata;
+    // Only Android's complete-reading presentation appends a raw suffix.
+    // Selection commits the converted prefix and retains this suffix.
+    size_t literalTail = 0;
 };
 
 std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, bool hans, bool completeOnly = false,
@@ -747,17 +750,20 @@ struct MPNLexicon { std::shared_ptr<const Lexicon> value; };
 struct MPNSession {
     struct JapaneseWord { std::string reading, text; int weight; };
     std::shared_ptr<const Lexicon> lexicon;
-    std::string input, preedit, committed, mixedPinyin, segmentContext;
+    std::string input, preedit, committed, mixedPinyin, segmentContext, exactPinyin;
     std::vector<JapaneseWord> japanese;
     std::vector<Candidate> candidates;
     size_t page = 0;
     bool hans = false;
+    bool requireFullCandidate = false;
+    size_t sentenceCount = 0, literalTail = 0;
 
     void reset() {
         input.clear();
         preedit.clear();
         candidates.clear();
         segmentContext.clear();
+        sentenceCount = literalTail = 0;
         page = 0;
     }
 
@@ -938,6 +944,45 @@ struct MPNSession {
             ordered.reserve(limit);
             for (const auto &item : order) ordered.push_back(std::move(ranked[item.index]));
             for (size_t i = 0; i < limit; ++i) ranked[i] = std::move(ordered[i]);
+        }
+        if (requireFullCandidate && lexicon->pinyin && !input.empty()) {
+            // The Android presentation needs complete interpretations first,
+            // followed by selectable prefixes. Never compare scores from
+            // different decoder paths or consume a displayed raw suffix.
+            std::vector<Candidate> complete, rest;
+            for (auto &candidate : ranked) {
+                const bool whole = candidate.consumed == input.size() &&
+                    candidate.metadata.kind != MPN_CANDIDATE_CORRECTION &&
+                    candidate.metadata.kind != MPN_CANDIDATE_PARTIAL &&
+                    candidate.metadata.scoreKind != MPN_SCORE_FALLBACK;
+                if (whole && complete.size() < 3) complete.push_back(std::move(candidate));
+                else rest.push_back(std::move(candidate));
+            }
+            literalTail = 0;
+            if (complete.empty()) {
+                auto prefix = std::find_if(rest.begin(), rest.end(), [&](const Candidate &candidate) {
+                    return candidate.consumed > 0 && candidate.consumed < input.size();
+                });
+                if (prefix != rest.end()) {
+                    auto sentence = *prefix;
+                    sentence.literalTail = input.size() - sentence.consumed;
+                    sentence.text += input.substr(sentence.consumed);
+                    literalTail = sentence.literalTail;
+                    complete.push_back(std::move(sentence));
+                } else {
+                    literalTail = input.size();
+                    complete.push_back({input, input.size(), {MPN_CANDIDATE_UNKNOWN, MPN_SCORE_NONE, 0}, 0});
+                }
+            }
+            sentenceCount = complete.size();
+            complete.insert(complete.end(), std::make_move_iterator(rest.begin()), std::make_move_iterator(rest.end()));
+            if (std::none_of(complete.begin(), complete.end(), [&](const Candidate &candidate) {
+                return candidate.text == input && candidate.consumed == input.size();
+            })) complete.push_back({input, input.size(), {MPN_CANDIDATE_UNKNOWN, MPN_SCORE_NONE, 0}, 0});
+            ranked = std::move(complete);
+            if (ranked.size() > candidate_limit) ranked.resize(candidate_limit);
+        } else {
+            sentenceCount = literalTail = 0;
         }
         preedit.swap(marked);
         candidates.swap(ranked);
@@ -1238,6 +1283,11 @@ void mpn_clear(MPNSession *session) {
     session->reset();
     session->committed.clear();
 }
+void mpn_require_full_candidate(MPNSession *session) {
+    if (!session) return;
+    session->requireFullCandidate = true;
+    try { session->refresh(); } catch (...) { session->reset(); }
+}
 void mpn_set_segment_context(MPNSession *session, const char *text) {
     if (!session) return;
     try {
@@ -1255,6 +1305,8 @@ void mpn_commit(MPNSession *session) {
 int mpn_choose(MPNSession *session, size_t index) {
     if (index >= session->candidates.size()) return 0;
     auto text = session->candidates[index].text;
+    if (const auto tail = session->candidates[index].literalTail; tail && tail <= text.size())
+        text.resize(text.size() - tail);
     auto remaining = session->input.substr(session->candidates[index].consumed);
     const auto traditional = session->lexicon->traditionalize(text, true);
     auto context = traditional.empty() ? std::string() : session->lexicon->traditionalize(session->segmentContext + traditional, true);
@@ -1354,3 +1406,16 @@ int mpn_candidate_info(const MPNSession *session, size_t index, MPNCandidateInfo
     return 1;
 }
 size_t mpn_page(const MPNSession *session) { return session->page; }
+size_t mpn_sentence_count(const MPNSession *session) { return session ? session->sentenceCount : 0; }
+size_t mpn_literal_tail(const MPNSession *session) { return session ? session->literalTail : 0; }
+const char *mpn_exact_pinyin(MPNSession *session, const char *reading) {
+    if (!session) return "";
+    session->exactPinyin.clear();
+    if (!session->lexicon->pinyin || !reading || std::string_view(reading).size() > max_input)
+        return session->exactPinyin.c_str();
+    try {
+        auto words = decode(*session->lexicon, reading, session->hans, true);
+        if (!words.empty()) session->exactPinyin = std::move(words.front());
+    } catch (...) {}
+    return session->exactPinyin.c_str();
+}

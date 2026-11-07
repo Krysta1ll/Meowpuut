@@ -11,3 +11,9 @@ __pycache__/
 .env.*
 *.p12
 *.mobileprovision
+
+Android/.gradle/
+Android/.cxx/
+Android/build/
+Android/Generated/
+Android/local.properties

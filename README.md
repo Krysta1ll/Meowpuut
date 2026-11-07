@@ -13,9 +13,34 @@
 
 喵撲是一款從日常中文輸入出發的開源輸入法。拼音和注音各有自己的按鍵規則，繁簡共用一份詞庫；偶爾想打日文單字，可以直接輸入羅馬音，不必為幾個字來回切換輸入法。
 
-目前是公開測試版。它已能在 macOS 輸入中文，選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
+目前是公開測試版。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
 
-![喵撲的雙貓玻璃候選列](assets/screenshots/candidates.png)
+## 把小貓帶回家
+
+| 平台 | 下載 | 版本 |
+| --- | --- | --- |
+| macOS · Apple silicon | [紙箱安裝盤](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/SHA256SUMS.txt) | 0.4.2 Alpha 1，macOS 27+ |
+| Windows · x64 | [下載 ZIP](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-v0.1.0-alpha/Meowpuut-Windows-x64-0.1.0-alpha.zip) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-v0.1.0-alpha/SHA256SUMS.txt) | 0.1.0 Alpha，Windows 10／11 |
+| Android | [下載 APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/Meowpuut-0.1.0-alpha-android.apk) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/SHA256SUMS.txt) | 0.1.0 Alpha，Android 7+ |
+| iOS／iPadOS | [原始碼與建置說明](iOS/README.md) | 尚無公開 TestFlight 或 IPA |
+
+Windows 和 Android 的下載包是較早的 Alpha，功能與新版 macOS 不完全相同。macOS 安裝包尚未公證，Windows 套件未簽署；安裝前請讀各平台說明並核對 SHA-256。Intel Mac 與較舊的 macOS 尚未驗證。
+
+## 今天想打什麼？
+
+以下畫面為 macOS 0.4.2 的候選介面預覽。
+
+打 `sushi` 的時候，「蘇軾」和「寿司」都可以在候選裡找到。貓爪提醒你那是日語，想吃壽司還是想聊蘇軾，交給你選。
+
+![輸入 sushi 時的候選窗介面預覽](assets/screenshots/sushi-current.png)
+
+想說「我好き你」？在拼音模式接著打 `wosukini` 就好。也可以先選長句的前半段：`woxihuannid` 選「我喜歡你」之後，剩下的 `d` 會留在組字中。
+
+![中日混打「我好き你」的候選窗介面預覽](assets/screenshots/mixed-current.png)
+
+習慣注音的話，`su3cl3` 就是「你好」。拼音和注音各有一套按鍵，不用猜現在該按哪種聲調。
+
+![注音輸入「你好」的候選窗介面預覽](assets/screenshots/zhuyin-current.png)
 
 ## 米米莫、莫莫，和候選窗
 
@@ -33,7 +58,7 @@
 
 日語目前是羅馬音轉假名加小型單字詞表，不是完整的日語整句漢字轉換器。能轉成假名，也不代表那串字一定是有意義的日語。
 
-## 先試幾個字
+## 先試幾個字（macOS）
 
 | 模式 | 輸入 | 可以選到 |
 | --- | --- | --- |
@@ -63,19 +88,6 @@
 
 拼音直接按標點鍵輸入中文標點；Shift＋逗號、句號、斜線可輸入英文標點。注音的聲韻鍵保留原功能。繁簡與皮膚可在輸入法選單切換。
 
-## 下載與平台
-
-[**下載 0.4.2 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/SHA256SUMS.txt)
-
-| 平台 | 本次提供 |
-| --- | --- |
-| macOS 27+，Apple silicon | **0.4.2 Alpha 1** 安裝盤與安裝套件 |
-| iOS／iPadOS 27+ | 宿主 App 與鍵盤擴充原始碼；尚未提供 TestFlight／IPA，本次候選修改尚未完成真機驗證 |
-| Windows | C++ 核心可攜；尚無 TSF 接入與安裝包 |
-| Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |
-
-測試包尚未取得 Developer ID 簽署與 Apple 公證。下載前請讀[安裝與移除說明](docs/INSTALL.md)，Release 同時提供 SHA-256。不需要帳號，也不需要雲端服務。
-
 ## mimo 1.0：一份繁簡詞庫，兩套輸入規則
 
 中文解碼、斷詞與排序由喵撲的 C++17 核心完成，沒有 Rime 執行時依賴。中文資料採用 McBopomofo 與 Pinyin Pro 的 MIT 詞表，再套用喵撲的讀音、字形與排序修訂；日語詞條也包含附帶 BSD 授權的 UniDic 精選資料。
@@ -86,7 +98,7 @@
 
 ## 資料留在本機
 
-輸入、排序和個人詞庫不需要網路。學習的是你確認過的候選，不讀取其他應用的聊天記錄或整份文件。記憶可在設定中停用或清除。
+macOS 和 iOS 的輸入、排序與個人詞庫不需要網路。學習的是你確認過的候選，不讀取其他應用的聊天記錄或整份文件。記憶可在設定中停用或清除；Windows、Android Alpha 的功能請參考各自的版本說明。
 
 macOS 資料位於 `~/Library/Application Support/Meowpuut/`。iOS 鍵盤使用自己的沙盒；目前沒有跨裝置同步。
 

@@ -23,6 +23,8 @@ void mpn_session_destroy(MPNSession *session);
 // begins a new composition; boundary tone marks complete the old reading.
 size_t mpn_max_input_bytes(void);
 int mpn_key(MPNSession *session, int32_t key);
+// When enabled, the first candidate always covers the complete composition.
+void mpn_require_full_candidate(MPNSession *session);
 void mpn_set_simplified(MPNSession *session, int simplified);
 void mpn_clear(MPNSession *session);
 // Restore a Chinese prefix only while rebuilding the same partial composition.
@@ -69,6 +71,10 @@ typedef struct {
 // The info and string describe the same candidate until the next mutation.
 int mpn_candidate_info(const MPNSession *session, size_t index, MPNCandidateInfo *info, size_t info_size);
 size_t mpn_page(const MPNSession *session);
+size_t mpn_sentence_count(const MPNSession *session);
+size_t mpn_literal_tail(const MPNSession *session);
+// Convert a separate Pinyin segment without changing the active composition.
+const char *mpn_exact_pinyin(MPNSession *session, const char *reading);
 
 // Optional Japanese words for mixed pinyin/romaji. Registration and decoding
 // are local to the session; a returned string remains valid until the next call.
