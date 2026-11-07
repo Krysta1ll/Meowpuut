@@ -7,8 +7,21 @@
 擬|拟|ni3|300
 泥|泥|ni2|500
 好|好|hao3|9000
-號|号|hao4|3000
+號|号|hao4|6500
 我|我|wo3|10000
+# Reviewed common single-character homophones; weights are editorial priors.
+幫|帮|bang1|8200
+棒|棒|bang4|7300
+綁|绑|bang3|6800
+榜|榜|bang3|6600
+邦|邦|bang1|6000
+浜|浜|bang1|2200
+行|行|hang2|6800
+航|航|hang2|5800
+絎|绗|hang2|1600
+紝|紝|ren4|1600
+殑|殑|qing2|1400
+灝|灏|hao4|2500
 我們|我们|wo3 men5|10000
 你們|你们|ni3 men5|8000
 他們|他们|ta1 men5|8000
@@ -456,3 +469,30 @@
 一部小說|一部小说|yi2 bu4 xiao3 shuo1|7800
 一部作品|一部作品|yi2 bu4 zuo4 pin3|7800
 一步一步|一步一步|yi2 bu4 yi2 bu4|8500
+# 「新包」保留較低的獨立權重，購物語境另以相鄰詞加分。
+新包|新包|xin1 bao1|3000
+# Community discussion and collecting; editorial priorities, not frequency counts.
+拼單|拼单|pin1 dan1|6100
+拆盒|拆盒|chai1 he2|5900
+卡套|卡套|ka3 tao4|5300
+自印|自印|zi4 yin4|4400
+場刊|场刊|chang3 kan1|3400
+合誌|合志|he2 zhi4|3100
+轉推|转推|zhuan3 tui1|4900
+存圖|存图|cun2 tu2|5200
+互關|互关|hu4 guan1|4900
+評論區|评论区|ping2 lun4 qu1|6800
+追更|追更|zhui1 geng1|6200
+番組|番组|fan1 zu3|5100
+圖透|图透|tu2 tou4|4500
+劇透|剧透|ju4 tou4|4000
+超話|超话|chao1 hua4|5600
+同人展|同人展|tong2 ren2 zhan3|5200
+聲優|声优|sheng1 you1|4700
+集卡|集卡|ji2 ka3|5200
+換谷|换谷|huan4 gu3|3500
+補款|补款|bu3 kuan3|5400
+# Protect everyday homophones while keeping community terms available.
+省油|省油|sheng3 you2|5000
+日本聲優|日本声优|ri4 ben3 sheng1 you1|7200
+動畫聲優|动画声优|dong4 hua4 sheng1 you1|6500

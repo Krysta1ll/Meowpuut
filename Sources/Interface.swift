@@ -3,6 +3,23 @@ import AppKit
 
 let accent = Brand.accent
 
+private let candidateAnchorGap: CGFloat = 6
+
+func candidatePanelAvailableHeight(anchor: NSRect, bounds: NSRect) -> CGFloat {
+    max(0, anchor.minY - bounds.minY - candidateAnchorGap,
+        bounds.maxY - anchor.maxY - candidateAnchorGap)
+}
+
+func candidateFrame(size: NSSize, anchor: NSRect, bounds: NSRect) -> NSRect {
+    let below = anchor.minY - bounds.minY - candidateAnchorGap
+    let above = bounds.maxY - anchor.maxY - candidateAnchorGap
+    let useBelow = below >= size.height || (above < size.height && below >= above)
+    let y = useBelow ? anchor.minY - candidateAnchorGap - size.height : anchor.maxY + candidateAnchorGap
+    return NSRect(x: max(bounds.minX, min(anchor.minX, bounds.maxX - size.width)),
+                  y: max(bounds.minY, min(y, bounds.maxY - size.height)),
+                  width: size.width, height: size.height)
+}
+
 // One layout calculation drives visibility and text widths, so reserving a Japanese
 // match cannot make the rendered row exceed the same budget used to select it.
 struct CollapsedCandidateLayout {
@@ -12,15 +29,16 @@ struct CollapsedCandidateLayout {
 
     init(_ snapshot: Snapshot, budget: CGFloat? = nil) {
         let font = NSFont.systemFont(ofSize: 14)
-        let widths = snapshot.candidates.map { ceil(($0 as NSString).size(withAttributes: [.font: font]).width) + (snapshot.japaneseCandidates.contains($0) ? 14 : 0) }
+        let candidates = snapshot.candidates + (snapshot.compactJapanese.map { [$0.text] } ?? [])
+        let japanese = Set(snapshot.japaneseCandidates + (snapshot.compactJapanese.map { [$0.text] } ?? []))
+        let widths = candidates.map { ceil(($0 as NSString).size(withAttributes: [.font: font]).width) + (japanese.contains($0) ? 14 : 0) }
         guard !widths.isEmpty else { indices = []; textWidths = [:]; truncated = false; return }
         let confidence = Set(snapshot.confidentCandidates)
         let trusted = snapshot.candidates.prefix(7).filter { confidence.contains($0) }.count
-        let reservedJapanese = snapshot.candidates.firstIndex { snapshot.japaneseCandidates.contains($0) }
-            ?? snapshot.requiredCandidate.flatMap { snapshot.candidates.firstIndex(of: $0) }
+        let reservedJapanese = candidates.firstIndex { japanese.contains($0) }
+            ?? snapshot.requiredCandidate.flatMap { candidates.firstIndex(of: $0) }
         let baseBudget = max(110, budget ?? (trusted >= 5 ? 320 : trusted >= 3 ? 280 : 230))
-        let japanese = Set(snapshot.japaneseCandidates)
-        let chineseIndices = snapshot.candidates.indices.filter { !japanese.contains(snapshot.candidates[$0]) }
+        let chineseIndices = candidates.indices.filter { !japanese.contains(candidates[$0]) }
         var selected: [Int] = []
         func total(_ ids: [Int]) -> CGFloat {
             14 + CGFloat(ids.count * 34 + max(0, ids.count - 1) * 4) + ids.reduce(0) { $0 + widths[$1] }
@@ -31,12 +49,14 @@ struct CollapsedCandidateLayout {
             selected.append(index)
         }
         var available = baseBudget
-        if let index = reservedJapanese, (snapshot.page == 0 || !snapshot.japaneseCandidates.isEmpty), !selected.contains(index) {
+        if let index = reservedJapanese, (snapshot.page == 0 || !japanese.isEmpty), !selected.contains(index) {
             selected.append(index)
             if budget == nil { available += min(120, widths[index] + 38) }
         }
         if selected.isEmpty { selected = [0] }
-        selected = selected.filter { !japanese.contains(snapshot.candidates[$0]) }.sorted() + selected.filter { japanese.contains(snapshot.candidates[$0]) }
+        // Keep the engine's ranking, including a leading mixed sentence. The
+        // extra Japanese slot only changes visibility, not candidate order.
+        selected.sort()
         let textBudget = max(0, available - 14 - CGFloat(selected.count * 34 + max(0, selected.count - 1) * 4))
         var remaining = textBudget
         var allocation: [Int: CGFloat] = [:]
@@ -53,12 +73,50 @@ struct CollapsedCandidateLayout {
     }
 }
 
+// A Japanese candidate from a later page has a compact-only index immediately
+// after the current page. It never changes the expanded page's ordering.
+func compactCandidateText(_ snapshot: Snapshot, at index: Int) -> String? {
+    if snapshot.candidates.indices.contains(index) { return snapshot.candidates[index] }
+    if index == snapshot.candidates.count { return snapshot.compactJapanese?.text }
+    return nil
+}
+
 func collapsedCandidateCount(_ candidates: [String]) -> Int {
     CollapsedCandidateLayout(Snapshot(candidates: candidates)).indices.count
 }
 
 func collapsedCandidateIndices(_ snapshot: Snapshot) -> [Int] {
     CollapsedCandidateLayout(snapshot).indices
+}
+
+// Collapsed display can reorder and hide results; its numbered keys must use
+// the same visible-to-snapshot mapping as the labels and mouse selection.
+enum CollapsedShortcut: Equatable {
+    case pass, choose(Int), expand
+}
+func collapsedCandidateShortcut(_ snapshot: Snapshot, key: Int32, modifiers: Int32,
+                                shifted: Bool, english: Bool) -> CollapsedShortcut {
+    guard !english, !snapshot.candidates.isEmpty else { return .pass }
+    let ordinal: Int?
+    if shifted, modifiers == 1, let scalar = UnicodeScalar(UInt32(bitPattern: key)) {
+        ordinal = Array("!@#$%^&").firstIndex(of: Character(scalar))
+    } else if !shifted, modifiers == 0, (49...55).contains(key) {
+        ordinal = Int(key - 49)
+    } else { ordinal = nil }
+    guard let ordinal else { return .pass }
+    let visible = collapsedCandidateIndices(snapshot)
+    if visible.indices.contains(ordinal) { return .choose(visible[ordinal]) }
+    return snapshot.candidates.indices.contains(ordinal) ? .expand : .pass
+}
+func collapsedCandidateMove(_ snapshot: Snapshot, key: Int32, modifiers: Int32) -> Int? {
+    guard !snapshot.candidates.isEmpty,
+          (modifiers == 0 || (key == 0xff09 && modifiers == 1)),
+          [Int32(0xff52), 0xff54, 0xff09].contains(key) else { return nil }
+    let visible = collapsedCandidateIndices(snapshot)
+    guard !visible.isEmpty else { return nil }
+    let current = visible.firstIndex(of: snapshot.highlighted) ?? 0
+    let previous = key == 0xff52 || (key == 0xff09 && modifiers == 1)
+    return visible[(current + (previous ? visible.count - 1 : 1)) % visible.count]
 }
 
 // Rows preserve candidate order and shortcuts; a long phrase receives a full row.
@@ -112,6 +170,22 @@ func expandedCandidateMove(_ candidates: [String], from index: Int, key: Int32) 
     return rows[nextRow][min(column, rows[nextRow].count - 1)]
 }
 
+// The compact strip keeps its usual height for short choices. A highlighted
+// phrase is allowed to wrap, with a bounded viewport for exceptionally long
+// compositions; scrolling retains access to the entire candidate.
+func collapsedCandidateHeight(_ snapshot: Snapshot, layout: CollapsedCandidateLayout) -> CGFloat {
+    let index = snapshot.highlighted
+    guard layout.indices.contains(index), let text = compactCandidateText(snapshot, at: index) else { return 33 }
+    let markWidth: CGFloat = snapshot.japaneseCandidates.contains(text) || snapshot.compactJapanese?.text == text ? 14 : 0
+    let width = max(1, (layout.textWidths[index] ?? 0) - markWidth)
+    let font = NSFont.systemFont(ofSize: 14)
+    let naturalWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    guard naturalWidth > width else { return 33 }
+    let height = ceil((text as NSString).boundingRect(with: NSSize(width: width, height: 10000),
+        options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font]).height)
+    return min(112, max(33, height + 16))
+}
+
 // A single inexpensive highlight shared by both candidate layouts and skins.
 private struct CandidateSelection: View {
     var radius: CGFloat
@@ -124,14 +198,18 @@ private struct CandidateSelection: View {
     var body: some View {
         RoundedRectangle(cornerRadius: radius)
             .fill(LinearGradient(colors: [
-                accent.opacity(reduceTransparency ? 0.65 : 0.32),
-                accent.opacity(reduceTransparency ? 0.65 : 0.18)
+                accent.opacity(reduceTransparency ? 0.65 : (scheme == .dark ? 0.36 : 0.29)),
+                accent.opacity(reduceTransparency ? 0.65 : (scheme == .dark ? 0.20 : 0.15))
             ], startPoint: .topLeading, endPoint: .bottomTrailing))
             .overlay {
                 RoundedRectangle(cornerRadius: radius).strokeBorder(
-                    LinearGradient(colors: [.white.opacity(contrast == .increased ? 0.7 : 0.28), .white.opacity(0.04)],
+                    LinearGradient(colors: [.white.opacity(contrast == .increased ? 0.7 : 0.38), .white.opacity(0.04)],
                                    startPoint: .top, endPoint: .bottom), lineWidth: 0.6)
             }
+            // Move only the selection's drawn surface; the label, hit target,
+            // and measured row stay exactly where they are.
+            .offset(y: 1.5)
+            .allowsHitTesting(false)
     }
 }
 
@@ -144,6 +222,7 @@ struct CandidateStrip: View {
     var onPage: (Int32) -> Void = { _ in }
     var compact = false
     var expanded = false
+    var maximumContentHeight: CGFloat = .greatestFiniteMagnitude
     var body: some View {
         if compact {
             if engine.snapshot.candidates.isEmpty {
@@ -167,7 +246,7 @@ struct CandidateStrip: View {
         }
     }
     @ViewBuilder private func japaneseMark(_ text: String) -> some View {
-        if engine.snapshot.japaneseCandidates.contains(text) {
+        if engine.snapshot.japaneseCandidates.contains(text) || engine.snapshot.compactJapanese?.text == text {
             Image(systemName: "pawprint.fill").font(.system(size: 8))
                 .rotationEffect(.degrees(-20))
                 .foregroundStyle(.secondary).frame(width: 10)
@@ -178,36 +257,47 @@ struct CandidateStrip: View {
         let layout = CollapsedCandidateLayout(engine.snapshot)
         let indices = layout.indices
         let widths = layout.textWidths
-        return HStack(spacing: 4) {
-            ForEach(indices, id: \.self) { index in
-                let candidate = engine.snapshot.candidates[index]
+        let requiredHeight = collapsedCandidateHeight(engine.snapshot, layout: layout)
+        let height = min(maximumContentHeight, requiredHeight)
+        let textWidth: CGFloat = indices.reduce(0) { $0 + (widths[$1] ?? 0) }
+        let spacingWidth = CGFloat(indices.count * 34 + max(0, indices.count - 1) * 4)
+        let width: CGFloat = 14 + spacingWidth + textWidth
+        return ScrollView(.vertical) {
+        HStack(alignment: requiredHeight > 33 ? .top : .center, spacing: 4) {
+            ForEach(Array(indices.enumerated()), id: \.element) { ordinal, index in
+                let candidate = compactCandidateText(engine.snapshot, at: index) ?? ""
+                let isJapanese = engine.snapshot.japaneseCandidates.contains(candidate) || engine.snapshot.compactJapanese?.text == candidate
+                let selected = index == engine.snapshot.highlighted
                 Button { onChoose(index) } label: {
-                    HStack(spacing: 4) {
-                        Text(engine.candidateShortcut(index)).font(.system(size: 10, weight: .medium, design: .monospaced))
+                    HStack(alignment: requiredHeight > 33 ? .top : .center, spacing: 4) {
+                        Text(engine.candidateShortcut(ordinal)).font(.system(size: 10, weight: .medium, design: .monospaced))
                             .frame(width: 18)
                             .foregroundStyle(.secondary)
-                        Text(candidate).font(.system(size: 14)).lineLimit(1)
+                        Text(candidate).font(.system(size: 14)).lineLimit(selected && requiredHeight > 33 ? nil : 1)
                             .truncationMode(.tail)
-                            .frame(width: max(0, (widths[index] ?? 0) - (engine.snapshot.japaneseCandidates.contains(candidate) ? 14 : 0)), alignment: .leading)
+                            .frame(width: max(0, (widths[index] ?? 0) - (isJapanese ? 14 : 0)), alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: selected && requiredHeight > 33)
                         japaneseMark(candidate)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
                     .background {
-                        if index == engine.snapshot.highlighted {
+                        if selected {
                             CandidateSelection(radius: 20).matchedGeometryEffect(id: "selection", in: selection)
                         }
                     }
                 }
                 .buttonStyle(.plain)
                 .help(candidate)
-                .accessibilityAddTraits(index == engine.snapshot.highlighted ? .isSelected : [])
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
         .frame(minHeight: 33)
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: width, height: height)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: engine.snapshot.highlighted)
     }
 
@@ -255,7 +345,7 @@ struct CandidateStrip: View {
             }
                     }
                 }
-                .frame(width: width, height: expandedCandidateHeight(engine.snapshot.layoutCandidates))
+                .frame(width: width, height: min(maximumContentHeight, expandedCandidateHeight(engine.snapshot.layoutCandidates)))
                 .id(engine.snapshot.page)
                 .onChange(of: engine.snapshot.highlighted) { _, index in proxy.scrollTo(index) }
                 .onChange(of: engine.snapshot.page) { _, _ in proxy.scrollTo(0, anchor: .top) }

@@ -10,6 +10,10 @@ cp DataSources/McBopomofo/LICENSE.txt iOS/Generated/Licenses/McBopomofo-MIT.txt
 cp DataSources/McBopomofo/SOURCE.json iOS/Generated/Licenses/McBopomofo-SOURCE.json
 cp DataSources/PinyinPro/LICENSE iOS/Generated/Licenses/PinyinPro-MIT.txt
 cp DataSources/PinyinPro/SOURCE.json iOS/Generated/Licenses/PinyinPro-SOURCE.json
+cp DataSources/UniDic/LICENSE.txt iOS/Generated/Licenses/UniDic-derived-BSD.txt
+cp DataSources/UniDic/UNIDIC-BSD.txt iOS/Generated/Licenses/UniDic-BSD.txt
+cp DataSources/UniDic/UNIDIC-COPYING.txt iOS/Generated/Licenses/UniDic-COPYING.txt
+cp DataSources/UniDic/SOURCE.json iOS/Generated/Licenses/UniDic-SOURCE.json
 APP_ICON=iOS/Generated/Assets.xcassets/AppIcon.appiconset
 swiftc -target "$(uname -m)-apple-macosx27.0" scripts/Icon.swift -o .build/icon
 .build/icon assets/brand/MeowpuutMark.png "$APP_ICON" --ios

@@ -11,6 +11,7 @@ import math
 import unicodedata
 import subprocess
 import statistics
+from japanese_readings import pinyin_kana
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 KEYS = dict(zip("bpmfdtnlgkhjqxZCSrzcsiuvaoeEAIOUMNKGR12345",
@@ -229,7 +230,8 @@ def main(destination, converter):
         "name": "mimo", "version": "1.0", "readings": len(words),
         "key": "simplified spelling + tone-qualified reading",
         "frequency_preference": "simplified source; reviewed overlays last",
-        "sources": ["McBopomofo (MIT)", "Pinyin Pro complete (MIT)"]
+        "sources": ["McBopomofo (MIT)", "Pinyin Pro complete (MIT)"],
+        "japanese_sources": ["UniDic-CWJ 2025.12 reviewed subset (BSD-3-Clause)", "Meowpuut authored"]
     }, ensure_ascii=False, indent=2))
     rows = {"zhuyin": {}, "pinyin": {}}
     def add(mode, bare, reading, hant, hans, weight):
@@ -265,14 +267,48 @@ def main(destination, converter):
             dest.write("# context\n")
             for word, weight in sorted(context.items()): dest.write(f"{word}\t{weight}\n")
     japanese = {}
+    def add_japanese(reading, word, weight):
+        if not re.fullmatch("[a-z'-]+", reading) or not word or not 0 < weight <= 10000:
+            raise ValueError(f"invalid Japanese entry: {reading!r}, {word!r}, {weight}")
+        entries = japanese.setdefault(reading, {})
+        entries[word] = max(entries.get(word, 0), weight)
     for number, fields in authored("japanese.tsv"):
         if len(fields) != 3: raise ValueError(f"japanese.tsv:{number}: expected 3 fields")
         readings, word, weight = fields
         for reading in readings.split(","):
-            if not re.fullmatch("[a-z'-]+", reading): raise ValueError(f"japanese.tsv:{number}: invalid reading")
-            japanese.setdefault(reading, []).append({"text": word, "weight": int(weight)})
+            add_japanese(reading, word, int(weight))
+    unidic = ROOT / "DataSources/UniDic"
+    manifest = json.loads((unidic / "SOURCE.json").read_text())
+    daily = (unidic / "daily.tsv").read_bytes()
+    if hashlib.sha256(daily).hexdigest() != manifest["curated_sha256"]:
+        raise ValueError("UniDic curated data changed; update the pinned source record")
+    for number, line in enumerate(daily.decode("utf-8").splitlines(), 1):
+        if not line or line.startswith("#"): continue
+        fields = line.split("|")
+        if len(fields) != 5: raise ValueError(f"UniDic daily.tsv:{number}: expected 5 fields")
+        kana, word, romaji, chinese, priority = fields
+        if not re.fullmatch(r"[ぁ-ゖー]+", kana) or not priority.isdigit():
+            raise ValueError(f"UniDic daily.tsv:{number}: invalid reading or priority")
+        weight = int(priority)
+        if not 4000 < weight <= 10000:
+            raise ValueError(f"UniDic daily.tsv:{number}: priority must leave room for a lower-weight alias")
+        add_japanese(romaji, word, weight)
+        alias = pinyin_kana(word, chinese.split())
+        if alias != romaji:
+            # Pure-kanji pinyin can be ordinary Chinese; the portable core treats
+            # this 3500 weight as ambiguous rather than Japanese-only evidence.
+            contains_kana = any("\u3040" <= char <= "\u30ff" for char in word)
+            alias_weight = max(4000, weight - 3000) if contains_kana else 3500
+            add_japanese(alias, word, alias_weight)
+    japanese = {reading: [{"text": word, "weight": weight} for word, weight in entries.items()]
+                for reading, entries in japanese.items()}
     for values in japanese.values(): values.sort(key=lambda value: (-value["weight"], value["text"]))
     (output / "native-japanese.json").write_text(json.dumps(japanese, ensure_ascii=False, sort_keys=True))
+    # Both platform adapters consume the same merged and deduplicated entries.
+    with (output / "native-japanese.tsv").open("w") as dest:
+        for reading in sorted(japanese):
+            for entry in japanese[reading]:
+                dest.write(f"{reading}|{entry['text']}|{entry['weight']}\n")
     database = output / "language-evidence.sqlite"
     if database.exists(): database.unlink()
     db = sqlite3.connect(database)

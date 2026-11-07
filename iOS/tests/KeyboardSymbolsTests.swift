@@ -3,7 +3,7 @@ import Foundation
 @main
 struct KeyboardSymbolsTests {
     static func main() {
-        for (input, expected) in [(Character(","), "，"), (".", "。"), ("?", "？"), ("[", "「"), ("}", "』")] {
+        for (input, expected) in [(Character(","), "，"), (".", "。"), ("?", "？"), (":", "："), (";", "；"), ("[", "「"), ("}", "』")] {
             precondition(KeyboardSymbols.text(input, chinese: true) == expected)
             precondition(KeyboardSymbols.text(input, chinese: false) == String(input))
         }

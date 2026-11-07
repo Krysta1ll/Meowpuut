@@ -44,7 +44,10 @@ struct RepeatDeleteButton: UIViewRepresentable {
     final class Coordinator: NSObject {
         let driver: RepeatDeleteDriver
         init(action: @escaping () -> Void) { driver = RepeatDeleteDriver(action: action) }
-        @objc func pressed() { driver.press() }
+        @objc func pressed() {
+            UIDevice.current.playInputClick()
+            driver.press()
+        }
         @objc func stopped() { driver.stop() }
     }
 

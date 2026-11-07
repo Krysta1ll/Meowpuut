@@ -2,16 +2,6 @@ import AppKit
 import SwiftUI
 import InputMethodKit
 
-private func candidateFrame(size: NSSize, anchor: NSRect, bounds: NSRect) -> NSRect {
-    let gap: CGFloat = 6
-    let below = anchor.minY - size.height - gap
-    let above = anchor.maxY + gap
-    let y = below >= bounds.minY || above + size.height > bounds.maxY ? below : above
-    return NSRect(x: max(bounds.minX, min(anchor.minX, bounds.maxX - size.width)),
-                  y: max(bounds.minY, min(y, bounds.maxY - size.height)),
-                  width: size.width, height: size.height)
-}
-
 @objc(MeowpuutInputController)
 class MeowpuutInputController: IMKInputController {
     private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
@@ -33,12 +23,15 @@ class MeowpuutInputController: IMKInputController {
         let snapshot = engine.snapshot
         guard !snapshot.candidates.isEmpty else { return false }
         let layout = CollapsedCandidateLayout(snapshot)
-        return layout.truncated || layout.indices.count < snapshot.candidates.count ||
+        return layout.truncated || layout.indices.filter { $0 < snapshot.candidates.count }.count < snapshot.candidates.count ||
             !snapshot.lastPage || snapshot.page > 0
     }
 
     private func setCandidatesExpanded(_ expanded: Bool) {
         candidatesExpanded = expanded
+        if expanded && engine.snapshot.highlighted >= engine.snapshot.candidates.count {
+            engine.snapshot.highlighted = 0
+        }
         if !expanded && !collapsedCandidateIndices(engine.snapshot).contains(engine.snapshot.highlighted) {
             engine.snapshot.highlighted = 0
         }
@@ -57,20 +50,23 @@ class MeowpuutInputController: IMKInputController {
         Int(NSEvent.EventTypeMask.keyDown.rawValue | NSEvent.EventTypeMask.flagsChanged.rawValue)
     }
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
-        guard let event, let client = sender as? IMKTextInput else { return false }
+        guard let event else { return false }
         let shiftOnly = shiftTap.update(keyCode: event.keyCode, modifierEvent: event.type == .flagsChanged,
             shift: event.modifierFlags.contains(.shift),
-            other: !event.modifierFlags.intersection([.command, .control, .option, .capsLock]).isEmpty)
+            other: !event.modifierFlags.intersection([.command, .control, .option]).isEmpty)
+        // Some clients omit the sender on modifier events; IMK still retains
+        // the currently active text client.
+        let activeClient = (sender as? IMKTextInput) ?? self.client()
         if event.type == .flagsChanged {
-            if shiftOnly, engine.inputMode == .pinyin {
+            if shiftOnly, engine.inputMode == .pinyin, let activeClient {
                 engine.key(Engine.toggleEnglishKey)
                 setCandidatesExpanded(false)
-                deliver(client)
+                deliver(activeClient)
                 return true
             }
             return false
         }
-        guard event.type == .keyDown else { return false }
+        guard event.type == .keyDown, let client = activeClient else { return false }
         if event.modifierFlags.intersection([.command, .control, .option, .shift]) == [.control, .option],
            let index = [UInt16(18), 19, 20].firstIndex(of: event.keyCode) {
             changeInputMode(InputMode.allCases[index], client: client)
@@ -107,6 +103,34 @@ class MeowpuutInputController: IMKInputController {
             deliver(client)
             return true
         }
+        if !candidatesExpanded {
+            if let next = collapsedCandidateMove(engine.snapshot, key: key, modifiers: modifiers), !engine.english {
+                engine.snapshot.highlighted = next
+                deliver(client)
+                return true
+            }
+            switch collapsedCandidateShortcut(engine.snapshot, key: key, modifiers: modifiers,
+                                              shifted: engine.candidateShortcut(0).hasPrefix("⇧"), english: engine.english) {
+            case .choose(let index):
+                let previousInput = engine.snapshot.input
+                chooseCompactCandidate(index)
+                if engine.snapshot.input != previousInput { setCandidatesExpanded(false) }
+                deliver(client)
+                return true
+            case .expand:
+                setCandidatesExpanded(true)
+                deliver(client)
+                return true
+            case .pass: break
+            }
+            let snapshot = engine.snapshot
+            if snapshot.compactJapanese != nil && snapshot.highlighted == snapshot.candidates.count &&
+                modifiers == 0 && (key == 0xff0d || (key == 32 && engine.inputMode == .pinyin)) {
+                chooseCompactCandidate(snapshot.highlighted)
+                deliver(client)
+                return true
+            }
+        }
         let previousInput = engine.snapshot.input
         let handled = engine.key(key, modifiers: modifiers)
         if handled && engine.snapshot.input != previousInput { setCandidatesExpanded(false) }
@@ -117,6 +141,13 @@ class MeowpuutInputController: IMKInputController {
         }
         deliver(client)
         return handled
+    }
+    private func chooseCompactCandidate(_ index: Int) {
+        if index == engine.snapshot.candidates.count, engine.snapshot.compactJapanese != nil {
+            engine.chooseCompactJapanese()
+        } else {
+            engine.choose(index)
+        }
     }
     private func deliver(_ client: IMKTextInput) {
         let commit = engine.takeCommit()
@@ -147,7 +178,8 @@ class MeowpuutInputController: IMKInputController {
             let view = GlassCandidateView(engine: engine, cats: Preferences.shared.catGlassSkin, expanded: candidatesExpanded, canExpand: canExpandCandidates,
                 onChoose: { [weak self] index in
                     guard let self, let client = self.client() else { return }
-                    self.engine.choose(index)
+                    if self.candidatesExpanded { self.engine.choose(index) }
+                    else { self.chooseCompactCandidate(index) }
                     self.deliver(client)
                 }, onPage: { [weak self] key in
                     guard let self, let client = self.client() else { return }
@@ -175,10 +207,11 @@ class MeowpuutInputController: IMKInputController {
         guard let panel, let catHosting else { return }
         catHosting.rootView.cats = Preferences.shared.catGlassSkin
         catHosting.rootView.canExpand = canExpandCandidates
-        catHosting.layoutSubtreeIfNeeded()
         let rect = anchor ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
         let point = NSPoint(x: rect.midX, y: rect.midY)
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main else { return }
+        catHosting.rootView.maxPanelHeight = candidatePanelAvailableHeight(anchor: rect, bounds: screen.visibleFrame)
+        catHosting.layoutSubtreeIfNeeded()
         let frame = candidateFrame(size: catHosting.fittingSize, anchor: rect, bounds: screen.visibleFrame)
         presentPanel(panel, frame: frame, anchor: rect)
     }

@@ -69,6 +69,10 @@ final class JapaneseBackend: InputBackend {
         guard let entry = dictionary?[reading]?.first else { return nil }
         return (entry.text, entry.weight)
     }
+    static let mixedWords: [(reading: String, text: String, weight: Int)] =
+        (dictionary ?? [:]).compactMap { reading, entries in
+            entries.first.map { (reading: reading, text: $0.text, weight: $0.weight) }
+        }.sorted { $0.reading < $1.reading }
     private var raw = ""
     private var state = Snapshot()
     private var choices: [String] = []

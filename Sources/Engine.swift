@@ -8,6 +8,8 @@ struct Snapshot: Decodable {
     var preedit = ""
     var commit = ""
     var candidates: [String] = []
+    // In display order, including each candidate's backend selection index.
+    var candidateDetails: [IndexedCandidate] = []
     var highlighted = 0
     var page = 0
     var lastPage = true
@@ -18,30 +20,46 @@ struct Snapshot: Decodable {
     var confidentCandidates: [String] = []
     var candidateWeights: [String: Int] = [:]
     var japaneseCandidates: [String] = []
+    // A compact-only candidate from a later page; its index belongs to the
+    // backend, not to candidates or candidateDetails on the current page.
+    var compactJapanese: IndexedCandidate? = nil
+    // A complete mixed sentence may precede Chinese fallback candidates which
+    // only convert a prefix. Pure Japanese and complete Chinese keep the usual
+    // compact order. An explicit learned selection still takes precedence.
+    var preferredCompleteMixed: String? = nil
     var compactIndices: [Int] {
         let japanese = Set(japaneseCandidates)
         let first = candidates.firstIndex { japanese.contains($0) }
-        return candidates.indices.filter { !japanese.contains(candidates[$0]) } + (first.map { [$0] } ?? [])
+        let chinese = candidates.indices.filter { !japanese.contains(candidates[$0]) }
+        if let first, first == 0, candidates[first] == preferredCompleteMixed {
+            return [first] + chinese
+        }
+        return chinese + (first.map { [$0] } ?? [])
     }
     var layoutCandidates: [String] { candidates.map { $0 + (japaneseCandidates.contains($0) ? "　" : "") } }
 }
-// Preserve strong Chinese results, then alternate Japanese with weaker Chinese.
-func interleaveLanguages<T>(_ items: [T], japanese: (T) -> Bool, strong: (T) -> Bool) -> [T] {
-    let jp = items.filter(japanese)
-    guard !jp.isEmpty else { return items }
-    let chinese = items.filter { !japanese($0) }
-    let trusted = chinese.filter(strong)
-    let weak = chinese.filter { !strong($0) }
-    let leading = trusted.isEmpty ? Array(weak.prefix(2)) : Array(trusted.prefix(6))
-    let remaining = trusted.isEmpty ? Array(weak.dropFirst(2)) : Array(trusted.dropFirst(6)) + weak
-    var result = leading
-    for index in 0..<max(jp.count, remaining.count) {
-        if index < jp.count { result.append(jp[index]) }
-        if index < remaining.count { result.append(remaining[index]) }
-    }
-    return result
+struct CandidateMetadata: Decodable, Equatable {
+    // These fields describe generation provenance, not calibrated confidence.
+    var kind: UInt32
+    var scoreKind: UInt32
+    var score: Double
+    var consumedBytes: Int
+    var remainingOffsetBytes: Int
+    var remainingInput: String
 }
-struct IndexedCandidate: Decodable { var index: Int; var text: String }
+struct IndexedCandidate: Decodable {
+    // index selects through the current backend; backendIndex identifies the
+    // originating engine's candidate, which can differ in a combined backend.
+    var index: Int
+    var text: String
+    var backendIndex: Int? = nil
+    var source: Int? = nil
+    var metadata: CandidateMetadata? = nil
+    // Selection range is separate from provenance: the mixed API supplies a
+    // byte count but does not supply a native score or generation kind.
+    var consumedBytes: Int? = nil
+    var remainingInput: String? = nil
+}
 
 // Data modules are local, versioned JSON: no engine internals leak into extensions.
 struct PhraseModule: Codable, Identifiable {
@@ -166,7 +184,8 @@ final class Engine: ObservableObject {
         var records: [(reading: String, text: String)] = []
         for selection in selections {
             var reading = selection.reading
-            if !snapshot.input.isEmpty && reading.hasSuffix(snapshot.input) { reading = String(reading.dropLast(snapshot.input.count)) }
+            let suffix = reading.hasPrefix("py:") ? snapshot.input.lowercased() : snapshot.input
+            if !suffix.isEmpty && reading.hasSuffix(suffix) { reading = String(reading.dropLast(suffix.count)) }
             records.append((reading, selection.text))
             let isChinese = !selection.text.isEmpty && selection.text.unicodeScalars.allSatisfy { (0x3400...0x9fff).contains($0.value) }
             guard isChinese else { learningTail = nil; continue }
@@ -205,20 +224,31 @@ final class Engine: ObservableObject {
         showBrowsePage(0)
     }
     private func showBrowsePage(_ requestedPage: Int) {
-        let items = phrasesOnly ? pool.filter { $0.text.count > 1 } : pool
+        // A Chinese reading's raw Latin input is a fallback, not a phrase.
+        // Keep it when the engine explicitly identifies the input as English.
+        let items = phrasesOnly ? pool.filter {
+            $0.text.count > 1 && (snapshot.literalCandidate || $0.text.lowercased() != snapshot.input.lowercased())
+        } : pool
         browseCount = items.count
         let page = max(0, min(requestedPage, max(0, (items.count - 1) / 7)))
         let start = min(page * 7, items.count)
         let visible = Array(items.dropFirst(start).prefix(7))
         candidateOrder = visible.map(\.index)
         snapshot.candidates = visible.map(\.text)
+        snapshot.candidateDetails = visible
         snapshot.page = page; snapshot.lastPage = start + 7 >= items.count; snapshot.highlighted = 0
     }
     func finishComposition() {
         if moduleBuffer != nil {
             let raw = moduleBuffer ?? ""; clear(); snapshot.commit = raw; return
         }
-        if !snapshot.candidates.isEmpty { choose(snapshot.highlighted) }
+        if !snapshot.candidates.isEmpty {
+            if snapshot.highlighted == snapshot.candidates.count, snapshot.compactJapanese != nil {
+                chooseCompactJapanese()
+            } else {
+                choose(snapshot.highlighted)
+            }
+        }
         var committed = takeCommit()
         // Partial fallback choices retain a suffix. Explicit completion (punctuation,
         // mode change) must drain it instead of dropping the unconverted reading.
@@ -234,7 +264,7 @@ final class Engine: ObservableObject {
         let script = Preferences.shared.simplified ? "s:" : "t:"
         switch inputMode {
         case .zhuyin: return script + snapshot.input
-        case .pinyin: return "py:" + script + snapshot.input
+        case .pinyin: return "py:" + script + snapshot.input.lowercased()
         case .japanese: return "ja:" + snapshot.input
         }
     }
@@ -267,7 +297,11 @@ final class Engine: ObservableObject {
         guard backend == nil || kind != backendKind || mode != inputMode else { return }
         do {
             let next: InputBackend
+            #if os(macOS)
+            next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: false)
+            #else
             next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode)
+            #endif
             clear(); learningTail = nil
             backend = next
             backendKind = kind
@@ -279,15 +313,25 @@ final class Engine: ObservableObject {
         }
     }
     func refresh() {
-        guard let backend else { return }
+        guard moduleBuffer == nil, let backend else { return }
+        let pendingCommit = snapshot.commit
         snapshot = backend.snapshot()
-        if !snapshot.commit.isEmpty {
+        let newCommit = snapshot.commit
+        // A settings change can re-rank while the client still holds an
+        // undelivered commit. Deliver each part once, in its original order.
+        snapshot.commit = pendingCommit + newCommit
+        if !newCommit.isEmpty {
             if pendingChoices.isEmpty { learningTail = nil }
             learn(pendingChoices)
             pendingChoices = []
         } else if snapshot.preedit.isEmpty { pendingChoices = [] }
         browsing = false; pool = []
         candidateOrder = snapshot.candidates.indices.map { snapshot.page * snapshot.pageSize + $0 }
+        if snapshot.candidateDetails.count != snapshot.candidates.count {
+            snapshot.candidateDetails = zip(candidateOrder, snapshot.candidates).map {
+                IndexedCandidate(index: $0.0, text: $0.1, backendIndex: $0.0, source: inputMode == .japanese ? 1 : nil)
+            }
+        }
         let preferred = ChoiceMemory.shared.preferred(for: pinKey, context: learningTail.flatMap { Date().timeIntervalSince1970 - $0.time < 20 ? $0.text : nil })
         if snapshot.page == 0, !snapshot.input.isEmpty, !preferred.isEmpty {
             let available = candidates()
@@ -296,30 +340,31 @@ final class Engine: ObservableObject {
                 guard let found = available.first(where: { $0.text == text }), !promoted.contains(found.index) else { continue }
                 promoted.append(found.index)
             }
-            let promotedSet = Set(promoted)
-            let originals = zip(candidateOrder, snapshot.candidates).filter { !promotedSet.contains($0.0) }
-            var visible = promoted.compactMap { id in available.first(where: { $0.index == id }) } + originals.map { IndexedCandidate(index: $0.0, text: $0.1) }
+            var visible = snapshot.candidateDetails
+            for id in promoted where !visible.contains(where: { $0.index == id }) {
+                if let item = available.first(where: { $0.index == id }) { visible.append(item) }
+            }
+            // Only compare dictionary weights for candidates in that same
+            // dictionary. Learning can adjust that ranking without allowing a
+            // single Japanese choice to overtake a strong Chinese match.
             let context = learningTail.flatMap { Date().timeIntervalSince1970 - $0.time < 20 ? $0.text : nil }
-            func score(_ item: IndexedCandidate) -> Int {
-                let base = snapshot.candidateWeights[item.text] ?? max(0, 4000 - item.index * 5)
-                return base + ChoiceMemory.shared.boost(for: pinKey, text: item.text, context: context)
+            let slots = visible.indices.filter { snapshot.candidateWeights[visible[$0].text] != nil }
+            let ranked = slots.map { visible[$0] }.sorted { a, b in
+                let aScore = snapshot.candidateWeights[a.text, default: 0] + ChoiceMemory.shared.boost(for: pinKey, text: a.text, context: context)
+                let bScore = snapshot.candidateWeights[b.text, default: 0] + ChoiceMemory.shared.boost(for: pinKey, text: b.text, context: context)
+                return aScore == bScore ? a.index < b.index : aScore > bScore
             }
-            visible.sort { score($0) == score($1) ? $0.index < $1.index : score($0) > score($1) }
-            if inputMode != .japanese {
-                let chinese = visible.filter { backend.priorityGroup($0.index) == 0 } + visible.filter { backend.priorityGroup($0.index) == 1 }
-                var japanese = visible.filter { backend.priorityGroup($0.index) == 2 }
-                if let required = snapshot.requiredCandidate, let match = available.first(where: { $0.text == required }),
-                   !japanese.contains(where: { $0.text == required }) { japanese.insert(match, at: 0) }
-                let literal = available.filter { backend.priorityGroup($0.index) < 0 }
-                let japaneseTexts = Set(snapshot.japaneseCandidates)
-                visible = literal + interleaveLanguages(chinese + japanese,
-                    japanese: { japaneseTexts.contains($0.text) },
-                    strong: { snapshot.confidentCandidates.contains($0.text) })
-
-            }
+            for (slot, item) in zip(slots, ranked) { visible[slot] = item }
             candidateOrder = visible.map(\.index); snapshot.candidates = visible.map(\.text)
             candidateOrder = Array(candidateOrder.prefix(7)); snapshot.candidates = Array(snapshot.candidates.prefix(7))
+            snapshot.candidateDetails = Array(visible.prefix(7))
             snapshot.highlighted = 0
+        }
+        if snapshot.page == 0, inputMode == .pinyin,
+           !snapshot.candidates.contains(where: { snapshot.japaneseCandidates.contains($0) }) {
+            snapshot.compactJapanese = backend.compactJapanese()
+        } else {
+            snapshot.compactJapanese = nil
         }
     }
     func takeCommit() -> String { let text = snapshot.commit; snapshot.commit = ""; return text }
@@ -396,7 +441,7 @@ final class Engine: ObservableObject {
         var mark: String?
         if inputMode == .pinyin {
             if modifiers == 1 {
-                let unshifted: [Int32: String] = [60: ",", 62: ".", 63: "?", 58: ";", 34: "'", 123: "[", 125: "]", 124: "\\"]
+                let unshifted: [Int32: String] = [60: ",", 62: ".", 63: "?", 58: ":", 34: "'", 123: "[", 125: "]", 124: "\\"]
                 mark = unshifted[code]
                 if mark == nil, let scalar = UnicodeScalar(UInt32(bitPattern: code)), !Character(scalar).isLetter && (33...126).contains(code) { mark = String(scalar) }
             } else {
@@ -439,6 +484,10 @@ final class Engine: ObservableObject {
             return true
         }
         if moduleBuffer == nil, !snapshot.candidates.isEmpty {
+            if inputMode == .pinyin, code == 32, modifiers == 0 {
+                choose(snapshot.highlighted)
+                return true
+            }
             if inputMode == .zhuyin, backendKind == .meowpuut, code == 32, modifiers == 0,
                let last = snapshot.input.last, " 6347".contains(last) {
                 finishComposition()
@@ -490,7 +539,7 @@ final class Engine: ObservableObject {
     private func moduleSnapshot(page requestedPage: Int = 0) {
         guard let buffer = moduleBuffer else { snapshot = Snapshot(); return }
         let matches = Preferences.shared.modules.filter { buffer == $0.trigger || $0.trigger.hasPrefix(buffer) }
-        let phrases = buffer == "`" ? ["，", "。", "？", "！", "、", "；", "：", "「", "」", "『", "』", "（", "）", "……", "——", "《", "》", "〈", "〉", "·", "～", "/", "\\", "-", "_", "?"] : matches.flatMap(\.phrases)
+        let phrases = buffer == "`" ? ["，", "。", "？", "！", "、", "；", "：", "「", "」", "『", "』", "（", "）", "……", "——", "《", "》", "〈", "〉", "·", "～", "/", "\\", "-", "_", "?", ";", ":"] : matches.flatMap(\.phrases)
         let page = max(0, min(requestedPage, max(0, (phrases.count - 1) / 7)))
         snapshot = Snapshot(preedit: buffer == "`" ? "標點" : buffer, candidates: Array(phrases.dropFirst(page * 7).prefix(7)), page: page, lastPage: (page + 1) * 7 >= phrases.count, input: buffer)
     }
@@ -499,14 +548,20 @@ final class Engine: ObservableObject {
         if moduleBuffer != nil {
             let text = snapshot.candidates[index]; clear(); snapshot.commit = text
         } else {
-            let reading = pinKey
-            let selected = snapshot.candidates[index]
-            guard backend?.choose(candidateOrder[index]) == true else { error = "选词未成功，请重试。"; refresh(); return }
-            if !pendingChoices.contains(where: { $0.reading == reading && $0.text == selected }) { pendingChoices.append((reading, selected)) }
-            refresh()
-            if snapshot.commit.isEmpty && snapshot.candidates.isEmpty && !snapshot.preedit.isEmpty {
-                backend?.commit(); refresh()
-            }
+            chooseBackendCandidate(index: candidateOrder[index], text: snapshot.candidates[index])
+        }
+    }
+    func chooseCompactJapanese() {
+        guard let candidate = snapshot.compactJapanese else { return }
+        chooseBackendCandidate(index: candidate.index, text: candidate.text)
+    }
+    private func chooseBackendCandidate(index: Int, text: String) {
+        let reading = pinKey
+        guard backend?.choose(index) == true else { error = "选词未成功，请重试。"; refresh(); return }
+        if !pendingChoices.contains(where: { $0.reading == reading && $0.text == text }) { pendingChoices.append((reading, text)) }
+        refresh()
+        if snapshot.commit.isEmpty && snapshot.candidates.isEmpty && !snapshot.preedit.isEmpty {
+            backend?.commit(); refresh()
         }
     }
 }
@@ -514,16 +569,24 @@ final class Engine: ObservableObject {
 #if canImport(AppKit)
 struct ShiftTapTracker {
     private var pressed: UInt16?
-    mutating func reset() { pressed = nil }
+    private var previousShift = false
+    mutating func reset() { pressed = nil; previousShift = false }
     mutating func update(keyCode: UInt16, modifierEvent: Bool, shift: Bool, other: Bool) -> Bool {
-        guard modifierEvent, !other else { reset(); return false }
-        guard keyCode == 56 || keyCode == 60 else { reset(); return false }
+        let wasShift = previousShift
+        previousShift = shift
+        guard modifierEvent, !other else { pressed = nil; return false }
+        // Some clients report modifier transitions with key code zero.
+        let effectiveKey: UInt16
+        if keyCode == 56 || keyCode == 60 { effectiveKey = keyCode }
+        else if keyCode == 0, wasShift != shift { effectiveKey = pressed ?? 56 }
+        else { pressed = nil; return false }
         if shift {
-            if pressed == nil { pressed = keyCode } else { reset() }
+            if !wasShift { pressed = effectiveKey }
+            else if pressed != effectiveKey { pressed = nil }
             return false
         }
-        let toggle = pressed == keyCode
-        reset()
+        let toggle = wasShift && pressed == effectiveKey
+        pressed = nil
         return toggle
     }
 }

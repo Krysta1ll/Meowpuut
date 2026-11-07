@@ -5,7 +5,7 @@
 <h1 align="center">喵撲 Meowpuut</h1>
 <p align="center">mimimo。</p>
 <p align="center">
-  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/Meowpuut-0.4.1-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
   <a href="LICENSE">MIT</a>
@@ -15,7 +15,7 @@
 
 目前是公開測試版。它已能在 macOS 輸入中文，選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
 
-![喵撲的雙貓玻璃候選列：中文在前，日語以貓爪標示並位於最右](assets/screenshots/candidates.png)
+![喵撲的雙貓玻璃候選列](assets/screenshots/candidates.png)
 
 ## 米米莫、莫莫，和候選窗
 
@@ -26,8 +26,8 @@
 ## 選字，先照顧中文
 
 - **拼音與注音分開。** 拼音用數字直接選詞；注音保留數字聲調，用 Shift＋數字選詞，不讓兩套規則互相搶按鍵。
-- **日語留在旁邊。** 完整羅馬音可產生假名候選。收合列最多保留一個，固定在最右邊，用傾斜的小貓爪標示；中文先安排位置。其他日語候選留在展開與翻頁中，與低置信度中文交錯。
-- **英文留得住。** 拼音組字時，空格提交原始字母和空格；數字或 Enter 確認中文。單個字母仍可選英文，但中文優先。已識別的英文單字可以成為首選，Shift＋Enter 隨時輸出原文。
+- **日語留在旁邊。** 拼音輸入時，完整羅馬音可產生假名或日語詞彙候選；有日語候選時，收合列保留一個，以傾斜的小貓爪標示。展開後可按候選排序繼續瀏覽。
+- **英文留得住。** 拼音組字時，空格或 Enter 選取目前高亮的候選，數字可直接選詞；Shift＋Enter 輸出原始字母。單個字母仍可選英文，但中文優先。已識別的英文單字也可以成為首選。
 - **越用越熟悉你的用詞。** 記住確認過的選詞、使用次數，以及短時間相鄰選詞的關係。反覆使用的短語可進入本機個人詞庫，無須逐個收藏。
 - **表情跟著詞義走。** 「開心」「謝謝」「晚安」等詞可以帶出 emoji 和顏文字，作為文字之外的選擇。
 
@@ -51,8 +51,8 @@
 | 注音／拼音／日語模式 | Control＋Option＋1／2／3 |
 | 拼音選詞 | 1–7 |
 | 注音選詞 | Shift＋1–7 |
-| 確認候選 | Enter |
-| 保留原始字母 | Shift＋Enter；拼音亦可按空格，會附加空格 |
+| 確認候選 | Enter；拼音也可按空格 |
+| 保留原始字母 | Shift＋Enter |
 | 展開／收合或取消 | ↓／Esc |
 | 翻頁 | Option＋←／→，或 Page Up／Page Down |
 | 拼音聲調（可選） | Shift＋空格／6／3／4／7 → 一／二／三／四／輕聲 |
@@ -65,12 +65,12 @@
 
 ## 下載與平台
 
-[**下載 0.4.1 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/Meowpuut-0.4.1-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/Meowpuut-0.4.1-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.1-alpha.1/SHA256SUMS.txt)
+[**下載 0.4.2 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/SHA256SUMS.txt)
 
 | 平台 | 本次提供 |
 | --- | --- |
-| macOS 27+，Apple silicon | **0.4.1 Alpha 1** 安裝盤與安裝套件 |
-| iOS／iPadOS 27+ | 宿主 App 與鍵盤擴充原始碼；尚未提供 TestFlight／IPA |
+| macOS 27+，Apple silicon | **0.4.2 Alpha 1** 安裝盤與安裝套件 |
+| iOS／iPadOS 27+ | 宿主 App 與鍵盤擴充原始碼；尚未提供 TestFlight／IPA，本次候選修改尚未完成真機驗證 |
 | Windows | C++ 核心可攜；尚無 TSF 接入與安裝包 |
 | Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |
 
@@ -78,7 +78,7 @@
 
 ## mimo 1.0：一份繁簡詞庫，兩套輸入規則
 
-中文解碼、斷詞與排序由喵撲的 C++17 核心完成，沒有 Rime 執行時依賴。資料採用 McBopomofo 與 Pinyin Pro 的 MIT 詞表，再套用喵撲的讀音、字形與排序修訂。
+中文解碼、斷詞與排序由喵撲的 C++17 核心完成，沒有 Rime 執行時依賴。中文資料採用 McBopomofo 與 Pinyin Pro 的 MIT 詞表，再套用喵撲的讀音、字形與排序修訂；日語詞條也包含附帶 BSD 授權的 UniDic 精選資料。
 
 合併詞庫名為 **mimo 1.0**。合併以**簡體詞面＋完整帶調讀音**為鍵：重複詞條採簡體來源詞頻，多音字分開保留；繁體專有詞也保留。兩份來源的頻率尺度以共同詞條校準，簡體來源的表達優先，本地修訂最後生效。每筆資料保有繁簡字形，切換輸出不需要載入另一份詞庫。
 
