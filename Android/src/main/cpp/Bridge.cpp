@@ -1,4 +1,5 @@
 #include "MeowpuutCore.h"
+#include "CandidateEvidence.h"
 
 #include <android/asset_manager_jni.h>
 #include <jni.h>
@@ -93,6 +94,10 @@ extern "C" JNIEXPORT jint JNICALL JNI_METHOD(page)(JNIEnv *, jclass, jlong handl
 
 extern "C" JNIEXPORT jint JNICALL JNI_METHOD(sentenceCount)(JNIEnv *, jclass, jlong handle) {
     return static_cast<jint>(mpn_sentence_count(session(handle)));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL JNI_METHOD(hasExactChinese)(JNIEnv *, jclass, jlong handle) {
+    return session(handle) && pinyinHasExactChinese(session(handle));
 }
 
 extern "C" JNIEXPORT jint JNICALL JNI_METHOD(literalTail)(JNIEnv *, jclass, jlong handle) {

@@ -12,8 +12,8 @@ android {
         applicationId 'app.meowpuut.android'
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0-alpha'
+        versionCode 43
+        versionName '0.4.3-alpha.1'
         externalNativeBuild {
             cmake { arguments '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON' }
         }
@@ -43,6 +43,9 @@ tasks.register('prepareKeyboardAssets', Sync) {
     from('../DataSources/UniDic/UNIDIC-BSD.txt') { rename { 'UniDic-BSD.txt' }; into 'assets/licenses' }
     from('../DataSources/UniDic/UNIDIC-COPYING.txt') { rename { 'UniDic-COPYING.txt' }; into 'assets/licenses' }
     from('../DataSources/UniDic/SOURCE.json') { rename { 'UniDic-SOURCE.json' }; into 'assets/licenses' }
+    from('../DataSources/MimoNormalization/ICU-LICENSE.txt') { into 'assets/licenses' }
+    from('../DataSources/MimoNormalization/ICU-Hans_Hant.txt') { into 'assets/licenses' }
+    from('../DataSources/MimoNormalization/SOURCE.json') { rename { 'MimoNormalization-SOURCE.json' }; into 'assets/licenses' }
     into layout.buildDirectory.dir('keyboardAssets')
     doLast {
         ['native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.json'].each { name ->

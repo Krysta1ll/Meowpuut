@@ -96,7 +96,13 @@ final class Preferences: ObservableObject {
     private let defaults = Preferences.testing ? UserDefaults(suiteName: "app.meowpuut.smoke")! : UserDefaults.standard
     @Published var simplified: Bool { didSet { defaults.set(simplified, forKey: "simplified") } }
     @Published var modulesEnabled: Bool { didSet { defaults.set(modulesEnabled, forKey: "modulesEnabled") } }
-    @Published var rememberChoices: Bool { didSet { defaults.set(rememberChoices, forKey: "rememberChoices") } }
+    private(set) var learningRevision: UInt64 = 0
+    @Published var rememberChoices: Bool {
+        didSet {
+            defaults.set(rememberChoices, forKey: "rememberChoices")
+            if oldValue != rememberChoices { learningRevision &+= 1 }
+        }
+    }
     @Published var catGlassSkin: Bool { didSet { defaults.set(catGlassSkin, forKey: "catGlassSkin") } }
     @Published var candidateTone: CandidateTone { didSet { defaults.set(candidateTone.rawValue, forKey: "candidateTone") } }
     @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
@@ -180,7 +186,23 @@ final class Engine: ObservableObject {
     @Published private(set) var inputMode: InputMode = .zhuyin
     @Published private(set) var backendKind: InputBackendKind = .meowpuut
     private var learningTail: (reading: String, text: String, time: TimeInterval)?
+    private var memoryContextRevision = ChoiceMemory.shared.contextRevision
+    private var learningPreferenceRevision = Preferences.shared.learningRevision
+    // A document/focus boundary must not join unrelated selections into a
+    // personal phrase. Ordinary composition clearing retains the same-field tail.
+    func resetLearningContext() { learningTail = nil }
+    private func synchronizeLearningContext() {
+        let memoryRevision = ChoiceMemory.shared.contextRevision
+        let preferenceRevision = Preferences.shared.learningRevision
+        if memoryRevision != memoryContextRevision || preferenceRevision != learningPreferenceRevision || !Preferences.shared.rememberChoices {
+            resetLearningContext()
+        }
+        memoryContextRevision = memoryRevision
+        learningPreferenceRevision = preferenceRevision
+    }
     private func learn(_ selections: [(reading: String, text: String)]) {
+        synchronizeLearningContext()
+        guard Preferences.shared.rememberChoices else { return }
         var records: [(reading: String, text: String)] = []
         for selection in selections {
             var reading = selection.reading
@@ -212,10 +234,10 @@ final class Engine: ObservableObject {
     @Published var phrasesOnly = false
     @Published var browseCount = 0
     private var pool: [IndexedCandidate] = []
-    // Bound optional exploration; ordinary keystrokes still request only the engine page.
-    private let explorationLimit = 256
     private func candidates() -> [IndexedCandidate] {
-        backend?.candidates(limit: explorationLimit) ?? []
+        // Each source is bounded when choices are built. Do not truncate their
+        // combined result: that would make later exact matches unreachable.
+        backend?.candidates(limit: .max) ?? []
     }
     func browse(phrases: Bool) {
         guard isReady, moduleBuffer == nil, !snapshot.input.isEmpty else { return }
@@ -260,6 +282,21 @@ final class Engine: ObservableObject {
         }
         snapshot.commit = committed
     }
+    var needsDocumentContext: Bool {
+        !english && inputMode != .japanese && moduleBuffer == nil && snapshot.preedit.isEmpty
+    }
+    func needsDocumentContext(for key: Int32) -> Bool {
+        guard needsDocumentContext else { return false }
+        if inputMode == .pinyin { return (65...90).contains(key) || (97...122).contains(key) }
+        guard key > 0, key < 128, let scalar = UnicodeScalar(UInt32(key)) else { return false }
+        return "1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/-".contains(Character(scalar))
+    }
+    func prepareDocumentContext(before text: String?) {
+        guard needsDocumentContext else { return }
+        // This is ranking evidence only. It never enters learningTail or the
+        // user's saved choices, and it is replaced at each new composition.
+        backend?.beginContext(CompositionContext.precedingChinese(text))
+    }
     var pinKey: String {
         let script = Preferences.shared.simplified ? "s:" : "t:"
         switch inputMode {
@@ -302,7 +339,11 @@ final class Engine: ObservableObject {
             #else
             next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode)
             #endif
+            // The host may finish composition before changing mode but deliver
+            // its result afterward. Reset the reading, not that pending result.
+            let committed = snapshot.commit
             clear(); learningTail = nil
+            snapshot.commit = committed
             backend = next
             backendKind = kind
             inputMode = mode
@@ -313,6 +354,7 @@ final class Engine: ObservableObject {
         }
     }
     func refresh() {
+        synchronizeLearningContext()
         guard moduleBuffer == nil, let backend else { return }
         let pendingCommit = snapshot.commit
         snapshot = backend.snapshot()
@@ -349,10 +391,24 @@ final class Engine: ObservableObject {
             // single Japanese choice to overtake a strong Chinese match.
             let context = learningTail.flatMap { Date().timeIntervalSince1970 - $0.time < 20 ? $0.text : nil }
             let slots = visible.indices.filter { snapshot.candidateWeights[visible[$0].text] != nil }
-            let ranked = slots.map { visible[$0] }.sorted { a, b in
-                let aScore = snapshot.candidateWeights[a.text, default: 0] + ChoiceMemory.shared.boost(for: pinKey, text: a.text, context: context)
-                let bScore = snapshot.candidateWeights[b.text, default: 0] + ChoiceMemory.shared.boost(for: pinKey, text: b.text, context: context)
-                return aScore == bScore ? a.index < b.index : aScore > bScore
+            var ranked = slots.map { visible[$0] }
+            let boosts = Dictionary(uniqueKeysWithValues: ranked.map {
+                ($0.index, ChoiceMemory.shared.boost(for: pinKey, text: $0.text, context: context))
+            })
+            // Keep the producing engine's context order. Only an actually
+            // remembered candidate may move forward; re-sorting every word by
+            // its isolated frequency would undo the context ranking even when
+            // the saved word no longer exists in the dictionary.
+            for item in ranked where boosts[item.index, default: 0] > 0 {
+                guard var position = ranked.firstIndex(where: { $0.index == item.index }) else { continue }
+                let score = snapshot.candidateWeights[item.text, default: 0] + boosts[item.index, default: 0]
+                while position > 0 {
+                    let previous = ranked[position - 1]
+                    let previousScore = snapshot.candidateWeights[previous.text, default: 0] + boosts[previous.index, default: 0]
+                    guard score > previousScore else { break }
+                    ranked.swapAt(position, position - 1)
+                    position -= 1
+                }
             }
             for (slot, item) in zip(slots, ranked) { visible[slot] = item }
             candidateOrder = visible.map(\.index); snapshot.candidates = visible.map(\.text)
@@ -401,12 +457,15 @@ final class Engine: ObservableObject {
             let next = !english
             finishComposition()
             english = next
+            resetLearningContext()
             return true
         }
         if english {
+            let pendingCommit = snapshot.commit
             snapshot = Snapshot()
+            snapshot.commit = pendingCommit
             if (32...126).contains(code), let scalar = UnicodeScalar(UInt32(code)) {
-                snapshot.commit = String(scalar); return true
+                snapshot.commit += String(scalar); return true
             }
             return false
         }
@@ -534,6 +593,9 @@ final class Engine: ObservableObject {
         }
         let handled = backend.key(code, modifiers: modifiers)
         refresh()
+        // The host handles unconsumed deletion, whitespace and navigation.
+        // Its insertion point is no longer known to be adjacent to our last word.
+        if !handled { resetLearningContext() }
         return handled
     }
     private func moduleSnapshot(page requestedPage: Int = 0) {

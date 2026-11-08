@@ -38,6 +38,32 @@ with tempfile.TemporaryDirectory() as directory:
     choose = bind('mpn_choose', number, pointer, ctypes.c_size_t)
     get_commit = bind('mpn_committed', text, pointer)
     set_simplified = bind('mpn_set_simplified', None, pointer, number)
+    # The public lexicon and registration APIs accept positive int weights.
+    # Several valid fragments must not wrap the accumulated ranking score.
+    for chinese_weight, japanese_weight in [(4000, 4000), (2147483647, 4000),
+                                            (4000, 2147483647), (2147483647, 2147483647)]:
+        fixture = (f'MEOWPUUT-PINYIN-2\nwo\two3\t我\t我\t{chinese_weight}\t{chinese_weight}\n').encode()
+        owner = create_lexicon(fixture, len(fixture))
+        assert owner
+        bounded = create(owner)
+        assert bounded
+        try:
+            assert add(bounded, b'suki', '好き'.encode(), japanese_weight)
+            assert key(bounded, ord('w'))
+            set_context(bounded, '你好'.encode())
+            for hans in (0, 1):
+                for fragments in (1, 2, 3):
+                    raw = b'wo' + b'sukiwo' * fragments
+                    expected = '我' + '好き我' * fragments
+                    assert mixed(bounded, raw, hans).decode() == expected, (chinese_weight, japanese_weight, raw)
+                    used = ctypes.c_size_t()
+                    assert prefix(bounded, raw + b'x', hans, ctypes.byref(used)).decode() == expected
+                    assert used.value == len(raw)
+                    assert get_input(bounded) == b'w' and get_context(bounded).decode() == '你好'
+        finally:
+            destroy(bounded)
+            destroy_lexicon(owner)
+    print('PASS: mixed score bounds, one to three fragments, both scripts, prefix counts and active state')
     resources = Path(os.environ.get('MEOWPUUT_MIXED_RESOURCES', root / '.build/Meowpuut.app/Contents/Resources'))
     data = (resources / 'native-pinyin.tsv').read_bytes()
     lexicon = create_lexicon(data, len(data))

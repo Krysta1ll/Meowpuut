@@ -16,6 +16,9 @@ NOTICES = {
     'UniDic-BSD.txt': 'DataSources/UniDic/UNIDIC-BSD.txt',
     'UniDic-COPYING.txt': 'DataSources/UniDic/UNIDIC-COPYING.txt',
     'UniDic-SOURCE.json': 'DataSources/UniDic/SOURCE.json',
+    'ICU-LICENSE.txt': 'DataSources/MimoNormalization/ICU-LICENSE.txt',
+    'ICU-Hans_Hant.txt': 'DataSources/MimoNormalization/ICU-Hans_Hant.txt',
+    'MimoNormalization-SOURCE.json': 'DataSources/MimoNormalization/SOURCE.json',
 }
 
 

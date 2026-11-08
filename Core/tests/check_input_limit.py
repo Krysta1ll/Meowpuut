@@ -22,6 +22,7 @@ with tempfile.TemporaryDirectory(prefix='meowpuut-limit-') as tmp:
         ('mpn_max_input_bytes', [], size),
         ('mpn_key', [ptr, ctypes.c_int32], number),
         ('mpn_choose', [ptr, size], number),
+        ('mpn_commit', [ptr], None),
         ('mpn_candidate_count', [ptr], size),
         ('mpn_candidate', [ptr, size], string),
         ('mpn_candidate_consumed', [ptr, size], size),
@@ -47,6 +48,27 @@ with tempfile.TemporaryDirectory(prefix='meowpuut-limit-') as tmp:
         session = core.mpn_session_create(lexicon)
         assert session
         try:
+            # A host can receive several edits before it drains the commit
+            # buffer. Subsequent selections, literal commits and cancellation
+            # must not overwrite text that was already accepted.
+            core.mpn_clear(session)
+            for _ in range(2):
+                assert core.mpn_key(session, ord(letter))
+                assert core.mpn_choose(session, 0)
+            assert core.mpn_committed(session).decode() == first * 2
+            core.mpn_commit(session)  # Empty composition is a no-op.
+            assert core.mpn_committed(session).decode() == first * 2
+            assert core.mpn_key(session, ord(following))
+            assert core.mpn_candidate_count(session) == 0
+            core.mpn_commit(session)
+            literal = following if mode == 'pinyin' else 'ㄆ'
+            assert core.mpn_committed(session).decode() == first * 2 + literal
+            assert core.mpn_key(session, ord(letter))
+            assert core.mpn_key(session, 0xff1b)
+            assert core.mpn_committed(session).decode() == first * 2 + literal
+            assert not core.mpn_input(session)
+            core.mpn_clear_commit(session)
+
             def fill(pending=False):
                 core.mpn_clear(session)
                 if pending:

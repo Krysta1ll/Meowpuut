@@ -73,6 +73,15 @@ struct KeyboardLayoutMetricsTests {
         }
         let noJapanese = KeyboardLayoutMetrics.compactCandidatePages(widths: [48, 60, 52], japaneseIndices: [], availableWidth: 140)
         precondition(noJapanese.flatMap { $0.map(\.index) } == [0, 1, 2])
+        for width: CGFloat in [0, 1, 2, 4, 5, 8, 40] {
+            let pages = KeyboardLayoutMetrics.compactCandidatePages(widths: [60, 60, 60], japaneseIndices: [2], availableWidth: width)
+            precondition(pages.flatMap { $0 }.allSatisfy { $0.width.isFinite && $0.width >= 0 },
+                         "transient layout widths must never produce negative frames")
+            for page in pages {
+                let used = page.reduce(CGFloat.zero) { $0 + $1.width } + CGFloat(max(0, page.count - 1)) * 4
+                precondition(used <= max(1, width), "items and spacing must fit even during attachment")
+            }
+        }
         let ordered = KeyboardLayoutMetrics.compactCandidatePages(widths: [44, 44, 44, 44], japaneseIndices: [1], availableWidth: 200)
         precondition(ordered.first?.map(\.index) == [0, 1, 2, 3], "preserve the ranked position when it already fits")
         print("PASS: keyboard heights and complete candidate pages at multiple sizes")

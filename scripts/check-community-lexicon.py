@@ -84,6 +84,12 @@ everyday = [
     ('sheng1 ri4 kuai4 le4', '生日快樂', '生日快乐'),
     ('kuai4 di4', '快遞', '快递'),
     ('wan3 an1', '晚安', '晚安'),
+    ('da3 po4 ji4 lu4', '打破紀錄', '打破纪录'),
+    ('ying2 mu4', '螢幕', '荧幕'),
+    ('wei1 xin4', '微信', '微信'),
+    ('bi4 li3 bi4 li3', '嗶哩嗶哩', '哔哩哔哩'),
+    ('shou1 huo4 di4 zhi3', '收貨地址', '收货地址'),
+    ('he1 dian3', '喝點', '喝点'),
 ]
 # Full readings exercise decoder segmentation and context in both scripts.  The
 # pinyin path intentionally omits tones, as it does for normal typing.
@@ -127,6 +133,7 @@ sentences = [
     ('wo3 xiang3 mai3 zhe4 ge5 ka3 tao4', '我想買這個卡套', '我想买这个卡套'),
     ('wo3 men5 yi4 qi3 pin1 dan1', '我們一起拼單', '我们一起拼单'),
     ('ta1 shi4 ri4 ben3 sheng1 you1', '他是日本聲優', '他是日本声优'),
+    ('shou1 huo4 man3 man3', '收穫滿滿', '收获满满'),
 ]
 # Untoned homophones should not let a niche use displace the everyday expression.
 conflicts = [
@@ -147,10 +154,23 @@ conflicts = [
     ('ju4 tou4', ('巨頭', '巨头'), ('劇透', '剧透')),
     ('chang3 kan1', ('常看', '常看'), ('場刊', '场刊')),
     ('he2 zhi4', ('何止', '何止'), ('合誌', '合志')),
+    ('wei1 xin4', ('微信', '微信'), ('威信', '威信')),
+    ('shou1 huo4', ('收穫', '收获'), ('收貨', '收货')),
+    ('he1 dian3', ('喝點', '喝点'), ('核電', '核电')),
 ]
 # These contexts have unambiguous expected first choices; the standalone
 # homophone comparison above also protects the medical reading.
 preferred_sentences = [
+    ('da3 po4 ji4 lu4', '打破紀錄', '打破纪录'),
+    ('shi4 jie4 ji4 lu4', '世界紀錄', '世界纪录'),
+    ('ji4 lu4 sheng1 huo2', '記錄生活', '记录生活'),
+    ('ying2 mu4', '螢幕', '荧幕'),
+    ('wei1 xin4', '微信', '微信'),
+    ('bi4 li3 bi4 li3', '嗶哩嗶哩', '哔哩哔哩'),
+    ('shou1 huo4 di4 zhi3', '收貨地址', '收货地址'),
+    ('wo3 xiang3 he1 dian3 re4 shui3', '我想喝點熱水', '我想喝点热水'),
+    ('wo3 xiang3 he1 dian3 ka1 fei1', '我想喝點咖啡', '我想喝点咖啡'),
+    ('he2 dian4 zhan4', '核電站', '核电站'),
     ('ta1 shi4 ri4 ben3 sheng1 you1', '他是日本聲優', '他是日本声优'),
     ('mai3 le5 yi2 ge5 xin1 bao1', '買了一個新包', '买了一个新包'),
     ('wo3 xi3 huan1 zhe4 ge5 xin1 bao1', '我喜歡這個新包', '我喜欢这个新包'),
@@ -205,6 +225,9 @@ with tempfile.TemporaryDirectory(prefix='meowpuut-community-') as temp:
                         for i in range(lib.mpn_candidate_count(session))]
             for simplified in (0, 1):
                 lib.mpn_set_simplified(session, simplified)
+                for reading, female in [('ni3', '妳'), ('ni3 hao3', '妳好')]:
+                    actual = candidates(reading, True)
+                    assert (female not in actual) if simplified else (female in actual), (mode, reading, actual[:10])
                 for reading, hant, hans in community + everyday:
                     actual = candidates(reading, True)
                     expected = (hant, hans)[simplified]

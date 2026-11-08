@@ -6,10 +6,12 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -23,6 +25,9 @@ static_assert(keys.size() == symbols.size());
 constexpr size_t page_size = 7;
 constexpr size_t max_input = 256;
 constexpr size_t candidate_limit = 256;
+// A single syllable can have hundreds of homophones. The regular sentence
+// limit remains small; only exact single-character lookup may use this bound.
+constexpr size_t single_character_candidate_limit = 2048;
 constexpr size_t beam = 5;
 
 bool is_tone(char key, bool pinyin = false) { return pinyin ? key >= '1' && key <= '5' : tones.find(key) != std::string_view::npos; }
@@ -52,6 +57,9 @@ std::vector<std::string_view> han_characters(std::string_view text) {
 struct Word {
     std::string_view row;
     int weight;
+    int hansWeight;
+
+    int score(bool hans) const { return hans ? hansWeight : weight; }
 
     std::string_view reading() const { return row.substr(0, row.find('\t')); }
     std::string_view text(bool hans) const {
@@ -61,23 +69,52 @@ struct Word {
     }
 };
 
+bool fully_spelled(const Word &word) {
+    bool vowel = false;
+    for (char key : word.reading()) {
+        if (is_tone(key, true)) {
+            if (!vowel) return false;
+            vowel = false;
+        } else if (std::string_view("aeiouv").find(key) != std::string_view::npos) {
+            vowel = true;
+        }
+    }
+    return true;
+}
+
 struct Lexicon {
     // The table is immutable after loading. Row and index views point into it.
     std::string storage;
     std::vector<Word> words;
+    // Bucket offsets remain shared, but simplified frequency can order the
+    // same readings differently without disturbing traditional candidates.
+    std::vector<uint32_t> hansOrder;
     struct Bucket { std::string_view key; size_t start; };
     std::vector<Bucket> buckets;
-    std::vector<std::pair<std::string_view, int>> context;
+    // Sorted independent syllable evidence; frequency and abbreviation rows
+    // must not decide whether an input is a complete Pinyin syllable.
+    std::vector<std::string_view> singleReadings, singleSpellings;
+    struct ContextScore { std::string_view first; int weight, hansWeight; };
+    std::vector<ContextScore> context;
     std::unordered_map<std::string_view, std::pair<std::string_view, int>> traditionalCharacters;
     size_t longest = 0;
     bool pinyin = false;
     std::array<std::vector<size_t>, 128> initials;
+    std::array<std::vector<size_t>, 128> hansInitials;
+
+    const Word &word(size_t position, bool hans) const {
+        return words[hans && !hansOrder.empty() ? hansOrder[position] : position];
+    }
 
     bool load(std::string_view data) {
         storage.assign(data);
         data = storage;
-        pinyin = data.substr(0, std::string_view("MEOWPUUT-PINYIN-1\n").size()) == "MEOWPUUT-PINYIN-1\n";
-        const std::string_view header = pinyin ? "MEOWPUUT-PINYIN-1\n" : "MEOWPUUT-ZHUYIN-1\n";
+        const bool version2 = data.substr(0, std::string_view("MEOWPUUT-PINYIN-2\n").size()) == "MEOWPUUT-PINYIN-2\n" ||
+                              data.substr(0, std::string_view("MEOWPUUT-ZHUYIN-2\n").size()) == "MEOWPUUT-ZHUYIN-2\n";
+        pinyin = data.substr(0, std::string_view("MEOWPUUT-PINYIN-1\n").size()) == "MEOWPUUT-PINYIN-1\n" ||
+                 data.substr(0, std::string_view("MEOWPUUT-PINYIN-2\n").size()) == "MEOWPUUT-PINYIN-2\n";
+        const std::string_view header = pinyin ? (version2 ? "MEOWPUUT-PINYIN-2\n" : "MEOWPUUT-PINYIN-1\n")
+                                                : (version2 ? "MEOWPUUT-ZHUYIN-2\n" : "MEOWPUUT-ZHUYIN-1\n");
         if (data.substr(0, header.size()) != header) return false;
         data.remove_prefix(header.size());
         words.reserve(std::count(data.begin(), data.end(), '\n'));
@@ -96,27 +133,47 @@ struct Lexicon {
             const auto first_tab = line.find('\t');
             if (first_tab == line.npos || first_tab == 0) return false;
             const auto bare = line.substr(0, first_tab);
-            const auto weight_tab = line.rfind('\t');
-            const auto number = line.substr(weight_tab + 1);
+            if (reading_context) {
+                const auto second_tab = line.find('\t', first_tab + 1);
+                if ((!version2 && second_tab != line.npos) ||
+                    (second_tab != line.npos && line.find('\t', second_tab + 1) != line.npos) ||
+                    (!context.empty() && context.back().first >= bare)) return false;
+                const auto parseScore = [](std::string_view value, int &score) {
+                    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), score);
+                    return parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size() && score >= 0;
+                };
+                const auto scoreEnd = second_tab == line.npos ? line.size() : second_tab;
+                int weight = 0, hansWeight = 0;
+                if (!parseScore(line.substr(first_tab + 1, scoreEnd - first_tab - 1), weight)) return false;
+                hansWeight = weight;
+                if (second_tab != line.npos && !parseScore(line.substr(second_tab + 1), hansWeight)) return false;
+                context.push_back({bare, weight, hansWeight});
+                continue;
+            }
+            const auto last_tab = line.rfind('\t');
+            const auto weight_tab = version2 ? line.rfind('\t', last_tab - 1) : last_tab;
+            if (weight_tab == line.npos || (version2 && weight_tab <= first_tab)) return false;
+            const auto number = line.substr(weight_tab + 1, (version2 ? last_tab : line.size()) - weight_tab - 1);
             int weight = 0;
             const auto end = number.data() + number.size();
             const auto parsed = std::from_chars(number.data(), end, weight);
             if (parsed.ec != std::errc{} || parsed.ptr != end || weight < 0) return false;
 
-            if (reading_context) {
-                if (weight_tab != first_tab || (!context.empty() && context.back().first >= bare)) return false;
-                context.emplace_back(bare, weight);
-                continue;
-            }
-
             if (weight_tab == first_tab) return false;
+            int hansWeight = weight;
+            if (version2) {
+                const auto number = line.substr(last_tab + 1);
+                const auto parsed = std::from_chars(number.data(), number.data() + number.size(), hansWeight);
+                if (parsed.ec != std::errc{} || parsed.ptr != number.data() + number.size() || hansWeight < 0) return false;
+            }
             const auto row = line.substr(first_tab + 1, weight_tab - first_tab - 1);
-            const Word word{row, weight};
+            const Word word{row, weight, hansWeight};
             const auto reading = word.reading();
             const auto first_separator = row.find('\t');
             const auto second_separator = row.find('\t', first_separator + 1);
             if (reading.empty() || first_separator == row.npos || second_separator == row.npos ||
                 first_separator + 1 == second_separator || second_separator + 1 == row.size() ||
+                row.find('\t', second_separator + 1) != row.npos ||
                 !is_tone(reading.back(), pinyin)) return false;
             size_t position = 0;
             bool has_sound = false;
@@ -139,27 +196,70 @@ struct Lexicon {
             words.push_back(word);
         }
         {
+            if (version2) {
+                if (words.size() > UINT32_MAX) return false;
+                hansOrder.resize(words.size());
+                std::iota(hansOrder.begin(), hansOrder.end(), uint32_t{0});
+                for (size_t i = 0; i < buckets.size(); ++i) {
+                    const size_t end = i + 1 == buckets.size() ? words.size() : buckets[i + 1].start;
+                    std::stable_sort(hansOrder.begin() + buckets[i].start, hansOrder.begin() + end,
+                        [&](uint32_t a, uint32_t b) { return words[a].hansWeight > words[b].hansWeight; });
+                }
+            }
+            if (pinyin) {
+                for (size_t i = 0; i < buckets.size(); ++i) {
+                    if (buckets[i].key.size() > 6) continue;
+                    const size_t end = i + 1 == buckets.size() ? words.size() : buckets[i + 1].start;
+                    for (size_t j = buckets[i].start; j < end; ++j) {
+                        if (fully_spelled(words[j]) && han_characters(words[j].text(false)).size() == 1) {
+                            singleReadings.push_back(buckets[i].key);
+                            break;
+                        }
+                    }
+                }
+            }
             for (size_t i = 0; i < words.size(); ++i) {
                 const auto reading = words[i].reading();
                 const auto traditional = words[i].text(false), simplified = words[i].text(true);
+                if (pinyin && traditional.size() <= 4 && han_characters(traditional).size() == 1)
+                    singleSpellings.push_back(reading);
                 if (traditional.size() <= 4 && simplified.size() <= 4 &&
                     han_characters(traditional).size() == 1 && han_characters(simplified).size() == 1) {
                     auto found = traditionalCharacters.find(simplified);
                     if (found == traditionalCharacters.end() || found->second.second < words[i].weight)
                         traditionalCharacters[simplified] = {traditional, words[i].weight};
                 }
-                if (words[i].text(false).size() <= 4 && static_cast<unsigned char>(reading.front()) < initials.size())
-                    initials[static_cast<unsigned char>(reading.front())].push_back(i);
+                if (words[i].text(false).size() <= 4 && static_cast<unsigned char>(reading.front()) < initials.size()) {
+                    const auto initial = static_cast<unsigned char>(reading.front());
+                    initials[initial].push_back(i);
+                    hansInitials[initial].push_back(i);
+                }
             }
-            for (auto &items : initials) {
-                std::stable_sort(items.begin(), items.end(), [&](size_t a, size_t b) { return words[a].weight > words[b].weight; });
-                if (items.size() > 64) items.resize(64);
-            }
+            std::sort(singleSpellings.begin(), singleSpellings.end());
+            singleSpellings.erase(std::unique(singleSpellings.begin(), singleSpellings.end()), singleSpellings.end());
+            singleSpellings.shrink_to_fit();
+            singleReadings.shrink_to_fit();
+            auto prepareInitials = [&](auto &groups, bool hans) {
+                for (auto &items : groups) {
+                    std::stable_sort(items.begin(), items.end(), [&](size_t a, size_t b) {
+                        return words[a].score(hans) > words[b].score(hans);
+                    });
+                    std::unordered_set<std::string_view> visible;
+                    size_t retained = 0;
+                    for (const auto index : items) {
+                        if (visible.insert(words[index].text(hans)).second) items[retained++] = index;
+                        if (retained == 64) break;
+                    }
+                    items.resize(retained);
+                }
+            };
+            prepareInitials(initials, false);
+            prepareInitials(hansInitials, true);
         }
         return !words.empty();
     }
 
-    double join_bonus(std::string_view left, std::string_view right, bool distinguishStrong = false) const {
+    double join_bonus(std::string_view left, std::string_view right, bool hans, bool distinguishStrong = false) const {
         if (context.empty() || right.empty()) return 0;
         // UTF-8 character boundaries for up to four characters on each side.
         std::array<size_t, 4> starts{}, ends{};
@@ -182,7 +282,8 @@ struct Lexicon {
                 const auto phrase = std::string_view(joined).substr(begin, left.size() - starts[i] + ends[j]);
                 const auto entry = std::lower_bound(context.begin(), context.end(), phrase,
                     [](const auto &item, std::string_view value) { return item.first < value; });
-                if (entry != context.end() && entry->first == phrase) frequency = std::max(frequency, entry->second);
+                if (entry != context.end() && entry->first == phrase)
+                    frequency = std::max(frequency, hans ? entry->hansWeight : entry->weight);
             }
         }
         // Multi-character continuations provide more evidence than a single
@@ -297,8 +398,9 @@ std::vector<Fallback> unfinished_phrase(const Lexicon &lexicon, std::string_view
         const Reading prefix(input.substr(0, count), true);
         const auto range = lexicon.range(prefix.sounds);
         std::vector<Fallback> matches;
+        std::unordered_set<std::string_view> visible;
         for (size_t i = range.first; i < range.second && matches.size() < 3; ++i) {
-            const auto &word = lexicon.words[i];
+            const auto &word = lexicon.word(i, hans);
             const auto text = word.text(hans);
             const auto characters = std::count_if(text.begin(), text.end(), [](unsigned char c) { return (c & 0xc0) != 0x80; });
             // The table also contains consonant-only abbreviations (e.g. wo
@@ -308,8 +410,8 @@ std::vector<Fallback> unfinished_phrase(const Lexicon &lexicon, std::string_view
                 if (is_tone(key, true)) { complete = complete && hasVowel; hasVowel = false; }
                 else if (std::string_view("aeiouv").find(key) != std::string_view::npos) hasVowel = true;
             }
-            if (complete && characters > 1 && prefix.matches(word, 0, prefix.sounds.size()))
-                matches.push_back({std::string(text), count, static_cast<double>(word.weight)});
+            if (complete && characters > 1 && prefix.matches(word, 0, prefix.sounds.size()) && visible.insert(text).second)
+                matches.push_back({std::string(text), count, static_cast<double>(word.score(hans))});
         }
         if (!matches.empty()) return matches;
     }
@@ -322,15 +424,22 @@ std::vector<Fallback> fallback(const Lexicon &lexicon, std::string_view input, b
     const auto &sounds = reading.sounds;
     auto collect = [&](std::string_view key, double penalty) {
         const auto range = lexicon.range(key);
-        for (size_t i = range.first; i < std::min(range.second, range.first + 7); ++i) {
-            const auto &word = lexicon.words[i];
-            matches.push_back({std::string(word.text(hans)), input.size(), word.weight - penalty});
+        std::unordered_set<std::string_view> visible;
+        // Distinct traditional entries can share one simplified spelling.
+        // Bound work but count visible choices, not duplicate source rows.
+        for (size_t i = range.first; i < range.second && i - range.first < 256 && visible.size() < 7; ++i) {
+            const auto &word = lexicon.word(i, hans);
+            const auto text = word.text(hans);
+            if (visible.insert(text).second)
+                matches.push_back({std::string(text), input.size(), word.score(hans) - penalty});
         }
     };
     if (sounds.size() == 1 && static_cast<unsigned char>(sounds[0]) < lexicon.initials.size()) {
-        for (size_t i : lexicon.initials[static_cast<unsigned char>(sounds[0])]) {
+        const auto initial = static_cast<unsigned char>(sounds[0]);
+        const auto &items = hans ? lexicon.hansInitials[initial] : lexicon.initials[initial];
+        for (size_t i : items) {
             const auto &word = lexicon.words[i];
-            matches.push_back({std::string(word.text(hans)), input.size(), double(word.weight)});
+            matches.push_back({std::string(word.text(hans)), input.size(), double(word.score(hans))});
         }
     }
     if (lexicon.pinyin && sounds.size() >= 2 && sounds.size() <= 32 && input == sounds) {
@@ -372,15 +481,19 @@ std::vector<Fallback> fallback(const Lexicon &lexicon, std::string_view input, b
     if (matches.empty() && allowSingle) {
         // Offer the first character only, retaining every unconverted key after selection.
         for (size_t count = std::min(input.size(), size_t(7)); count > 0; --count) {
+            // A tone or explicit separator completes the preceding syllable.
+            // Never select its untoned prefix and leave an orphaned boundary.
+            if (count < input.size() && (is_tone(input[count], lexicon.pinyin) || input[count] == '\'')) continue;
             const Reading prefix(input.substr(0, count), lexicon.pinyin);
             if (prefix.sounds.empty()) continue;
             const auto range = lexicon.range(prefix.sounds);
-            for (size_t i = range.first; i < range.second && matches.size() < 28; ++i) {
-                const auto &word = lexicon.words[i];
+            std::unordered_set<std::string_view> visible;
+            for (size_t i = range.first; i < range.second && i - range.first < 512 && visible.size() < 28; ++i) {
+                const auto &word = lexicon.word(i, hans);
                 const auto text = word.text(hans);
                 const auto characters = std::count_if(text.begin(), text.end(), [](unsigned char ch) { return (ch & 0xc0) != 0x80; });
-                if (characters == 1 && prefix.matches(word, 0, prefix.sounds.size()))
-                    matches.push_back({std::string(text), count, static_cast<double>(word.weight)});
+                if (characters == 1 && prefix.matches(word, 0, prefix.sounds.size()) && visible.insert(text).second)
+                    matches.push_back({std::string(text), count, static_cast<double>(word.score(hans))});
             }
             if (!matches.empty()) break;
         }
@@ -393,20 +506,6 @@ std::vector<Fallback> fallback(const Lexicon &lexicon, std::string_view input, b
         if (result.size() == 28) break;
     }
     return result;
-}
-
-
-bool fully_spelled(const Word &word) {
-    bool vowel = false;
-    for (char key : word.reading()) {
-        if (is_tone(key, true)) {
-            if (!vowel) return false;
-            vowel = false;
-        } else if (std::string_view("aeiouv").find(key) != std::string_view::npos) {
-            vowel = true;
-        }
-    }
-    return true;
 }
 
 struct CandidateMetadata {
@@ -424,7 +523,7 @@ struct Candidate {
 };
 
 std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, bool hans, bool completeOnly = false,
-                                std::vector<CandidateMetadata> *metadata = nullptr) {
+                                std::vector<CandidateMetadata> *metadata = nullptr, bool *singleCharacterReading = nullptr) {
     const Reading reading(input, lexicon.pinyin);
     const size_t length = reading.sounds.size();
     if (length == 0) return {};
@@ -434,7 +533,6 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
     // Vowels alone do not prove that an abbreviation is a pinyin syllable.
     // Require independent single-character dictionary evidence for each
     // syllable. Missing evidence is UNKNOWN, not a guessed correction.
-    std::unordered_map<std::string_view, bool> syllableEvidence;
     auto verifiedSpelling = [&](const Word &word) {
         if (!metadata || !lexicon.pinyin) return true;
         const auto spelling = word.reading();
@@ -442,21 +540,7 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
         for (size_t end = 0; end < spelling.size(); ++end) {
             if (!is_tone(spelling[end], true)) continue;
             const auto syllable = spelling.substr(start, end - start + 1);
-            const auto cached = syllableEvidence.find(syllable);
-            if (cached != syllableEvidence.end()) {
-                if (!cached->second) return false;
-            } else {
-                const auto range = lexicon.range(syllable.substr(0, syllable.size() - 1));
-                bool found = false;
-                for (size_t i = range.first; i < range.second; ++i) {
-                    const auto &entry = lexicon.words[i];
-                    if (entry.reading() == syllable && han_characters(entry.text(false)).size() == 1) {
-                        found = true; break;
-                    }
-                }
-                syllableEvidence.emplace(syllable, found);
-                if (!found) return false;
-            }
+            if (!std::binary_search(lexicon.singleSpellings.begin(), lexicon.singleSpellings.end(), syllable)) return false;
             start = end + 1;
         }
         return start == spelling.size();
@@ -468,37 +552,49 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
         }
     };
     const auto whole = lexicon.range(reading.sounds);
+    const bool singleReading = !completeOnly && metadata && std::any_of(
+        lexicon.words.begin() + whole.first, lexicon.words.begin() + whole.second,
+        [&](const Word &word) {
+            const auto spelling = word.reading();
+            return std::count_if(spelling.begin(), spelling.end(),
+                       [&](char key) { return is_tone(key, lexicon.pinyin); }) == 1 &&
+                   han_characters(word.text(false)).size() == 1 &&
+                   reading.matches(word, 0, length);
+        });
+    if (singleCharacterReading) *singleCharacterReading = singleReading;
+    const auto result_limit = singleReading ? single_character_candidate_limit : candidate_limit;
     for (size_t index = whole.first; index < whole.second; ++index) {
-        const auto &word = lexicon.words[index];
+        const auto &word = lexicon.word(index, hans);
         if ((!completeOnly || fully_spelled(word)) && reading.matches(word, 0, length)) {
             const auto kind = !reading.unambiguous ? MPN_CANDIDATE_UNKNOWN :
                 (lexicon.pinyin && !fully_spelled(word) ? MPN_CANDIDATE_CORRECTION :
                  (verifiedSpelling(word) ? MPN_CANDIDATE_EXACT : MPN_CANDIDATE_UNKNOWN));
-            append(word.text(hans), {kind, MPN_SCORE_LEXICON, double(word.weight)});
+            append(word.text(hans), {kind, MPN_SCORE_LEXICON, double(word.score(hans))});
         }
-        if (results.size() == candidate_limit) return results;
+        if (results.size() == result_limit) return results;
     }
 
-    // Exact spellings remain first. High-frequency nasal alternatives follow
-    // at most three exact words, so common confusions are available on page one.
+    // Keep the first page of exact single-syllable characters intact: a
+    // nasal correction like ban should not displace bang's common characters.
+    // For longer readings, surface likely corrections after three exact words.
     if (!completeOnly && lexicon.pinyin && !results.empty() && input == reading.sounds) {
-        size_t insertion = std::min(size_t(3), results.size());
+        size_t insertion = std::min(singleReading ? page_size : size_t(3), results.size());
         size_t added = 0;
         for (const auto &variant : nasal_variants(reading.sounds)) {
             const auto range = lexicon.range(variant);
             for (size_t index = range.first; index < range.second && added < 2; ++index) {
-                const auto &word = lexicon.words[index];
-                if (word.weight < 4000) break;
+                const auto &word = lexicon.word(index, hans);
+                if (word.score(hans) < 4000) break;
                 const auto text = word.text(hans);
                 if (seen.emplace(text).second) {
                     results.insert(results.begin() + insertion, std::string(text));
-                    if (metadata) metadata->insert(metadata->begin() + insertion, {MPN_CANDIDATE_CORRECTION, MPN_SCORE_LEXICON, double(word.weight)});
+                    if (metadata) metadata->insert(metadata->begin() + insertion, {MPN_CANDIDATE_CORRECTION, MPN_SCORE_LEXICON, double(word.score(hans))});
                     ++insertion; ++added;
                 }
             }
             if (added == 2) break;
         }
-        if (results.size() > candidate_limit) { results.resize(candidate_limit); if (metadata) metadata->resize(candidate_limit); }
+        if (results.size() > result_limit) { results.resize(result_limit); if (metadata) metadata->resize(result_limit); }
     }
 
     // Whole dictionary words stay first; known completions/corrections precede
@@ -516,19 +612,27 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
         for (size_t end = start + 1; end <= std::min(length, start + lexicon.longest); ++end) {
             if (suffixes[end].empty() || (start == 0 && end == length)) continue;
             const auto options = lexicon.range(std::string_view(reading.sounds).substr(start, end - start));
-            size_t used = 0;
+            std::vector<std::string_view> used_spellings;
+            used_spellings.reserve(beam);
             for (size_t index = options.first; index < options.second; ++index) {
-                const auto &word = lexicon.words[index];
+                const auto &word = lexicon.word(index, hans);
                 if (completeOnly && !fully_spelled(word)) continue;
                 if (!reading.matches(word, start, end)) continue;
+                // Tone and traditional variants remain available as exact
+                // candidates. In a bounded sentence beam, variants with the
+                // same simplified form share one slot so they do not crowd
+                // out different words and sentence interpretations.
+                const auto spelling = word.text(true);
+                if (std::find(used_spellings.begin(), used_spellings.end(), spelling) != used_spellings.end()) continue;
+                used_spellings.push_back(spelling);
                 // Compiler weights are already log-frequency priors. Logging them again
                 // erases the distinction between common phrases and rare fragments.
-                const double score = static_cast<double>(word.weight) / 700.0 - 19.0;
+                const double score = static_cast<double>(word.score(hans)) / 700.0 - 19.0;
                 const bool verified = verifiedSpelling(word);
                 for (const auto &suffix : suffixes[end]) {
                     const auto traditional = word.text(false);
                     const auto &right = hans ? suffix.traditional : suffix.text;
-                    const double bonus = lexicon.join_bonus(traditional, right);
+                    const double bonus = lexicon.join_bonus(traditional, right, hans);
                     paths.push_back({
                         std::string(word.text(hans)) + suffix.text,
                         hans ? std::string(traditional) + right : std::string(),
@@ -537,7 +641,7 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
                         suffix.verified && verified,
                     });
                 }
-                if (++used == beam) break;
+                if (used_spellings.size() == beam) break;
             }
         }
         std::sort(paths.begin(), paths.end(), [](const Path &a, const Path &b) {
@@ -554,7 +658,7 @@ std::vector<std::string> decode(const Lexicon &lexicon, std::string_view input, 
             (!path.spelled ? MPN_CANDIDATE_CORRECTION :
              (path.verified ? MPN_CANDIDATE_PATH : MPN_CANDIDATE_UNKNOWN));
         append(path.text, {kind, MPN_SCORE_PATH, path.score});
-        if (results.size() == candidate_limit) break;
+        if (results.size() == result_limit) break;
     }
     return results;
 }
@@ -595,8 +699,8 @@ std::vector<Fallback> predictive_segments_at(const Lexicon &lexicon, std::string
             if (bucket->key.size() - continuation.sounds.size() > 6) continue;
             const auto range = lexicon.range(bucket->key);
             for (size_t i = range.first; i < range.second && i < range.first + 5; ++i) {
-                const auto &word = lexicon.words[i];
-                if (word.weight < 4000 || !continuation.matches(word, 0, continuation.sounds.size())) continue;
+                const auto &word = lexicon.word(i, hans);
+                if (word.score(hans) < 4000 || !continuation.matches(word, 0, continuation.sounds.size())) continue;
                 const auto reading = word.reading();
                 size_t firstTone = 0;
                 while (firstTone < reading.size() && !is_tone(reading[firstTone], lexicon.pinyin)) ++firstTone;
@@ -609,7 +713,7 @@ std::vector<Fallback> predictive_segments_at(const Lexicon &lexicon, std::string
                 for (auto &candidate : scored) {
                     const auto &candidateText = candidate.item.text;
                     if (candidateText.size() >= first.size() && candidateText.compare(candidateText.size() - first.size(), first.size(), first) == 0)
-                        candidate.evidence = std::max(candidate.evidence, word.weight);
+                        candidate.evidence = std::max(candidate.evidence, word.score(hans));
                 }
             }
         }
@@ -634,9 +738,9 @@ std::vector<Fallback> predictive_segments(const Lexicon &lexicon, std::string_vi
 
 // A complete pinyin sentence can also be selected in smaller pieces. Only
 // offer a split if both sides decode as fully spelled readings.
-std::vector<Fallback> pinyin_segments(const Lexicon &lexicon, std::string_view input, bool hans) {
+std::pair<std::vector<Fallback>, size_t> pinyin_segments(const Lexicon &lexicon, std::string_view input, bool hans) {
     if (!lexicon.pinyin || input.size() < 6 || input.size() > 64) return {};
-    std::vector<Fallback> result;
+    std::vector<Fallback> result, alternatives;
     size_t inspected = 0;
     const size_t minCut = input.size() > 8 ? input.size() - 8 : 2;
     for (size_t cut = input.size() - 1; cut >= minCut && inspected < 5 && result.size() < 3; --cut) {
@@ -647,10 +751,21 @@ std::vector<Fallback> pinyin_segments(const Lexicon &lexicon, std::string_view i
         auto phrases = decode(lexicon, input.substr(0, cut), hans, true);
         if (phrases.empty()) continue;
         auto &text = phrases.front();
-        if (std::count_if(text.begin(), text.end(), [](unsigned char c) { return (c & 0xc0) != 0x80; }) >= 2)
+        if (std::count_if(text.begin(), text.end(), [](unsigned char c) { return (c & 0xc0) != 0x80; }) >= 2) {
             result.push_back({std::move(text), cut, 0});
+            for (size_t i = 1; i < std::min(size_t(3), phrases.size()); ++i)
+                if (std::count_if(phrases[i].begin(), phrases[i].end(), [](unsigned char c) { return (c & 0xc0) != 0x80; }) >= 2)
+                    alternatives.push_back({std::move(phrases[i]), cut, 0});
+        }
     }
-    return result;
+    // Retain the three split points first, then up to two alternative readings
+    // at each. Reuse the same decodes; alternatives remain behind whole paths.
+    const size_t primaryCount = result.size();
+    for (auto &alternative : alternatives) {
+        if (result.size() == 9) break;
+        result.push_back(std::move(alternative));
+    }
+    return {std::move(result), primaryCount};
 }
 
 // A short suffix is unfinished only when a recorded single-character reading
@@ -658,31 +773,18 @@ std::vector<Fallback> pinyin_segments(const Lexicon &lexicon, std::string_view i
 // Multi-character abbreviation buckets alone are not syllable evidence.
 bool incomplete_pinyin_syllable(const Lexicon &lexicon, std::string_view suffix) {
     if (suffix.empty() || suffix.size() > 5) return false;
-    auto bucket = std::lower_bound(lexicon.buckets.begin(), lexicon.buckets.end(), suffix,
-        [](const Lexicon::Bucket &item, std::string_view key) { return item.key < key; });
-    bool completion = false;
-    for (size_t scanned = 0; bucket != lexicon.buckets.end() && scanned < 64; ++bucket, ++scanned) {
-        if (bucket->key.substr(0, suffix.size()) != suffix) break;
-        if (bucket->key.size() > 6) continue;
-        const auto range = lexicon.range(bucket->key);
-        for (size_t i = range.first; i < range.second && i < range.first + 64; ++i) {
-            const auto &word = lexicon.words[i];
-            const auto text = word.text(false);
-            if (text.size() > 4 || han_characters(text).size() != 1 || !fully_spelled(word)) continue;
-            if (bucket->key.size() == suffix.size()) return false;
-            completion = true;
-            break;
-        }
-    }
-    return completion;
+    const auto found = std::lower_bound(lexicon.singleReadings.begin(), lexicon.singleReadings.end(), suffix);
+    return found != lexicon.singleReadings.end() && found->size() > suffix.size() &&
+           found->substr(0, suffix.size()) == suffix;
 }
 
 // Preserve a sentence built from several dictionary entries while its next
 // syllable is incomplete. Selection commits only the completed prefix.
 std::vector<Fallback> unfinished_sentence(const Lexicon &lexicon, std::string_view input, bool hans,
-                                          bool onsetOnly = false, bool syllableOnly = false) {
+                                          bool onsetOnly = false, bool syllableOnly = false, size_t after = 0) {
     if (!lexicon.pinyin || input.size() < 4 || input.size() > max_input) return {};
     for (size_t tail = 1; tail <= std::min(size_t(5), input.size() - 1); ++tail) {
+        if (input.size() - tail <= after) break;
         const auto suffix = input.substr(input.size() - tail);
         if (!std::all_of(suffix.begin(), suffix.end(), [](char c) { return c >= 'a' && c <= 'z'; })) continue;
         if (syllableOnly && !incomplete_pinyin_syllable(lexicon, suffix)) continue;
@@ -714,13 +816,20 @@ std::vector<Fallback> unfinished_sentence(const Lexicon &lexicon, std::string_vi
 // few additional boundaries before an initial can be decoded from the lexicon.
 std::vector<Fallback> zhuyin_segments(const Lexicon &lexicon, std::string_view input, bool hans) {
     if (lexicon.pinyin || input.size() < 4) return {};
-    std::vector<Fallback> result;
+    std::vector<Fallback> result, alternatives;
     auto collect = [&](size_t count) {
         auto phrases = decode(lexicon, input.substr(0, count), hans);
         if (phrases.empty()) return;
+        const bool newest = result.empty();
         auto &phrase = phrases.front();
         const auto characters = std::count_if(phrase.begin(), phrase.end(), [](unsigned char c) { return (c & 0xc0) != 0x80; });
-        if (characters >= 2) result.push_back({std::move(phrase), count, 0});
+        if (characters >= 2) {
+            result.push_back({std::move(phrase), count, 0});
+            if (newest)
+                for (size_t i = 1; i < std::min(size_t(3), phrases.size()); ++i)
+                    if (std::count_if(phrases[i].begin(), phrases[i].end(), [](unsigned char c) { return (c & 0xc0) != 0x80; }) >= 2)
+                        alternatives.push_back({std::move(phrases[i]), count, 0});
+        }
     };
     // Decode at most 64 leading keys even when the composition is longer.
     // Returning no segments past that limit made long sentences fall back to
@@ -742,6 +851,7 @@ std::vector<Fallback> zhuyin_segments(const Lexicon &lexicon, std::string_view i
         ++inspected;
         collect(count);
     }
+    for (auto &item : alternatives) result.push_back(std::move(item));
     return result;
 }
 } // namespace
@@ -800,16 +910,25 @@ struct MPNSession {
         if (lexicon->pinyin) marked = input;
         else for (char key : input) marked += symbols[keys.find(key)];
         std::vector<CandidateMetadata> metadata;
-        auto decoded = decode(*lexicon, input, hans, false, &metadata);
+        bool singleReading = false;
+        auto decoded = decode(*lexicon, input, hans, false, &metadata, &singleReading);
         std::vector<Candidate> ranked;
         ranked.reserve(decoded.size());
         for (size_t i = 0; i < decoded.size(); ++i)
             ranked.push_back({std::move(decoded[i]), input.size(), metadata[i]});
+        const auto ranked_limit = singleReading ? single_character_candidate_limit : candidate_limit;
         const auto sameSelection = [](const Candidate &candidate, const Fallback &item) {
             return candidate.text == item.text && candidate.consumed == item.consumed;
         };
         const auto partialCandidate = [](Fallback &item) {
             return Candidate{std::move(item.text), item.consumed, {MPN_CANDIDATE_PARTIAL, MPN_SCORE_NONE, 0}};
+        };
+        // Several ranking branches need the same existence check. Decode it
+        // once per refresh, lazily, rather than rebuilding identical beams.
+        int completeReading = -1;
+        const auto hasCompleteReading = [&]() {
+            if (completeReading < 0) completeReading = !decode(*lexicon, input, hans, true).empty();
+            return completeReading != 0;
         };
         auto partial = unfinished_phrase(*lexicon, input, hans);
         auto prepend = [&](std::vector<Fallback> &items) {
@@ -819,13 +938,13 @@ struct MPNSession {
                 ranked.erase(duplicate);
             }
             ranked.insert(ranked.begin(), partialCandidate(*it));
-            if (ranked.size() > candidate_limit) ranked.pop_back();
+            if (ranked.size() > ranked_limit) ranked.pop_back();
           }
         };
         prepend(partial);
         auto predictive = predictive_segments(*lexicon, input, hans);
         if (!predictive.empty()) {
-            const bool noComplete = lexicon->pinyin ? decode(*lexicon, input, hans, true).empty() : ranked.empty();
+            const bool noComplete = lexicon->pinyin ? !hasCompleteReading() : ranked.empty();
             if (noComplete) prepend(predictive);
             else {
                 // An untoned prefix can also form a valid whole sentence.
@@ -835,8 +954,19 @@ struct MPNSession {
                     if (std::any_of(ranked.begin(), ranked.end(), [&](const Candidate &candidate) { return sameSelection(candidate, item); })) continue;
                     ranked.insert(ranked.begin() + position, partialCandidate(item));
                     ++position;
-                    if (ranked.size() > candidate_limit) ranked.pop_back();
+                    if (ranked.size() > ranked_limit) ranked.pop_back();
                 }
+            }
+        }
+        if (!partial.empty()) {
+            // A shorter dictionary word must not prevent a longer decoded
+            // sentence prefix from remaining selectable. Search only beyond
+            // the prefix already present, and only for an unfinished syllable.
+            const size_t consumed = std::max(partial.front().consumed,
+                predictive.empty() ? size_t(0) : predictive.front().consumed);
+            if (consumed + 1 < input.size() && !hasCompleteReading()) {
+                auto longer = unfinished_sentence(*lexicon, input, hans, false, true, consumed);
+                prepend(longer);
             }
         }
         if (!ranked.empty() && partial.empty() && predictive.empty() && lexicon->pinyin && input.size() >= 6 && input.size() <= max_input &&
@@ -846,7 +976,7 @@ struct MPNSession {
             // Beyond 64 keys, avoid a second full-sentence decode on every
             // key. Final ng and er can complete a pinyin syllable; other
             // consonant initials here are necessarily incomplete.
-            (input.size() <= 64 ? decode(*lexicon, input, hans, true).empty() :
+            (input.size() <= 64 ? !hasCompleteReading() :
                 !((input.back() == 'g' && input[input.size() - 2] == 'n') ||
                   (input.back() == 'r' && input[input.size() - 2] == 'e')))) {
             auto sentence = unfinished_sentence(*lexicon, input, hans, true);
@@ -863,7 +993,7 @@ struct MPNSession {
             // Do not let abbreviation chains such as 狄歐尼 hide a completed
             // Chinese phrase while its next real pinyin syllable is unfinished.
             auto sentence = unfinished_sentence(*lexicon, input, hans, false, true);
-            if (!sentence.empty() && decode(*lexicon, input, hans, true).empty()) prepend(sentence);
+            if (!sentence.empty() && !hasCompleteReading()) prepend(sentence);
         }
         if (lexicon->pinyin && !japanese.empty() && input.size() >= 5 && input.size() <= max_input &&
             !has_exact_match(*lexicon, input)) {
@@ -888,7 +1018,7 @@ struct MPNSession {
                     ranked.insert(ranked.begin() + position, partialCandidate(item));
                 }
                 ++position;
-                if (ranked.size() > candidate_limit) ranked.pop_back();
+                if (ranked.size() > ranked_limit) ranked.pop_back();
             }
         }
         if (!lexicon->pinyin) {
@@ -904,17 +1034,31 @@ struct MPNSession {
                 ranked.insert(ranked.begin() + position, partialCandidate(segment));
                 ++position;
                 ++inserted;
-                if (ranked.size() > candidate_limit) ranked.pop_back();
+                if (ranked.size() > ranked_limit) ranked.pop_back();
             }
         }
-        if (lexicon->pinyin && !ranked.empty() && !decode(*lexicon, input, hans, true).empty()) {
-            auto segments = pinyin_segments(*lexicon, input, hans);
+        if (lexicon->pinyin && !ranked.empty()) {
+            size_t completed = input.size();
+            if (!hasCompleteReading()) {
+                completed = 0;
+                for (const auto &candidate : ranked)
+                    if (candidate.consumed < input.size()) completed = std::max(completed, candidate.consumed);
+            }
+            // An unfinished following word must not remove the earlier split
+            // points of a completed phrase. The existing bounded segmenter
+            // consumes only keys within that prefix, leaving the entire tail.
+            auto [segments, primaryCount] = pinyin_segments(*lexicon, std::string_view(input).substr(0, completed), hans);
+            // Keep the existing leading split choices. Append extra homophones
+            // after the original candidates so complete sentences keep their ranks.
+            const size_t leadingCount = completed < input.size() ? std::min(size_t(3), segments.size()) : primaryCount;
             size_t position = std::min(size_t(3), ranked.size());
-            for (auto &segment : segments) {
+            for (size_t i = 0; i < segments.size(); ++i) {
+                auto &segment = segments[i];
                 if (std::any_of(ranked.begin(), ranked.end(), [&](const Candidate &candidate) { return sameSelection(candidate, segment); })) continue;
+                if (i >= leadingCount) position = ranked.size();
                 ranked.insert(ranked.begin() + position, partialCandidate(segment));
                 ++position;
-                if (ranked.size() > candidate_limit) ranked.pop_back();
+                if (ranked.size() > ranked_limit) ranked.pop_back();
             }
         }
         if (ranked.empty()) {
@@ -930,19 +1074,23 @@ struct MPNSession {
             // consumed-key lengths are changed by this local reordering.
             const size_t limit = std::min(size_t(64), ranked.size());
             struct RankedIndex { size_t index; double score; };
-            std::vector<RankedIndex> order;
-            order.reserve(limit);
+            // Context may reorder homophones for the same selection span,
+            // but must not move a shorter prefix over an existing whole path.
+            std::unordered_map<size_t, std::vector<RankedIndex>> groups;
             const bool exact = has_exact_match(*lexicon, input);
             for (size_t i = 0; i < limit; ++i) {
                 const auto traditional = lexicon->traditionalize(ranked[i].text, false);
                 const double bonus = traditional.empty() || (exact && ranked[i].consumed != input.size())
-                    ? 0 : lexicon->join_bonus(segmentContext, traditional, true);
-                order.push_back({i, -static_cast<double>(i) * 0.18 + (bonus >= 2.5 ? bonus : 0)});
+                    ? 0 : lexicon->join_bonus(segmentContext, traditional, hans, true);
+                groups[ranked[i].consumed].push_back({i, -static_cast<double>(i) * 0.18 + (bonus >= 2.5 ? bonus : 0)});
             }
-            std::stable_sort(order.begin(), order.end(), [](const RankedIndex &a, const RankedIndex &b) { return a.score > b.score; });
-            std::vector<Candidate> ordered;
-            ordered.reserve(limit);
-            for (const auto &item : order) ordered.push_back(std::move(ranked[item.index]));
+            std::vector<Candidate> ordered(limit);
+            for (const auto &group : groups) {
+                auto order = group.second;
+                std::stable_sort(order.begin(), order.end(), [](const RankedIndex &a, const RankedIndex &b) { return a.score > b.score; });
+                for (size_t i = 0; i < order.size(); ++i)
+                    ordered[group.second[i].index] = std::move(ranked[order[i].index]);
+            }
             for (size_t i = 0; i < limit; ++i) ranked[i] = std::move(ordered[i]);
         }
         if (requireFullCandidate && lexicon->pinyin && !input.empty()) {
@@ -980,7 +1128,7 @@ struct MPNSession {
                 return candidate.text == input && candidate.consumed == input.size();
             })) complete.push_back({input, input.size(), {MPN_CANDIDATE_UNKNOWN, MPN_SCORE_NONE, 0}, 0});
             ranked = std::move(complete);
-            if (ranked.size() > candidate_limit) ranked.resize(candidate_limit);
+            if (ranked.size() > ranked_limit) ranked.resize(ranked_limit);
         } else {
             sentenceCount = literalTail = 0;
         }
@@ -1076,9 +1224,9 @@ const char *mpn_mixed_pinyin(MPNSession *session, const char *reading, int simpl
             const Reading parsed(part, true);
             const auto range = session->lexicon->range(parsed.sounds);
             for (size_t i = range.first; i < range.second; ++i) {
-                const auto &word = session->lexicon->words[i];
-                if (word.weight < 2000) break;
-                if (parsed.matches(word, 0, parsed.sounds.size())) { result = {std::string(word.text(simplified != 0)), word.weight}; break; }
+                const auto &word = session->lexicon->word(i, simplified != 0);
+                if (word.score(simplified != 0) < 2000) break;
+                if (parsed.matches(word, 0, parsed.sounds.size())) { result = {std::string(word.text(simplified != 0)), word.score(simplified != 0)}; break; }
             }
             if (result.first.empty() && sentenceDecodes < sentenceDecodeLimit) {
                 ++sentenceDecodes;
@@ -1088,7 +1236,7 @@ const char *mpn_mixed_pinyin(MPNSession *session, const char *reading, int simpl
             cache.emplace(key, result);
             return result;
         };
-        int bestScore = -1;
+        int64_t bestScore = -1;
         auto consider = [&](const Match &first, const Match *second, const Match *third) {
             if (first.word->weight == 3500 && (!second || second->word->weight == 3500) &&
                 (!third || third->word->weight == 3500)) return;
@@ -1154,14 +1302,16 @@ const char *mpn_mixed_pinyin(MPNSession *session, const char *reading, int simpl
                     if (characters.size() < 2) continue;
                     const auto last = characters.back();
                     const auto head = std::string_view(traditional).substr(0, traditional.size() - last.size());
-                    if (merged.second >= 4000 || session->lexicon->join_bonus(head, last) > 0) return true;
+                    if (merged.second >= 4000 || session->lexicon->join_bonus(head, last, simplified != 0) > 0) return true;
                 }
                 return false;
             };
             const int ambiguityPenalty = 24000 * (int(ambiguousHanBeforeJapanese(&first)) +
                 int(ambiguousHanBeforeJapanese(second)) + int(ambiguousHanBeforeJapanese(third)) +
                 int(ambiguousHanAfterJapanese(second)) + int(ambiguousHanAfterJapanese(third)));
-            const int score = before.second + middle.second + middle2.second + after.second + first.word->weight +
+            // Both dictionaries accept non-negative int weights. Accumulate
+            // several fragments in 64 bits so valid large weights cannot wrap.
+            const int64_t score = static_cast<int64_t>(before.second) + middle.second + middle2.second + after.second + first.word->weight +
                               (second ? second->word->weight : 0) + (third ? third->word->weight : 0) + japaneseLength * 1000 - ambiguityPenalty;
             if (score > bestScore) {
                 bestScore = score;
@@ -1298,8 +1448,11 @@ void mpn_set_segment_context(MPNSession *session, const char *text) {
 }
 const char *mpn_segment_context(const MPNSession *session) { return session ? session->segmentContext.c_str() : ""; }
 void mpn_commit(MPNSession *session) {
+    if (session->input.empty()) return;
     if (!session->candidates.empty()) { mpn_choose(session, session->page * page_size); return; }
-    session->committed.swap(session->input);
+    // Preserve what the user sees: Zhuyin's physical keys differ from its
+    // displayed symbols, whereas Pinyin preedit is the original reading.
+    session->committed += session->preedit;
     session->reset();
 }
 int mpn_choose(MPNSession *session, size_t index) {
@@ -1314,7 +1467,7 @@ int mpn_choose(MPNSession *session, size_t index) {
     session->input = std::move(remaining);
     if (!session->input.empty()) session->segmentContext = std::move(context);
     session->refresh();
-    session->committed = std::move(text);
+    session->committed += text;
     return 1;
 }
 
@@ -1329,7 +1482,9 @@ int mpn_key(MPNSession *session, int32_t key) {
             if (key == 0xff56 && (session->page + 1) * page_size < session->candidates.size()) ++session->page;
             return 1;
         }
-        if (key == 0xff1b && !input.empty()) { mpn_clear(session); return 1; }
+        // Cancelling the active composition must not discard an earlier
+        // selection that the host has not taken yet.
+        if (key == 0xff1b && !input.empty()) { session->reset(); return 1; }
         if (key == 0xff08 && !input.empty()) {
             input.pop_back();
             if (input.empty()) session->segmentContext.clear();

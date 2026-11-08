@@ -27,10 +27,12 @@ protocol InputBackend: AnyObject {
     func choose(_ index: Int) -> Bool
     func priorityGroup(_ index: Int) -> Int
     func compactJapanese() -> IndexedCandidate?
+    func beginContext(_ text: String)
 }
 extension InputBackend {
     func priorityGroup(_ index: Int) -> Int { 0 }
     func compactJapanese() -> IndexedCandidate? { nil }
+    func beginContext(_ text: String) {}
 }
 
 final class NativeBackend: InputBackend {
@@ -111,6 +113,10 @@ final class NativeBackend: InputBackend {
     func setSegmentContext(_ context: String) {
         context.withCString { mpn_set_segment_context(session, $0) }
     }
+    func beginContext(_ text: String) {
+        guard String(cString: mpn_input(session)).isEmpty else { return }
+        setSegmentContext(text)
+    }
     func mixedPinyin(_ reading: String, simplified: Bool) -> String? {
         guard mode == .pinyin else { return nil }
         let result = reading.withCString { String(cString: mpn_mixed_pinyin(session, $0, simplified ? 1 : 0)) }
@@ -142,45 +148,88 @@ final class NativeBackend: InputBackend {
 final class WordEvidence {
     static let shared = WordEvidence()
     private var db: OpaquePointer?
-    private init() {
-        guard let path = Bundle.main.path(forResource: "language-evidence", ofType: "sqlite") else { return }
+    private var hasSimplifiedWeight = false
+    private var simplifiedWeightNotNull = false
+    init(path: String? = Bundle.main.path(forResource: "language-evidence", ofType: "sqlite")) {
+        guard let path else { return }
         if sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) != SQLITE_OK {
             sqlite3_close(db); db = nil
+            return
         }
+        var statement: OpaquePointer?
+        if sqlite3_prepare_v2(db, "PRAGMA table_info(lexicon)", -1, &statement, nil) == SQLITE_OK {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let name = sqlite3_column_text(statement, 1), String(cString: name) == "hans_weight" {
+                    hasSimplifiedWeight = true
+                    simplifiedWeightNotNull = sqlite3_column_int(statement, 3) != 0
+                    break
+                }
+            }
+        }
+        sqlite3_finalize(statement)
     }
     deinit { sqlite3_close(db) }
     func dictionary(input: String, mode: InputMode, simplified: Bool) -> [String: Int] {
         guard let db, !input.isEmpty else { return [:] }
-        let reading = mode == .pinyin ? input.lowercased().replacingOccurrences(of: "[1-5 '’]", with: "", options: .regularExpression) : input
+        // Keep explicit syllable separators until after alias expansion.  In
+        // particular lu'e must remain lu + e rather than becoming lüe.
+        let normalized = mode == .pinyin ? input.lowercased()
+            .replacingOccurrences(of: "ü", with: "v")
+            .replacingOccurrences(of: "u:", with: "v") : input
+        func withoutPinyinBoundaries(_ value: String) -> String {
+            value.replacingOccurrences(of: "[1-5 '’]", with: "", options: .regularExpression)
+        }
+        let reading = mode == .pinyin ? withoutPinyinBoundaries(normalized) : normalized
+        let canonical = mode == .pinyin
+            ? withoutPinyinBoundaries(normalized.replacingOccurrences(of: "([nl])ue", with: "$1ve", options: .regularExpression))
+            : reading
+        let readings = canonical == reading ? [reading] : [reading, canonical]
         let column = mode == .pinyin ? "reading" : (input.contains(where: { " 6347".contains($0) }) ? "phonetic" : "bare")
         let text = simplified ? "hans" : "hant"
+        let weight = simplified && hasSimplifiedWeight
+            ? (simplifiedWeightNotNull ? "hans_weight" : "COALESCE(hans_weight,weight)") : "weight"
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT \(text),weight,toned FROM lexicon WHERE \(column)=? ORDER BY weight DESC LIMIT 256", -1, &statement, nil) == SQLITE_OK else { return [:] }
+        guard sqlite3_prepare_v2(db, "SELECT \(text),\(weight),toned FROM lexicon WHERE \(column)=? ORDER BY \(weight) DESC", -1, &statement, nil) == SQLITE_OK else { return [:] }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-        reading.withCString { _ = sqlite3_bind_text(statement, 1, $0, -1, transient) }
         var constraints: [Int: Character] = [:]
         var position = 0
         if mode == .pinyin {
-            for ch in input.lowercased() {
+            for ch in normalized {
                 if "12345".contains(ch) { constraints[position] = ch }
+                else if ch == "'" || ch == "’" { constraints[position] = "'" }
                 else if ch.isLetter { position += 1 }
             }
         }
         var result: [String: Int] = [:]
-        while sqlite3_step(statement) == SQLITE_ROW {
-            if !constraints.isEmpty {
-                guard let value = sqlite3_column_text(statement, 2) else { continue }
-                var tones: [Int: Character] = [:]
-                var offset = 0
-                for ch in String(cString: value) {
-                    if "12345".contains(ch) { tones[offset] = ch }
-                    else if ch.isLetter { offset += 1 }
+        for queryReading in readings {
+            sqlite3_reset(statement)
+            queryReading.withCString { _ = sqlite3_bind_text(statement, 1, $0, -1, transient) }
+            var matchedWords = Set<String>()
+            while matchedWords.count < 2048 && sqlite3_step(statement) == SQLITE_ROW {
+                if !constraints.isEmpty {
+                    guard let value = sqlite3_column_text(statement, 2) else { continue }
+                    var tones: [Int: Character] = [:]
+                    var offset = 0
+                    for ch in String(cString: value) {
+                        if "12345".contains(ch) { tones[offset] = ch }
+                        else if ch.isLetter { offset += 1 }
+                    }
+                    // An apostrophe requires a syllable boundary, but does
+                    // not constrain its tone. Stripping it for the lookup
+                    // must not make xi'an match the single syllable xian.
+                    if !constraints.allSatisfy({ entry in
+                        guard let tone = tones[entry.key] else { return false }
+                        return entry.value == "'" || tone == entry.value
+                    }) { continue }
                 }
-                if !constraints.allSatisfy({ tones[$0.key] == $0.value }) { continue }
-            }
 
-            if let word = sqlite3_column_text(statement, 0) { let value = String(cString: word); result[value] = max(result[value] ?? 0, Int(sqlite3_column_int64(statement, 1))) }
+                if let word = sqlite3_column_text(statement, 0) {
+                    let value = String(cString: word)
+                    matchedWords.insert(value)
+                    result[value] = max(result[value] ?? 0, Int(sqlite3_column_int64(statement, 1)))
+                }
+            }
         }
         return result
     }
@@ -304,6 +353,11 @@ final class ChineseWithJapaneseBackend: InputBackend {
         simplified = value
         engines[0].setSimplified(value)
         if locked != nil { readLocked() } else if !raw.isEmpty { rebuild() }
+    }
+    func beginContext(_ text: String) {
+        guard raw.isEmpty, state.preedit.isEmpty, locked == nil else { return }
+        segmentContext = text
+        engines[0].beginContext(text)
     }
     func clear() {
         engines.forEach { $0.clear() }
@@ -501,7 +555,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
         let pinyinFirst = mode == .pinyin
         let hasTones = pinyinFirst && raw.contains { "12345".contains($0) }
         let primary = 0
-        var pools = engines.map { $0.candidates(limit: 256) }
+        var pools = engines.map { $0.candidates(limit: 2048) }
         for index in pools.indices where !snapshots[index].commit.isEmpty || snapshots[index].input.isEmpty { pools[index] = [] }
         // If a key was rejected (for example a second apostrophe), the native
         // reading no longer represents all typed bytes. Do not let a native
@@ -512,19 +566,24 @@ final class ChineseWithJapaneseBackend: InputBackend {
             item.metadata.map { (item.index, $0) }
         })
         choices = []
+        struct ChoiceKey: Hashable {
+            let text: String
+            let remainingOffset: Int?
+            let source: Int?
+            let index: Int?
+        }
+        var seenChoices = Set<ChoiceKey>()
         func append(_ text: String, source: Int, index: Int) {
             var metadata = source == 0 ? nativeMetadata[index] : nil
             if let offset = metadata?.remainingOffsetBytes, raw.utf8.allSatisfy({ $0 < 128 }), offset <= raw.utf8.count {
                 metadata?.remainingInput = String(decoding: raw.utf8.dropFirst(offset), as: UTF8.self)
             }
             // Equal-looking native candidates may consume different prefixes.
-            guard !text.isEmpty, !choices.contains(where: {
-                guard $0.text == text else { return false }
-                let previousOffset = $0.source == 0 ? $0.metadata?.remainingOffsetBytes : ($0.source == -6 ? $0.index : raw.utf8.count)
-                let newOffset = source == 0 ? metadata?.remainingOffsetBytes : (source == -6 ? index : raw.utf8.count)
-                guard let previousOffset, let newOffset else { return $0.source == source && $0.index == index }
-                return previousOffset == newOffset
-            }) else { return }
+            let offset = source == 0 ? metadata?.remainingOffsetBytes : (source == -6 ? index : raw.utf8.count)
+            let key = ChoiceKey(text: text, remainingOffset: offset,
+                                source: offset == nil ? source : nil,
+                                index: offset == nil ? index : nil)
+            guard !text.isEmpty, seenChoices.insert(key).inserted else { return }
             choices.append(Choice(text: text, source: source, index: index, metadata: metadata))
         }
         // A bounded Chinese shortlist leads every page-one result. Japanese is supplementary,
@@ -554,7 +613,17 @@ final class ChineseWithJapaneseBackend: InputBackend {
         let memoryKey = (pinyinFirst ? "py:" : "") + script + (pinyinFirst ? raw.lowercased() : raw)
         let personalCandidates = ChoiceMemory.shared.personalCandidates(for: memoryKey)
         for text in personalCandidates {
-            append(text, source: -3, index: 0)
+            // A remembered sentence can already be a native decoding path.
+            // Preserve its selection metadata; equal-looking partial choices
+            // must not be mistaken for this complete reading.
+            if let native = chinese.first(where: {
+                $0.text == text && $0.metadata?.consumedBytes == raw.utf8.count &&
+                $0.metadata?.remainingOffsetBytes == raw.utf8.count
+            }) {
+                append(text, source: primary, index: native.index)
+            } else {
+                append(text, source: -3, index: 0)
+            }
             exactChinese.insert(text)
         }
         let supplementFirst = chinese.first.map { dictionary[$0.text] == nil } ?? true
@@ -598,6 +667,9 @@ final class ChineseWithJapaneseBackend: InputBackend {
             for symbol in (Self.associations[first.text] ?? []).prefix(2) { append(symbol, source: -1, index: 0) }
         }
         for item in chinese.dropFirst(3) { append(item.text, source: chineseSource, index: item.index) }
+        // Keep every indexed exact match available to paging. The leading seven
+        // supplements retain their usual placement; the rest follow native words.
+        for text in additions.dropFirst(7) { append(text, source: -3, index: 0) }
         if japaneseReading {
             for item in pools[1].dropFirst() { append(item.text, source: 1, index: item.index) }
         } else {

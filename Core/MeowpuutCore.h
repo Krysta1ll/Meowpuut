@@ -27,14 +27,17 @@ int mpn_key(MPNSession *session, int32_t key);
 void mpn_require_full_candidate(MPNSession *session);
 void mpn_set_simplified(MPNSession *session, int simplified);
 void mpn_clear(MPNSession *session);
-// Restore a Chinese prefix only while rebuilding the same partial composition.
-// NULL/empty clears it. The getter points into the session until its mutation.
+// Set adjacent Chinese ranking context before a new composition, or restore
+// its selected prefix while rebuilding the same partial composition. Hosts
+// must replace it at a document boundary. NULL/empty clears it; the getter
+// points into the session until its next mutation.
 void mpn_set_segment_context(MPNSession *session, const char *text);
 const char *mpn_segment_context(const MPNSession *session);
 void mpn_commit(MPNSession *session);
 int mpn_choose(MPNSession *session, size_t index);
 const char *mpn_input(const MPNSession *session);
 const char *mpn_preedit(const MPNSession *session);
+// Selections accumulate until the host consumes them with mpn_clear_commit.
 const char *mpn_committed(const MPNSession *session);
 void mpn_clear_commit(MPNSession *session);
 size_t mpn_candidate_count(const MPNSession *session);

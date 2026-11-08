@@ -1,7 +1,9 @@
 #include "../Session.h"
 #include "../Keyboard.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -15,6 +17,35 @@ static std::size_t indexOf(const meowpuut::Snapshot &s, const std::string &text)
     auto it = std::find(s.candidates.begin(), s.candidates.end(), text);
     require(it != s.candidates.end(), "expected candidate absent on first page");
     return static_cast<std::size_t>(it - s.candidates.begin());
+}
+
+static void verifyLexiconVersions() {
+    namespace fs = std::filesystem;
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto directory = fs::temp_directory_path() / ("meowpuut-session-versions-" + std::to_string(stamp));
+    fs::create_directories(directory);
+    struct Cleanup { fs::path directory; ~Cleanup() { std::error_code ignored; fs::remove_all(directory, ignored); } } cleanup{directory};
+    const auto japanese = directory / "japanese.tsv";
+    { std::ofstream file(japanese, std::ios::binary); file << u8"neko|猫|5000\n"; require(bool(file), "write Japanese fixture"); }
+    for (int version : {1, 2}) {
+        for (bool pinyin : {false, true}) {
+            const auto path = directory / (std::string(pinyin ? "pinyin-" : "zhuyin-") + std::to_string(version) + ".tsv");
+            {
+                std::ofstream file(path, std::ios::binary);
+                file << "MEOWPUUT-" << (pinyin ? "PINYIN-" : "ZHUYIN-") << version << '\n';
+                file << (pinyin ? "ni\tni3\t" : "su\tsu3\t") << u8"你\t你\t1500";
+                if (version == 2) file << "\t2000";
+                file << '\n';
+                require(bool(file), "write lexicon fixture");
+            }
+            meowpuut::Session session(path);
+            require(session.registerJapaneseWords(japanese) == (pinyin ? 1u : 0u), "V1/V2 pinyin mode detection");
+            type(session, pinyin ? "ni" : "su3");
+            const auto snapshot = session.takeSnapshot();
+            require(std::find(snapshot.candidates.begin(), snapshot.candidates.end(), u8"你") != snapshot.candidates.end(),
+                    "V1/V2 lexicon composition");
+        }
+    }
 }
 
 static void verifyInputLimit(meowpuut::Session &py, meowpuut::Session &zy) {
@@ -133,6 +164,7 @@ int main(int argc, char **argv) {
 #endif
     if (argc != 4) { std::cerr << "usage: session_test native-pinyin.tsv native-zhuyin.tsv japanese.tsv\n"; return 2; }
     try {
+        verifyLexiconVersions();
         bool invalid = false;
         try { meowpuut::Session missing("no-such-meowpuut-lexicon.tsv"); } catch (const std::runtime_error &) { invalid = true; }
         require(invalid, "missing lexicon must fail");

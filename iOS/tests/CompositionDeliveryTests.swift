@@ -79,6 +79,42 @@ struct CompositionDeliveryTests {
         precondition(host.text == oldDocument && newDocument.text.isEmpty)
         newDocument.apply(delivery.actions(commit: "新", preedit: ""))
         precondition(newDocument.text == "新" && !delivery.hasMarkedText)
+
+        // A proxy may be unidentified on the first key. Acquiring its first
+        // ID must not erase an already selected prefix in that same field.
+        var attachment = CompositionDelivery()
+        let firstID = UUID(), secondID = UUID()
+        _ = attachment.actions(commit: "我", preedit: "x")
+        precondition(!attachment.attach(to: nil))
+        precondition(!attachment.attach(to: firstID))
+        precondition(attachment.actions(commit: "", preedit: "xi") == [.mark("我xi")])
+        precondition(!attachment.attach(to: firstID))
+        precondition(!attachment.attach(to: nil), "a transiently missing identifier is not a new document")
+        precondition(attachment.hasMarkedText && attachment.isSuspended)
+        precondition(attachment.actions(commit: "", preedit: "xi") == [], "unknown document receives no old marked text")
+        precondition(!attachment.attach(to: firstID) && !attachment.isSuspended)
+        precondition(attachment.actions(commit: "", preedit: "xi") == [.mark("我xi")],
+                     "same document resumes the selected prefix and reading once")
+        attachment.suspend()
+        precondition(attachment.actions(commit: "", preedit: "") == [], "hide with no proxy cannot clear the old marked range")
+
+        // Simulate focus moving before the textDidChange callback: the next
+        // input checks ownership first, so it cannot carry the old prefix over.
+        precondition(attachment.attach(to: secondID))
+        precondition(!attachment.hasMarkedText && !attachment.isSuspended && attachment.documentID == secondID)
+        precondition(attachment.actions(commit: "", preedit: "ni") == [.mark("ni")])
+        precondition(attachment.actions(commit: "你", preedit: "") == [.mark("你"), .unmark])
+        // Suspension also protects a composition begun before the first ID was
+        // supplied. Repeated nil callbacks do not discard or resend it.
+        var initial = CompositionDelivery()
+        _ = initial.actions(commit: "你好", preedit: "x")
+        initial.suspend()
+        precondition(!initial.attach(to: nil) && initial.isSuspended)
+        precondition(initial.actions(commit: "", preedit: "x") == [])
+        precondition(!initial.attach(to: UUID()) && !initial.isSuspended)
+        precondition(initial.actions(commit: "喜歡🐈", preedit: "") == [.mark("你好喜歡🐈"), .unmark])
+        precondition(initial.actions(commit: "", preedit: "").isEmpty,
+                     "completion after resume drains the selected prefix once")
         print("PASS: marked text preserves partial commits, continuation and cancellation")
     }
 }

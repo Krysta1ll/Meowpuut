@@ -87,7 +87,9 @@ struct KeyboardLayoutMetrics {
         var indices = widths.indices.filter { !japaneseIndices.contains($0) || $0 == japanese }
         var effective = widths.map { min(width, max(0, $0.isFinite ? $0 : width)) }
 
-        if let japanese, let first = indices.first, first != japanese {
+        // During attachment/rotation GeometryReader can briefly report zero
+        // width. Two items cannot share a page narrower than their fixed gap.
+        if width > 4, let japanese, let first = indices.first, first != japanese {
             let initial = candidatePages(widths: indices.map { effective[$0] }, availableWidth: width)
             if !(initial.first ?? []).contains(where: { indices[$0] == japanese }) {
                 indices.removeAll { $0 == japanese }

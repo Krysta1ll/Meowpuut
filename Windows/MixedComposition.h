@@ -7,6 +7,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -39,6 +40,51 @@ inline std::vector<JapaneseWord> readJapaneseWords(std::istream &file) {
 }
 
 using ChineseEvidence = std::map<std::string, int>;
+
+// Query both valid spellings without treating an explicit lu'e as lüe.
+inline std::vector<std::string> pinyinEvidenceReadings(const std::string &input) {
+    auto canonical = input;
+    for (size_t i = 0; i + 2 < canonical.size(); ++i)
+        if ((canonical[i] == 'l' || canonical[i] == 'n') && canonical[i + 1] == 'u' && canonical[i + 2] == 'e')
+            canonical[i + 1] = 'v';
+    auto withoutSeparators = [](std::string reading) {
+        reading.erase(std::remove_if(reading.begin(), reading.end(), [](char c) {
+            return c == '\'' || (c >= '1' && c <= '5');
+        }), reading.end());
+        return reading;
+    };
+    auto original = withoutSeparators(input);
+    canonical = withoutSeparators(std::move(canonical));
+    if (canonical == original) return {std::move(original)};
+    return {std::move(original), std::move(canonical)};
+}
+
+// Pinyin evidence is indexed without delimiters; verify explicit boundaries
+// and tones against the original reading before treating it as exact.
+inline bool pinyinEvidenceMatches(const std::string &input, const std::string &toned) {
+    if (input.find_first_of("'12345") == std::string::npos) return true;
+    std::map<size_t, char> required;
+    size_t position = 0;
+    for (const char c : input) {
+        if (c >= 'a' && c <= 'z') ++position;
+        else if (c == '\'' || (c >= '1' && c <= '5')) {
+            if (!position || !required.emplace(position, c).second) return false;
+        } else return false;
+    }
+    if (required.empty()) return true;
+    position = 0;
+    for (const char c : toned) {
+        if (c >= 'a' && c <= 'z') ++position;
+        else if (c >= '1' && c <= '5') {
+            const auto item = required.find(position);
+            if (item != required.end()) {
+                if (item->second != '\'' && item->second != c) return false;
+                required.erase(item);
+            }
+        } else return false;
+    }
+    return required.empty();
+}
 
 struct WindowsCandidate {
     std::string text;
@@ -115,9 +161,11 @@ std::vector<WindowsCandidate> windowsCandidates(MPNSession *session, const std::
     const std::string input = mpn_input(session);
     if (input.empty()) return {};
     std::vector<WindowsCandidate> choices;
+    std::set<std::pair<std::string, size_t>> seen;
     const auto evidence = chineseLocked ? ChineseEvidence{} : lookup(input);
     auto append = [&](std::string text, std::optional<size_t> index, bool japanese) {
-        if (text.empty() || std::any_of(choices.begin(), choices.end(), [&](const auto &item) { return item.text == text; }))
+        const size_t consumed = index ? mpn_candidate_consumed(session, *index) : input.size();
+        if (text.empty() || !seen.emplace(text, consumed).second)
             return;
         const auto found = evidence.find(text);
         const bool strong = found != evidence.end() && found->second >= 2000;
@@ -125,7 +173,11 @@ std::vector<WindowsCandidate> windowsCandidates(MPNSession *session, const std::
     };
 
     std::vector<size_t> chinese;
-    for (size_t i = 0; i < mpn_candidate_count(session); ++i) chinese.push_back(i);
+    std::set<std::pair<std::string, size_t>> nativeSelections;
+    for (size_t i = 0; i < mpn_candidate_count(session); ++i) {
+        chinese.push_back(i);
+        nativeSelections.emplace(mpn_candidate(session, i), mpn_candidate_consumed(session, i));
+    }
     std::stable_partition(chinese.begin(), chinese.end(), [&](size_t i) {
         return evidence.count(mpn_candidate(session, i)) != 0;
     });
@@ -136,9 +188,7 @@ std::vector<WindowsCandidate> windowsCandidates(MPNSession *session, const std::
 
     std::vector<std::pair<std::string, int>> additional;
     for (const auto &entry : evidence) {
-        if (std::none_of(chinese.begin(), chinese.end(), [&](size_t i) {
-            return entry.first == mpn_candidate(session, i);
-        })) additional.push_back(entry);
+        if (!nativeSelections.count({entry.first, input.size()})) additional.push_back(entry);
     }
     std::stable_sort(additional.begin(), additional.end(), [](const auto &a, const auto &b) {
         return a.second > b.second;
@@ -159,6 +209,7 @@ std::vector<WindowsCandidate> windowsCandidates(MPNSession *session, const std::
     if (chinese.size() > 2) append(mpn_candidate(session, chinese[2]), chinese[2], false);
     if (!supplementFirst) supplement();
     for (size_t i = 3; i < chinese.size(); ++i) append(mpn_candidate(session, chinese[i]), chinese[i], false);
+    for (size_t i = 7; i < additional.size(); ++i) append(additional[i].first, {}, false);
     for (const auto &word : dictionary)
         if (word.reading == input) append(word.text, {}, true);
     if (choices.empty()) append(input, {}, false);

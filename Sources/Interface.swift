@@ -448,11 +448,15 @@ struct CandidateStrip: View {
 
 final class TypingView: NSTextView {
     var engine: Engine?
+    func deliverPendingCommit() {
+        guard let engine else { return }
+        let commit = engine.takeCommit()
+        if !commit.isEmpty { insertText(commit, replacementRange: selectedRange()) }
+    }
     override func keyDown(with event: NSEvent) {
         guard let engine, let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else { super.keyDown(with: event); return }
         let handled = engine.key(key, modifiers: modifiers)
-        let commit = engine.takeCommit()
-        if !commit.isEmpty { insertText(commit, replacementRange: selectedRange()) }
+        deliverPendingCommit()
         if !handled { super.keyDown(with: event) }
     }
 }
@@ -471,7 +475,14 @@ struct TypingPad: NSViewRepresentable {
         scroll.drawsBackground = false
         return scroll
     }
-    func updateNSView(_ view: NSScrollView, context: Context) {}
+    func updateNSView(_ view: NSScrollView, context: Context) {
+        // Mouse selection and mode changes also commit text, without keyDown.
+        // Drain after SwiftUI's update pass: takeCommit publishes new state.
+        guard !engine.snapshot.commit.isEmpty else { return }
+        DispatchQueue.main.async { [weak text = view.documentView as? TypingView] in
+            text?.deliverPendingCommit()
+        }
+    }
 }
 
 struct Studio: View {
@@ -497,7 +508,7 @@ struct Studio: View {
                     }.buttonStyle(.plain)
                 }
                 Spacer()
-                Text("0.4.1 測試版").font(.caption2).foregroundStyle(.secondary)
+                Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") 測試版").font(.caption2).foregroundStyle(.secondary)
             }.padding(20).navigationSplitViewColumnWidth(220)
         } detail: {
             ScrollView {

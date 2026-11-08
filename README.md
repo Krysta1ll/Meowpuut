@@ -5,7 +5,9 @@
 <h1 align="center">喵撲 Meowpuut</h1>
 <p align="center">mimimo。</p>
 <p align="center">
-  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-windows-x64.zip">Windows</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-android.apk">Android</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
   <a href="LICENSE">MIT</a>
@@ -19,12 +21,20 @@
 
 | 平台 | 下載 | 版本 |
 | --- | --- | --- |
-| macOS · Apple silicon | [紙箱安裝盤](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/Meowpuut-0.4.2-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.2-alpha.1/SHA256SUMS.txt) | 0.4.2 Alpha 1，macOS 27+ |
-| Windows · x64 | [下載 ZIP](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-v0.1.1-alpha/Meowpuut-Windows-x64-0.1.1-alpha.zip) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-v0.1.1-alpha/SHA256SUMS.txt) | 0.1.1 Alpha，Windows 10／11 |
-| Android | [下載 APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/Meowpuut-0.1.0-alpha-android.apk) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/android-v0.1.0-alpha/SHA256SUMS.txt) | 0.1.0 Alpha，Android 7+ |
+| macOS · Apple silicon | [紙箱安裝盤](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/SHA256SUMS.txt) | 0.4.3 Alpha 1，macOS 27+ |
+| Windows · x64 | [下載 ZIP](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-windows-x64.zip) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/SHA256SUMS.txt) | 0.4.3 Alpha 1，Windows 10／11 |
+| Android | [下載 APK](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/Meowpuut-0.4.3-alpha.1-android.apk) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.4.3-alpha.1/SHA256SUMS.txt) | 0.4.3 Alpha 1，Android 7+ |
 | iOS／iPadOS | [原始碼與建置說明](iOS/README.md) | 尚無公開 TestFlight 或 IPA |
 
-Windows 與 Android 仍是 Alpha，功能與 macOS 不完全相同；Windows 目前以拼音為主，新版焦點及上屏保護未經 Windows 實測，未提交的文字仍可能遺失。Android 0.1.0 APK 不包含近期合併後的修復。macOS 安裝包尚未公證，Windows 套件未簽署；安裝前請讀各平台說明並核對 SHA-256。Intel Mac 與較舊的 macOS 尚未驗證。
+Windows 與 Android 仍是 Alpha，功能與 macOS 不完全相同；Windows 目前以拼音為主，新版焦點及上屏保護未經 Windows 實測，未提交的文字仍可能遺失。Windows 與 Android 尚未完成真機驗收。macOS 安裝包尚未公證，Windows 套件未簽署；安裝前請讀各平台說明並核對 SHA-256。Intel Mac 與較舊的 macOS 尚未驗證。
+
+**Android 舊版更新：** 0.4.3 改用新的發行簽章，無法直接覆蓋 0.1.0。請先記下設定，再卸載舊版、安裝新版；卸載會清除本機設定。全新安裝不受影響。
+
+## 0.4.3：句子還沒打完，也能先選前半段
+
+`woxihuannid` 打到最後的 `d`，前面的「我喜歡你」仍可選；選完只留下 `d`，接著打下一個字。注音也保留前段與尚未完成的音節。拼音後面接 `kirei` 或 `udon` 時，中文前段與日語候選一起參與分段，不必先把中文送出去。
+
+這版重新核對 mimo 的單字讀音、繁簡字形和來源詞頻。簡體拼音用簡體來源的詞頻排序，繁體輸出保留自己的權重；已選前段的短期上下文也會參與後段排序。詞庫與三個公開客戶端在同一版收齊。具體修復與限制見[版本更新](docs/RELEASE_NOTES.md)。
 
 ## 今天想打什麼？
 
@@ -92,13 +102,13 @@ Windows 與 Android 仍是 Alpha，功能與 macOS 不完全相同；Windows 目
 
 中文解碼、斷詞與排序由喵撲的 C++17 核心完成，沒有 Rime 執行時依賴。中文資料採用 McBopomofo 與 Pinyin Pro 的 MIT 詞表，再套用喵撲的讀音、字形與排序修訂；日語詞條也包含附帶 BSD 授權的 UniDic 精選資料。
 
-合併詞庫名為 **mimo 1.0**。合併以**簡體詞面＋完整帶調讀音**為鍵：重複詞條採簡體來源詞頻，多音字分開保留；繁體專有詞也保留。兩份來源的頻率尺度以共同詞條校準，簡體來源的表達優先，本地修訂最後生效。每筆資料保有繁簡字形，切換輸出不需要載入另一份詞庫。
+合併詞庫名為 **mimo 1.0**。讀音和簡體相同、繁體不同的字詞各自保留，例如「志／誌」和「一周／一週」；簡體輸出會將相同候選去重。兩份來源的頻率尺度以共同詞條校準，簡體來源的表達優先，本地修訂最後生效。每筆資料保有繁簡字形，切換輸出不需要載入另一份詞庫。
 
 約 40 萬組詞條讀音保存在完整索引，常用部分供核心斷詞；這不是 40 萬個互不重複的詞，也不是即時聯網更新。固定版本、校驗值與授權見 [THIRD_PARTY.md](THIRD_PARTY.md)。合併策略與已知限制見[引擎說明](docs/ENGINE.md)。
 
 ## 資料留在本機
 
-macOS 和 iOS 的輸入、排序與個人詞庫不需要網路。學習的是你確認過的候選，不讀取其他應用的聊天記錄或整份文件。記憶可在設定中停用或清除；Windows、Android Alpha 的功能請參考各自的版本說明。
+macOS 和 iOS 的輸入、排序與個人詞庫不需要網路。開始一段中文組字時，使用目前輸入欄位游標前最多四個連續中文字輔助排序，遇到標點、空白或其他文字便停止；這段前文只留在本次組字，不寫入個人詞庫，也不掃描聊天記錄或整份文件。個人詞庫學習的是你確認過的候選，可在設定中停用或清除；停用記憶後仍可使用當前語境排序。Windows、Android Alpha 的功能請參考各自的版本說明。
 
 macOS 資料位於 `~/Library/Application Support/Meowpuut/`。iOS 鍵盤使用自己的沙盒；目前沒有跨裝置同步。
 
@@ -124,6 +134,8 @@ cmake --build .build/core
 ```
 
 iOS 另需 XcodeGen，見 [iOS/README.md](iOS/README.md)。
+
+輸入體驗的修正、測試方式與尚未完成的部分，見[體驗檢查記錄](docs/INPUT_EXPERIENCE_AUDIT.md)。
 
 ## 一起把選詞做好
 

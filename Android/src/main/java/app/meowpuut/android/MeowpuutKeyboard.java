@@ -65,6 +65,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
     private static native int count(long handle);
     private static native int page(long handle);
     private static native int sentenceCount(long handle);
+    private static native boolean hasExactChinese(long handle);
     private static native int literalTail(long handle);
     private static native int consumed(long handle, int index);
     private static native byte[] exactPinyin(long handle, String reading);
@@ -91,7 +92,8 @@ public final class MeowpuutKeyboard extends InputMethodService {
     private boolean expanded;
     private boolean chinese = true;
     private boolean dark;
-    private int typingHeightBonus;
+    private KeyboardLayoutMetrics layout;
+    private int insetLeft, insetRight, insetBottom;
     private int accent;
     private int strength;
     private KeyboardPalette palette;
@@ -103,6 +105,13 @@ public final class MeowpuutKeyboard extends InputMethodService {
     private HorizontalScrollView scroll;
     private TextView error;
     private boolean marked;
+    private final PendingCommit pendingCommit = new PendingCommit();
+    private final EditorSelection editorSelection = new EditorSelection();
+    private boolean applyingEditorChange;
+    private boolean externalComposition;
+    private final List<Runnable> gestureCancels = new ArrayList<>();
+    private String editorPackage;
+    private int editorField, editorType;
     private String returnTitle = "換行";
     private Button expand;
     private final List<PinyinChoice> pinyinChoices = new ArrayList<>();
@@ -163,12 +172,21 @@ public final class MeowpuutKeyboard extends InputMethodService {
     @Override public View onCreateInputView() {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        root.setMinimumHeight(dp(312));
+        root.setGravity(Gravity.TOP);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int left, right, bottom;
             if (android.os.Build.VERSION.SDK_INT >= 30) {
-                int bottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
-                view.setPadding(dp(5), dp(5), dp(5), bottom);
+                android.graphics.Insets safe = insets.getInsets(
+                        WindowInsets.Type.navigationBars() | WindowInsets.Type.displayCutout());
+                left = safe.left; right = safe.right; bottom = safe.bottom;
+            } else {
+                left = insets.getSystemWindowInsetLeft();
+                right = insets.getSystemWindowInsetRight();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            if (left != insetLeft || right != insetRight || bottom != insetBottom) {
+                insetLeft = left; insetRight = right; insetBottom = bottom;
+                view.post(() -> { if (view == root) rebuild(); });
             }
             return insets;
         });
@@ -178,6 +196,26 @@ public final class MeowpuutKeyboard extends InputMethodService {
 
     @Override public void onStartInput(EditorInfo editor, boolean restarting) {
         super.onStartInput(editor, restarting);
+        // Never replay rejected text into a different editor. A restart belongs
+        // to the same editor: recover its pending prefix before clearing state.
+        boolean sameEditor = restarting && java.util.Objects.equals(editorPackage, editor.packageName)
+                && editorField == editor.fieldId && editorType == editor.inputType;
+        editorPackage = editor.packageName;
+        editorField = editor.fieldId;
+        editorType = editor.inputType;
+        cancelGestures();
+        if (!sameEditor) {
+            pendingCommit.clear();
+            externalComposition = false;
+            editorSelection.reset(editor.initialSelStart, editor.initialSelEnd);
+        }
+        else if (!pendingCommit.isEmpty() && !retryPendingCommit()) return;
+        // A restart can retain the host's marked range. Finalize it before
+        // resetting our session, or the next key can replace the old text.
+        if (restarting && marked) {
+            InputConnection connection = getCurrentInputConnection();
+            if (connection == null || !finishMarkedText(connection)) return;
+        }
         marked = false;
         clear();
         mode = preferences.getInt("mode", PINYIN);
@@ -215,30 +253,49 @@ public final class MeowpuutKeyboard extends InputMethodService {
     @Override public void onUpdateSelection(int oldStart, int oldEnd, int newStart, int newEnd,
                                             int composingStart, int composingEnd) {
         super.onUpdateSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
-        if (marked && composingEnd >= 0 && (newStart != composingEnd || newEnd != composingEnd)) {
-            InputConnection connection = getCurrentInputConnection();
-            if (connection != null) connection.finishComposingText();
+        if (applyingEditorChange || !editorSelection.external(newStart, newEnd, composingStart, composingEnd)) return;
+        if (marked || !pendingCommit.isEmpty()) {
+            // External editing invalidates the old composing range, including
+            // hosts reporting -1 after paste, deletion or ending composition.
             marked = false;
+            externalComposition = composingStart >= 0;
             expanded = false;
-            clear();
+            if (!pendingCommit.isEmpty()) {
+                // Never retry a rejected selection over a newly selected range.
+                // Keep its text until the user explicitly chooses the new cursor.
+                pendingCommit.pause();
+            } else {
+                InputConnection connection = getCurrentInputConnection();
+                if (composingStart >= 0 && connection != null) finishMarkedText(connection);
+                clear();
+            }
             if (root != null) rebuild();
         }
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
-        if (!finishingInput && marked) finishComposition();
+        cancelGestures();
+        if (!finishingInput && (!pendingCommit.isEmpty() || marked) && !finishComposition()) {
+            super.onFinishInputView(false);
+            return;
+        }
         clear();
         marked = false;
         super.onFinishInputView(finishingInput);
     }
 
     @Override public void onFinishInput() {
+        cancelGestures();
+        pendingCommit.clear();
+        externalComposition = false;
+        editorSelection.reset(-1, -1);
         marked = false;
         clear();
         super.onFinishInput();
     }
 
     @Override public void onDestroy() {
+        cancelGestures();
         preferences.unregisterOnSharedPreferenceChangeListener(appearanceListener);
         for (long handle : sessions) if (handle != 0) close(handle);
         super.onDestroy();
@@ -331,6 +388,12 @@ public final class MeowpuutKeyboard extends InputMethodService {
         button.setMinimumHeight(0);
         button.setPadding(0, 0, 0, 0);
         button.setOnClickListener(v -> {
+            // This tap retries the rejected selection only. Candidate callbacks
+            // hold old indices and must not run after the remaining list changes.
+            if (!pendingCommit.isEmpty()) {
+                retryPendingCommit();
+                return;
+            }
             v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
             action.run();
         });
@@ -357,10 +420,10 @@ public final class MeowpuutKeyboard extends InputMethodService {
         RippleDrawable ripple = new RippleDrawable(
                 ColorStateList.valueOf((accent & 0xffffff) | 0x32000000), face,
                 surface(Color.WHITE, Color.WHITE, 8));
-        cap.setBackground(new InsetDrawable(ripple, dp(2), 0, dp(2), dp(5)));
-        cap.setPadding(dp(2), 0, dp(2), dp(5));
+        cap.setBackground(new InsetDrawable(ripple, dp(2), 0, dp(2), dp(KeyboardLayoutMetrics.KEY_GAP)));
+        cap.setPadding(dp(2), 0, dp(2), dp(KeyboardLayoutMetrics.KEY_GAP));
         LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(
-                width == 0 ? 0 : dp(width), dp(height + 5), width == 0 ? 1 : 0);
+                width == 0 ? 0 : dp(width), dp(height + KeyboardLayoutMetrics.KEY_GAP), width == 0 ? 1 : 0);
         row.addView(cap, size);
         return cap;
     }
@@ -371,10 +434,25 @@ public final class MeowpuutKeyboard extends InputMethodService {
         return row;
     }
 
+    private int availableWindowHeight() {
+        float density = getResources().getDisplayMetrics().density;
+        if (android.os.Build.VERSION.SDK_INT >= 30 && getWindow() != null
+                && getWindow().getWindow() != null) {
+            android.view.WindowMetrics metrics = getWindow().getWindow().getWindowManager().getCurrentWindowMetrics();
+            android.graphics.Insets safe = metrics.getWindowInsets().getInsetsIgnoringVisibility(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            return Math.max(0, Math.round((metrics.getBounds().height() - safe.top - safe.bottom) / density));
+        }
+        // Before API 30 the configuration already excludes system decorations.
+        return getResources().getConfiguration().screenHeightDp;
+    }
+
     private void rebuild() {
-        Configuration configuration = getResources().getConfiguration();
-        typingHeightBonus = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                ? 0 : preferences.getInt("keyHeight", 0) * 6;
+        cancelGestures();
+        gestureCancels.clear();
+        boolean zhuyin = !directOnly && chinese && mode == ZHUYIN && symbols == 0;
+        layout = new KeyboardLayoutMetrics(availableWindowHeight(),
+                symbols > 0 || zhuyin ? 4 : 3, preferences.getInt("keyHeight", 0));
         int tone = preferences.getInt("tone", 0);
         dark = tone == 2 || (tone == 0 && (getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES);
@@ -384,7 +462,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
         root.removeAllViews();
         space = null;
         confirm = null;
-        root.setPadding(dp(5), dp(5), dp(5), root.getPaddingBottom());
+        root.setPadding(dp(5) + insetLeft, dp(KeyboardLayoutMetrics.TOP), dp(5) + insetRight, insetBottom);
         int board = palette.board(dark);
         root.setBackground(new MatteSurface(tint(board, Color.WHITE, dark ? .045f : .26f),
                 tint(board, Color.BLACK, dark ? .20f : .07f), dp(19), dp(1) * .65f, dark, true));
@@ -393,6 +471,15 @@ public final class MeowpuutKeyboard extends InputMethodService {
         error.setText("無法載入詞庫");
         error.setTextColor(dark ? 0xffffb4ab : 0xffa52b20);
         error.setVisibility(View.GONE);
+        error.setOnClickListener(view -> {
+            if (pendingCommit.isPaused()) {
+                InputConnection connection = getCurrentInputConnection();
+                if (connection == null || !finishMarkedText(connection)) return;
+                marked = false;
+                pendingCommit.resume();
+            }
+            retryPendingCommit();
+        });
         root.addView(error);
         LinearLayout strip = row();
         strip.setGravity(Gravity.CENTER_VERTICAL);
@@ -419,14 +506,16 @@ public final class MeowpuutKeyboard extends InputMethodService {
         expand.setBackgroundColor(Color.TRANSPARENT);
         strip.addView(expand, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
-        boolean zhuyin = !directOnly && chinese && mode == ZHUYIN && symbols == 0;
         boolean latin = (directOnly || !chinese) && symbols == 0;
+        // Shift in the pinyin layout types a literal uppercase letter without
+        // changing the saved Chinese input mode.
+        boolean pinyinUppercase = !directOnly && chinese && mode == PINYIN && symbols == 0 && shifted;
         if (expanded) {
             updatePinyinChoices(active());
             addExpandedCandidates();
         } else {
             String[] keys = symbols == 2 ? MORE_SYMBOLS : symbols == 1 ? SYMBOLS : zhuyin ? ZHUYIN_KEYS : QWERTY;
-            int height = (symbols > 0 || zhuyin ? 46 : 50) + typingHeightBonus;
+            int height = layout.keyFaceHeight();
             for (int r = 0; r < keys.length; r++) {
                 LinearLayout row = row();
                 boolean last = r == keys.length - 1;
@@ -443,14 +532,14 @@ public final class MeowpuutKeyboard extends InputMethodService {
                 for (int i = 0; i < keys[r].length(); i++) {
                     char value = keys[r].charAt(i);
                     String label = zhuyin ? ZHUYIN_LABELS[r].substring(i, i + 1) : String.valueOf(value);
-                    if (latin && shifted) label = label.toUpperCase(Locale.ROOT);
+                    if ((latin && shifted) || pinyinUppercase) label = label.toUpperCase(Locale.ROOT);
                     String output = symbols > 0 && chinese && !directOnly && mode != JAPANESE ? chineseSymbol(value) : label;
                     if (symbols > 0) label = output;
                     keyButton(row, label, 0, height, false, () -> {
-                        if (latin || symbols > 0) {
-                            if (symbols > 0) finishComposition();
-                            commit(output);
-                            if (latin && shifted && !capsLock) {
+                        if (latin || symbols > 0 || pinyinUppercase) {
+                            if ((symbols > 0 || pinyinUppercase) && !finishComposition()) return;
+                            if (!commit(output)) return;
+                            if ((latin || pinyinUppercase) && shifted && !capsLock) {
                                 shifted = false;
                                 rebuild();
                             }
@@ -461,14 +550,14 @@ public final class MeowpuutKeyboard extends InputMethodService {
             }
         }
 
-        int bottomHeight = 44 + typingHeightBonus;
+        int bottomHeight = layout.bottomFaceHeight();
         LinearLayout bottom = row();
         keyButton(bottom, "🌐︎", 44, bottomHeight, true,
                 () -> getSystemService(InputMethodManager.class).showInputMethodPicker());
         if (!directOnly) {
             Button language = keyButton(bottom, chinese ? "ABC" : mode == PINYIN ? "拼" : mode == ZHUYIN ? "ㄅ" : "あ",
                     44, bottomHeight, true, () -> {
-                flushRaw();
+                if (!flushRaw()) return;
                 chinese = !chinese;
                 shifted = false;
                 rebuild();
@@ -489,10 +578,9 @@ public final class MeowpuutKeyboard extends InputMethodService {
         space = keyButton(bottom, "空格", 0, bottomHeight, false, () -> {
             if (zhuyin || (expanded && mode == ZHUYIN) || (chinese && !directOnly && mode == JAPANESE)) type(' ');
             else if (mode == PINYIN) {
-                if (!finishCandidate()) commit(" ");
+                if (!finishCandidate() && !pendingCandidateFailed() && flushRaw()) commit(" ");
             } else {
-                flushRaw();
-                commit(" ");
+                if (flushRaw()) commit(" ");
             }
         });
         enableSpaceCursor();
@@ -502,6 +590,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
     }
 
     private void showInputModes(View anchor) {
+        if (!pendingCommit.isEmpty()) { retryPendingCommit(); return; }
         PopupMenu menu = new PopupMenu(this, anchor);
         for (int index = 0; index < MODE_NAMES.length; index++) {
             menu.getMenu().add(0, index, index, MODE_NAMES[index]);
@@ -511,6 +600,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
         int scriptItem = MODE_NAMES.length;
         menu.getMenu().add(1, scriptItem, scriptItem, simplified ? "切換為繁體" : "切換為简体");
         menu.setOnMenuItemClickListener(item -> {
+            if (!pendingCommit.isEmpty()) { retryPendingCommit(); return true; }
             int selected = item.getItemId();
             if (selected == scriptItem) {
                 simplified = !simplified;
@@ -522,7 +612,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
                 return true;
             }
             if (selected != mode || !chinese) {
-                flushRaw();
+                if (!flushRaw()) return true;
                 mode = selected;
                 chinese = true;
                 symbols = 0;
@@ -546,15 +636,41 @@ public final class MeowpuutKeyboard extends InputMethodService {
         rebuild();
     }
 
+    @Override public void onWindowHidden() {
+        cancelGestures();
+        super.onWindowHidden();
+    }
+
+    private void cancelGestures() {
+        for (Runnable cancel : new ArrayList<>(gestureCancels)) cancel.run();
+    }
+
+    private void trackGesture(View view, Runnable cancel) {
+        gestureCancels.add(cancel);
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View attached) { }
+            @Override public void onViewDetachedFromWindow(View detached) {
+                cancel.run();
+                gestureCancels.remove(cancel);
+            }
+        });
+    }
+
     private void deleteButton(LinearLayout row, int height) {
         Button delete = keyButton(row, "⌫", 44, height, true, this::backspace);
         Runnable repeat = new Runnable() {
             @Override public void run() {
                 if (!delete.isPressed() || !delete.isAttachedToWindow()) return;
                 backspace();
-                delete.postDelayed(this, 75);
+                if (delete.isPressed() && delete.isAttachedToWindow()) delete.postDelayed(this, 75);
             }
         };
+        trackGesture(delete, () -> { delete.removeCallbacks(repeat); delete.setPressed(false); });
+        delete.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL)
+                delete.removeCallbacks(repeat);
+            return false;
+        });
         delete.setOnLongClickListener(v -> {
             repeat.run();
             return true;
@@ -563,25 +679,43 @@ public final class MeowpuutKeyboard extends InputMethodService {
 
     private void enableSpaceCursor() {
         Button bar = space;
-        bar.setOnTouchListener(new View.OnTouchListener() {
+        View.OnTouchListener listener = new View.OnTouchListener() {
             private float position;
             private boolean tracking;
+            private boolean cancelled;
             private final Runnable activate = () -> {
                 if (!bar.isPressed() || !bar.isAttachedToWindow()) return;
+                if (!finishComposition() || bar != space || !bar.isAttachedToWindow() || !bar.isPressed()) return;
                 tracking = true;
-                finishComposition();
                 bar.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
             };
+
+            {
+                trackGesture(bar, () -> {
+                    cancelled = true;
+                    tracking = false;
+                    bar.removeCallbacks(activate);
+                    bar.setPressed(false);
+                });
+            }
 
             @Override public boolean onTouch(View view, MotionEvent event) {
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
+                        cancelled = false;
+                        tracking = false;
                         position = event.getX();
                         bar.setPressed(true);
                         bar.postDelayed(activate, ViewConfiguration.getLongPressTimeout());
                         return true;
+                    case MotionEvent.ACTION_POINTER_DOWN:
+                        cancelled = true;
+                        tracking = false;
+                        bar.removeCallbacks(activate);
+                        bar.setPressed(false);
+                        return true;
                     case MotionEvent.ACTION_MOVE:
-                        if (tracking) {
+                        if (tracking && !cancelled) {
                             float delta = event.getX() - position;
                             int steps = (int) (delta / dp(10));
                             position += steps * dp(10);
@@ -593,14 +727,15 @@ public final class MeowpuutKeyboard extends InputMethodService {
                     case MotionEvent.ACTION_CANCEL:
                         bar.removeCallbacks(activate);
                         bar.setPressed(false);
-                        if (!tracking && event.getActionMasked() == MotionEvent.ACTION_UP) bar.performClick();
+                        if (!cancelled && !tracking && event.getActionMasked() == MotionEvent.ACTION_UP) bar.performClick();
                         tracking = false;
                         return true;
                     default:
                         return true;
                 }
             }
-        });
+        };
+        bar.setOnTouchListener(listener);
     }
 
     private boolean isPinyin(long handle) {
@@ -646,6 +781,13 @@ public final class MeowpuutKeyboard extends InputMethodService {
             }
         }
         appendAlternatingChoices(handle, input, japaneseAlternatives, corrections);
+        if (PinyinCandidatePolicy.isKnownEnglish(input)) {
+            PinyinCandidatePolicy.preferKnownEnglish(input, hasExactChinese(handle), segment != null,
+                    pinyinChoices, choice -> choice.text);
+        }
+        // A single initial is usually an unfinished Chinese syllable. Keep
+        // its raw letter selectable, without placing it ahead of common Hanzi.
+        PinyinCandidatePolicy.preferChineseForInitial(input, literalTail(handle), pinyinChoices, choice -> choice.text);
         pinyinPage = Math.min(pinyinPage, Math.max(0, (pinyinChoices.size() - 1) / PAGE_SIZE));
     }
 
@@ -771,6 +913,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
     }
 
     private void openJapaneseChoices(View anchor) {
+        if (!pendingCommit.isEmpty()) { retryPendingCommit(); return; }
         long handle = active();
         JapaneseSegment current = segment;
         if (!isPinyin(handle) || current == null) return;
@@ -782,6 +925,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
         menu.getMenu().setGroupCheckable(0, true, true);
         menu.getMenu().findItem(current.choices.indexOf(selected)).setChecked(true);
         menu.setOnMenuItemClickListener(item -> {
+            if (!pendingCommit.isEmpty()) { retryPendingCommit(); return true; }
             if (active() != handle || segment != current) return false;
             pinJapaneseChoice(handle, current, current.choices.get(item.getItemId()));
             return true;
@@ -805,7 +949,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
         LinearLayout navigation = row();
         navigation.setGravity(android.view.Gravity.CENTER_VERTICAL);
         navigation.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        keyButton(navigation, "‹", 44, 44, true, () -> turnPage(handle, 0xff55))
+        keyButton(navigation, "‹", 44, KeyboardLayoutMetrics.MIN_TARGET - KeyboardLayoutMetrics.KEY_GAP, true, () -> turnPage(handle, 0xff55))
                 .setEnabled(current > 0);
         TextView pageLabel = new TextView(this);
         pageLabel.setText((current + 1) + " / " + Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE));
@@ -813,7 +957,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
         pageLabel.setGravity(android.view.Gravity.CENTER);
         pageLabel.setTextSize(13);
         navigation.addView(pageLabel, new LinearLayout.LayoutParams(dp(56), dp(44)));
-        keyButton(navigation, "›", 44, 44, true, () -> turnPage(handle, 0xff56))
+        keyButton(navigation, "›", 44, KeyboardLayoutMetrics.MIN_TARGET - KeyboardLayoutMetrics.KEY_GAP, true, () -> turnPage(handle, 0xff56))
                 .setEnabled((current + 1) * PAGE_SIZE < total);
         ScrollView list = new ScrollView(this);
         list.setVerticalFadingEdgeEnabled(true);
@@ -854,15 +998,17 @@ public final class MeowpuutKeyboard extends InputMethodService {
             }
         }
         list.addView(grid);
-        root.addView(list, new LinearLayout.LayoutParams(-1, dp(147)));
+        root.addView(list, new LinearLayout.LayoutParams(-1, dp(layout.expandedListHeight())));
     }
 
     private void refreshCandidates() {
         if (candidates == null || expand == null || space == null || confirm == null) return;
         candidates.removeAllViews();
         long handle = active();
-        error.setVisibility(!directOnly && chinese && mode != JAPANESE && attempted[mode] && handle == 0
-                ? View.VISIBLE : View.GONE);
+        error.setText(pendingCommit.isEmpty() ? "無法載入詞庫" : pendingCommit.isPaused()
+                ? "游標已移動，點此插入待送文字" : "文字尚未送出，點此重試");
+        error.setVisibility(!pendingCommit.isEmpty() || (!directOnly && chinese && mode != JAPANESE
+                && attempted[mode] && handle == 0) ? View.VISIBLE : View.GONE);
         updatePinyinChoices(handle);
         int total = displayedCount(handle);
         int start = displayedPage(handle) * PAGE_SIZE;
@@ -900,7 +1046,7 @@ public final class MeowpuutKeyboard extends InputMethodService {
             option.setBackground(new InsetDrawable(surface(color, color, 18), dp(2), dp(7), dp(2), dp(7)));
             option.setPadding(dp(9), 0, dp(9), 0);
         } else option.setBackgroundColor(Color.TRANSPARENT);
-        candidates.addView(option, new LinearLayout.LayoutParams(-2, dp(36)));
+        candidates.addView(option, new LinearLayout.LayoutParams(-2, dp(KeyboardLayoutMetrics.CANDIDATES)));
     }
 
     private void turnPage(long handle, int direction) {
@@ -911,14 +1057,15 @@ public final class MeowpuutKeyboard extends InputMethodService {
         } else if (engineKey(handle, direction)) rebuild();
     }
 
-    private void select(long handle, int index) {
-        if (active() != handle) return;
+    private boolean select(long handle, int index) {
+        if (!pendingCommit.isEmpty()) { retryPendingCommit(); return false; }
+        if (active() != handle || getCurrentInputConnection() == null) return false;
         if (isPinyin(handle)) {
             PinyinChoice choice = pinyinChoices.get(index);
             if (choice.engineIndex < 0) {
                 MixedSelection selection = MixedSelection.split(choice.text, choice.rawTail);
                 InputConnection connection = getCurrentInputConnection();
-                if (connection == null || !connection.commitText(selection.converted, 1)) return;
+                if (connection == null || !commitToEditor(connection, selection.converted)) return false;
                 marked = false;
                 expanded = false;
                 clear();
@@ -927,54 +1074,63 @@ public final class MeowpuutKeyboard extends InputMethodService {
                         // If replay unexpectedly fails, preserve the complete raw tail in order.
                         String rawTail = engineRaw(handle) + selection.remaining.substring(i);
                         clear();
-                        connection.commitText(rawTail, 1);
+                        pendingCommit.append(rawTail);
+                        retryPendingCommit();
                         rebuild();
-                        return;
+                        return pendingCommit.isEmpty();
                     }
                 }
                 publishCommit(handle);
-                return;
+                return pendingCommit.isEmpty();
             }
             if (pinnedStart >= 0) pinnedStart -= consumed(handle, choice.engineIndex);
             index = choice.engineIndex;
         }
         engineChoose(handle, index);
         publishCommit(handle);
+        return pendingCommit.isEmpty();
     }
 
     private void type(char value) {
         long handle = load();
         if (handle != 0 && engineKey(handle, value)) publishCommit(handle);
         else if (mode != ZHUYIN || value == ' ') {
-            flushRaw();
-            commit(String.valueOf(value));
+            if (flushRaw()) commit(String.valueOf(value));
         }
     }
 
     private void publishCommit(long handle) {
-        String text = engineTakeCommit(handle);
+        pendingCommit.append(engineTakeCommit(handle));
+        retryPendingCommit();
+    }
+
+    private boolean retryPendingCommit() {
+        if (pendingCommit.isPaused()) return false;
+        long handle = active();
         updatePinyinChoices(handle);
-        CharSequence remaining = pinnedStart >= 0 && isPinyin(handle) && !pinyinChoices.isEmpty()
+        CharSequence remaining = handle == 0 ? "" : pinnedStart >= 0 && isPinyin(handle) && !pinyinChoices.isEmpty()
                 ? displayedCandidate(handle, 0) : enginePreedit(handle);
         InputConnection connection = getCurrentInputConnection();
         if (connection != null) {
             connection.beginBatchEdit();
             try {
-                if (!text.isEmpty()) {
-                    connection.commitText(text, 1);
-                    marked = false;
+                boolean hadPending = !pendingCommit.isEmpty();
+                if (!pendingCommit.retry(text -> commitToEditor(connection, text))) {
+                    updateComposition(handle);
+                    return false;
                 }
+                if (hadPending) marked = false;
                 if (remaining.length() > 0) {
-                    marked = connection.setComposingText(remaining, 1);
+                    marked = composeToEditor(connection, remaining);
                 } else if (marked) {
-                    connection.commitText("", 1);
-                    marked = false;
+                    marked = !commitToEditor(connection, "");
                 }
             } finally {
                 connection.endBatchEdit();
             }
         }
         updateComposition(handle);
+        return pendingCommit.isEmpty();
     }
 
     private void updateComposition(long handle) {
@@ -984,33 +1140,79 @@ public final class MeowpuutKeyboard extends InputMethodService {
         } else refreshCandidates();
     }
 
-    private void flushRaw() {
+    private boolean flushRaw() {
+        if (!pendingCommit.isEmpty() && !retryPendingCommit()) return false;
         long handle = active();
         if (handle != 0) {
             String text = pinnedStart >= 0 && isPinyin(handle) && !pinyinChoices.isEmpty()
-                    ? pinyinChoices.get(0).text : engineRaw(handle);
-            if (!text.isEmpty()) commit(text);
+                    ? pinyinChoices.get(0).text
+                    : mode == ZHUYIN ? enginePreedit(handle) : engineRaw(handle);
+            if (!text.isEmpty() && !commit(text)) return false;
         }
         expanded = false;
         clear();
+        return true;
     }
 
-    private void commit(String text) {
+    private boolean commitToEditor(InputConnection connection, String text) {
+        if (externalComposition && !finishMarkedText(connection)) return false;
+        applyingEditorChange = true;
+        try {
+            if (!connection.commitText(text, 1)) return false;
+            editorSelection.committed(text);
+            return true;
+        } finally { applyingEditorChange = false; }
+    }
+
+    private boolean composeToEditor(InputConnection connection, CharSequence text) {
+        if (externalComposition && !finishMarkedText(connection)) return false;
+        applyingEditorChange = true;
+        try {
+            if (!connection.setComposingText(text, 1)) return false;
+            editorSelection.composing(text);
+            return true;
+        } finally { applyingEditorChange = false; }
+    }
+
+    private boolean finishMarkedText(InputConnection connection) {
+        applyingEditorChange = true;
+        try {
+            if (!connection.finishComposingText()) return false;
+            editorSelection.finished();
+            externalComposition = false;
+            return true;
+        } finally { applyingEditorChange = false; }
+    }
+
+    private boolean commit(String text) {
         InputConnection connection = getCurrentInputConnection();
-        if (connection != null) connection.commitText(text, 1);
+        if (connection == null || !commitToEditor(connection, text)) return false;
         marked = false;
+        return true;
     }
 
     private void backspace() {
+        if (!pendingCommit.isEmpty()) { retryPendingCommit(); return; }
         long handle = active();
         if (handle != 0 && engineKey(handle, 0xff08)) publishCommit(handle);
         else sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
     }
 
-    private void finishComposition() {
-        while (finishCandidate()) {
-            // A candidate can consume only part of the reading.
+    private boolean finishComposition() {
+        if (!pendingCommit.isEmpty() && !retryPendingCommit()) return false;
+        if (getCurrentInputConnection() == null) return false;
+        long handle = active();
+        while (handle != 0 && !engineRaw(handle).isEmpty()) {
+            String before = engineRaw(handle);
+            if (!finishCandidate()) {
+                if (pendingCandidateFailed()) return false;
+                break;
+            }
+            if (engineRaw(handle).equals(before)) return false;
         }
+        // If there is no candidate, retain the unresolved reading before
+        // inserting a symbol or moving the cursor.
+        return handle == 0 || engineRaw(handle).isEmpty() || flushRaw();
     }
 
     static int tint(int base, int accent, float amount) {
@@ -1020,22 +1222,27 @@ public final class MeowpuutKeyboard extends InputMethodService {
     }
 
     private boolean finishCandidate() {
+        if (!pendingCommit.isEmpty()) return false;
         long handle = active();
         if (handle == 0) return false;
         if (isPinyin(handle)) {
             updatePinyinChoices(handle);
             if (pinyinChoices.isEmpty()) return false;
-            select(handle, 0);
-            return true;
+            return select(handle, 0);
         }
         if (!engineKey(handle, 0xff0d)) return false;
         publishCommit(handle);
-        return true;
+        return pendingCommit.isEmpty();
+    }
+
+    private boolean pendingCandidateFailed() {
+        long handle = active();
+        return !pendingCommit.isEmpty() || (handle != 0 && isPinyin(handle) && !pinyinChoices.isEmpty());
     }
 
     private void enter() {
-        if (!finishCandidate() && !sendDefaultEditorAction(true)) {
-            sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER);
+        if (!finishCandidate() && !pendingCandidateFailed() && flushRaw()) {
+            if (!sendDefaultEditorAction(true)) sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER);
         }
     }
 

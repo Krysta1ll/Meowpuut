@@ -43,7 +43,14 @@ struct RepeatDeleteButton: UIViewRepresentable {
 
     final class Coordinator: NSObject {
         let driver: RepeatDeleteDriver
-        init(action: @escaping () -> Void) { driver = RepeatDeleteDriver(action: action) }
+        init(action: @escaping () -> Void) {
+            driver = RepeatDeleteDriver(action: action)
+            super.init()
+            for name in [KeyboardViewController.interactionCancellationNotification, UIApplication.willResignActiveNotification, UIScene.willDeactivateNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(stopped), name: name, object: nil)
+            }
+        }
+        deinit { NotificationCenter.default.removeObserver(self) }
         @objc func pressed() {
             UIDevice.current.playInputClick()
             driver.press()

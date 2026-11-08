@@ -80,7 +80,12 @@ class MeowpuutInputController: IMKInputController {
             deliver(client)
             return true
         }
-        guard let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else { return false }
+        guard let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else {
+            // Shortcuts and layout-specific input belong to the host, which may
+            // move the selection or insert text we cannot use as learning context.
+            engine.resetLearningContext()
+            return false
+        }
         if modifiers == 0, key == 0xff1b, candidatesExpanded {
             setCandidatesExpanded(false)
             deliver(client)
@@ -132,6 +137,7 @@ class MeowpuutInputController: IMKInputController {
             }
         }
         let previousInput = engine.snapshot.input
+        if engine.needsDocumentContext(for: key) { engine.prepareDocumentContext(before: SystemInput.precedingContext(client)) }
         let handled = engine.key(key, modifiers: modifiers)
         if handled && engine.snapshot.input != previousInput { setCandidatesExpanded(false) }
         if handled && (key == 0xff52 || key == 0xff09 || key == 0xff55 || key == 0xff56) &&
@@ -155,8 +161,10 @@ class MeowpuutInputController: IMKInputController {
         let preedit = engine.snapshot.preedit
         if !commit.isEmpty || preedit.isEmpty { setCandidatesExpanded(false) }
         if !preedit.isEmpty && (!composing || !commit.isEmpty) { anchor = caret(client) }
+        SystemInput.updateMarkedText(preedit, wasComposing: composing, didCommit: !commit.isEmpty) { text, selection in
+            client.setMarkedText(text, selectionRange: selection, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
         composing = !preedit.isEmpty
-        client.setMarkedText(preedit, selectionRange: NSRange(location: (preedit as NSString).length, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         guard composing else {
             anchor = nil
             panel?.orderOut(nil)
@@ -249,13 +257,15 @@ class MeowpuutInputController: IMKInputController {
             if engine.isReady { engine.finishComposition(); deliver(client) }
         }
         ChoiceMemory.shared.flush()
-        engine.clear(); anchor = nil; composing = false; setCandidatesExpanded(false); panel?.orderOut(nil)
+        engine.clear(); engine.resetLearningContext()
+        anchor = nil; composing = false; setCandidatesExpanded(false); panel?.orderOut(nil)
     }
     override func commitComposition(_ sender: Any!) {
         if let client = self.client(), engine.isReady { engine.finishComposition(); deliver(client) }
     }
     override func activateServer(_ sender: Any!) {
         shiftTap.reset()
+        engine.resetLearningContext()
         engine.selectMode(Preferences.shared.inputMode)
         engine.modeChanged()
     }

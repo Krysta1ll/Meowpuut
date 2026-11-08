@@ -10,6 +10,9 @@ __pycache__/
 .env
 .env.*
 *.p12
+*.jks
+*.keystore
+*.p8
 *.mobileprovision
 
 Android/.gradle/

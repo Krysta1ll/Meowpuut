@@ -1,5 +1,6 @@
 import AppKit
 import InputMethodKit
+import SQLite3
 
 func runIndependentSmoke() -> Never {
     setbuf(stdout, nil)
@@ -9,6 +10,28 @@ func runIndependentSmoke() -> Never {
     menuItem.representedObject = true
     check(SystemInput.menuItem(from: [kIMKCommandMenuItemName: menuItem]) === menuItem, "系統輸入選單解析 IMK 指令字典")
     check(SystemInput.menuItem(from: menuItem) === menuItem && SystemInput.menuItem(from: [:]) == nil, "選單兼容直接點選並拒絕空指令")
+    let hostText = NSTextView(frame: .zero)
+    hostText.string = "保留原文"
+    hostText.setSelectedRange(NSRange(location: 0, length: 4))
+    func markHost(_ text: String, wasComposing: Bool, didCommit: Bool = false) {
+        SystemInput.updateMarkedText(text, wasComposing: wasComposing, didCommit: didCommit) { text, selection in
+            hostText.setMarkedText(text, selectedRange: selection, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+    }
+    markHost("", wasComposing: false)
+    check(hostText.string == "保留原文" && hostText.selectedRange() == NSRange(location: 0, length: 4), "空閒輸入法不刪除宿主選區")
+    markHost("ni", wasComposing: false)
+    check(hostText.string == "ni" && hostText.hasMarkedText(), "新組字替換選區並標記")
+    markHost("", wasComposing: true)
+    check(hostText.string.isEmpty && !hostText.hasMarkedText(), "取消組字可移除自己的標記文字")
+    markHost("ni", wasComposing: false)
+    hostText.insertText("你", replacementRange: NSRange(location: NSNotFound, length: 0))
+    hostText.setSelectedRange(NSRange(location: 0, length: 1))
+    markHost("", wasComposing: true, didCommit: true)
+    check(hostText.string == "你" && hostText.selectedRange() == NSRange(location: 0, length: 1), "提交後不以空標記覆寫宿主選區")
+    hostText.setSelectedRange(NSRange(location: 1, length: 0))
+    markHost("ㄋㄧ🐈", wasComposing: true, didCommit: true)
+    check(hostText.string == "你ㄋㄧ🐈" && hostText.selectedRange().location == 5, "分段提交後可標記 UTF-16 後綴")
     let testScreens = [NSRect(x: 0, y: 0, width: 1000, height: 1000)]
     let caret = NSRect(x: 180, y: 170, width: 1, height: 20)
     var queried: [Int] = []
@@ -513,6 +536,79 @@ func runIndependentSmoke() -> Never {
     }
     // Learn only the selected reading, not the unfinished suffix. The test
     // preferences and memory directory are isolated by the --smoke flag.
+    do {
+        Preferences.shared.rememberChoices = true
+        let file = Preferences.directory.appendingPathComponent("memory-regression.json")
+        let memory = ChoiceMemory(file: file)
+        memory.remember([("py:s:ni", "你"), ("ctx|我|py:s:ni", "你"), ("ctx|他|py:s:ni", "你"), ("py:s:hao", "好")])
+        memory.remember([("ctx|我|py:s:ni", "你")])
+        check(memory.preferred(for: "py:s:ni", context: "我").contains("你"), "個人詞庫上下文聯想已記錄")
+        memory.forget("py:s:ni")
+        let forgotten = ChoiceMemory(file: file)
+        check(memory.preferred(for: "py:s:ni", context: "我").isEmpty &&
+              forgotten.preferred(for: "py:s:ni", context: "我").isEmpty &&
+              forgotten.records["ctx|他|py:s:ni"] == nil && forgotten.records["py:s:hao"] != nil,
+              "忘記讀音同步移除其上下文記錄並持久化，保留其他讀音")
+        memory.remember([("py:s:ni", "你")])
+        memory.clear()
+        check(ChoiceMemory(file: file).records.isEmpty, "清空詞庫立即落盤，取消尚未寫入的舊記錄")
+        let stored = ["py:s:ni": [RememberedChoice(text: "你", uses: Int.max, lastUsed: 3),
+                                   RememberedChoice(text: "你", uses: 2, lastUsed: 2),
+                                   RememberedChoice(text: "", uses: 1, lastUsed: 1),
+                                   RememberedChoice(text: "妳", uses: -1, lastUsed: 1)]]
+        try! JSONEncoder().encode(stored).write(to: file)
+        let normalized = ChoiceMemory(file: file)
+        normalized.remember([("py:s:ni", "你")])
+        check(normalized.records["py:s:ni"]?.count == 1 && normalized.records["py:s:ni"]?.first?.uses == 1_000_000,
+              "舊個人詞庫合併重複、排除空值並限制計數，繼續選詞不溢出")
+        normalized.clear()
+        let damaged = Data("{\"py:s:ni\":".utf8)
+        try! damaged.write(to: file)
+        let unreadable = ChoiceMemory(file: file)
+        unreadable.remember([("py:s:ni", "你")])
+        check(!unreadable.flush() && (try? Data(contentsOf: file)) == damaged,
+              "讀取損壞的個人詞庫後，普通保存不覆寫原始檔案")
+        unreadable.clear()
+        check(ChoiceMemory(file: file).records.isEmpty && unreadable.error.isEmpty,
+              "明確清空可恢復損壞的個人詞庫")
+        try? FileManager.default.removeItem(at: file)
+    }
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        Preferences.shared.rememberChoices = true
+        for (mode, first, second) in [(InputMode.pinyin, "wo", "ni"), (.zhuyin, "ji3", "su3")] {
+            let script = simplified ? "s:" : "t:"
+            let prefix = (mode == .pinyin ? "py:" : "") + script
+            let phraseKey = prefix + first + second
+            let contextKey = "ctx|我|" + prefix + second
+            for boundary in ["adjacent", "document", "delete", "move", "space", "english", "forget", "memoryclear", "remembertoggle"] {
+                for key in [phraseKey, contextKey] { ChoiceMemory.shared.forget(key) }
+                let session = Engine(.meowpuut, mode: mode)
+                for key in first.utf8 { session.key(Int32(key)) }
+                if let index = session.snapshot.candidates.firstIndex(of: "我") { session.choose(index) }
+                check(session.takeCommit() == "我", "上下文邊界測試前段上屏 \(mode)/\(script)/\(boundary)")
+                switch boundary {
+                case "document": session.clear(); session.resetLearningContext()
+                case "delete": check(!session.key(0xff08), "空組字刪除交還宿主")
+                case "move": check(!session.key(0xff51), "空組字游標移動交還宿主")
+                case "space": check(!session.key(32), "空組字空格交還宿主")
+                case "english": session.key(Engine.toggleEnglishKey); session.key(Engine.toggleEnglishKey)
+                case "forget": ChoiceMemory.shared.forget(prefix + first)
+                case "memoryclear": ChoiceMemory.shared.clear()
+                case "remembertoggle": Preferences.shared.rememberChoices = false; Preferences.shared.rememberChoices = true
+                default: break
+                }
+                for key in second.utf8 { session.key(Int32(key)) }
+                if let index = session.snapshot.candidates.firstIndex(of: "你") { session.choose(index) }
+                check(session.takeCommit() == "你", "上下文邊界測試後段上屏 \(mode)/\(script)/\(boundary)")
+                let combined = ChoiceMemory.shared.records[phraseKey]?.contains(where: { $0.text == "我你" }) == true
+                let contextual = ChoiceMemory.shared.records[contextKey]?.contains(where: { $0.text == "你" }) == true
+                check(combined == (boundary == "adjacent") && contextual == (boundary == "adjacent"),
+                      "僅連續選詞學習聯想 \(mode)/\(script)/\(boundary)")
+                for key in [prefix + first, prefix + second, phraseKey, contextKey] { ChoiceMemory.shared.forget(key) }
+            }
+        }
+    }
     for simplified in [false, true] {
         Preferences.shared.simplified = simplified
         Preferences.shared.rememberChoices = true
@@ -634,11 +730,143 @@ func runIndependentSmoke() -> Never {
     engine.key(32)
     check(engine.takeCommit() == "hello", "拼音空格輸出英文原文不添加空格")
     check(!engine.key(32), "無組字時空格交由應用程式輸入")
+    Preferences.shared.simplified = true
+    engine.clear(); type("nihao"); engine.key(Engine.toggleEnglishKey)
+    engine.key(97); engine.key(98)
+    check(engine.takeCommit() == "你好ab", "切英文後保留未交付中文並按順序輸出")
+    engine.key(Engine.toggleEnglishKey)
+    Preferences.shared.simplified = false
     engine.english = true
     check(engine.key(32) && engine.takeCommit() == " ", "英文模式空格照常輸入")
     engine.english = false
     engine.clear(); type("ni"); engine.browse(phrases: true)
     check(!engine.snapshot.candidates.contains("ni"), "詞組篩選不顯示中文讀音原文")
+    // A long homophone list must remain browseable and select through the
+    // original backend index, including evidence-only additions.
+    let previousRememberChoices = Preferences.shared.rememberChoices
+    Preferences.shared.rememberChoices = false
+    Preferences.shared.simplified = false
+    let homophones = Engine(.meowpuut, mode: .pinyin)
+    for key in "ji".utf8 { homophones.key(Int32(key)) }
+    homophones.browse(phrases: false)
+    check(homophones.browseCount > 256, "單字同音候選可展開超過 256 項")
+    var lastPageText: String?
+    var foundJi = false
+    while true {
+        if homophones.snapshot.page >= 37, lastPageText == nil {
+            lastPageText = homophones.snapshot.candidates.first
+        }
+        if homophones.snapshot.candidates.contains("蹟") { foundJi = true }
+        if homophones.snapshot.lastPage { break }
+        homophones.key(0xff56)
+    }
+    check(foundJi, "完整拼音同音候選保留字典補充的蹟")
+    homophones.browse(phrases: false)
+    while homophones.snapshot.page < 37 && !homophones.snapshot.lastPage { homophones.key(0xff56) }
+    if let text = lastPageText, homophones.snapshot.candidates.first == text {
+        homophones.choose(0)
+        check(homophones.takeCommit() == text, "第 256 項後的候選使用正確索引上屏")
+    } else { check(false, "第 256 項後的候選可正常翻頁") }
+    Preferences.shared.rememberChoices = previousRememberChoices
+
+    // Verify both the migrated SQLite schema and existing single-weight databases.
+    for schema in ["legacy", "nullable", "notnull"] {
+        let dualWeight = schema != "legacy"
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("meowpuut-evidence-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: path) }
+        var fixture: OpaquePointer?
+        if sqlite3_open(path.path, &fixture) == SQLITE_OK {
+            let extraColumn = dualWeight ? (schema == "notnull" ? ",hans_weight INTEGER NOT NULL" : ",hans_weight INTEGER") : ""
+            let extraColumns = dualWeight ? ",hans_weight" : ""
+            let extraSimple = dualWeight ? ",1234" : ""
+            let extraFallback = dualWeight ? (schema == "nullable" ? ",NULL" : ",600") : ""
+            let extraCommon = dualWeight ? ",1000" : ""
+            let extraTarget = dualWeight ? ",9000" : ""
+            let extraLow = dualWeight ? ",1" : ""
+            let sql = """
+                CREATE TABLE lexicon(reading TEXT, phonetic TEXT, bare TEXT, hant TEXT, hans TEXT, weight INTEGER, toned TEXT\(extraColumn));
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) VALUES('ni','su3','su','妳','你',7777,'ni3'\(extraSimple));
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) VALUES('ni','su3','su','泥','泥',600,'ni3'\(extraFallback));
+                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<2050)
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) SELECT 'ce','c','c','繁'||i,'简'||i,1000,'ce4'\(extraCommon) FROM n;
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) VALUES('ce','c','c','目標','目标',1,'ce4'\(extraTarget));
+                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<2050)
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) SELECT 'xian','x','x','不符'||i,'不符'||i,1000,'xian1'\(extraCommon) FROM n;
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) VALUES('xian','x','x','西安','西安',1,'xi1an1'\(extraLow));
+                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<2050)
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) SELECT 'du','d','d','繁複'||i,'相同',1000,'du1'\(extraCommon) FROM n;
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) VALUES('du','d','d','不同','不同',1,'du1'\(extraLow));
+                INSERT INTO lexicon(reading,phonetic,bare,hant,hans,weight,toned\(extraColumns)) VALUES('du','d','d','繁高','相同',1500,'du1'\(dualWeight ? ",1500" : ""));
+                """
+            let created = sqlite3_exec(fixture, sql, nil, nil, nil) == SQLITE_OK
+            sqlite3_close(fixture)
+            check(created, "建立雙權重與舊版詞庫測試資料")
+            if created {
+                let evidence = WordEvidence(path: path.path)
+                check(evidence.dictionary(input: "ni", mode: .pinyin, simplified: false)["妳"] == 7777, "繁體查詢保留繁體詞頻")
+                check(evidence.dictionary(input: "ni", mode: .pinyin, simplified: true)["你"] == (dualWeight ? 1234 : 7777), "簡體查詢使用簡體詞頻並兼容舊詞庫")
+                check(evidence.dictionary(input: "su3", mode: .zhuyin, simplified: true)["泥"] == 600, "簡體詞頻缺值回退原詞頻")
+                let target = evidence.dictionary(input: "ce", mode: .pinyin, simplified: true)["目标"]
+                check(dualWeight ? target == 9000 : target == nil, "簡體詞頻在候選數量截斷前排序")
+                check(evidence.dictionary(input: "xian", mode: .pinyin, simplified: true)["西安"] == nil &&
+                      evidence.dictionary(input: "xi'an", mode: .pinyin, simplified: true)["西安"] == 1 &&
+                      evidence.dictionary(input: "xi1an1", mode: .pinyin, simplified: true)["西安"] == 1,
+                      "先檢查音節再限制候選數量")
+                let distinct = evidence.dictionary(input: "du", mode: .pinyin, simplified: true)
+                check(distinct["相同"] == 1500 && distinct["不同"] == 1, "候選上限依不同顯示詞計數並保留最高權重")
+            }
+        } else {
+            sqlite3_close(fixture)
+            check(false, "建立詞庫測試資料")
+        }
+    }
+
+    // SQLite stores the canonical lve/nve spelling, but users can type lue/nue.
+    // Query both readings without turning an explicit lu'e into lüe.
+    Preferences.shared.rememberChoices = false
+    for simplified in [false, true] {
+        Preferences.shared.simplified = simplified
+        let evidence = WordEvidence.shared
+        let lue = evidence.dictionary(input: "lue", mode: .pinyin, simplified: simplified)
+        check(lue["略"] != nil && lue["蓼莪"] != nil && (lue["略"] ?? 0) > (lue["蓼莪"] ?? 0), "lue 同時保留略與 lu＋e 詞庫證據")
+        check(evidence.dictionary(input: "lue4", mode: .pinyin, simplified: simplified)["略"] != nil &&
+              evidence.dictionary(input: "lue4", mode: .pinyin, simplified: simplified)["蓼莪"] == nil, "lue 帶調過濾保留原音節聲調")
+        check(evidence.dictionary(input: "nu:e4", mode: .pinyin, simplified: simplified)["虐"] != nil &&
+              evidence.dictionary(input: "nve4", mode: .pinyin, simplified: simplified)["虐"] != nil, "ü 冒號與 v 詞庫證據一致")
+        check(evidence.dictionary(input: "lu'e", mode: .pinyin, simplified: simplified)["略"] == nil &&
+              evidence.dictionary(input: "nu'e", mode: .pinyin, simplified: simplified)["虐"] == nil, "撇號分隔的 lu＋e 與 nu＋e 不改讀音")
+        let unseparated = evidence.dictionary(input: "xian", mode: .pinyin, simplified: simplified)
+        let separated = evidence.dictionary(input: "xi'an", mode: .pinyin, simplified: simplified)
+        let toneSeparated = evidence.dictionary(input: "xi1an1", mode: .pinyin, simplified: simplified)
+        check(unseparated["先"] != nil && separated["西安"] != nil && separated["先"] == nil &&
+              toneSeparated["西安"] != nil && toneSeparated["先"] == nil, "詞庫補充遵守撇號與聲調的音節邊界")
+        let boundaryProbe = Engine(.meowpuut, mode: .pinyin)
+        for key in "xi'an".utf8 { boundaryProbe.key(Int32(key)) }
+        check(boundaryProbe.snapshot.candidates.first == "西安" && !boundaryProbe.snapshot.candidates.contains("先"), "撇號輸入不補入不符音節的整段候選")
+        for (raw, expected) in [("lue", "略"), ("lve", "略"), ("nue", "虐"), ("nve", "虐"),
+                                ("shenglue", "省略"), ("shenglve", "省略"), ("sheng'lue", "省略")] {
+            let probe = Engine(.meowpuut, mode: .pinyin)
+            for key in raw.utf8 { probe.key(Int32(key)) }
+            let matched = probe.snapshot.input == raw && probe.snapshot.candidates.first == expected
+            check(matched, "拼音別名與整句排序 \(raw)")
+            if matched {
+                probe.choose(0)
+                check(probe.takeCommit() == expected && probe.snapshot.input.isEmpty, "拼音別名原始輸入完整上屏 \(raw)")
+            }
+        }
+        for (raw, unwanted) in [("lu'e", "略"), ("nu'e", "虐")] {
+            let probe = Engine(.meowpuut, mode: .pinyin)
+            for key in raw.utf8 { probe.key(Int32(key)) }
+            check(probe.snapshot.input == raw && !probe.snapshot.candidates.contains(unwanted), "實際組字保留撇號邊界 \(raw)")
+        }
+        for (raw, expected) in [("xm,4", "略"), ("sm,4", "虐")] {
+            let probe = Engine(.meowpuut, mode: .zhuyin)
+            for key in raw.utf8 { probe.key(Int32(key)) }
+            check(probe.snapshot.candidates.contains(expected), "拼音別名修復不影響注音 \(expected)")
+        }
+    }
+    Preferences.shared.simplified = false
+    Preferences.shared.rememberChoices = previousRememberChoices
     engine.clear(); type("hello"); engine.browse(phrases: true)
     check(engine.snapshot.candidates.contains("hello"), "詞組篩選保留英文首選")
     engine.clear(); engine.selectMode(.zhuyin); type("internationalization")
@@ -1058,6 +1286,19 @@ func runIndependentSmoke() -> Never {
     }
     times.sort(); print(String(format: "Pinyin key latency median %.2f ms / P95 %.2f ms", times[times.count / 2], times[times.count * 95 / 100]))
     check(Bundle.main.url(forResource: "Rime", withExtension: nil) == nil, "應用不含第三方引擎資料目錄")
+    runDocumentContextSmoke(check)
+    runLongSentenceCandidateSmoke(check)
+    let typingEngine = Engine(mode: .pinyin)
+    let typingView = TypingView(frame: .zero)
+    typingView.engine = typingEngine
+    typingView.string = "前文舊詞後文"
+    typingView.setSelectedRange(NSRange(location: 2, length: 2))
+    for byte in "nihao".utf8 { typingEngine.key(Int32(byte)) }
+    typingEngine.finishComposition(); typingEngine.selectMode(.zhuyin)
+    typingView.deliverPendingCommit()
+    check(typingView.string == "前文你好後文", "試打頁切換模式立即送出文字並正確替換選區")
+    typingView.deliverPendingCommit()
+    check(typingView.string == "前文你好後文", "試打頁重繪不重複送出已完成文字")
     ChoiceMemory.shared.clear()
     ChoiceMemory.shared.flush()
     try? FileManager.default.removeItem(at: Preferences.directory)

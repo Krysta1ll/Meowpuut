@@ -13,10 +13,12 @@ private final class KeyboardContext: ObservableObject {
 }
 
 final class KeyboardViewController: UIInputViewController {
+    static let interactionCancellationNotification = Notification.Name("MeowpuutKeyboardInteractionCancelled")
     private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
     private let keyboardContext = KeyboardContext()
-    private var documentID: UUID?
     private var delivering = false
+    private var acceptsInput = false
+    private var needsSharedSettings = false
     private var compositionDelivery = CompositionDelivery()
     private var keyboardHeight: NSLayoutConstraint?
     private var visibleRowCount = 4
@@ -29,7 +31,13 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         let root = KeyboardPanel(engine: engine, context: keyboardContext, key: { [weak self] code, modifiers in
-            guard let self else { return }
+            guard let self, self.acceptsInput else { return }
+            self.updateContext()
+            guard !self.compositionDelivery.isSuspended, !self.needsSharedSettings else { return }
+            if self.engine.needsDocumentContext(for: code) {
+                let proxy = self.textDocumentProxy
+                self.engine.prepareDocumentContext(before: (proxy.selectedText ?? "").isEmpty ? proxy.documentContextBeforeInput : nil)
+            }
             if code == 32, modifiers == 0, !self.engine.english, self.engine.inputMode == .zhuyin,
                let last = self.engine.snapshot.input.last, " 6347".contains(last), !self.engine.snapshot.candidates.isEmpty {
                 self.engine.finishComposition(); self.deliver(); return
@@ -40,11 +48,14 @@ final class KeyboardViewController: UIInputViewController {
             if !handled && code == 32 { self.textDocumentProxy.insertText(" ") }
             if !handled, code > 32, code < 0xff00, let scalar = UnicodeScalar(UInt32(code)) { self.textDocumentProxy.insertText(String(scalar)) }
         }, insertSymbol: { [weak self] text in
-            guard let self else { return }
+            guard let self, self.acceptsInput else { return }
+            self.updateContext()
+            guard !self.compositionDelivery.isSuspended, !self.needsSharedSettings else { return }
             // Finish composition and insert a symbol in one host transaction.
             self.engine.finishComposition(); self.deliver(extraCommit: text)
         }, choose: { [weak self] index in
-            guard let self else { return }
+            guard let self, self.acceptsInput else { return }
+            guard !self.updateContext() else { return }
             if self.engine.snapshot.candidates.indices.contains(index) { self.engine.choose(index) }
             else if index == self.engine.snapshot.candidates.count, self.engine.snapshot.compactJapanese != nil {
                 self.engine.chooseCompactJapanese()
@@ -52,8 +63,17 @@ final class KeyboardViewController: UIInputViewController {
             self.deliver()
         },
         erase: { [weak self] in self?.erase() },
-        beginCursor: { [weak self] in self?.engine.finishComposition(); self?.deliver() },
-        moveCursor: { [weak self] offset in self?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) },
+        beginCursor: { [weak self] in
+            guard let self, self.acceptsInput else { return }
+            self.updateContext()
+            guard !self.compositionDelivery.isSuspended, !self.needsSharedSettings else { return }
+            self.engine.finishComposition(); self.deliver()
+            self.engine.resetLearningContext()
+        },
+        moveCursor: { [weak self] offset in
+            guard let self, self.acceptsInput, !self.updateContext() else { return }
+            self.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+        },
         keyboardController: { [weak self] in self })
         let hosting = UIHostingController(rootView: root)
         addChild(hosting)
@@ -92,22 +112,30 @@ final class KeyboardViewController: UIInputViewController {
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        acceptsInput = true
         // Recreate only the decorative layer after the extension reappears.
         // The current composition and candidate navigation stay untouched.
         keyboardContext.appearanceRevision &+= 1
+        needsSharedSettings = true
+        updateContext()
+    }
+    private func applyPendingSettings() {
+        guard needsSharedSettings, !compositionDelivery.isSuspended else { return }
+        needsSharedSettings = false
         Preferences.shared.applySharedSettings()
         if engine.inputMode != Preferences.shared.inputMode {
-            engine.finishComposition(); deliver()
+            engine.finishComposition()
+            guard deliver() else { needsSharedSettings = true; return }
             engine.selectMode(Preferences.shared.inputMode)
         }
         engine.modeChanged()
-        updateContext()
     }
-    private func deliver(extraCommit: String = "") {
-        guard !delivering else { return }
+    @discardableResult private func deliver(extraCommit: String = "") -> Bool {
+        guard !delivering, !updateContext() else { return false }
         delivering = true
         defer { delivering = false }
-        primaryLanguage = engine.english ? "en-US" : engine.inputMode == .japanese ? "ja-JP" : Preferences.shared.simplified ? "zh-Hans" : "zh-Hant"
+        let language = engine.english ? "en-US" : engine.inputMode == .japanese ? "ja-JP" : Preferences.shared.simplified ? "zh-Hans" : "zh-Hant"
+        if primaryLanguage != language { primaryLanguage = language }
         let commit = engine.takeCommit() + extraCommit
         for action in compositionDelivery.actions(commit: commit, preedit: engine.snapshot.preedit) {
             switch action {
@@ -119,8 +147,11 @@ final class KeyboardViewController: UIInputViewController {
                 textDocumentProxy.insertText(text)
             }
         }
+        return true
     }
     private func erase() {
+        guard acceptsInput, !updateContext() else { return }
+        engine.resetLearningContext()
         if engine.snapshot.preedit.isEmpty { textDocumentProxy.deleteBackward() }
         else { engine.key(0xff08); deliver() }
     }
@@ -128,34 +159,54 @@ final class KeyboardViewController: UIInputViewController {
         guard !delivering else { return }
         updateContext()
     }
-    private func updateContext() {
-        if let id = MPKeyboardDocumentIdentifier(textDocumentProxy) {
-            let changedDocument = documentID.map { $0 != id } ?? false
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        guard !delivering else { return }
+        updateContext()
+    }
+    @discardableResult private func updateContext() -> Bool {
+        let previousDocument = compositionDelivery.documentID
+        let wasSuspended = compositionDelivery.isSuspended
+        let changedDocument = compositionDelivery.attach(to: MPKeyboardDocumentIdentifier(textDocumentProxy))
+        if !wasSuspended && compositionDelivery.isSuspended {
+            NotificationCenter.default.post(name: Self.interactionCancellationNotification, object: self)
+        }
+        if compositionDelivery.documentID != nil {
             if changedDocument {
-                engine.clear(); compositionDelivery.reset()
+                NotificationCenter.default.post(name: Self.interactionCancellationNotification, object: self)
+                engine.clear(); engine.resetLearningContext()
             }
             // The proxy may acquire its first identifier after the first key.
             // That is attachment to the same document, not a document switch.
-            if changedDocument || (documentID == nil && !compositionDelivery.hasMarkedText && engine.snapshot.preedit.isEmpty) {
+            if changedDocument || (previousDocument == nil && !compositionDelivery.hasMarkedText && engine.snapshot.preedit.isEmpty) {
                 switch textDocumentProxy.keyboardType ?? .default {
                 case .URL, .emailAddress, .asciiCapable, .asciiCapableNumberPad: engine.english = true
                 default: engine.english = false
                 }
             }
-            documentID = id
         }
+        let returnTitle: String
         switch textDocumentProxy.returnKeyType ?? .default {
-        case .search: keyboardContext.returnTitle = "搜尋"
-        case .send: keyboardContext.returnTitle = "傳送"
-        case .go: keyboardContext.returnTitle = "前往"
-        case .done: keyboardContext.returnTitle = "完成"
-        case .next: keyboardContext.returnTitle = "下一步"
-        default: keyboardContext.returnTitle = "換行"
+        case .search: returnTitle = "搜尋"
+        case .send: returnTitle = "傳送"
+        case .go: returnTitle = "前往"
+        case .done: returnTitle = "完成"
+        case .next: returnTitle = "下一步"
+        default: returnTitle = "換行"
         }
+        if keyboardContext.returnTitle != returnTitle { keyboardContext.returnTitle = returnTitle }
+        applyPendingSettings()
+        return changedDocument || compositionDelivery.isSuspended || needsSharedSettings
     }
     override func viewWillDisappear(_ animated: Bool) {
-        if let id = MPKeyboardDocumentIdentifier(textDocumentProxy), documentID == id { engine.finishComposition(); deliver() }
-        else { engine.clear(); compositionDelivery.reset() }
+        acceptsInput = false
+        NotificationCenter.default.post(name: Self.interactionCancellationNotification, object: self)
+        if let id = MPKeyboardDocumentIdentifier(textDocumentProxy) {
+            if compositionDelivery.documentID == id { engine.finishComposition(); deliver() }
+            else { engine.clear(); compositionDelivery.reset() }
+        } else {
+            compositionDelivery.suspend()
+        }
+        engine.resetLearningContext()
         super.viewWillDisappear(animated)
     }
 }

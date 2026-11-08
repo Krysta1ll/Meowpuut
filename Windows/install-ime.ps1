@@ -16,6 +16,28 @@ if ($Prebuilt) {
     $renderer = Join-Path $build 'MeowpuutGlassPreview.exe'
 }
 
+
+if (!(Test-Path -LiteralPath $sourceDll) -or !(Test-Path -LiteralPath $sourceLexicon) -or !(Test-Path -LiteralPath $sourceJapanese) -or !(Test-Path -LiteralPath $sourceEvidence)) {
+    throw 'Build the Windows IME before installing it.'
+}
+if ($Signed) {
+    foreach ($binary in $sourceDll, $renderer) {
+        if (!(Test-Path -LiteralPath $binary) -or
+            (Get-AuthenticodeSignature -LiteralPath $binary).Status -ne 'Valid') {
+            throw "A valid Authenticode signature is required for $binary."
+        }
+    }
+} elseif (!$Prebuilt -and !$Register -and !$VerifyOnly) {
+    & (Join-Path $PSScriptRoot 'build-preview.ps1') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Glass renderer build failed.' }
+}
+if (!(Test-Path -LiteralPath $renderer -PathType Leaf)) {
+    throw 'The glass renderer is missing from the installation files.'
+}
+if ($VerifyOnly) {
+    Write-Output 'All Meowpuut installation files are present.'
+    return
+}
 if ($Register) {
     $packageFiles = $sourceDll, $sourceLexicon, $sourceJapanese, $sourceEvidence, $renderer
     $version = ($packageFiles | ForEach-Object { (Get-FileHash -LiteralPath $_).Hash.Substring(0, 12) }) -join '-'
@@ -29,33 +51,18 @@ if ($Register) {
             Copy-Item -LiteralPath $source -Destination $destination -Force
         }
     }
+    if ($Prebuilt) {
+        foreach ($notice in 'LICENSE','THIRD_PARTY.md','Licenses') {
+            Copy-Item -LiteralPath (Join-Path $PSScriptRoot $notice) -Destination $install -Recurse -Force
+        }
+    }
     $registration = Start-Process -FilePath "$env:WINDIR/System32/regsvr32.exe" -ArgumentList @('/s', ('"' + $dll + '"')) -PassThru -Wait -WindowStyle Hidden
     exit $registration.ExitCode
 }
 
-if (!(Test-Path -LiteralPath $sourceDll) -or !(Test-Path -LiteralPath $sourceLexicon) -or !(Test-Path -LiteralPath $sourceJapanese) -or !(Test-Path -LiteralPath $sourceEvidence)) {
-    throw 'Build the Windows IME before installing it.'
-}
-if ($Signed) {
-    foreach ($binary in $sourceDll, $renderer) {
-        if (!(Test-Path -LiteralPath $binary) -or
-            (Get-AuthenticodeSignature -LiteralPath $binary).Status -ne 'Valid') {
-            throw "A valid Authenticode signature is required for $binary."
-        }
-    }
-} elseif (!$Prebuilt) {
-    & (Join-Path $PSScriptRoot 'build-preview.ps1') | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Glass renderer build failed.' }
-}
-if (!(Test-Path -LiteralPath $renderer -PathType Leaf)) {
-    throw 'The glass renderer is missing from the installation files.'
-}
-if ($VerifyOnly) {
-    Write-Output 'All Meowpuut installation files are present.'
-    return
-}
 $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Register'
 if ($Prebuilt) { $arguments += ' -Prebuilt' }
+if ($Signed) { $arguments += ' -Signed' }
 $setup = Start-Process -FilePath "$env:WINDIR/System32/WindowsPowerShell/v1.0/powershell.exe" -ArgumentList $arguments -Verb RunAs -PassThru -Wait -WindowStyle Hidden
 if ($setup.ExitCode -ne 0) {
     throw "TSF registration failed with exit code $($setup.ExitCode)."

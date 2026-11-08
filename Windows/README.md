@@ -1,10 +1,10 @@
-# Meowpuut Windows x64 Alpha
+# 喵撲 Meowpuut 0.4.3-alpha.1 · Windows x64
 
 ## 直接下載安裝
 
-從 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.1-alpha) 下載 Windows x64 ZIP，完整解壓後雙擊 Install.cmd。Windows 會要求管理員權限，以註冊系統輸入法。安裝後按 Win + 空白鍵，從繁體中文切換到 Meowpuut Pinyin。
+從 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.4.3-alpha.1) 下載 `Meowpuut-0.4.3-alpha.1-windows-x64.zip`，完整解壓後雙擊 Install.cmd。Windows 會要求管理員權限，以註冊系統輸入法。安裝後按 Win + 空白鍵，從繁體中文切換到 Meowpuut Pinyin。
 
-此 Alpha 發佈包未簽署，Windows 應用程式控制政策可能阻止安裝或啟動玻璃渲染器。0.1.1 以拼音為主，注音尚未接入。安裝、焦點切換及上屏保護均未在 Windows 實測；應用關閉、宿主拒絕輸入或服務停止時，未提交的文字仍可能遺失。套件內的 BUILD-INFO.md 列出建置來源與驗證範圍。
+此 Alpha 發佈包未簽署，Windows 應用程式控制政策可能阻止安裝或啟動玻璃渲染器。本版以拼音為主，注音尚未接入。安裝、焦點切換及上屏保護均未在 Windows 實測；應用關閉、宿主拒絕輸入或服務停止時，未提交的文字仍可能遺失。套件內的 BUILD-INFO.md 列出建置來源與驗證範圍。
 
 ## 雙貓玻璃候選窗預覽
 
@@ -29,6 +29,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Windows\build-preview.ps1
 ```
 
 在應用程式的文字區按 Win + 空白鍵，從繁體中文切換到 **Meowpuut Pinyin**。數字 1–7 直接選詞；方向鍵和 Tab 切換高亮，Enter 確認，空白鍵輸出原始拼音加空白。Page Up／Page Down 翻頁，Esc 取消，Backspace 修改。
+
+拼音預設輸出簡體；按 **Ctrl + 左 Alt + Shift + Q** 切換繁簡，候選窗會顯示「简」或「繁」。切換時保留正在輸入的拼音。此 Alpha 的選擇只在目前輸入服務有效，不會同步到其他已開啟的應用程式，重新啟動後恢復簡體。右 Alt（AltGr）不會觸發快捷鍵。
+
+美式鍵盤佈局下，直接輸入逗號、句號、分號、斜線、方括號與反斜線會輸出 `，。；？「」、`；組字中會先上屏候選。按住 Shift 時交給應用程式輸入英文標點。
 
 可混打詞庫收錄的日語羅馬字，例如 `wosukini` 的候選包含「我好き你」。同頁有日語候選時，收合版保留其中一條，依原候選順序顯示。按 F4 展開查看同頁其他候選。低置信中文和其餘日語候選交替排列，貓爪只標記含日語的候選。選取帶貓爪的整句會直接上屏；選取局部中文詞會保留後續組字。
 此版本使用喵撲的 C++ 中文引擎與實際詞庫，以 TSF 將文字送入應用程式。系統輸入法會啟動獨立的雙貓玻璃渲染器，顯示即時拼音與候選詞。支援 TSF 文字座標的應用程式會把候選窗貼近插入點；其餘應用程式沿用 Windows 提供的游標位置。渲染器會隨使用者登入啟動。若 Windows 應用程式控制政策阻止執行渲染器，輸入服務會使用原生候選窗。兩種候選窗都可用鍵盤選詞。已開啟的應用程式需重新啟動才能載入新版輸入服務。此建置適用於 x64 桌面應用程式。
@@ -68,3 +72,8 @@ ctest --test-dir build/windows -C Release --output-on-failure
 會話層只在 macOS 的 Clang 上編譯並執行整合測試，未在 Windows、MSVC 或真實 TSF 客戶端驗證。
 
 目前原始碼包含焦點切換與待上屏文字的保護實驗；僅通過跨平台佇列測試與 Windows x64 交叉編譯，尚未在 Windows 主機驗證 TSF 生命週期、非同步回呼或應用程式相容性。應用關閉、服務停用、宿主持續拒絕寫入時，未完成文字仍可能遺失。
+
+開發版已接入 TSF 欄位移除通知，關閉欄位時釋放保存會話；服務停用或欄位關閉後，晚到的提交回呼不再寫入文字。正常焦點切換仍保留原欄位的組字。這部分已通過佇列測試、AddressSanitizer／UndefinedBehaviorSanitizer 及交叉編譯，已包含在 0.4.3 Alpha 1 發行包中，尚未真機驗證。
+
+
+目前原始碼也會在焦點變更時暫停該欄位的待上屏佇列；已排程但尚未寫入的非同步編輯會先保留文字，回到原欄位並收到下一次可處理按鍵後再重試。選詞已清空讀音、但前段還在等待上屏時，緊接的數字與空格也排入同一佇列，避免跑到前段之前。此保護不涵蓋所有直接交給宿主的命令，例如 Enter、刪除和移動游標；完整宿主編輯生命週期仍待 Windows 實測。

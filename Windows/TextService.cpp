@@ -7,6 +7,8 @@
 #include <memory>
 #include <unordered_map>
 #include "PendingDelivery.h"
+#include "PinyinPunctuation.h"
+#include "ScriptMode.h"
 #include <new>
 #include <string>
 #include "WordEvidence.h"
@@ -123,7 +125,10 @@ struct DeliveryState : std::enable_shared_from_this<DeliveryState> {
     void pump() {
         const auto *next = queue.begin();
         if (!next) return;
-        auto *edit = new (std::nothrow) EditSession(context, *next, shared_from_this());
+        // RequestEditSession can reenter the service and retire this context.
+        // Keep the state alive until the request/result handling has finished.
+        auto lifetime = shared_from_this();
+        auto *edit = new (std::nothrow) EditSession(context, *next, lifetime);
         if (!edit) { queue.finish(false); return; }
         HRESULT result = E_FAIL;
         HRESULT request = context->RequestEditSession(client, edit, TF_ES_SYNC | TF_ES_READWRITE, &result);
@@ -142,12 +147,17 @@ struct DeliveryState : std::enable_shared_from_this<DeliveryState> {
 };
 
 HRESULT EditSession::DoEditSession(TfEditCookie cookie) {
+    if (delivery && delivery->queue.closed()) return TF_E_DISCONNECTED;
+    if (delivery && !delivery->queue.canDeliver()) {
+        delivery->completed(S_FALSE);
+        return S_FALSE;
+    }
     const HRESULT result = insertText(cookie);
     if (delivery) delivery->completed(result);
     return result;
 }
 
-class Service final : public ITfTextInputProcessor, public ITfKeyEventSink, public RefCount {
+class Service final : public ITfTextInputProcessor, public ITfKeyEventSink, public ITfThreadMgrEventSink, public RefCount {
 public:
     ~Service() override { Deactivate(); }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void **out) override {
@@ -156,6 +166,8 @@ public:
             *out = static_cast<ITfTextInputProcessor *>(this);
         else if (id == IID_ITfKeyEventSink)
             *out = static_cast<ITfKeyEventSink *>(this);
+        else if (id == IID_ITfThreadMgrEventSink)
+            *out = static_cast<ITfThreadMgrEventSink *>(this);
         else return E_NOINTERFACE;
         AddRef();
         return S_OK;
@@ -173,16 +185,31 @@ public:
             std::string bytes((std::istreambuf_iterator<char>(file)), {});
             lexicon = mpn_lexicon_create(bytes.data(), bytes.size());
             session = mpn_session_create(lexicon);
-        } catch (...) { return E_FAIL; }
-        if (!session) return E_FAIL;
+            if (session) mpn_set_simplified(session, simplified);
+        } catch (...) { Deactivate(); return E_FAIL; }
+        if (!session) { Deactivate(); return E_FAIL; }
         HRESULT result = manager->QueryInterface(IID_ITfKeystrokeMgr, reinterpret_cast<void **>(&keys));
         client = id;
         if (SUCCEEDED(result)) result = keys->AdviseKeyEventSink(client, this, TRUE);
+        if (SUCCEEDED(result)) result = manager->QueryInterface(IID_ITfSource, reinterpret_cast<void **>(&events));
+        if (SUCCEEDED(result)) result = events->AdviseSink(IID_ITfThreadMgrEventSink,
+            static_cast<ITfThreadMgrEventSink *>(this), &eventCookie);
         if (FAILED(result)) Deactivate();
         return result;
     }
 
     HRESULT STDMETHODCALLTYPE Deactivate() override {
+        if (delivery) delivery->queue.close();
+        for (auto &entry : suspended)
+            if (entry.second.delivery) entry.second.delivery->queue.close();
+        if (events) {
+            auto *source = events;
+            events = nullptr;
+            const DWORD cookie = eventCookie;
+            eventCookie = TF_INVALID_COOKIE;
+            if (cookie != TF_INVALID_COOKIE) source->UnadviseSink(cookie);
+            source->Release();
+        }
         if (lastForeground) sendGlass({});
         if (keys) {
             auto *manager = keys;
@@ -217,9 +244,46 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE OnSetFocus(BOOL) override {
-        // Hide on focus changes but preserve the original context's reading.
-        sendGlass({});
-        if (popup) ShowWindow(popup, SW_HIDE);
+        // A late accepted edit must wait until its own context receives input
+        // again. Preserve text while another application or field has focus.
+        suspendDeliveries();
+        hideCandidates();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnInitDocumentMgr(ITfDocumentMgr *) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnUninitDocumentMgr(ITfDocumentMgr *) override {
+        // Each removed context is disposed through OnPopContext.
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnSetFocus(ITfDocumentMgr *, ITfDocumentMgr *) override {
+        // Switching fields in the same foreground window also invalidates UI.
+        suspendDeliveries();
+        hideCandidates();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnPushContext(ITfContext *) override {
+        suspendDeliveries();
+        hideCandidates();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnPopContext(ITfContext *context) override {
+        if (context == activeContext) {
+            if (delivery) delivery->queue.close();
+            delivery.reset();
+            mpn_clear(session);
+            resetCandidates();
+            activeContext = nullptr;
+            context->Release();
+            hideCandidates();
+        }
+        const auto saved = suspended.find(context);
+        if (saved != suspended.end()) {
+            auto state = std::move(saved->second);
+            suspended.erase(saved);
+            if (state.delivery) state.delivery->queue.close();
+            mpn_session_destroy(state.session);
+            context->Release();
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnTestKeyDown(ITfContext *context, WPARAM key, LPARAM, BOOL *eaten) override {
@@ -238,17 +302,30 @@ public:
         *eaten = FALSE;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE OnKeyDown(ITfContext *context, WPARAM key, LPARAM, BOOL *eaten) override {
+    HRESULT STDMETHODCALLTYPE OnKeyDown(ITfContext *context, WPARAM key, LPARAM flags, BOOL *eaten) override {
         *eaten = FALSE;
         if (!accepts(context, key)) return S_OK;
         try {
             if (activeContext != context && !switchContext(context)) return S_OK;
-            if (delivery) delivery->pump();
+            if (delivery) {
+                delivery->queue.resume();
+                delivery->pump();
+            }
+            if (activeContext != context || !session || !delivery || !delivery->queue.canDeliver()) return S_OK;
             const size_t start = page * pageSize;
             const size_t total = candidateCount();
             const size_t count = total > start ? (std::min)(pageSize, total - start) : 0;
             std::wstring text;
-            if (key == VK_F4) {
+            if (scriptShortcut(key)) {
+                // Consume repeats without repeatedly toggling while held.
+                if (!(static_cast<ULONG_PTR>(flags) & (ULONG_PTR(1) << 30))) {
+                    const bool next = !simplified;
+                    applyPinyinScript(session, simplified, next);
+                    simplified = next;
+                    refreshCandidates();
+                }
+                *eaten = TRUE;
+            } else if (key == VK_F4) {
                 expanded = !expanded;
                 *eaten = TRUE;
             } else if (key == VK_SPACE) {
@@ -261,23 +338,14 @@ public:
                 if (key == VK_NEXT && (page + 1) * pageSize < total) ++page;
                 highlighted = 0;
                 *eaten = TRUE;
-            } else if (const wchar_t mark = punctuation(key)) {
-                size_t choice = start + highlighted;
-                while (*mpn_input(session)) {
-                    const std::string remaining = mpn_input(session);
-                    if (!chooseCandidate(choice, text)) mpn_commit(session);
-                    text += wide(mpn_committed(session));
-                    mpn_clear_commit(session);
-                    if (remaining == mpn_input(session)) {
-                        text += wide(remaining.c_str());
-                        mpn_clear(session);
-                        break;
-                    }
-                    refreshCandidates();
-                    choice = 0;
-                }
+            } else if (const wchar_t mark = pinyinPunctuation(static_cast<unsigned int>(key))) {
+                finishCandidateText(text, start + highlighted);
                 text += mark;
                 highlighted = 0;
+                *eaten = TRUE;
+            } else if (key >= '0' && key <= '9' && !pinyinDigitSelects(static_cast<unsigned int>(key), start, total)) {
+                finishCandidateText(text, start + highlighted);
+                text += static_cast<wchar_t>(key);
                 *eaten = TRUE;
             } else if (navigation(key) && count) {
                 const bool backward = key == VK_LEFT || key == VK_UP || (key == VK_TAB && GetKeyState(VK_SHIFT) < 0);
@@ -301,7 +369,7 @@ public:
                 mpn_clear_commit(session);
                 delivery->pump();
             }
-            updatePopup();
+            if (activeContext == context && session && delivery && delivery->queue.canDeliver()) updatePopup();
         } catch (...) {
             // Do not discard a composition or replay an already handled key.
             sendGlass({});
@@ -310,17 +378,26 @@ public:
         return S_OK;
     }
 private:
-    static bool navigation(WPARAM key) {
-        return key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_TAB;
+    void suspendDeliveries() {
+        if (delivery) delivery->queue.suspend();
+        for (auto &entry : suspended)
+            if (entry.second.delivery) entry.second.delivery->queue.suspend();
     }
 
-    static wchar_t punctuation(WPARAM key) {
-        switch (key) {
-        case VK_OEM_COMMA: return L'，';
-        case VK_OEM_PERIOD: return L'。';
-        case VK_OEM_1: return L'；';
-        default: return 0;
-        }
+    void hideCandidates() {
+        popupForeground = nullptr;
+        sendGlass({});
+        if (popup) ShowWindow(popup, SW_HIDE);
+    }
+
+    static bool scriptShortcut(WPARAM key) {
+        return pinyinScriptShortcut(static_cast<unsigned int>(key), GetKeyState(VK_CONTROL) < 0,
+            GetKeyState(VK_SHIFT) < 0, GetKeyState(VK_LMENU) < 0, GetKeyState(VK_RMENU) < 0,
+            GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0);
+    }
+
+    static bool navigation(WPARAM key) {
+        return key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN || key == VK_TAB;
     }
 
     static int translate(WPARAM key) {
@@ -352,8 +429,10 @@ private:
     }
 
     bool accepts(ITfContext *context, WPARAM key) const {
-        if (!session || !context || GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0
-            || (key != VK_TAB && GetKeyState(VK_SHIFT) < 0) || (GetKeyState(VK_CAPITAL) & 1)) return false;
+        const bool shortcut = scriptShortcut(key);
+        if (!session || !context || GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN) < 0
+            || (!shortcut && (GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0
+            || (key != VK_TAB && GetKeyState(VK_SHIFT) < 0) || (GetKeyState(VK_CAPITAL) & 1)))) return false;
         TF_STATUS status{};
         if (FAILED(context->GetStatus(&status)) || (status.dwDynamicFlags & TF_SD_READONLY)) return false;
         if (disabled(context)) return false;
@@ -362,36 +441,46 @@ private:
         if (focus && GetClassNameW(focus, className, ARRAYSIZE(className))
             && lstrcmpiW(className, L"Edit") == 0 && (GetWindowLongPtrW(focus, GWL_STYLE) & ES_PASSWORD))
             return false;
-        if (key >= 'A' && key <= 'Z') return true;
+        if (shortcut) return true;
+        if ((key >= 'A' && key <= 'Z') || pinyinPunctuation(static_cast<unsigned int>(key))) return true;
         auto saved = suspended.find(context);
         MPNSession *current = context == activeContext ? session : (saved == suspended.end() ? nullptr : saved->second.session);
-        if (!current || !*mpn_input(current)) return false;
+        if (!current || !*mpn_input(current)) {
+            const auto queued = context == activeContext ? delivery
+                : saved == suspended.end() ? nullptr : saved->second.delivery;
+            // Selection may already have cleared the engine while TSF still
+            // owes its text to the host. Keep literal digits/spaces behind it.
+            return queued && !queued->queue.empty() && pinyinQueuedLiteral(static_cast<unsigned int>(key));
+        }
         const size_t currentPage = context == activeContext ? page : saved->second.page;
         const size_t currentCount = context == activeContext ? candidateCount() : saved->second.choices.size();
-        if (key >= '1' && key <= '7')
-            return currentPage * pageSize + key - '1' < currentCount;
+        if (key >= '0' && key <= '9') return true;
         if (navigation(key) || key == VK_F4)
             return currentPage * pageSize < currentCount;
-        return punctuation(key) || translate(key) != 0;
+        return translate(key) != 0;
     }
 
     struct SavedContext {
         MPNSession *session = nullptr;
         std::vector<WindowsCandidate> choices;
         std::shared_ptr<DeliveryState> delivery;
-        bool chineseLocked = false, expanded = false;
+        bool chineseLocked = false, expanded = false, simplified = true;
         size_t page = 0, highlighted = 0;
     };
     bool switchContext(ITfContext *context) {
         auto found = suspended.find(context);
         MPNSession *next = found == suspended.end() ? (activeContext ? mpn_session_create(lexicon) : session) : found->second.session;
         if (!next) return false;
+        // A popped active context leaves a cleared reusable session. Restoring
+        // another saved context replaces it, so release that idle session.
+        if (!activeContext && found != suspended.end()) mpn_session_destroy(session);
         if (activeContext) {
+            if (delivery) delivery->queue.suspend();
             if (!*mpn_input(session) && !*mpn_committed(session) && (!delivery || delivery->queue.empty())) {
                 mpn_session_destroy(session);
                 activeContext->Release();
             } else {
-                suspended.emplace(activeContext, SavedContext{session, std::move(choices), delivery, chineseLocked, expanded, page, highlighted});
+                suspended.emplace(activeContext, SavedContext{session, std::move(choices), delivery, chineseLocked, expanded, simplified, page, highlighted});
             }
         }
         activeContext = context;
@@ -405,9 +494,13 @@ private:
             delivery = std::move(old.delivery);
             chineseLocked = old.chineseLocked; expanded = old.expanded;
             page = old.page; highlighted = old.highlighted;
+            if (applyPinyinScript(session, old.simplified, simplified)) refreshCandidates();
         } else {
             context->AddRef();
             session = next;
+            // A new core session starts in traditional mode. Reapplying the
+            // current mode to the initial session is a harmless no-op.
+            mpn_set_simplified(session, simplified);
             delivery = std::make_shared<DeliveryState>(context, client);
             resetCandidates();
         }
@@ -427,11 +520,27 @@ private:
             return;
         }
         choices = windowsCandidates(session, japaneseWords, [&](const std::string &input) {
-            return evidence.dictionary(input);
+            return evidence.dictionary(input, simplified);
         }, chineseLocked);
     }
 
     size_t candidateCount() const { return choices.size(); }
+
+    void finishCandidateText(std::wstring &text, size_t choice) {
+        while (*mpn_input(session)) {
+            const std::string remaining = mpn_input(session);
+            if (!chooseCandidate(choice, text)) mpn_commit(session);
+            text += wide(mpn_committed(session));
+            mpn_clear_commit(session);
+            if (remaining == mpn_input(session)) {
+                text += wide(remaining.c_str());
+                mpn_clear(session);
+                break;
+            }
+            refreshCandidates();
+            choice = 0;
+        }
+    }
 
     std::wstring candidateText(size_t index) const { return wide(choices[index].text.c_str()); }
 
@@ -558,7 +667,7 @@ private:
             if (popup) ShowWindow(popup, SW_HIDE);
             return;
         }
-        auto display = wide(mpn_preedit(session));
+        auto display = wide(mpn_preedit(session)) + (simplified ? L"  简" : L"  繁");
         const auto start = page * pageSize;
         popupIndices.clear();
         std::optional<size_t> japanese;
@@ -579,7 +688,9 @@ private:
             if (choices[start + i].japanese) display += L"  [日]";
         }
 
+        auto *context = activeContext;
         POINT anchor = candidateAnchor();
+        if (!session || activeContext != context) return;
         HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
         MONITORINFO monitorInfo{};
         monitorInfo.cbSize = sizeof(monitorInfo);
@@ -592,9 +703,9 @@ private:
         auto payload = std::to_wstring(anchor.x) + L"\n" + std::to_wstring(anchor.y + 7) + L"\n"
             + wide(mpn_preedit(session)) + L"\t" + std::to_wstring(highlighted);
         const size_t pageCount = (candidateCount() + pageSize - 1) / pageSize;
-        payload += L"\t";
+        payload += simplified ? L"\t简" : L"\t繁";
         if (pageCount > 1)
-            payload += std::to_wstring(page + 1) + L" / " + std::to_wstring(pageCount);
+            payload += L"  ·  " + std::to_wstring(page + 1) + L" / " + std::to_wstring(pageCount);
         payload += expanded ? L"\t1" : L"\t0";
         for (size_t i = 0; i < pageSize && start + i < candidateCount(); ++i)
             payload += L"\n" + candidateText(start + i) + L"\t" + candidateReading(start + i)
@@ -629,6 +740,8 @@ private:
     }
 
     ITfKeystrokeMgr *keys = nullptr;
+    ITfSource *events = nullptr;
+    DWORD eventCookie = TF_INVALID_COOKIE;
     ITfContext *activeContext = nullptr;
     TfClientId client = 0;
     MPNSession *session = nullptr;
@@ -638,7 +751,7 @@ private:
     std::vector<JapaneseWord> japaneseWords;
     WordEvidence evidence;
     std::vector<WindowsCandidate> choices;
-    bool chineseLocked = false, expanded = false;
+    bool chineseLocked = false, expanded = false, simplified = true;
     size_t page = 0, highlighted = 0;
     HWND popup = nullptr;
     HWND popupForeground = nullptr;

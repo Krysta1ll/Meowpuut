@@ -8,11 +8,11 @@
 
 # 安裝喵撲 Meowpuut
 
-目前測試包：0.4.2 Alpha 1，支援 macOS 27 以上的 Apple silicon Mac。
+目前測試包：0.4.3 Alpha 1，支援 macOS 27 以上的 Apple silicon Mac。
 
 ## 安裝
 
-1. 從 GitHub Release 下載 `Meowpuut-0.4.2-alpha.1-macos-arm64.pkg`。
+1. 從 GitHub Release 下載 `Meowpuut-0.4.3-alpha.1-macos-arm64.pkg`。
 2. 開啟安裝包，確認安裝到系統磁碟。需要管理員驗證；程式會放在 `/Library/Input Methods/Meowpuut.app`。
 3. 儲存工作後登出，再登入。更新舊版時也請這樣做，避免舊的輸入服務仍留在記憶體。
 4. 系統設定 → 鍵盤 → 文字輸入 → 編輯 → 加入 Meowpuut。名稱也可能顯示為「喵撲 Meowpuut」，可在繁體中文分類查找。
@@ -27,7 +27,7 @@
 請先核對來源和 Release 中的 SHA-256。若決定試用，可依 [Apple 的開啟未驗證 App 說明](https://support.apple.com/en-hk/102445)，在系統設定的「隱私權與安全性」處理該次開啟。不要停用整台電腦的 Gatekeeper 或 SIP。若系統仍拒絕，請回報完整提示；也可自行從原始碼建置。
 
 ```sh
-shasum -a 256 Meowpuut-0.4.2-alpha.1-macos-arm64.pkg
+shasum -a 256 Meowpuut-0.4.3-alpha.1-macos-arm64.pkg
 ```
 
 目前驗證的是本機安裝與輸入；尚未完成另一台乾淨 Mac 的下載、公證與首次安裝流程驗證。

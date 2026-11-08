@@ -7,6 +7,7 @@ final class SpaceCursorDriver {
     var beginCursor: () -> Void
     var move: (Int) -> Void
     private(set) var moving = false
+    private var touching = false
     private var held = false
     private var origin: Double = 0
     private var lastStep = 0
@@ -17,9 +18,9 @@ final class SpaceCursorDriver {
         self.beginCursor = beginCursor
         self.move = move
     }
-    func touchDown() { held = false; moving = false; lastStep = 0 }
+    func touchDown() { touching = true; held = false; moving = false; lastStep = 0 }
     func startCursor(at x: Double) {
-        guard !held else { return }
+        guard touching, !held, x.isFinite else { return }
         held = true
         moving = true
         origin = x
@@ -39,10 +40,12 @@ final class SpaceCursorDriver {
     }
     func endCursor() { moving = false }
     func touchUpInside() {
+        guard touching else { return }
+        touching = false
         if !held { tap() }
         moving = false
     }
-    func cancelTouch() { if !held { moving = false } }
+    func cancelTouch() { touching = false; held = true; moving = false }
     func accessibilityMove(_ offset: Int) {
         guard offset != 0 else { return }
         beginCursor()
@@ -76,7 +79,12 @@ struct SpaceCursorButton: UIViewRepresentable {
         let driver: SpaceCursorDriver
         init(tap: @escaping () -> Void, beginCursor: @escaping () -> Void, move: @escaping (Int) -> Void) {
             driver = SpaceCursorDriver(tap: tap, beginCursor: beginCursor, move: move)
+            super.init()
+            for name in [KeyboardViewController.interactionCancellationNotification, UIApplication.willResignActiveNotification, UIScene.willDeactivateNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(cancelTouch), name: name, object: nil)
+            }
         }
+        deinit { NotificationCenter.default.removeObserver(self) }
         @objc func touchDown() { UIDevice.current.playInputClick(); driver.touchDown() }
         @objc func touchUp() { driver.touchUpInside() }
         @objc func cancelTouch() { driver.cancelTouch() }
@@ -87,7 +95,8 @@ struct SpaceCursorButton: UIViewRepresentable {
             switch gesture.state {
             case .began: driver.startCursor(at: x)
             case .changed: driver.updateCursor(at: x)
-            case .ended, .cancelled, .failed: driver.endCursor()
+            case .cancelled: driver.cancelTouch()
+            case .ended, .failed: driver.endCursor()
             default: break
             }
         }
@@ -112,7 +121,9 @@ struct SpaceCursorButton: UIViewRepresentable {
         let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.longPress(_:)))
         longPress.minimumPressDuration = 0.42
         longPress.allowableMovement = 18
-        longPress.cancelsTouchesInView = true
+        // Keep the touch alive when recognition begins. The driver suppresses
+        // the eventual space tap, and real cancellation always ends movement.
+        longPress.cancelsTouchesInView = false
         button.addGestureRecognizer(longPress)
         button.activate = { [weak coordinator = context.coordinator] in coordinator?.driver.tap() }
         return button
@@ -126,6 +137,6 @@ struct SpaceCursorButton: UIViewRepresentable {
         button.setTitleColor(tintColor, for: .normal)
     }
 
-    static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) { coordinator.driver.endCursor() }
+    static func dismantleUIView(_ button: UIButton, coordinator: Coordinator) { coordinator.driver.cancelTouch() }
 }
 #endif

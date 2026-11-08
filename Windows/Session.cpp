@@ -14,7 +14,8 @@ Session::Session(const std::filesystem::path &path) {
     if (!file) throw std::runtime_error("Unable to open Meowpuut lexicon");
     std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     if (file.bad()) throw std::runtime_error("Unable to read Meowpuut lexicon");
-    pinyin_ = data.compare(0, 18, "MEOWPUUT-PINYIN-1\n") == 0;
+    pinyin_ = data.compare(0, 18, "MEOWPUUT-PINYIN-1\n") == 0 ||
+              data.compare(0, 18, "MEOWPUUT-PINYIN-2\n") == 0;
     lexicon_.reset(mpn_lexicon_create(data.data(), data.size()));
     if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
     session_.reset(mpn_session_create(lexicon_.get()));

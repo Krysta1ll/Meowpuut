@@ -105,12 +105,12 @@ with tempfile.TemporaryDirectory(prefix='meowpuut-prefix-') as temporary:
             type_keys(session, 'andianyingz')
             assert candidates(session)[0] == ('看電影', '看电影')[simplified]
             assert core.mpn_choose(session, 0)
-            assert core.mpn_committed(session).decode() == ('看電影', '看电影')[simplified]
+            assert core.mpn_committed(session).decode() == ('我們今天去看電影', '我们今天去看电影')[simplified]
             assert core.mpn_input(session) == b'z'
             type_keys(session, 'aijian')
             assert ('再見', '再见')[simplified] in candidates(session)[:7]
             assert core.mpn_choose(session, candidates(session).index(('再見', '再见')[simplified]))
-            assert core.mpn_committed(session).decode() == ('再見', '再见')[simplified]
+            assert core.mpn_committed(session).decode() == ('我們今天去看電影再見', '我们今天去看电影再见')[simplified]
             assert core.mpn_input(session) == b''
             for raw, expected in [('nihao', '你好'), ('nihaoxh', ('你好喜歡', '你好喜欢')[simplified]),
                                   ('nihaoxihuan', ('你好喜歡', '你好喜欢')[simplified]),
@@ -254,7 +254,7 @@ with tempfile.TemporaryDirectory(prefix='meowpuut-prefix-') as temporary:
             assert core.mpn_input(session) == b'd042u04u/3', core.mpn_input(session)
             assert film in candidates(session)[:7], candidates(session)[:7]
             assert core.mpn_choose(session, candidates(session).index(film))
-            assert core.mpn_committed(session).decode() == film
+            assert core.mpn_committed(session).decode() == prefix + film
             assert core.mpn_input(session) == b''
 
             core.mpn_clear(session); type_keys(session, 'ji3ap7rup wu0 fm4d')

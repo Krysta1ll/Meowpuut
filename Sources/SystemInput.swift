@@ -3,6 +3,23 @@ import Carbon
 import InputMethodKit
 
 enum SystemInput {
+    static func precedingContext(_ client: IMKTextInput) -> String? {
+        guard !IsSecureEventInputEnabled(),
+              let range = CompositionContext.precedingRange(selection: client.selectedRange()) else { return nil }
+        guard let text = client.attributedSubstring(from: range)?.string,
+              text.utf16.count == range.length else { return nil }
+        return text
+    }
+
+    // Empty marked text replaces the host selection when there is no existing
+    // mark. Only send it to cancel our own composition; insertText already ends
+    // the old mark when a candidate is committed.
+    static func updateMarkedText(_ text: String, wasComposing: Bool, didCommit: Bool,
+                                 update: (String, NSRange) -> Void) {
+        guard !text.isEmpty || (wasComposing && !didCommit) else { return }
+        update(text, NSRange(location: (text as NSString).length, length: 0))
+    }
+
     // IMK offsets are UTF-16 positions relative to the marked text. Some
     // clients reject the insertion point at the end; try the last complete
     // grapheme in that case and otherwise retain the caller's previous anchor.

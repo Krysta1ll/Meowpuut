@@ -47,8 +47,9 @@ final class Japanese {
         } else if ((value == 0xff0d || value == ' ') && !raw.isEmpty()) {
             if (choices.isEmpty()) {
                 String text = raw;
+                String previous = commit;
                 clear();
-                commit = text;
+                commit = previous + text;
             } else choose(page * 7);
             return true;
         } else if (value == 0xff55 || value == 0xff56) {
@@ -56,7 +57,12 @@ final class Japanese {
                     page + (value == 0xff55 ? -1 : 1)));
             return !raw.isEmpty();
         } else if (value >= 'a' && value <= 'z' || value == '-' || value == '\'') {
-            if (raw.length() < 80) raw += (char) value;
+            if (raw.length() >= 80) {
+                // Preserve the original reading before accepting another key.
+                commit += raw;
+                raw = "";
+            }
+            raw += (char) value;
         } else return false;
 
         choices.clear();
@@ -88,8 +94,9 @@ final class Japanese {
     void choose(int index) {
         if (index >= choices.size()) return;
         String selected = choices.get(index);
+        String previous = commit;
         clear();
-        commit = selected;
+        commit = previous + selected;
     }
 
     String takeCommit() {

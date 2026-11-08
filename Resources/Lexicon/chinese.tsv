@@ -1,14 +1,20 @@
 # Independently authored vocabulary and overrides. Columns: traditional|simplified|pinyin|editorial priority.
 # Priorities are design choices, not measured corpus frequencies. No imported dictionary rows.
+戰略夥伴|战略伙伴|zhan4 lve4 huo3 ban4|970
 你好|你好|ni3 hao3|10000
-妳好|妳好|ni3 hao3|1000
+妳好|你好|ni3 hao3|1000
 你|你|ni3|9000
-妳|妳|ni3|1000
+妳|你|ni3|1000
 擬|拟|ni3|300
 泥|泥|ni2|500
 好|好|hao3|9000
 號|号|hao4|6500
 我|我|wo3|10000
+# Common simplified-Pinyin vocabulary. Keep the alternatives selectable.
+微信|微信|wei1 xin4|9000
+嗶哩嗶哩|哔哩哔哩|bi4 li3 bi4 li3|8500
+收貨地址|收货地址|shou1 huo4 di4 zhi3|8000
+喝點|喝点|he1 dian3|7000
 # Reviewed common single-character homophones; weights are editorial priors.
 幫|帮|bang1|8200
 棒|棒|bang4|7300
@@ -185,6 +191,8 @@
 滑鼠|滑鼠|hua2 shu3|6000
 鼠標|鼠标|shu3 biao1|6000
 螢幕|萤幕|ying2 mu4|6000
+# 地區詞彙對應：保留台灣常用的繁體「螢幕」，簡體優先使用「荧幕」。
+螢幕|荧幕|ying2 mu4|6100
 屏幕|屏幕|ping2 mu4|6000
 游標|游标|you2 biao1|6000
 光標|光标|guang1 biao1|6000
@@ -247,7 +255,7 @@
 實際|实际|shi2 ji4|7000
 紀錄|记录|ji4 lu4|6000
 記錄|记录|ji4 lu4|6500
-打破紀錄|打破记录|da3 po4 ji4 lu4|6500
+打破紀錄|打破纪录|da3 po4 ji4 lu4|6500
 安全|安全|an1 quan2|6000
 方便|方便|fang1 bian4|6000
 正常|正常|zheng4 chang2|7000
