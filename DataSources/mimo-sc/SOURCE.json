@@ -1,0 +1,23 @@
+{
+  "name": "mimo-sc",
+  "version": "1.0",
+  "license": "GPL-3.0-or-later AND MIT",
+  "upstreams": [
+    {
+      "name": "rime-ice",
+      "repo": "https://github.com/iDvel/rime-ice",
+      "license": "GPL-3.0"
+    },
+    {
+      "name": "pinyin-pro",
+      "repo": "https://github.com/zh-lx/pinyin-pro",
+      "revision": "0785234b4dc0fa3ea9f244e3d77703b2df6a9db4",
+      "license": "MIT"
+    }
+  ],
+  "files": {
+    "mimo-sc.json": "4f3434b6cedc980d1d400b1c0bb719cff4d9b471155c1c27490c03d2317fa750",
+    "RIME-ICE-LICENSE.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "LICENSE": "b067f06144168bd83317c1dbd12a5d5dd0cb8c0c153c4b04ddf194ac61f1925e"
+  }
+}

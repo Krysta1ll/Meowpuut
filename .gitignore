@@ -1,3 +1,14 @@
 .build/
+target/
 Vendor/*/.git/
 .DS_Store
+iOS/Frameworks/
+iOS/Generated/
+iOS/Meowpuut.xcodeproj/
+
+__pycache__/
+*.pyc
+.env
+.env.*
+*.p12
+*.mobileprovision

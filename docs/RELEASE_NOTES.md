@@ -1,0 +1,78 @@
+# 喵撲 Meowpuut 0.5.0 Alpha 1
+
+這次更新完成了從底層解碼引擎、三層分離詞庫架構到 iOS 鍵盤客戶端的全面重構。
+
+## 1. 100% 原創 Rust SoA 解碼引擎（`#![forbid(unsafe_code)]`）
+
+- 底層核心完全重構為 Rust 工作區（`meowpuut-core`、`meowpuut-lexicon`、`meowpuut-client`、`meowpuut-ffi`），移除舊版遺留 C++ 實作。
+- 採用快取友善的陣列結構體（Structure-of-Arrays, SoA）佈局與預配置工作池（`DecodeScratch`），消除熱點解碼循環中的堆內存分配，拼音按鍵延遲中位數約 `0.21 ms`。
+- 補齊拼音模糊音／鍵鄰糾錯（`zh/z`、`ch/c`、`sh/s`、`n/l`、`in/ing`、`en/eng`、`an/ang` 及雙字相鄰換位）與注音缺聲母、韻母近似、漏聲調容錯。
+
+## 2. 三層分離 `mimo` 詞庫架構（`mimo-tc`、`mimo-sc`、`mimo-jp`）
+
+- **第一層（離線構建管線）**：將繁體、簡體、日語分別精簡為單一統一詞庫檔案（`mimo-tc.json`、`mimo-sc.json`、`mimo-jp.tsv`），融合 **McBopomofoData**（MIT）、**OpenCC**（Apache-2.0）、**jieba**（MIT）、**霧凇拼音 `rime-ice`**（GPL-3.0）、**pinyin-pro**（MIT）與 **UniDic**（BSD-3-Clause），統一校準為 `i16` 對數機率分數（Log-Probability），編譯為原創唯讀二進位檔 **`mimo_base.bin`**（`MIMO-BASE-1` / `MIMO-BIN-1`）。
+- **第二層（零拷貝靜態底座）**：iOS 鍵盤擴充與 macOS 客戶端透過 `mmap`（`.mappedIfSafe`）映射 `mimo_base.bin`，無需啟動時解析巨型字串或佔用私有 Heap。
+- **第三層（App Group WAL 輕量動態用戶層）**：鍵盤擴充以唯追加日誌 `mimo_user_wal.log` 記錄選詞、造詞與退格負回饋，宿主 App 於背景自動合併壓縮至 `mimo_user.db`。
+
+## 3. iOS 鍵盤原生級體驗升級
+
+- 對齊 iOS 原生鍵盤觸控與視覺回饋：放大鍵帽氣泡預覽（`KeyPreview`）、按鍵觸覺回饋（`UIImpactFeedbackGenerator` / `UISelectionFeedbackGenerator`）、無延遲按下態、雙擊空格轉句號、長按退格三段加速刪除、長按空格無死區游標滑動，以及下拉展開多欄候選面板（`KeyboardCandidateBar`）。
+
+# 喵撲 Meowpuut 0.4.2 Alpha 1
+
+這次更新著重長句分段、候選排序和中日混打。
+
+- 拼音與注音在長句尚未打完時保留可選的前段；選取後，尚未轉換的讀音留在組字中。
+- 改善拼音中日混打的分段和候選排序，例如「今晚的月亮」後接 `kirei`。注音仍專注中文輸入。
+- 有日語候選時，收合列會保留一項，以小貓爪標示；展開後依候選排序瀏覽，不再固定放在最右邊。
+- 拼音組字時可按空格選取高亮候選，Shift＋Enter 輸出原始字母；注音空格保留大千一聲。
+- 擴充詞庫與上下文關聯，調整候選窗的長句顯示，並保留雙貓、簡潔皮膚與玻璃強度設定。
+
+## 安裝
+
+macOS 測試包支援 macOS 27 或更新版本的 Apple silicon Mac。首次安裝可使用紙箱安裝盤，更新請使用安裝盤內的「安裝或更新.pkg」或單獨的安裝套件。完成後儲存工作、登出再登入，再到系統設定加入 Meowpuut。下載後可用 `SHA256SUMS.txt` 核對檔案。
+
+測試包未使用 Developer ID 簽署，也未經 Apple 公證，macOS 可能阻止開啟。請先讀[安裝說明](https://github.com/Krysta1ll/Meowpuut/blob/main/docs/INSTALL.md)。
+
+iOS 提供原始碼，尚無公開 TestFlight 或 IPA；本次候選修改尚未完成真機驗證。Windows 目前提供可攜核心，尚無 TSF 輸入法或安裝包。長句排序、繁簡字形和跨 App 相容性仍在測試；日語以單字和假名為主，不是完整日語整句輸入法。
+
+# 喵撲 Meowpuut 0.4.1 Alpha 1
+
+這次更新整理了候選窗、詞庫和幾個常用按鍵。
+
+- 雙貓和簡潔皮膚新增深淺色、六組配色與三段玻璃強度。
+- 拼音可用 Shift＋空格／6／3／4／7 輸入一、二、三、四聲與輕聲；單按 Shift 切換中英。
+- 中文模式可按 Option＋斜線輸入 `/`。注音的 ㄥ 與原本的問號按鍵保留原位。
+- 改善長組字的候選窗定位，以及非美式鍵盤和小鍵盤 Enter 的處理。
+- 補充日常、社群與網絡用語，調整上下文和整句選詞；拼音可將 `wosukini` 分成中日混合候選。
+- 紙箱安裝盤可用於首次安裝；更新舊版請使用「安裝或更新.pkg」。
+
+## 安裝
+
+需要 macOS 27 或更新版本，以及 Apple silicon Mac。下載安裝盤或安裝套件，完成後請儲存工作、登出再登入，再到系統設定的輸入來源加入 Meowpuut。更新不會移除本機選詞記憶。下載後可用 `SHA256SUMS.txt` 核對檔案。
+
+本測試包未使用 Developer ID 簽署或 Apple 公證，macOS 可能阻止開啟。請先讀 [安裝說明](https://github.com/Krysta1ll/Meowpuut/blob/main/docs/INSTALL.md)。
+
+## 還在測試
+
+長句排序、繁簡字形及不同 App 的候選定位仍可能出錯；非美式實體鍵盤和新的定位修復尚待更多實機測試。日語目前以單字與假名為主，尚不能完整轉換日語長句。本次只提供 macOS 安裝包，iOS 和 Windows 仍在開發。
+
+# 喵撲 Meowpuut · Alpha 1
+
+第一個公開測試版，版本標籤 v0.4.0-alpha.1，App 版本 0.4.0。
+
+- 拼音、注音兩個獨立模式，繁簡共用 mimo 1.0 合併詞庫。
+- 拼音單按 Shift 切中英，Shift＋Space 保留；大寫及組合快捷鍵不誤觸。
+- 自研 C++ 中文核心、Swift 羅馬音轉假名，本機選詞記憶。
+- 米米莫與莫莫雙貓玻璃候選窗，另有簡潔玻璃皮膚。
+- 收合優先保留中文，日語最多一個並固定最右，以傾斜貓爪標示。
+- 修正展開候選的換行、背景位置和翻頁捲動；補強「喵」及單字母中文候選。
+- 詞義關聯 emoji／顏文字、本地 JSON 短語模組。
+
+下載 Meowpuut-0.4.0-alpha.1-macos-arm64.pkg。需要 Apple silicon、macOS 27+；安裝後登出再登入，再到鍵盤輸入來源加入 Meowpuut。請核對 SHA256SUMS.txt。
+
+安裝包未使用 Developer ID 簽署，App 僅 ad-hoc 簽署，尚未經 Apple 公證。請先讀 docs/INSTALL.md，不要停用系統安全機制。
+
+iOS 本次提供原始碼，不提供 IPA／TestFlight。Windows 尚無系統輸入法。長句排序、歧義繁簡字形與不同應用的候選定位仍在測試；日語不含完整整句漢字轉換。
+
+遇到問題，請附輸入模式、原始按鍵、預期文字、實際結果和應用版本。這些例子會成為下一版的回歸測試。

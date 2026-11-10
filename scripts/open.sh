@@ -2,6 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="$HOME/Library/Input Methods/Meowpuut.app"
+if [ ! -d "$APP" ] && [ -d "/Library/Input Methods/Meowpuut.app" ]; then
+  APP="/Library/Input Methods/Meowpuut.app"
+fi
 if [ ! -d "$APP" ]; then
   APP="$PWD/.build/Meowpuut.app"
   test -x "$APP/Contents/MacOS/Meowpuut" || bash scripts/build.sh

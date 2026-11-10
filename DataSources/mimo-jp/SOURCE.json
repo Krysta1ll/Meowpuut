@@ -1,0 +1,17 @@
+{
+  "name": "mimo-jp",
+  "version": "1.1",
+  "source_version": "2025.12",
+  "derived_archive_sha256": "5fd71b66080c2729dc19cc339104bb8b99ebdff29f3eaa7de57da021c85a4faf",
+  "derived_table_sha256": "326efe40f128716c3373ad242a71552d4a11ce6ea4231221c38f2e31febe6f75",
+  "license": "BSD-3-Clause",
+  "curated_sha256": "3d3b9ea6154ca8d877628a90da692daa73411a26ecc719f9b285e82207bf7f03",
+  "reviewed_at": "2026-11-10",
+  "notes": "mimo-jp reviewed daily lexicon subset; Chinese pinyin and editorial weights are independently authored.",
+  "license_sha256": {
+    "LICENSE.txt": "770a75de30705439084f869dbcb0bc4ebcffcb7c7124c0d74f5083170318a9bb",
+    "BSD.txt": "9980b1824f0d1dac41ea93dc96780c222e5cca3c4d1b5677ac8ab923a8533c3f",
+    "COPYING.txt": "2694852d16fccf37701a2fb85435a860bd0be9d697e8ff2e35b7d35b50129fe0"
+  },
+  "curated_file": "mimo-jp.tsv"
+}
