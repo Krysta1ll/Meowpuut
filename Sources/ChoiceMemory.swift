@@ -16,7 +16,7 @@ final class ChoiceMemory: ObservableObject {
     private(set) var revision: UInt64 = 0
     static var storageDirectory: URL {
         if !Preferences.testing,
-           let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.meowpuut.shared") {
+           let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared") {
             return group
         }
         return Preferences.directory

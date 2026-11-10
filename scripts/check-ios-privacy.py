@@ -61,7 +61,7 @@ def main():
     group_key = 'com.apple.security.application-groups'
     host_groups = set(host_entitlements.get(group_key, []))
     keyboard_groups = set(keyboard_entitlements.get(group_key, []))
-    check('group.app.meowpuut.shared' in host_groups & keyboard_groups, 'host and keyboard share the configured app group')
+    check(bool({'group.com.krysta1ll.meowpuut.shared', 'group.app.meowpuut.shared'} & host_groups & keyboard_groups), 'host and keyboard share the configured app group')
     if args.release:
         check(not host_entitlements.get('get-task-allow', False) and not keyboard_entitlements.get('get-task-allow', False),
               'release is not signed for debugging')

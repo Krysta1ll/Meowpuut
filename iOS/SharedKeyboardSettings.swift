@@ -17,7 +17,7 @@ struct SharedKeyboardSettings: Codable {
     var clearMemoryRequest: String?
 
     private static var file: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.meowpuut.shared")?
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared")?
             .appendingPathComponent("KeyboardSettings.json")
     }
 
@@ -35,7 +35,7 @@ struct SharedKeyboardSettings: Codable {
     // App Group container when the Host App launches or enters background.
     @discardableResult
     static func compactUserWalIfNeeded() -> Int {
-        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.meowpuut.shared") else {
+        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared") else {
             return 0
         }
         return compactWalFiles(in: group)

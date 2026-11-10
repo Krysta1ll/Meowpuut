@@ -43,7 +43,7 @@ final class NativeBackend: InputBackend {
     private static func load(_ name: String, pinyin: Bool) -> OpaquePointer? {
         var baseCandidates: [URL] = []
         if !Preferences.testing,
-           let shared = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.meowpuut.shared")?
+           let shared = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared")?
                .appendingPathComponent("mimo_base.bin") {
             baseCandidates.append(shared)
         }
