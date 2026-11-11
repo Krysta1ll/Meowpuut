@@ -203,8 +203,8 @@ struct KeyboardSettingsView: View {
 }
 
 /// The licence and source files the keyboard ships in its Licenses folder
-/// (scripts/prepare-ios.sh copies them there), under the notice GPL-3.0
-/// asks an interactive program to show. Meowpuut's own licence comes first.
+/// (scripts/prepare-ios.sh copies them there): the notices the data sources ask
+/// for. Meowpuut's own licence comes first.
 private struct LicensesView: View {
     private let t = InterfaceText.system
     private let files: [URL] = {
@@ -223,8 +223,8 @@ private struct LicensesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(t("喵撲 Meowpuut", "喵扑 Meowpuut")).font(.headline)
                     Text("Copyright © 2026 Krystal and Meowpuut contributors")
-                    Text(t("喵撲是自由軟體，依 GNU 通用公共授權條款（GNU General Public License）第 3 版或之後的任一版本發佈，不提供任何擔保。授權全文是下方清單裡的 Meowpuut-GPL-3.0。",
-                           "喵扑是自由软件，依 GNU 通用公共许可证（GNU General Public License）第 3 版或之后的任一版本发布，不提供任何担保。许可证全文是下方列表里的 Meowpuut-GPL-3.0。"))
+                    Text(t("喵撲依 MIT 授權發佈，不提供任何擔保。授權全文是下方清單裡的 Meowpuut-MIT；其餘各項是詞庫和表情資料的來源與授權。",
+                           "喵扑依 MIT 许可发布，不提供任何担保。许可全文是下方列表里的 Meowpuut-MIT；其余各项是词库和表情数据的来源与许可。"))
                 }
                 .font(.subheadline)
                 .padding(.vertical, 4)

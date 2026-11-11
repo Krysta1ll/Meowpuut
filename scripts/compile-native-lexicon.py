@@ -275,17 +275,24 @@ def pinyin_weights(words, native, reviewed, fixed, tc_raw, offset, count_weight,
     return result
 
 
-def counted_shift(weights, reviewed, count_weight, share):
+def counted_shift(weights, fixed, count_weight, share):
     """Moves every reading of a text towards the count of the text by `share` of the gap between
-    the count and the weight of its most likely reading."""
+    the count and the weight of its most likely reading. Reviewed rows and names (`fixed`) are not
+    moved, but each stays below the words with the same reading that it was below before."""
     top = {}
     for key, weight in weights.items():
-        if key not in reviewed and (key[1] not in top or weights[top[key[1]]] < weight): top[key[1]] = key
-    shift = {}
-    for text, key in top.items():
-        counted = count_weight(key)
-        if counted is not None: shift[text] = share * (counted - weights[key])
-    return {key: clamp_i16_weight(weight + shift[key[1]]) if key[1] in shift and key not in reviewed else weight for key, weight in weights.items()}
+        if key not in fixed and (key[1] not in top or weights[top[key[1]]] < weight): top[key[1]] = key
+    shift = {text: share * (count_weight(key) - weights[key]) for text, key in top.items()}
+    result = {key: clamp_i16_weight(weight + shift[key[1]]) if key[1] in shift and key not in fixed else weight for key, weight in weights.items()}
+    letters = lambda key: toneless(key[2]).replace(" ", "")  # a first tone is typed without a mark, so it meets every tone
+    above = collections.defaultdict(list)
+    for key, weight in weights.items():
+        if key not in fixed: above[letters(key)].append((weight, result[key]))
+    for key in fixed:
+        if key not in weights: continue
+        limit = min((new - 1 for old, new in above[letters(key)] if old > weights[key]), default=weights[key])
+        if limit < result[key]: result[key] = max(1, limit)
+    return result
 
 
 # Spoken text (Tatoeba, Common Voice, the project's everyday sentences) as evidence for word weights.

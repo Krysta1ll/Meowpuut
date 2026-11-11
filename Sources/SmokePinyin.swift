@@ -204,17 +204,19 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
     engine.clear(); engine.selectMode(.pinyin)
     Preferences.shared.rememberChoices = true
     ChoiceMemory.shared.forget("py:t:bang")
+    engine.clear(); h.type("bang")
+    let usualBang = engine.snapshot.candidates.first
     for _ in 0..<15 { ChoiceMemory.shared.remember([("py:t:bang", "浜")]) }
     engine.clear(); h.type("bang")
     h.check(engine.snapshot.candidates.first == "浜", "個人選詞仍可提升較少用的字")
     let savedBangUses = ChoiceMemory.shared.records["py:t:bang"]?.first?.uses
     Preferences.shared.rememberChoices = false; engine.refresh()
-    h.check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == "幫", "停用記憶即時恢復常用字且保留組字")
+    h.check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == usualBang && usualBang != "浜", "停用記憶即時恢復常用字且保留組字")
     h.check(ChoiceMemory.shared.records["py:t:bang"]?.first?.uses == savedBangUses, "停用記憶不刪除個人記錄")
     Preferences.shared.rememberChoices = true; engine.refresh()
     h.check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == "浜", "重新啟用記憶可即時恢復個人選詞")
     ChoiceMemory.shared.forget("py:t:bang"); engine.refresh()
-    h.check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == "幫", "清除記錄即時更新候選")
+    h.check(engine.snapshot.input == "bang" && engine.snapshot.candidates.first == usualBang, "清除記錄即時更新候選")
     engine.clear(); h.type("nihao"); engine.choose(0)
     Preferences.shared.rememberChoices = false; engine.refresh(); engine.refresh()
     let queuedCommit = engine.takeCommit()

@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TABLES = ('mimo_base.bin', 'mimo_pairs.bin', 'native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.tsv')
 NOTICES = {
-    'Meowpuut-GPL-3.0.txt': 'LICENSE',
+    'Meowpuut-MIT.txt': 'LICENSE',
     'mimo-tc-MIT.txt': 'DataSources/mimo-tc/LICENSE.txt',
     'OpenCC-Apache-2.0.txt': 'DataSources/mimo-tc/OPENCC-LICENSE.txt',
     'jieba-MIT.txt': 'DataSources/mimo-tc/JIEBA-LICENSE.txt',

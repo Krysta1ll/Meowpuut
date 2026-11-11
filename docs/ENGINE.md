@@ -34,8 +34,8 @@ Swift 的 ChineseWithJapaneseBackend 合併候選。英文判斷使用本機規�
 4. 用共同詞條的對數頻率差中位數校準繁體獨有詞的尺度，再減 350 作為簡體表達優先的排序偏好。這是可調先驗，不是兩份語料真實使用量的統計比較。
 5. 套用本地修訂。修訂字形和權重必須勝出，即使人工權重比上游低。人工詞條衍生的單字也加入核心索引。
 6. 注音索引以台灣用法為準：`mimo-tc` 有的多字詞，權重至少為 `mimo-tc` 權重加校準差（不減 350）；`mimo-tc` 有這個詞但沒有這個讀音時減 1400（多為大陸讀音）；單字不改，因為 `mimo-tc` 給同一字的各讀音同一權重。SQLite 的 lexicon 表也用這個權重。被合併掉的其他繁體字形（讚、準）只加回注音索引；單字排在保留字形之下，差距取 `mimo-tc` 的權重差。
-7. 拼音索引取各來源的平均：多字詞為合併權重、`mimo-tc` 權重加校準差（兩邊都有的詞）、rime-ice 次數換算值（有收錄的詞）三者平均；單字為合併權重與 rime-ice 8105 次數換算值的平均。換算值為 700 ln(1+次數) 加上與合併權重之差的中位數，詞與單字各算一次。OpenCC 港台詞（regional_tw_hk）至少為 `mimo-tc` 權重加校準差再減 350。人工修訂詞不平均，但會降到混合前排在它上面、同字母的索引詞之下，保留審閱時的先後。rime-ice 次數存於 mimo-sc.json 的 `rime_ice_counts`，用 `python3 scripts/mimo_pipeline.py --rime-ice-from DIR` 從本機的 base.dict.yaml 與 8105.dict.yaml 重算。
-8. rime-ice 的日常短語：一般新增會排除含助詞或虛詞（的了吗吧我你這那一…）的詞，另收次數至少 1000 的 3–4 字短語（知道了、真的吗、在干嘛），以及以句末助詞（了吗呢吧啊呀哇哦喔呗）結尾的 2 字短語（在吗、对啊、你呢）。2 字的其他組合（我洗、我系）不收，它們是句子片段，會擠掉正常切分。聲調取各字最常見讀音，權重用上面的 rime-ice 換算值，不受 2100 上限。清單在 mimo-sc.json 的 `rime_ice_particle_phrases`。
+7. 拼音索引取各來源的平均：多字詞為合併權重、`mimo-tc` 權重加校準差（兩邊都有的詞）、語料次數換算值三者平均；單字為合併權重與語料次數換算值的平均。語料次數是這個詞在計數文字裡的次數（DataSources/mimo-pairs 的 U 列；口語一次算 30 次書面），換算值為 700 ln(1+次數) 加上與合併權重之差的中位數，詞與單字各算一次；語料裡沒出現的詞當作 0 次。次數是「字面」的，不分讀音：一個詞最可能的讀音照上式調整，其他讀音移動同樣的量，先後不變。注音索引也往語料次數靠一半的差距。OpenCC 港台詞（regional_tw_hk）至少為 `mimo-tc` 權重加校準差再減 350。人工修訂詞和第 8 項的名稱不調整，但會降到調整前排在它上面、同讀音的詞之下，保留審閱時的先後。
+8. 短語、名稱與行業用詞。短語（DataSources/mimo-phrases，scripts/mimo_phrases.py）：口語文字裡至少 5 次單獨成句、且單獨成句佔它口語出現次數兩成以上的詞組（辛苦了、知道了、真的嗎、別擔心），2–4 個字；只在句子中間常見的組合（我的、的時候）不收，詞對表已經涵蓋，收成詞反而擠掉同音的詞。讀音取各詞最重的讀音，權重用它自己的次數換算。名稱（DataSources/mimo-names，Wikidata）與行業用詞（Resources/Lexicon/terms.tsv）：逐字取最重的讀音；名稱的權重是 2400 + 450 ln(收錄它的維基百科語言版本數)，行業用詞固定 3200，都低於日常用詞，打完整才會出現。
 9. 拼音首字母鍵：每個多字詞有一個每音節取首字母的鍵（知道了 zdl），音節以 zh、ch、sh 開頭時另有一個保留兩個字母的鍵（zhdl）。權重為拼音權重除以 8。不列只有部分音節寫全的鍵（什麼時候只有 smsh 和 shmshh）：在保留集上列出所有組合反而少對 8 筆，檔案也多 2 MB。
 10. 輸出一份完整 SQLite 詞庫和兩個常用讀音索引（mimo_base.bin，含查找索引）。繁簡輸出使用同一筆記錄的 hant／hans 欄位，不是兩個各自累積的詞庫。
 
@@ -50,12 +50,12 @@ mimo_pairs.bin 記錄哪個詞後面常接哪個詞。詞對分數是 0.8 ×（l
 詞編號是兩種輸入法所有詞的簡體寫法排序後的位置，0 和 1 是句首和句尾。scripts/mimo_binary.py 把每列的詞編號和這份詞表的指紋寫進 MIMO-IDX-1；詞對表帶著同一個指紋，不符的表會被拒絕，詞庫就照沒有詞對表的方式排序。
 
 scripts/mimo_pairs.py 產生計數：
-1. fetch：下載維基百科、維基導遊、維基教科書（書面）與 Tatoeba、Common Voice sentence-collector（口語）到 .build/pair-corpus，核對 DataSources/mimo-pairs/SOURCE.json 的 SHA-256。
-2. count：每個子句（標點之間的漢字）用詞庫的字表轉成簡體，按詞庫詞的最大機率路徑切詞，計算單詞、詞對、句首與句尾。評測集與保留集的 Tatoeba 句子，以及含有其中任一 5 字以上文字的子句，不計入（--exclude）。
-3. snapshot：口語計數乘 10 合併（句首與句尾見下段），按 --keep 規則保留詞對，寫成 DataSources/mimo-pairs/counts.txt.xz。檔案以詞的文字為鍵，所以詞庫小改也能用。
-4. 建置時 compile-native-lexicon.py 依當次詞庫的詞編號把計數打包為 mimo_pairs.bin，詞庫沒有的詞連同它的詞對一起捨去。詞庫的切詞改變較多時，應重新 count。context.tsv 的手寫詞組不進詞對表：把它們當成詞對加分，在保留集與評測集上沒有改變任何首選；它們仍在語境表裡，供沒有詞對表時的排序與聯想詞使用。
+1. fetch：下載 Tatoeba、Common Voice sentence-collector、CrossWOZ、KdConv、MASSIVE 到 .build/pair-corpus，核對 DataSources/mimo-pairs/SOURCE.json 的 SHA-256。本專案自寫的句子（DataSources/mimo-everyday）在倉庫裡，不用下載。口語一組：自寫的聊天句、Tatoeba、Common Voice；書面一組：自寫的敘述句與中文夾英文句、三份對話資料。
+2. count：用「只靠詞表、不含任何計數」編出的詞庫切詞（compile-native-lexicon.py 輸出目錄 轉換器 --no-phrases --no-counts），這樣切詞不受先前計數影響。每個子句（標點之間的漢字）用詞庫的字表轉成簡體，按詞庫詞的最大機率路徑切詞，計算單詞、詞對、句首與句尾。評測集與保留集的 Tatoeba 句子，以及含有其中任一 5 字以上文字的子句，不計入（--exclude）；含 Resources/Lexicon/blocked-terms.txt 詞語的句子整句不計入。scripts/mimo_phrases.py count 用同一個詞庫數短語，scripts/mimo_latin.py count 數英文詞。
+3. snapshot：口語計數乘 10 合併（句首與句尾見下段），按 --keep 規則保留詞對，寫成 DataSources/mimo-pairs/counts.txt.xz。檔案以詞的文字為鍵，所以詞庫小改也能用。接著 scripts/mimo_phrases.py snapshot 寫出短語清單。
+4. 建置時 compile-native-lexicon.py 依當次詞庫的詞編號把計數打包為 mimo_pairs.bin，詞庫沒有的詞連同它的詞對一起捨去。短語和名稱不在計數用的詞庫裡，所以沒有自己的詞對，用前詞的退回分數。context.tsv 的手寫詞組不進詞對表：把它們當成詞對加分，在保留集與評測集上沒有改變任何首選；它們仍在語境表裡，供沒有詞對表時的排序與聯想詞使用。
 
-口語證據與用字慣例：口語來源是 Tatoeba、Common Voice 與本專案的日常句子（DataSources/mimo-everyday，2026-11-11 由語言模型為本專案寫成的聊天短句，台灣與大陸用語各一批，scripts/mimo_everyday.py 去掉重複、空行與超過 40 字的行）。句首那一列只用口語計數；每個詞接句尾的比例取它在口語裡的比例（向全體平均拉近 2 個子句），沒在口語出現的詞取平均，因為百科文章開頭與結尾的詞和聊天不同。打包時句首與句尾分數限制在 ±1.5 nat，其他詞對分數與退回分數限制在 ±4 nat。Resources/Lexicon/pair-defaults.tsv 列出用字慣例（她、它 → 他，妳 → 你，嘛 → 吗）：換字後仍是詞的變體，詞對分數不高於預設寫法，不論它在前或在後，口語次數也不會把它抬到預設寫法之上，所以只有詞庫權重或使用者選詞能讓「她」排到「他」前面。單詞權重也用口語證據：counts.txt.xz 的 U 列最後一欄是口語次數，compile-native-lexicon.py 的 spoken_weights 把口語出現 2 次以上的多字詞，往 700 ln(1 + 次數) + 中位差 的口語權重拉高 1.5 倍差距（只升不降，同一詞的各讀音加同樣的量，首字母縮寫跟著完整權重走），注音與拼音都套用。這些值在 dev 集（1,401 句 × 3）上選定。
+口語證據與用字慣例：口語來源是 Tatoeba、Common Voice 與本專案的聊天句子（DataSources/mimo-everyday 的 everyday 與 chat-2，由語言模型為本專案寫成，台灣與大陸用語都有，scripts/mimo_everyday.py 去掉重複、空行與超過 40 字的行）。句首那一列只用口語計數；每個詞接句尾的比例取它在口語裡的比例（向全體平均拉近 2 個子句），沒在口語出現的詞取平均，因為百科文章開頭與結尾的詞和聊天不同。打包時句首與句尾分數限制在 ±1.5 nat，其他詞對分數與退回分數限制在 ±4 nat。Resources/Lexicon/pair-defaults.tsv 列出用字慣例（她、它 → 他，妳 → 你，嘛 → 吗）：換字後仍是詞的變體，詞對分數不高於預設寫法，不論它在前或在後，口語次數也不會把它抬到預設寫法之上，所以只有詞庫權重或使用者選詞能讓「她」排到「他」前面。單詞權重也用口語證據：counts.txt.xz 的 U 列最後一欄是口語次數，compile-native-lexicon.py 的 spoken_weights 把口語出現 2 次以上的多字詞，往 700 ln(1 + 次數) + 中位差 的口語權重拉高 1.5 倍差距（只升不降，同一詞的各讀音加同樣的量，首字母縮寫跟著完整權重走），注音與拼音都套用。這些值在 dev 集（1,401 句 × 3）上選定。
 
 ## 更新與個人詞庫
 

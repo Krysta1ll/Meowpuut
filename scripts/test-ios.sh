@@ -230,7 +230,7 @@ cases = [
  ("space commits the word, not the emoji", PY, "keys:nihao;tap:space", dict(text="你好")),
  ("a kaomoji follows the third word", PY, "keys:kaixin", dict(_first="開心", _second="😊", _kaomoji_after=3)),
  ("space and Return never type a kaomoji", ZY, "keys:ㄎㄞ;tap:space;keys:ㄒㄧㄣ;tap:space;tap:space;keys:ㄎㄞ;tap:space;keys:ㄒㄧㄣ;tap:space;tap:return", dict(text="開心開心")),
- ("after a commit the word's emoji and kaomoji come first", PY, "keys:shengrikuaile;tap:space", dict(text="生日快樂", _symbols_first={"🎂", "🎉"})),
+ ("after a commit one emoji of the word comes first", PY, "keys:shengrikuaile;tap:space", dict(text="生日快樂", _symbols_first={"🎂", "🎉"})),
  ("a tapped emoji is typed and the row stays", PY, "keys:shengrikuaile;tap:space;suggest:0;suggest:0", dict(_typed_first_twice="生日快樂", _symbols_first={"🎂", "🎉"})),
  ("Japanese words have emoji too", JA, "keys:arigatou", dict(_first="ありがとう", _second="🙏")),
  ("the ^_^ key lists kaomoji", PY, "tap:symbols;tap:kaomoji", dict(text="", page=1, _kaomoji_open=True)),
@@ -310,7 +310,7 @@ for name, args, script, want in cases:
             if len(words) < value: problems.append(f"no kaomoji after {value} words: {shown}")
         elif key == "_symbols_first":
             # The lab remembers picks between runs, so the two may come in either order.
-            if set((got.get("predictions") or [])[:len(value)]) != value: problems.append(f"the row does not start with {value}: {got.get('predictions')}")
+            if (got.get("predictions") or [""])[0] not in value: problems.append(f"the row does not start with one of {value}: {got.get('predictions')}")
         elif key == "_typed_first_twice":
             first = (got.get("predictions") or [""])[0]
             if got.get("text") != value + first * 2: problems.append(f"text is {got.get('text')!r}, expected {value + first * 2!r}")

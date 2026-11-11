@@ -387,11 +387,13 @@ final class Engine: ObservableObject {
             predictionContext = ""; predictionSymbols = nil
             return
         }
-        // Emoji and kaomoji of the word just typed come first (生日快樂 🎂 🎉), two emoji
-        // and one kaomoji at most; then the words that may follow, as many as before.
+        // One emoji of the word just typed comes first (生日快樂 🎂); a second emoji and one
+        // kaomoji come after the third word that may follow, so the next words stay in reach.
         predictionSymbols = Symbols.after(clean, japanese: inputMode == .japanese)
-        var merged = predictionSymbols.map { Array($0.emoji.prefix(2) + $0.kaomoji.prefix(1)) } ?? []
-        let limit = 8 + merged.count
+        var merged = predictionSymbols.map { Array($0.emoji.prefix(1)) } ?? []
+        let later = predictionSymbols.map { Array($0.emoji.dropFirst().prefix(1) + $0.kaomoji.prefix(1)) } ?? []
+        let lead = merged.count
+        let limit = 8 + lead + later.count
         if inputMode != .japanese,
            clean.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) || (0x20000...0x323af).contains($0.value) }) {
             for item in ChoiceMemory.shared.contextualPredictions(after: clean, limit: 3) + backend.predict(context: clean, limit: 8)
@@ -402,6 +404,7 @@ final class Engine: ObservableObject {
                 merged.append(mark)
             }
         }
+        merged.insert(contentsOf: later.filter { !merged.contains($0) }, at: min(merged.count, lead + 3))
         predictionContext = merged.isEmpty ? "" : clean
         let next = Array(merged.prefix(limit))
         if predictions != next { predictions = next }

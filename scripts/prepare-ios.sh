@@ -8,7 +8,7 @@ swiftc scripts/ConvertScript.swift -o .build/convert-script
 python3 scripts/compile-native-lexicon.py iOS/Generated "$PWD/.build/convert-script"
 rm -rf iOS/Generated/Licenses
 mkdir -p iOS/Generated/Licenses
-cp LICENSE iOS/Generated/Licenses/Meowpuut-GPL-3.0.txt
+cp LICENSE iOS/Generated/Licenses/Meowpuut-MIT.txt
 cp DataSources/mimo-tc/LICENSE.txt iOS/Generated/Licenses/mimo-tc-MIT.txt
 cp DataSources/mimo-tc/OPENCC-LICENSE.txt iOS/Generated/Licenses/OpenCC-Apache-2.0.txt
 cp DataSources/mimo-tc/JIEBA-LICENSE.txt iOS/Generated/Licenses/jieba-MIT.txt

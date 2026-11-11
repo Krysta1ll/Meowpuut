@@ -8,7 +8,7 @@
   <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
-  <a href="THIRD_PARTY.md">GPL-3.0 / 開源致謝</a>
+  <a href="THIRD_PARTY.md">MIT / 資料來源</a>
 </p>
 
 喵撲是一款從日常中文輸入出發的開源輸入法。拼音和注音各有自己的按鍵規則，繁簡共用一份詞庫；偶爾想打日文單字，可以直接輸入羅馬音，不必為幾個字來回切換輸入法。
@@ -88,7 +88,7 @@ macOS 測試包尚未取得 Developer ID 簽署與 Apple 公證。下載前請�
 
 中文解碼、斷詞與排序由本專案以 Rust 寫成的 SoA（Structure-of-Arrays）核心完成，全工作區強制啟用 `#![forbid(unsafe_code)]`。詞庫系統採用三層分離設計：
 
-1. **第一層（離線構建管線）**：整合 `mimo-tc`（繁體注音／拼音，MIT）、`mimo-sc`（簡體帶調詞表，MIT）、`rime-ice`（霧凇拼音，GPL-3.0）、`OpenCC`（繁簡一對多消歧與港台詞彙，Apache-2.0）、`jieba`（繁體大詞表，MIT）與 `mimo-jp`（日語詞表，由 Mozc、UniDic、OpenCC、Unihan 經 `scripts/mimo_jp_pipeline.py` 產生，編譯為 `mimo_jp.bin`），統一校準為 `i16` 對數機率分數（Log-Probability），編譯為本專案自訂格式的唯讀二進位檔 **`mimo_base.bin`**（`MIMO-BASE-1` 第 2 版：每種輸入法一份 `MIMO-BIN-1` 詞表，加一份 `MIMO-IDX-1` 查找索引）。另從維基百科與 Tatoeba、Common Voice 的口語句子計算哪個詞後面常接哪個詞，打包為詞對表 **`mimo_pairs.bin`**（CC BY-SA 4.0，見 `scripts/mimo_pairs.py`）。
+1. **第一層（離線構建管線）**：整合 `mimo-tc`（繁體注音／拼音，MIT）、`mimo-sc`（簡體帶調詞表，MIT）、`OpenCC`（繁簡一對多消歧與港台詞彙，Apache-2.0）、`jieba`（繁體大詞表，MIT）與 `mimo-jp`（日語詞表，由 Mozc、UniDic、OpenCC、Unihan 經 `scripts/mimo_jp_pipeline.py` 產生，編譯為 `mimo_jp.bin`），統一校準為 `i16` 對數機率分數（Log-Probability），編譯為本專案自訂格式的唯讀二進位檔 **`mimo_base.bin`**（`MIMO-BASE-1` 第 2 版：每種輸入法一份 `MIMO-BIN-1` 詞表，加一份 `MIMO-IDX-1` 查找索引）。另從本專案自寫的句子（約 20.6 萬句）和 Tatoeba、Common Voice、CrossWOZ、KdConv、MASSIVE 的句子計算哪個詞後面常接哪個詞，打包為詞對表 **`mimo_pairs.bin`**（見 `scripts/mimo_pairs.py`）；含政治或貶低群體用語的句子不計入。詞庫另收 Wikidata（CC0）的作品、角色、地名等名稱，和本專案自寫的各行業用詞。
 2. **第二層（映射的唯讀底座）**：iOS 鍵盤擴充、macOS 與 Android 客戶端以 `mmap` 映射 `mimo_base.bin`，經 `mpn_lexicon_create_from_base_in_place` 交給 Rust 核心。核心直接讀取映射的檔案頁（詞表欄位與預先建好的雜湊索引），不複製到堆積，也不在啟動時建索引；詞庫在堆積上佔 0 位元組。詞對表 `mimo_pairs.bin` 同樣映射後以 `mpn_lexicon_attach_pairs` 交給核心，也不佔堆積。排序時每個詞的分數是詞庫權重，加上它與後一個詞的詞對分數，輸入開頭與結尾也各算一次；長句和口語句子因此比只看詞頻準。Windows 仍讀 TSV 並複製到堆積（`mpn_lexicon_create`），尚未使用詞對表。
 3. **第三層（選詞記錄）**：鍵盤以唯追加日誌 `mimo_user_wal.log` 記錄確認過的選詞，每 64 筆由鍵盤自己併入 `mimo_user.db`。iOS 上這兩個檔案只放在鍵盤自己的沙盒，宿主 App 不讀也不寫。
 
@@ -122,4 +122,4 @@ iOS 另需 XcodeGen，見 [iOS/README.md](iOS/README.md)。
 
 詞庫修訂放在 `Resources/Lexicon/`，不要直接修改上游快照。歡迎修讀音、調排序、補日常詞彙和改善跨應用相容性。提交方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-喵撲以 [GPL-3.0-or-later](LICENSE) 發佈：合併詞庫用了霧凇拼音（rime-ice，GPL-3.0）的資料，所以程式和詞庫一起採同一份授權。各上游詞庫的版權與授權聲明見 [THIRD_PARTY.md](THIRD_PARTY.md)。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語詞表的審讀（不收的詞目前由自動審讀判定，尚未經母語者審讀）和不同應用中的候選定位，都還有需要打磨的地方。
+喵撲以 [MIT](LICENSE) 授權發佈。詞庫的語料是我們自己收集和撰寫的，用到的公開詞表與句子都保留來源與授權聲明，見 [THIRD_PARTY.md](THIRD_PARTY.md)。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語詞表的審讀（不收的詞目前由自動審讀判定，尚未經母語者審讀）和不同應用中的候選定位，都還有需要打磨的地方。

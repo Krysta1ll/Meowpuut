@@ -100,7 +100,7 @@ stage_assets() {
     cmp -s "$generated/$file" "$assets/lexicon/$file" || cp "$generated/$file" "$assets/lexicon/$file"
   done
   # The same notices as the macOS, iOS and Windows bundles.
-  cp LICENSE "$assets/licenses/Meowpuut-GPL-3.0.txt"
+  cp LICENSE "$assets/licenses/Meowpuut-MIT.txt"
   cp DataSources/mimo-tc/LICENSE.txt "$assets/licenses/mimo-tc-MIT.txt"
   cp DataSources/mimo-tc/OPENCC-LICENSE.txt "$assets/licenses/OpenCC-Apache-2.0.txt"
   cp DataSources/mimo-tc/JIEBA-LICENSE.txt "$assets/licenses/jieba-MIT.txt"
