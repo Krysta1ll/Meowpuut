@@ -8,17 +8,17 @@ import AppKit
 // Drawing for the festival wardrobe (docs/FESTIVALS.md): the art, and the
 // trim laid around the candidate glass. Which theme is worn is in Festivals.swift.
 
-enum FestivalArt {
+enum FestivalImages {
     #if canImport(UIKit)
     /// The art ships once, in the keyboard extension's asset catalog; the
     /// app reads it from the extension it embeds.
-    static let bundle: Bundle = {
-        if UIImage(named: "christmas_frame", in: .main, compatibleWith: nil) != nil { return .main }
-        return Bundle.main.builtInPlugInsURL.flatMap { Bundle(url: $0.appendingPathComponent("MeowpuutKeyboard.appex")) } ?? .main
-    }()
+    static let bundle: Bundle = Bundle.main.builtInPlugInsURL.flatMap { Bundle(url: $0.appendingPathComponent("MeowpuutKeyboard.appex")) } ?? .main
+
+    /// Asked only for the theme being worn: the keyboard has a tight memory
+    /// ceiling, so at most one theme's three images are in use.
 
     static func image(_ name: String) -> CGImage? {
-        UIImage(named: name, in: bundle, compatibleWith: nil)?.cgImage
+        UIImage(named: name, in: bundle, with: nil)?.cgImage
     }
     #else
     /// macOS keeps @1x and @2x PNGs next to the manifest; the larger one is drawn.
@@ -52,7 +52,7 @@ struct FestivalTrimView: View {
         self.glass = glass
         self.shape = shape
         self.clear = clear
-        self.image = image ?? FestivalArt.image(trim.image)
+        self.image = image ?? FestivalImages.image(trim.image)
     }
 
     var body: some View {

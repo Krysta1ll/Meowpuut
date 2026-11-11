@@ -46,7 +46,7 @@ struct KeyboardSettingsView: View {
                     }
                     .padding(.vertical, 4)
                     Toggle(t("顯示米米莫和莫莫", "显示米米莫和莫莫"), isOn: binding(\.catGlassSkin, default: true))
-                    Toggle(t("節日裝扮", "节日装扮"), isOn: binding(\.festivals, default: true))
+                    FestivalWardrobeLink(settings: $settings)
                 }
                 Section {
                     Picker(t("輸入方式", "输入方式"), selection: setting(\.inputMode)) {

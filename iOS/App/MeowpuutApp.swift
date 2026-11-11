@@ -3,6 +3,7 @@ import UIKit
 
 @main
 struct MeowpuutApp: App {
+    init() { FestivalWardrobeSince.record() }
     var body: some Scene {
         WindowGroup { HomeView() }
     }
