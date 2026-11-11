@@ -71,6 +71,7 @@ targets:
       - ../Sources/JapaneseBackend.swift
       - ../crates/meowpuut-ffi/include/meowpuut.h
       - ../Sources/ChoiceMemory.swift
+      - ../Sources/Symbols.swift
       - ../Sources/Brand.swift
       - ../Sources/Appearance.swift
       - ../Sources/CandidatePalette.swift
@@ -90,6 +91,8 @@ targets:
       - path: Generated/mimo_pairs.bin
         buildPhase: resources
       - path: Generated/associations.json
+        buildPhase: resources
+      - path: ../Resources/Lexicon/kaomoji.tsv
         buildPhase: resources
       - path: Generated/language-evidence.sqlite
         buildPhase: resources
@@ -132,6 +135,7 @@ targets:
       - ../Sources/JapaneseBackend.swift
       - ../crates/meowpuut-ffi/include/meowpuut.h
       - ../Sources/ChoiceMemory.swift
+      - ../Sources/Symbols.swift
       - ../Sources/Brand.swift
       - ../Sources/Appearance.swift
       - ../Sources/CandidatePalette.swift
@@ -149,6 +153,8 @@ targets:
       - path: Generated/mimo_jp.bin
         buildPhase: resources
       - path: Generated/associations.json
+        buildPhase: resources
+      - path: ../Resources/Lexicon/kaomoji.tsv
         buildPhase: resources
       - path: Generated/language-evidence.sqlite
         buildPhase: resources

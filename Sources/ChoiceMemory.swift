@@ -48,7 +48,8 @@ final class ChoiceMemory: ObservableObject {
     private static func isValidSelection(reading: String, text: String) -> Bool {
         guard !reading.isEmpty, reading.count <= 256, !text.isEmpty, text.count <= 100,
               !reading.contains("\n"), !reading.contains("\t"), !text.contains("\n"), !text.contains("\t") else { return false }
-        return reading.hasPrefix("ja:") || reading.hasPrefix("py:") || reading.hasPrefix("t:") || reading.hasPrefix("s:")
+        // sym:<word> holds the emoji and kaomoji picked for a word (Symbols).
+        return reading.hasPrefix("ja:") || reading.hasPrefix("py:") || reading.hasPrefix("t:") || reading.hasPrefix("s:") || reading.hasPrefix("sym:")
             || text.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) || (0x20000...0x323af).contains($0.value) })
     }
 

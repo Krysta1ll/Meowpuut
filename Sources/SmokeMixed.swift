@@ -61,6 +61,12 @@ func runSmokeMixedAndLayout(_ h: inout SmokeHarness) {
     engine.clear(); h.type("miaomiaokaixin")
     h.check(engine.snapshot.candidates.contains("喵喵開心"), "自動收集跨次選詞組合")
     h.check(ChoiceMemory.shared.records["ctx|喵喵|py:t:kaixin"]?.first?.uses == 2, "上下文選詞記憶")
+    // Emoji and kaomoji: first in the row after a commit; a picked one leads next time.
+    engine.clear(); h.type("shengrikuaile"); engine.key(32); _ = engine.takeCommit()
+    h.check(Array(engine.predictions.prefix(2)) == ["🎂", "🎉"], "選詞後表情排在聯想詞前")
+    h.check(engine.choosePrediction(1) == "🎉" && engine.predictions.first == "🎂" && Symbols.of("生日快樂")?.emoji.first == "🎉", "點過的表情下次排第一，聯想列不變")
+    h.check(Symbols.after("我不想睡", japanese: false) == nil && Symbols.after("我想睡", japanese: false)?.word == "想睡" && Symbols.after("今天好累，", japanese: false)?.word == "好累", "句尾的詞有表情，否定句沒有")
+    h.check(Symbols.of("手紙") == nil && Symbols.of("手紙", japanese: true)?.emoji.first == "✉️", "中文和日語的表情分開查")
     Preferences.shared.rememberChoices = false
     Preferences.shared.simplified = true
     h.expect(.pinyin, "zhongguo", "中国")
