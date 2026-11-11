@@ -41,7 +41,7 @@ tests=(
   "KeyboardGeometry: iOS/Keyboard/KeyboardGeometry.swift"
   "KeyboardKeys: iOS/tests/Support/InputMode.swift iOS/InterfaceText.swift iOS/Keyboard/KeyboardGeometry.swift iOS/Keyboard/KeyboardKeys.swift"
   "CandidateStripLayout: iOS/Keyboard/CandidateStripLayout.swift"
-  "Festivals: Sources/Festivals.swift"
+  "Festivals: Sources/Appearance.swift Sources/Festivals.swift"
   "CatArt: iOS/Keyboard/KeyboardGeometry.swift"
 )
 

@@ -1,20 +1,30 @@
 {
-  "version": 1,
-  "outfits": [
-    {
-      "id": "test-new-year",
-      "title": { "hant": "新年", "hans": "新年" },
-      "start": "2027-02-03",
-      "end": "2027-02-12",
-      "cats": {
-        "mimimo": { "front": "mimimo_front.png" },
-        "momo": { "front": "momo_front.png", "back": "momo_back.png", "frames": { "happy": "momo_happy.png", "sleepy": "x.png" } }
-      },
-      "pill": "#C8463C"
-    },
-    { "id": "test-overlap", "start": "2027-02-10", "end": "2027-02-20", "cats": {} },
-    { "id": "../escape", "start": "2027-01-01", "end": "2027-12-31" },
-    { "id": "bad-dates", "start": "2027-05-02", "end": "2027-05-01" },
-    { "id": "no-date" }
-  ]
+ "version": 2,
+ "leadDays": 7,
+ "packs": ["fixture"],
+ "themes": [
+  {
+   "id": "alpha",
+   "names": {"hant": "甲節", "hans": "甲节", "ja": "アルファ", "en": "Alpha"},
+   "mimimo": {"image": "alpha_mimimo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "momo": {"image": "alpha_momo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "trim": {"image": "alpha_frame", "size": [360, 80], "caps": [0, 70, 0, 70], "safeText": [18, 90, 18, 90], "rim": [10, 10, 10, 10]},
+   "colors": {"accent": "#BB3333", "light": ["#BB0000", "#AA0000"], "dark": ["#AA0000", "#990000"], "contrast": "#880000"},
+   "days": [["2027-02-05", "2027-02-06", "2027-02-12"]]
+  },
+  {
+   "id": "broken",
+   "mimimo": {"image": "broken_mimimo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "days": [["2027-02-30", "2027-02-30", "2027-02-30"]]
+  },
+  {
+   "id": "beta",
+   "names": {"hant": "乙節", "hans": "乙节", "ja": "ベータ", "en": "Beta"},
+   "mimimo": {"image": "beta_mimimo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "momo": {"image": "beta_momo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "trim": {"image": "beta_frame", "size": [360, 80], "caps": [0, 60, 0, 60], "safeText": [18, 90, 18, 90], "rim": [9, 9, 9, 9]},
+   "colors": {"accent": "#3333BB", "light": ["#0000BB", "#0000AA"], "dark": ["#0000AA", "#000099"], "contrast": "#000088"},
+   "days": [["2027-02-14", "2027-02-14", "2027-02-14"], ["2028-02-14", "2028-02-14", "2028-02-14"]]
+  }
+ ]
 }
