@@ -103,9 +103,14 @@ final class LabViewController: UIViewController {
         Preferences.shared.catGlassSkin = !args.bool(forKey: "plain")
         view.backgroundColor = dark ? UIColor(white: 0.04, alpha: 1) : UIColor(red: 0.96, green: 0.96, blue: 0.975, alpha: 1)
 
-        // The strip under the keyboard where iOS draws the Globe and dictation keys.
-        floor.backgroundColor = dark ? UIColor(red: 0.102, green: 0.098, blue: 0.110, alpha: 1)
-                                     : UIColor(red: 0.851, green: 0.847, blue: 0.878, alpha: 1)
+        // Stand-in for the system keyboard backdrop, which a real keyboard
+        // gets from iOS and paints nothing over: behind the keyboard and the
+        // strip under it where iOS draws the Globe and dictation keys.
+        // Colours of the iOS 27 backdrop over a light page (Apple's Pinyin keyboard).
+        floor.backgroundColor = dark ? UIColor(white: 0.216, alpha: 1)
+                                     : UIColor(red: 0.886, green: 0.890, blue: 0.910, alpha: 1)
+        floor.layer.cornerRadius = 28
+        floor.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         floor.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(floor)
 
@@ -138,7 +143,7 @@ final class LabViewController: UIViewController {
             keys.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             floor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             floor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            floor.topAnchor.constraint(equalTo: keys.bottomAnchor),
+            floor.topAnchor.constraint(equalTo: keys.topAnchor),
             floor.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             composer.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composer.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),

@@ -160,7 +160,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refreshAppearance() } }
             .store(in: &observers)
         for name in [UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
-                     UIAccessibility.boldTextStatusDidChangeNotification] {
+                     UIAccessibility.boldTextStatusDidChangeNotification,
+                     UIAccessibility.reduceTransparencyStatusDidChangeNotification] {
             NotificationCenter.default.publisher(for: name)
                 .sink { [weak self] _ in self?.relayout() }
                 .store(in: &observers)
@@ -294,20 +295,36 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         let width = view.bounds.width - left - right
         guard width > 0 else { return }
         let prefs = Preferences.shared
-        let idiom = idiom(width: width)
+        var idiom = idiom(width: width)
         if ui.sideInset != left { ui.sideInset = left }
         if ui.trailingInset != right { ui.trailingInset = right }
         let keysFrame = CGRect(x: left, y: 0, width: width, height: view.bounds.height)
         if keysView.frame != keysFrame { keysView.frame = keysFrame }
         keysView.touchOutset = max(left, right)
-        let region = CandidateRegionLayout(width: width, idiom: idiom, cats: prefs.catGlassSkin,
-                                           rim: CandidateGlassShape.contentBand(prefs.glassShape, height: 1).top)
+        let rim = CandidateGlassShape.contentBand(prefs.glassShape, height: 1).top
+        var region = CandidateRegionLayout(width: width, idiom: idiom, cats: prefs.catGlassSkin, rim: rim)
         let keySet = currentKeySet()
         // One height per input mode: Zhuyin's four rows of keys set it for its
         // symbol pages too, so switching pages never makes the keyboard jump.
         let baseRows = engine.inputMode == .zhuyin && !engine.english ? 5 : 4
         let base = KeyMetrics(idiom: idiom, width: width, rows: baseRows)
-        let area = base.areaHeight(rows: baseRows)
+        var area = base.areaHeight(rows: baseRows)
+        // iOS 27 gives a keyboard extension a fixed height (216 pt on a
+        // 402 pt iPhone in portrait, 160 pt in landscape) and ignores the
+        // height constraint below. Whatever the height, every row stays
+        // inside it: a smaller bar and shorter keys, and in landscape the
+        // bar without the cats.
+        let wanted = (region.height + area).rounded()
+        let room = (view.bounds.height - insets.bottom).rounded(.down)
+        if view.window != nil, room > 0, region.height + area > room + 0.5 {
+            if idiom == .phone {
+                idiom = .phoneLandscape
+                region = CandidateRegionLayout(width: width, idiom: idiom, cats: prefs.catGlassSkin, rim: rim)
+            } else if idiom == .phoneLandscape {
+                region = CandidateRegionLayout(width: width, idiom: idiom, cats: false, rim: rim)
+            }
+            area = max(1, room - region.height)
+        }
         var metrics = KeyMetrics(idiom: idiom, width: width, rows: keySet.rowCount)
         metrics.keyHeight = max(1, (area - metrics.topPadding - metrics.bottomPadding
                                     - CGFloat(keySet.rowCount - 1) * metrics.rowGap) / CGFloat(keySet.rowCount)).rounded(.down)
@@ -317,10 +334,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         if ui.region != region { ui.region = region }
         if ui.keysAreaHeight != area { ui.keysAreaHeight = area }
         let theme = KeyboardKeyTheme(dark: ui.dark, highContrast: UIAccessibility.isDarkerSystemColorsEnabled,
-                                     palette: prefs.candidatePalette, bold: UIAccessibility.isBoldTextEnabled)
+                                     palette: prefs.candidatePalette, bold: UIAccessibility.isBoldTextEnabled,
+                                     opaque: UIAccessibility.isReduceTransparencyEnabled || UIAccessibility.isDarkerSystemColorsEnabled)
         keysView.configure(keySet: keySet, metrics: metrics, idiom: idiom, theme: theme, width: width, areaTop: region.height)
-        let total = (region.height + area).rounded()
-        if let heightConstraint, abs(heightConstraint.constant - total) >= 0.5 { heightConstraint.constant = total }
+        if let heightConstraint, abs(heightConstraint.constant - wanted) >= 0.5 { heightConstraint.constant = wanted }
     }
 
     private func updateKeys() { relayout() }

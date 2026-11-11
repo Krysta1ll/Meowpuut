@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "meowpuut-client"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "meowpuut-core",
  "meowpuut-lexicon",
@@ -12,18 +12,18 @@ dependencies = [
 
 [[package]]
 name = "meowpuut-core"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "meowpuut-ffi"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "meowpuut-core",
 ]
 
 [[package]]
 name = "meowpuut-lexicon"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "meowpuut-core",
 ]

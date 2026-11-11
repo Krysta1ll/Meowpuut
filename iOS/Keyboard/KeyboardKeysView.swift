@@ -141,7 +141,7 @@ final class KeyBalloonView: UIView {
         let path = KeyBalloonGeometry.path(key: key.applying(local), bubble: bubble.applying(local), keyRadius: metrics.cornerRadius)
         shape.path = path
         shape.shadowPath = path
-        shape.fillColor = theme.characterFill.cgColor
+        shape.fillColor = theme.balloonFill.cgColor
         shape.strokeColor = theme.balloonOutline.cgColor
         shape.shadowColor = UIColor.black.cgColor
         shape.shadowOpacity = theme.dark ? 0.5 : 0.22
@@ -209,7 +209,7 @@ final class KeyAlternatesView: UIView {
         CATransaction.setDisableActions(true)
         shape.path = path
         shape.shadowPath = path
-        shape.fillColor = theme.characterFill.cgColor
+        shape.fillColor = theme.balloonFill.cgColor
         shape.strokeColor = theme.balloonOutline.cgColor
         shape.shadowColor = UIColor.black.cgColor
         shape.shadowOpacity = theme.dark ? 0.5 : 0.25
