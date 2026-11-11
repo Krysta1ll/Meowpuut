@@ -18,7 +18,9 @@ struct KeyboardGeometryTests {
 
     static func main() {
         specNumbers()
+        frozenBar()
         regions()
+        cats()
         keyRows()
         hitTesting()
         balloons()
@@ -26,10 +28,10 @@ struct KeyboardGeometryTests {
         glassRims()
         narrowPad()
         pixels()
-        print("PASS: region layout, key rows, hit testing without dead zones, balloons, heights, glass rims, the floating iPad keyboard and whole-pixel keys")
+        print("PASS: region layout, the bar's frame unchanged in \(barFrameBeforeNewCats.count) cases, the cats clear of the candidates, the expand key and the keys, key rows, hit testing without dead zones, balloons, heights, glass rims, the floating iPad keyboard and whole-pixel keys")
     }
 
-    /// The cats line up with the glass's upper rim, wherever the shape puts it.
+    /// The glass does not move with its shape; the expand key follows the band the candidates sit in.
     static func glassRims() {
         for (width, idiom) in [(CGFloat(320), KeyboardIdiom.phone), (393, .phone), (440, .phone), (852, .phoneLandscape), (1024, .pad)] {
             let capsule = CandidateRegionLayout(width: width, idiom: idiom)
@@ -37,18 +39,92 @@ struct KeyboardGeometryTests {
                 let shaped = CandidateRegionLayout(width: width, idiom: idiom, rim: rim)
                 let down = rim * capsule.glass.height
                 expect(shaped.glass == capsule.glass && shaped.height == capsule.height, "\(width): the glass itself does not move")
-                expect(abs(shaped.mimimo.minY - capsule.mimimo.minY - down) < 0.001 && abs(shaped.momo.minY - capsule.momo.minY - down) < 0.001,
-                       "\(width): both cats move down with the rim")
-                expect(shaped.mimimo.maxY <= shaped.height && shaped.momo.maxY <= shaped.height, "\(width): and stay inside the region")
-                // The candidates sit between the rim and the glass's bottom; the expand key is centred on them.
                 expect(abs(shaped.chevron.midY - capsule.chevron.midY - down / 2) < 0.001, "\(width): the expand key follows the candidate band")
                 expect(shaped.chevron.maxY <= shaped.height + 0.001, "\(width): the expand key stays inside the region")
             }
-            // 米米莫's lower eyelid sits on the rim.
-            let cloud = CandidateRegionLayout(width: width, idiom: idiom, rim: 0.16)
-            let eye = cloud.mimimo.minY + cloud.mimimo.height * CandidateRegionLayout.mimimoEyeBottom
-            expect(abs(eye - (cloud.glass.minY + 0.16 * cloud.glass.height)) < 0.001, "\(width): eyes on the cloud's base rim")
         }
+    }
+
+    /// The bar's design is frozen: glass, row, expand key, type sizes and the
+    /// light band are what they were before the cats were redrawn.
+    static func frozenBar() {
+        for entry in barFrameBeforeNewCats {
+            let l = CandidateRegionLayout(width: entry.width, idiom: entry.idiom, cats: entry.cats, rim: entry.rim)
+            let now = [l.height, l.glass.minX, l.glass.minY, l.glass.width, l.glass.height, l.row.minX, l.row.width,
+                       l.chevron.minX, l.chevron.minY, l.chevron.width, l.chevron.height, l.fontSize, l.pillHeight, l.statusFontSize, l.lightBand]
+            for (index, value) in now.enumerated() {
+                expect(abs(value - entry.numbers[index]) < 0.00006,
+                       "\(entry.idiom) \(entry.width) rim \(entry.rim) cats \(entry.cats): number \(index) is \(value), was \(entry.numbers[index])")
+            }
+        }
+        expect(barFrameBeforeNewCats.count == 96, "the table covers 96 cases")
+    }
+
+    /// Every arrangement on every size class and shape: the cats stay inside
+    /// the candidate region (above the keys), never cover the candidates'
+    /// band or the expand key's arrow, are drawn no larger than their art and
+    /// no smaller than reads, and each has a place to be touched.
+    static func cats() {
+        let cases = phoneWidths.map { ($0, KeyboardIdiom.phone) } + landscapeWidths.map { ($0, .phoneLandscape) }
+            + padWidths.map { ($0, .pad) }
+        var placed = 0
+        for (width, idiom) in cases {
+            for shape in GlassShape.allCases {
+                let layout = CandidateRegionLayout(width: width, idiom: idiom, rim: GlassEdge.band(shape, height: 1).top)
+                let stage = layout.stage(shape: shape)
+                let region = CGRect(x: 0, y: 0, width: width, height: layout.height)
+                var pool: [String] = []
+                for arrangement in CatArrangement.all {
+                    guard let places = arrangement.place(on: stage) else { continue }
+                    pool.append(arrangement.id)
+                    placed += 1
+                    let label = "\(arrangement.id) at \(width) (\(idiom), \(shape))"
+                    expect(Set(places.map(\.cat)) == Set(KeyboardCat.allCases), "\(label): both cats")
+                    for place in places {
+                        expect(region.contains(place.visible), "\(label): \(place.cat) leaves the region: \(place.visible)")
+                        expect(place.visible.minY >= 1.4, "\(label): \(place.cat) keeps room above its ears to breathe")
+                        expect(place.scale <= 1 && place.scale >= CatArrangement.smallest, "\(label): \(place.cat) is drawn at \(place.scale)")
+                        expect(abs(place.frame.width / place.frame.height - place.sprite.size.width / place.sprite.size.height) < 0.0001,
+                               "\(label): \(place.cat) is not stretched")
+                        for part in place.inFront {
+                            expect(!part.intersects(stage.row) && !part.intersects(stage.arrow), "\(label): \(place.cat) covers the bar's content")
+                        }
+                        if place.sprite.behindBar {
+                            // Paws on the glass's real edge, between its ends.
+                            let x = place.anchor.x - layout.glass.minX
+                            let edge = layout.glass.minY + GlassEdge.top(shape, size: layout.glass.size, x: x)
+                            expect(place.anchor.y >= edge - 0.001 && place.anchor.y - edge <= 4 * layout.scale + 0.001,
+                                   "\(label): \(place.cat)'s paws are at \(place.anchor.y), the edge at \(edge)")
+                            expect(place.body.maxX <= layout.glass.maxX + 0.001 && place.body.minX >= layout.glass.minX - 12 * layout.scale,
+                                   "\(label): \(place.cat) is over the glass")
+                        } else {
+                            expect(place.visible.minX > stage.arrow.maxX, "\(label): \(place.cat) stands right of the expand key's arrow")
+                        }
+                        let touch = place.touch(on: stage)
+                        expect(touch.width >= 43.99 && region.contains(touch.insetBy(dx: 0.001, dy: 0.001)), "\(label): \(place.cat)'s touch area \(touch)")
+                        expect(touch.height >= (idiom == .phoneLandscape ? 24 : 28), "\(label): \(place.cat)'s touch area is \(touch.height) pt tall")
+                        expect(!touch.intersects(stage.row) || place.sprite.behindBar, "\(label): a cat in front keeps off the row")
+                    }
+                    // Two cats share at most a cheek: each keeps most of its picture to itself.
+                    let overlap = places[0].visible.intersection(places[1].visible)
+                    expect(overlap.isNull || overlap.width <= 0.3 * min(places[0].visible.width, places[1].visible.width) + 0.001,
+                           "\(label): the cats overlap by \(overlap.width)")
+                }
+                expect(pool.first == "ends", "ends fits at \(width) (\(idiom), \(shape))")
+                if shape == .capsule && idiom != .phoneLandscape {
+                    expect(pool.count == CatArrangement.all.count, "every arrangement fits the capsule at \(width) (\(idiom)): \(pool)")
+                }
+                if idiom == .phoneLandscape {
+                    expect(pool == ["ends", "left", "right"], "a landscape phone has room for the peeking poses only: \(pool)")
+                }
+            }
+        }
+        expect(placed > 300, "\(placed) placements checked")
+        // All four poses appear in the list.
+        let poses = Set(CatArrangement.all.flatMap { $0.seats.map(\.pose) })
+        expect(poses == Set(CatPose.allCases) && CatArrangement.all.count == 9, "nine arrangements use the four poses")
+        // Without the cats there is no light band and nothing to place.
+        expect(CandidateRegionLayout(width: 393, idiom: .phone, cats: false).lightBand == 0, "no light band without the cats")
     }
 
     /// An iPad's floating keyboard is 320 pt wide: phone layout, not iPad sizes.
@@ -95,19 +171,18 @@ struct KeyboardGeometryTests {
         let phone = CandidateRegionLayout(width: 393, idiom: .phone)
         expect(phone.scale == 1 && phone.height == 82, "phone region is 82 pt")
         expect(phone.glass.height == 46 && phone.glass.maxY == 80, "glass is 46 pt, 2 pt above the keys")
-        expect(phone.mimimo.height == 62 && phone.mimimo.minX == 2, "米米莫 is 62 pt at the left edge")
-        expect(phone.momo.height == 54 && abs(phone.momo.maxX - 389) < 0.001, "莫莫 is 54 pt, 4 pt from the right edge")
-        expect(phone.tail.height == 28 && abs(phone.tail.maxY - 81) < 0.001, "tail is 28 pt and ends 1 pt below the glass")
+        expect(abs(phone.glass.minX - 15.5929) < 0.0001 && abs(phone.glass.maxX - 387) < 0.0001, "glass from 15.6 pt to 6 pt before the right edge")
         expect(phone.fontSize == 20 && phone.pillHeight == 32, "20 pt candidates in a 32 pt capsule")
-        // His eyes rest on the glass's upper rim; her eye line is 1 pt above it.
-        expect(abs(phone.mimimo.minY + 62 * CandidateRegionLayout.mimimoEyeBottom - phone.glass.minY) < 0.001, "米米莫's eyes sit on the rim")
-        expect(abs(phone.momo.minY + 54 * CandidateRegionLayout.momoEyeLine - (phone.glass.minY - 1)) < 0.001, "莫莫's eye line is just above the rim")
+        // The cats get the 34 pt above the glass, less 1.5 pt.
+        let stage = phone.stage(shape: .capsule)
+        expect(stage.room == 32.5 && stage.unit == 1 && stage.glass == phone.glass, "32.5 pt for a cat on the top edge")
+        let peek = CatArrangement.named("ends")!.place(on: stage)!
+        expect(abs(peek[0].frame.width - 43.25) < 0.01 && abs(peek[0].anchor.y - 34) < 0.5 && peek[0].anchor.x < 60 && peek[1].anchor.x > 330,
+               "the peeking cats are 43 pt sprites with their paws on the glass's top edge, one at each end")
         let landscape = CandidateRegionLayout(width: 800, idiom: .phoneLandscape)
-        expect(landscape.height == 63 && landscape.glass.height == 36 && landscape.mimimo.height == 46 && landscape.momo.height == 40,
-               "landscape phone numbers")
+        expect(landscape.height == 63 && landscape.glass.height == 36, "landscape phone numbers")
         let pad = CandidateRegionLayout(width: 820, idiom: .pad)
-        expect(pad.height == 94 && pad.glass.height == 53 && pad.mimimo.height == 71 && pad.momo.height == 62 && pad.fontSize == 21,
-               "iPad numbers")
+        expect(pad.height == 94 && pad.glass.height == 53 && pad.fontSize == 21, "iPad numbers")
         let keys = KeyMetrics(idiom: .phone, width: 393, rows: 4)
         expect(keys.sideMargin == 3 && keys.keyGap == 6 && keys.keyHeight == 42 && keys.rowGap == 11 && keys.cornerRadius == 8.5
                && keys.letterFont == 23, "phone key metrics")
@@ -123,25 +198,16 @@ struct KeyboardGeometryTests {
             let bounds = CGRect(x: 0, y: 0, width: width, height: layout.height)
             expect(layout.height == layout.height.rounded(), "whole-point height at \(width)")
             expect(bounds.contains(layout.glass), "glass inside the region at \(width)")
-            expect(layout.mimimo.minY >= -0.5 && layout.mimimo.minX >= 0, "米米莫's ears are not cut off at \(width)")
-            expect(layout.momo.minY >= -0.5 && layout.momo.maxX <= width, "莫莫 is not cut off at \(width)")
-            expect(layout.mimimo.minX < layout.glass.minX && layout.glass.minX < layout.mimimo.maxX, "the glass covers part of 米米莫 at \(width)")
-            expect(layout.momo.maxX >= layout.glass.maxX && layout.momo.minX < layout.glass.maxX, "莫莫 rests on the right end at \(width)")
-            // Row, expand key and 莫莫 from left to right, without overlap.
+            // Row and expand key from left to right, without overlap.
             expect(layout.row.minX >= layout.glass.minX && layout.row.maxX <= layout.chevron.minX + 0.001, "row ends at the expand key at \(width)")
             expect(layout.chevron.maxX <= layout.glass.maxX, "expand key is on the glass at \(width)")
             expect(layout.chevron.width >= 30 && layout.chevron.height >= 36, "expand key is large enough to tap at \(width)")
-            expect(layout.row.minX < layout.mimimo.maxX - 12 * layout.scale && layout.row.width >= width * 0.7,
-                   "candidates start over 米米莫 and get the glass's inner width at \(width) (\(layout.row.width))")
+            expect(layout.row.width >= width * 0.7, "candidates get the glass's inner width at \(width) (\(layout.row.width))")
             expect(layout.pillHeight <= layout.glass.height - 8, "the selected capsule fits inside the glass at \(width)")
             expect(layout.maximumCandidateWidth == max(60, layout.row.width * 0.70), "one candidate takes at most 70 % of the row")
-            // The tail starts at his body and stays inside the left part of the glass.
-            expect(layout.tail.minX >= layout.mimimo.minX && layout.tail.maxX < layout.glass.minX + layout.glass.width * 0.45,
-                   "tail ends in the left part of the glass at \(width)")
-            expect(layout.tail.maxY <= layout.height + 4, "tail stays above the keys at \(width)")
 
             let plain = CandidateRegionLayout(width: width, idiom: idiom, cats: false)
-            expect(plain.height < layout.height && plain.mimimo == .zero && plain.momo == .zero, "without cats the region is lower")
+            expect(plain.height < layout.height && !plain.cats, "without cats the region is lower")
             expect(plain.row.maxX <= plain.chevron.minX + 0.001 && plain.chevron.maxX <= plain.glass.maxX, "plain row and expand key fit")
         }
         // Scale follows the width between the limits.

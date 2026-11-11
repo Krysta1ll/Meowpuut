@@ -20,6 +20,8 @@ struct CandidateBarPreview: View {
     var palette: CandidatePalette
     var strength: GlassStrength
     var cats: Bool
+    /// "daily" or an arrangement's id, as in the keyboard's settings.
+    var placement: String
     var simplified: Bool
 
     private var candidates: [String] { simplified ? ["你好", "你好呀", "您好"] : ["你好", "妳好", "你好呀"] }
@@ -38,19 +40,16 @@ struct CandidateBarPreview: View {
         let keyWidth = (width - 6 - 9 * 6) / 10
         let band = CandidateGlassShape.contentBand(shape, height: layout.glass.height)
         let accessible = reduceTransparency || contrast == .increased
+        // The arrangement the keyboard shows today on a bar of this width.
+        let today = cats ? CatSchedule.arrangement(setting: placement, day: CatSchedule.day(), on: layout.stage(shape: shape)) : nil
         return ZStack(alignment: .topLeading) {
-            if cats {
-                Image("mimimo_open").resizable().interpolation(.high)
-                    .frame(width: layout.mimimo.width, height: layout.mimimo.height)
-                    .position(x: layout.mimimo.midX, y: layout.mimimo.midY)
-            }
             LiquidGlassBar(style: shape, dark: dark, accessible: accessible, strength: strength,
                            tint: palette.color(dark: dark))
                 .frame(width: layout.glass.width, height: layout.glass.height)
                 .position(x: layout.glass.midX, y: layout.glass.midY)
             if cats && !accessible && !dark {
-                // The keyboard's light band over 米米莫's body (CandidateRegionView).
-                let span = layout.mimimo.maxX + 10 * layout.scale - layout.row.minX
+                // The keyboard's light band at the start of the row (CandidateRegionView).
+                let span = layout.lightBand
                 Capsule().fill(Color.white.opacity(0.5))
                     .frame(width: span, height: layout.pillHeight)
                     .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.6),
@@ -82,23 +81,9 @@ struct CandidateBarPreview: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(CandidateInk.text(dark: dark).opacity(0.85))
                 .position(x: layout.chevron.midX, y: layout.chevron.midY)
-            if cats && shape == .capsule {
-                Image("mimimo_tail").resizable().interpolation(.high)
-                    .frame(width: layout.tail.width, height: layout.tail.height)
-                    .position(x: layout.tail.midX, y: layout.tail.midY)
-            }
-            if cats && !accessible {
-                // The same soft shadow under her chin as in the keyboard.
-                Ellipse()
-                    .fill(Color(red: 0.25, green: 0.16, blue: 0.12).opacity(dark ? 0.35 : 0.16))
-                    .frame(width: layout.momo.width * 0.62, height: layout.momo.height * 0.16)
-                    .blur(radius: 4)
-                    .position(x: layout.momo.midX - layout.momo.width * 0.04, y: layout.momo.maxY - layout.momo.height * 0.06)
-            }
-            if cats {
-                Image("momo_open").resizable().interpolation(.high)
-                    .frame(width: layout.momo.width, height: layout.momo.height)
-                    .position(x: layout.momo.midX, y: layout.momo.midY)
+            if let today {
+                CatFigures(places: today.places, size: CGSize(width: layout.width, height: layout.height), glass: layout.glass,
+                           shape: shape, dark: dark, shadows: !accessible) { Image($0.name) }
             }
             // One row of keys under the glass.
             HStack(spacing: 6) {
