@@ -8,7 +8,7 @@
 - 原始按鍵、預期文字、實際候選及選取後結果。
 - 如有截圖，先遮掉私人內容。
 
-詞庫新增與修訂請放在 Resources/Lexicon/chinese.tsv；日語在 japanese.tsv，表情關聯在 associations.json。請提供讀音與使用例，勿複製沒有明確授權的商業詞庫。修改後執行 build.sh 和 --smoke，為排序問題留下能重現的測試。
+詞庫新增與修訂請放在 Resources/Lexicon/chinese.tsv；日語在 japanese.tsv，表情符號在 emoji.tsv，顏文字在 kaomoji.tsv（改完執行 scripts/build-emoji-associations.py，它會產生 associations.json）。請提供讀音與使用例，勿複製沒有明確授權的商業詞庫。修改後執行 build.sh 和 --smoke，為排序問題留下能重現的測試。
 
 Core 是 C++17 中文核心；Sources 是共享輸入邏輯與 macOS 介面；iOS 是平台鍵盤接入。避免把 AppKit 或 UIKit 依賴帶入 Core。
 
