@@ -1,5 +1,5 @@
 # Chinese zhuyin candidates of the core. Written by scripts/check-chinese-golden.py --write.
-# mimo_base.bin sha256 5bb5d1df1c352672ce8d1cdc9088e67e758dd2c934ff10c812de56cb978ebbfd
+# mimo_base.bin sha256 758d8e1987f7ad650237dd99938a0453dff70144b723bccacfe5b3e5763b3027
 # script, typed keys, candidate count, first 5 candidates
 s	ㄅ	28	不	把	被	吧	帮
 s	ㄅㄚ	78	把	吧	爸	八	巴

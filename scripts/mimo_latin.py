@@ -37,6 +37,7 @@ MIN_COUNT = 5       # weighted count a word needs to be kept
 # Short keys meet pinyin letters often (zh, len): two letters need 100, three need 30.
 MIN_SHORT = {2: 100, 3: 30}
 LIMIT = 12000       # words kept, most frequent first
+HAND_COUNT = 150    # weighted count given to a word of the hand list
 LOWER_COMMON = 0.2  # lower-case uses per capitalised use, anywhere in lines with Han
 LOWER_MIN = 20      # and at least this many lower-case uses (Eason, Plurk keep their capital)
 HAN = re.compile(r"[㐀-䶿一-鿿]")
@@ -104,7 +105,10 @@ def count_file(job):
 
 
 def count(text_dirs, jobs):
-    work = list(sources().items())
+    # Only sentences people wrote as text: the project's own, Tatoeba and Common Voice. The task
+    # dialogues are left out: MASSIVE is voice commands in lower case (alexa, iphone, google), and
+    # the English in CrossWOZ and KdConv is mostly names of hotels, songs and awards.
+    work = [(name, src) for name, src in sources().items() if src["kind"] in ("lines", "tatoeba")]
     for d in text_dirs:
         work += [(f"text:{p.name}", {"path": str(p.resolve()), "kind": "lines"}) for p in sorted(Path(d).glob("*.txt"))]
     forms = defaultdict(Counter)
@@ -132,6 +136,14 @@ def count(text_dirs, jobs):
         elif best[1:].islower() and anywhere[key] >= max(LOWER_MIN, LOWER_COMMON * anywhere[best.replace("-", "")]):
             best = best.lower()
         rows.append((total, key, best))
+    # The hand list (Resources/Lexicon/latin.tsv): names and abbreviations in their usual spelling,
+    # present even when the counted text lacks them, at HAND_COUNT or their own count if higher.
+    listed = {key: (total, best) for total, key, best in rows}
+    for line in (ROOT / "Resources/Lexicon/latin.tsv").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            key = line.replace("-", "").lower()
+            listed[key] = (max(listed.get(key, (0, ""))[0], HAND_COUNT), line)
+    rows = [(total, key, best) for key, (total, best) in listed.items()]
     rows.sort(key=lambda r: (-r[0], r[1]))
     rows = rows[:LIMIT]
     DATA.mkdir(parents=True, exist_ok=True)

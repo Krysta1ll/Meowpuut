@@ -9,7 +9,7 @@
     "latin.tsv": "fec578b6654f50b0476c6292786a95d36744bdf00f4593c469540c9625052b7e"
   },
   "counts": {
-    "words_kept": 1948,
+    "words_kept": 1675,
     "min_weighted_count": 5,
     "min_short": {
       "2": 100,
@@ -19,24 +19,10 @@
     "latin_tokens_per_source": {
       "commonvoice-zh-CN": 2,
       "commonvoice-zh-TW": 6,
-      "crosswoz-test": 231,
-      "crosswoz-train": 2162,
-      "crosswoz-val": 216,
       "everyday": 573,
       "everyday-chat-2": 214,
       "everyday-mixed-2": 8501,
       "everyday-written-2": 431,
-      "kdconv-film-dev": 41,
-      "kdconv-film-test": 54,
-      "kdconv-film-train": 362,
-      "kdconv-music-dev": 128,
-      "kdconv-music-test": 108,
-      "kdconv-music-train": 827,
-      "kdconv-travel-dev": 4,
-      "kdconv-travel-test": 8,
-      "kdconv-travel-train": 65,
-      "massive-zh-CN": 329,
-      "massive-zh-TW": 1578,
       "tatoeba": 1424
     }
   }

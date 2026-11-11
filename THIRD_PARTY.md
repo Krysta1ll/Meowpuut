@@ -54,7 +54,7 @@
 
 ## 5a. mimo-latin 中文裡的英文詞
 
-- 詞表：`DataSources/mimo-latin/latin.tsv`，由 `scripts/mimo_latin.py` 從第 5 節的同一批文字數出緊鄰漢字的英文詞與最常見的大小寫；大部分來自本專案自寫的「中文夾英文」句子（`mixed-2.txt.xz`）。建置時加入 `mimo_base.bin` 的拼音詞表。來源與授權同第 5 節，見 `DataSources/mimo-latin/SOURCE.json`。
+- 詞表：`DataSources/mimo-latin/latin.tsv`，由 `scripts/mimo_latin.py` 數出緊鄰漢字的英文詞與最常見的大小寫。只數人寫成文字的句子：本專案自寫的句子（主要是「中文夾英文」的 `mixed-2.txt.xz`）、Tatoeba 與 Common Voice；三份對話資料不數（語音指令全是小寫，另兩份的英文多半是旅館和歌曲名）。另外併入手寫的常用英文名稱與縮寫（`Resources/Lexicon/latin.tsv`，本專案自行編寫），拼法以它為準。建置時加入 `mimo_base.bin` 的拼音詞表。見 `DataSources/mimo-latin/SOURCE.json`。
 - 隨附授權聲明：`Licenses/mimo-latin-SOURCE.json`。
 
 ## 5b. mimo-phrases 常單獨說的短語
