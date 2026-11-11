@@ -2,9 +2,11 @@ import AppKit
 import ImageIO
 import UniformTypeIdentifiers
 
+// The icon art (assets/brand/AppIcon.png, a full square: the two cats' heads close up) sits next to
+// the mark that is passed in.
 let markURL = URL(fileURLWithPath: CommandLine.arguments[1])
-guard let mark = NSImage(contentsOf: markURL) else {
-    fputs("無法讀取 Meowpuut 標誌\n", stderr)
+guard let art = NSImage(contentsOf: markURL.deletingLastPathComponent().appendingPathComponent("AppIcon.png")) else {
+    fputs("無法讀取 Meowpuut 圖示\n", stderr)
     exit(1)
 }
 
@@ -18,12 +20,26 @@ func renderIcon(pixels: Int, rounded: Bool) throws -> Data {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
     NSGraphicsContext.current?.imageInterpolation = .high
-    NSColor(srgbRed: 0.93, green: 0.89, blue: 0.85, alpha: 1).setFill()
-    // macOS thumbnails keep the two cats as the silhouette, without a square tile.
-    // iOS still requires an opaque full-square source icon.
-    if !rounded { rect.fill() }
-    let inset = CGFloat(pixels) * 0.08
-    mark.draw(in: rect.insetBy(dx: inset, dy: inset), from: .zero, operation: .sourceOver, fraction: 1)
+    if rounded {
+        // macOS: the art inside the system's rounded tile (824 of 1024 points), with a soft shadow.
+        // iOS takes the full opaque square and rounds it itself.
+        let side = CGFloat(pixels) * 824 / 1024
+        let tile = NSRect(x: (CGFloat(pixels) - side) / 2, y: (CGFloat(pixels) - side) / 2, width: side, height: side)
+        let shape = NSBezierPath(roundedRect: tile, xRadius: side * 0.225, yRadius: side * 0.225)
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.28)
+        shadow.shadowBlurRadius = CGFloat(pixels) * 0.022
+        shadow.shadowOffset = NSSize(width: 0, height: -CGFloat(pixels) * 0.012)
+        shadow.set()
+        NSColor.white.setFill()
+        shape.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        shape.addClip()
+        art.draw(in: tile, from: .zero, operation: .sourceOver, fraction: 1)
+    } else {
+        art.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+    }
     NSGraphicsContext.restoreGraphicsState()
     let data = NSMutableData()
     guard let image = context.makeImage(),
