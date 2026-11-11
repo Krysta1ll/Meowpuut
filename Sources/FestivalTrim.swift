@@ -41,12 +41,17 @@ struct FestivalTrimView: View {
     var trim: FestivalTheme.Trim
     var glass: CGRect
     var shape: GlassShape
+    /// Where the trim must not compete with the bar's own content, such as
+    /// the expand arrow or a candidate that falls outside the trim's text
+    /// area: the trim fades out there, with a soft edge.
+    var clear: [CGRect] = []
     var image: CGImage?
 
-    init(trim: FestivalTheme.Trim, glass: CGRect, shape: GlassShape, image: CGImage? = nil) {
+    init(trim: FestivalTheme.Trim, glass: CGRect, shape: GlassShape, clear: [CGRect] = [], image: CGImage? = nil) {
         self.trim = trim
         self.glass = glass
         self.shape = shape
+        self.clear = clear
         self.image = image ?? FestivalArt.image(trim.image)
     }
 
@@ -62,6 +67,25 @@ struct FestivalTrimView: View {
                 let destination = CGRect(x: layout.frame.minX + slice.destination.minX * layout.scale, y: layout.frame.minY,
                                          width: slice.destination.width * layout.scale, height: layout.frame.height)
                 context.draw(Image(decorative: piece, scale: 1), in: destination)
+            }
+            // Without the middle, each end's piece of straight rim fades out
+            // towards the centre instead of stopping at a cut.
+            context.blendMode = .destinationOut
+            if !layout.middle {
+                for (cap, leftEnd) in [(trim.caps.left, true), (trim.caps.right, false)] {
+                    let fade = cap * 0.45 * layout.scale
+                    let edge = leftEnd ? layout.frame.minX + cap * layout.scale : layout.frame.maxX - cap * layout.scale
+                    let rect = CGRect(x: leftEnd ? edge - fade : edge, y: layout.frame.minY, width: fade, height: layout.frame.height)
+                    context.fill(Path(rect), with: .linearGradient(Gradient(colors: [.clear, .black]),
+                                                                    startPoint: CGPoint(x: leftEnd ? rect.minX : rect.maxX, y: 0),
+                                                                    endPoint: CGPoint(x: leftEnd ? rect.maxX : rect.minX, y: 0)))
+                }
+            }
+            for rect in clear where !layout.textArea.contains(rect) {
+                context.drawLayer { layer in
+                    layer.addFilter(.blur(radius: 5))
+                    layer.fill(Path(roundedRect: rect.insetBy(dx: -2, dy: -2), cornerRadius: 8), with: .color(.black.opacity(0.85)))
+                }
             }
         }
         .allowsHitTesting(false)
