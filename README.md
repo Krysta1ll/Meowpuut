@@ -75,7 +75,7 @@ iOS 鍵盤的按鍵也是玻璃，同樣跟著配色。iOS 26 起用系統的液
 | 平台 | 目前提供 |
 | --- | --- |
 | macOS 27+，Apple silicon | **0.6.0 Alpha 1** 安裝盤與安裝套件 |
-| iOS／iPadOS 17+ | 0.6.0（7）TestFlight 測試版（宿主 App 與鍵盤擴充），原始碼見 `iOS/`。iOS 17、18 上的樣式還沒有在實機上跑過 |
+| iOS／iPadOS 17+ | 0.7.0（8）TestFlight 測試版（宿主 App 與鍵盤擴充），原始碼見 `iOS/`。iOS 17、18 上的樣式還沒有在實機上跑過 |
 | Android 7.0+ | [0.1.0 Alpha APK](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-v0.1.0-alpha) |
 | Windows 10／11 x64 | [0.1.1 Alpha](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.1-alpha)，拼音；尚未在 Windows 上實際驗證 |
 | Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |

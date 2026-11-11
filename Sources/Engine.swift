@@ -389,9 +389,12 @@ final class Engine: ObservableObject {
         }
         // One emoji of the word just typed comes first (生日快樂 🎂); a second emoji and one
         // kaomoji come after the third word that may follow, so the next words stay in reach.
+        // After a single character (有, 上, typed one by one) nothing leads: 🈶 or 👆 in the
+        // first cell would only push the next words away.
         predictionSymbols = Symbols.after(clean, japanese: inputMode == .japanese)
-        var merged = predictionSymbols.map { Array($0.emoji.prefix(1)) } ?? []
-        let later = predictionSymbols.map { Array($0.emoji.dropFirst().prefix(1) + $0.kaomoji.prefix(1)) } ?? []
+        let leading = clean.count > 1 ? 1 : 0
+        var merged = predictionSymbols.map { Array($0.emoji.prefix(leading)) } ?? []
+        let later = predictionSymbols.map { Array($0.emoji.dropFirst(leading).prefix(2 - leading) + $0.kaomoji.prefix(1)) } ?? []
         let lead = merged.count
         let limit = 8 + lead + later.count
         if inputMode != .japanese,
