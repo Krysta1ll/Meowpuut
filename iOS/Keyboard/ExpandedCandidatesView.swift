@@ -41,21 +41,44 @@ struct PlainScrollEdges: ViewModifier {
     }
 }
 
+
+/// The panel under the bar: every candidate of the reading being typed, or,
+/// when the ^_^ list is open and nothing is being typed, the kaomoji by group.
 struct ExpandedCandidatesView: View {
     @ObservedObject var engine: Engine
     @ObservedObject var ui: KeyboardUIState
     @ObservedObject var preferences = Preferences.shared
     let actions: KeyboardActions
 
+    private enum Filter { case all, phrases, symbols }
+    /// One cell of the grid. A kaomoji from the ^_^ list has no candidate.
+    private struct Entry {
+        var text: String
+        var candidate: IndexedCandidate? = nil
+        var japanese = false
+        var selected = false
+        var spoken: String
+    }
+
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
-    @State private var phrasesOnly = false
+    @State private var filter = Filter.all
     @State private var pool: [IndexedCandidate] = []
     @State private var deleter: RepeatDeleteDriver?
+    /// The kaomoji group shown, as an index into `kaomojiGroups`.
+    @State private var group = 0
 
     private var t: InterfaceText { InterfaceText(simplified: preferences.simplified) }
     private var dark: Bool { ui.dark }
     private var accent: Color { preferences.candidatePalette.color(dark: dark) }
+    private var kaomojiList: Bool { ui.kaomojiOpen && engine.snapshot.preedit.isEmpty }
+    /// The paw mark belongs to Chinese typing; in Japanese mode every candidate is Japanese.
+    private var japanese: Set<String> { engine.inputMode == .japanese ? [] : Set(engine.snapshot.japaneseCandidates) }
+
+    /// Emoji and kaomoji of the first candidate (sources -7 and -8, and -1 when it is not a kana spelling).
+    private func isSymbol(_ candidate: IndexedCandidate) -> Bool {
+        candidate.source == -7 || candidate.source == -8 || (candidate.source == -1 && !japanese.contains(candidate.text))
+    }
 
     /// The bar's first page first, in the bar's order, so the panel reads
     /// on from what the bar showed.
@@ -63,13 +86,39 @@ struct ExpandedCandidatesView: View {
         var byIndex: [Int: IndexedCandidate] = [:]
         for candidate in pool where byIndex[candidate.index] == nil { byIndex[candidate.index] = candidate }
         let ordered = ExpandedGridLayout.order(pool: pool.map(\.index), lead: engine.candidateOrder).compactMap { byIndex[$0] }
-        return phrasesOnly ? ordered.filter { $0.text.count > 1 && $0.text.lowercased() != engine.snapshot.input.lowercased() } : ordered
+        switch filter {
+        case .all: return ordered
+        case .phrases: return ordered.filter { $0.text.count > 1 && !isSymbol($0) && $0.text.lowercased() != engine.snapshot.input.lowercased() }
+        case .symbols: return ordered.filter(isSymbol)
+        }
     }
 
     /// The candidate the bar had selected; Return and closing the keyboard commit it.
     private var selectedIndex: Int? {
         let order = engine.candidateOrder, highlighted = engine.snapshot.highlighted
         return order.indices.contains(highlighted) ? order[highlighted] : nil
+    }
+
+    /// What the bar shows (recent ones, then the first of every group), then the groups of the list.
+    private var kaomojiGroups: [(title: String, items: [String])] {
+        [(title: t("常用", "常用"), items: ui.kaomojiRow)]
+            + Kaomoji.groups.map { (title: preferences.simplified ? $0.simplifiedName : $0.name, items: $0.items) }
+    }
+
+    private var entries: [Entry] {
+        if kaomojiList {
+            let groups = kaomojiGroups
+            guard groups.indices.contains(group) else { return [] }
+            return groups[group].items.enumerated().map { index, text in
+                Entry(text: text, spoken: (Kaomoji.spokenName(text, simplified: preferences.simplified) ?? text) + " \(index + 1)")
+            }
+        }
+        let selected = selectedIndex, japanese = japanese
+        return shown.map {
+            Entry(text: $0.text, candidate: $0, japanese: japanese.contains($0.text), selected: $0.index == selected,
+                  spoken: Kaomoji.spokenName($0.text, simplified: preferences.simplified)
+                      ?? $0.text + (japanese.contains($0.text) ? t("，日語", "，日语") : ""))
+        }
     }
 
     var body: some View {
@@ -79,26 +128,15 @@ struct ExpandedCandidatesView: View {
             let columns = ExpandedGridLayout.columns(gridWidth: gridWidth, phone: ui.region.idiom == .phone)
             let columnWidth = gridWidth / CGFloat(columns)
             let font = ui.region.fontSize
-            let items = shown
-            let selected = selectedIndex
-            // The paw mark belongs to Chinese typing; in Japanese mode every candidate is Japanese.
-            let japanese = engine.inputMode == .japanese ? Set<String>() : Set(engine.snapshot.japaneseCandidates)
+            let items = entries
             let paw = CandidateTextMetrics.paw(size: font)
             let rows = ExpandedGridLayout.rows(widths: items.map {
-                ExpandedGridLayout.cellWidth(text: CandidateTextMetrics.width($0.text, size: font),
-                                             japanese: japanese.contains($0.text), paw: paw)
+                ExpandedGridLayout.cellWidth(text: CandidateTextMetrics.width($0.text, size: font), japanese: $0.japanese, paw: paw)
             }, columnWidth: columnWidth, columns: columns)
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    HStack(spacing: 4) {
-                        filter(t("全部", "全部"), phrases: false)
-                        filter(t("詞組", "词组"), phrases: true)
-                        Spacer(minLength: 0)
-                        Text("\(items.count)")
-                            .font(.system(size: 12).monospacedDigit())
-                            .foregroundStyle(CandidateInk.secondary(dark: dark))
-                            .padding(.trailing, 6)
-                            .accessibilityLabel(t("候選數量 \(items.count)", "候选数量 \(items.count)"))
+                    Group {
+                        if kaomojiList { groupBar } else { filterBar(count: items.count) }
                     }
                     .frame(height: 36)
                     ScrollView {
@@ -106,8 +144,7 @@ struct ExpandedCandidatesView: View {
                             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                                 HStack(spacing: 0) {
                                     ForEach(row, id: \.index) { cell in
-                                        cellView(items[cell.index], first: items[cell.index].index == selected,
-                                                 japanese: japanese.contains(items[cell.index].text), font: font)
+                                        cellView(items[cell.index], font: font)
                                             .frame(width: columnWidth * CGFloat(cell.columns))
                                     }
                                 }
@@ -116,10 +153,10 @@ struct ExpandedCandidatesView: View {
                     }
                     .scrollIndicators(.visible)
                     .modifier(PlainScrollEdges())
-                    .id("\(engine.snapshot.input)|\(phrasesOnly)|\(preferences.simplified)")
+                    .id(kaomojiList ? "kaomoji|\(group)" : "\(engine.snapshot.input)|\(filter)|\(preferences.simplified)")
                     .overlay {
                         if items.isEmpty {
-                            Text(phrasesOnly ? t("沒有詞組", "没有词组") : t("沒有候選", "没有候选"))
+                            Text(filter == .phrases ? t("沒有詞組", "没有词组") : t("沒有候選", "没有候选"))
                                 .font(.system(size: 15)).foregroundStyle(CandidateInk.secondary(dark: dark))
                         }
                     }
@@ -143,32 +180,67 @@ struct ExpandedCandidatesView: View {
             }
         }
         .onAppear { pool = actions.pool() }
-        .onChange(of: engine.snapshot.input) { _, _ in pool = actions.pool() }
+        .onChange(of: engine.snapshot.input) { _, _ in
+            pool = actions.pool()
+            if filter == .symbols, !pool.contains(where: isSymbol) { filter = .all }
+        }
         // 莫莫 can switch the script while the reading stays: the pool is rebuilt.
         .onChange(of: preferences.simplified) { _, _ in pool = actions.pool() }
         .onDisappear { deleter?.stop() }
     }
 
-    private func cellView(_ candidate: IndexedCandidate, first: Bool, japanese: Bool, font: CGFloat) -> some View {
+    private func filterBar(count: Int) -> some View {
+        HStack(spacing: 4) {
+            chip(t("全部", "全部"), selected: filter == .all) { filter = .all }
+            chip(t("詞組", "词组"), selected: filter == .phrases) { filter = .phrases }
+            // Emoji and kaomoji of the first candidate, when it has any.
+            if pool.contains(where: isSymbol) {
+                chip(t("表情", "表情"), selected: filter == .symbols) { filter = .symbols }
+            }
+            Spacer(minLength: 0)
+            Text("\(count)")
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(CandidateInk.secondary(dark: dark))
+                .padding(.trailing, 6)
+                .accessibilityLabel(t("候選數量 \(count)", "候选数量 \(count)"))
+        }
+    }
+
+    /// The kaomoji groups, in one row that scrolls sideways.
+    private var groupBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(Array(kaomojiGroups.enumerated()), id: \.offset) { index, item in
+                    chip(item.title, selected: group == index) { group = index }
+                }
+            }
+        }
+        .modifier(PlainScrollEdges())
+    }
+
+    private func cellView(_ entry: Entry, font: CGFloat) -> some View {
         Button {
             KeyboardFeedback.keyDown()
-            actions.choosePool(candidate)
+            if let candidate = entry.candidate { actions.choosePool(candidate) } else { actions.insertKaomoji(entry.text) }
         } label: {
             HStack(spacing: 3) {
-                Text(candidate.text)
-                    .font(.system(size: font, weight: first ? .medium : .regular))
+                Text(entry.text)
+                    .font(.system(size: font, weight: entry.selected ? .medium : .regular))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if japanese {
+                    // A kaomoji is drawn with fallback fonts and can come out wider
+                    // than measured: it is drawn a little smaller, never cut.
+                    .minimumScaleFactor(Kaomoji.contains(entry.text) ? 0.7 : 1)
+                if entry.japanese {
                     Image(systemName: "pawprint.fill").font(.system(size: (font * 0.45).rounded()))
                         .rotationEffect(.degrees(-20)).opacity(0.6)
                 }
             }
-            .foregroundStyle(first ? Color.white : CandidateInk.text(dark: dark))
+            .foregroundStyle(entry.selected ? Color.white : CandidateInk.text(dark: dark))
             .padding(.horizontal, 4)
             .frame(maxWidth: .infinity, minHeight: 44)
             .background {
-                if first {
+                if entry.selected {
                     CandidatePill(palette: preferences.candidatePalette, dark: dark, highContrast: contrast == .increased,
                                   festival: ui.outfit?.pillTint)
                         .padding(.vertical, 5).padding(.horizontal, 2)
@@ -177,25 +249,25 @@ struct ExpandedCandidatesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(CandidatePressStyle(tint: accent, dark: dark))
-        .accessibilityLabel(candidate.text + (japanese ? t("，日語", "，日语") : ""))
-        .accessibilityAddTraits(first ? .isSelected : [])
+        .accessibilityLabel(entry.spoken)
+        .accessibilityAddTraits(entry.selected ? .isSelected : [])
     }
 
-    private func filter(_ title: String, phrases: Bool) -> some View {
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button {
             KeyboardFeedback.keyDown()
-            phrasesOnly = phrases
+            action()
         } label: {
             Text(title)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(phrasesOnly == phrases ? CandidateInk.text(dark: dark) : CandidateInk.secondary(dark: dark))
+                .foregroundStyle(selected ? CandidateInk.text(dark: dark) : CandidateInk.secondary(dark: dark))
                 .padding(.horizontal, 12)
                 .frame(minWidth: 48, minHeight: 30)
-                .background { if phrasesOnly == phrases { Capsule().fill(accent.opacity(dark ? 0.26 : 0.16)) } }
+                .background { if selected { Capsule().fill(accent.opacity(dark ? 0.26 : 0.16)) } }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(phrasesOnly == phrases ? .isSelected : [])
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     // Holding delete here repeats, like the delete key.

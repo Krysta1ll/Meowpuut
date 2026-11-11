@@ -13,9 +13,9 @@ private func expect(_ condition: Bool, _ message: @autoclosure () -> String, lin
 
 private func context(_ mode: InputMode, english: Bool = false, page: Int = 0, shift: KeyboardKeyContext.Shift = .off,
                      simplified: Bool = false, globe: Bool = false, returnTitle: String = "換行",
-                     accent: Bool = false, enabled: Bool = true, spaceTitle: String = "空格") -> KeyboardKeyContext {
+                     accent: Bool = false, enabled: Bool = true, spaceTitle: String = "空格", kaomoji: Bool = false) -> KeyboardKeyContext {
     KeyboardKeyContext(mode: mode, english: english, page: page, shift: shift, simplified: simplified, needsGlobe: globe,
-                       spaceTitle: spaceTitle, returnTitle: returnTitle, returnAccent: accent, returnEnabled: enabled)
+                       spaceTitle: spaceTitle, returnTitle: returnTitle, returnAccent: accent, returnEnabled: enabled, kaomoji: kaomoji)
 }
 
 private func count(_ set: KeyboardKeySet, _ matches: (KeyboardKey.Action) -> Bool) -> Int {
@@ -142,6 +142,14 @@ struct KeyboardKeysTests {
         expect(KeyboardKeyBuilder.build(context(.zhuyin, page: 1)).rows[3].first?.accessibilityLabel == "注音"
                && japanese.rows[3].first?.accessibilityLabel == "假名" && english.rows[3].first?.accessibilityLabel == "字母",
                "and is spoken as that layout")
+        // The ^_^ key opens the kaomoji list: next to the layout key on both symbol pages
+        // of Chinese and Japanese, not in English, and lit while the list is open.
+        for set in [chinese, more, japanese, KeyboardKeyBuilder.build(context(.zhuyin, page: 2))] {
+            expect(set.rows[3][1].action == .kaomoji && set.rows[3][1].label == "^_^" && set.rows[3][1].style == .utility, "the ^_^ key")
+        }
+        expect(count(english) { $0 == .kaomoji } == 0 && !more.rows.joined().contains { $0.action == .text("^_^") }, "no ^_^ key in English, none that types ^_^")
+        let open = KeyboardKeyBuilder.build(context(.pinyin, page: 1, kaomoji: true)).rows[3][1]
+        expect(open.style == .accent && open.accessibilityLabel == "顏文字" && open.accessibilityValue == "開", "the ^_^ key is lit and says so")
         // Traditional quotes with 「」 and prices in $; Simplified keeps “” and ¥.
         let traditional = chinese.rows[1].map(\.label), simplified = KeyboardKeyBuilder.build(context(.pinyin, page: 1, simplified: true)).rows[1].map(\.label)
         expect(traditional == ["-", "/", "：", "；", "（", "）", "$", "@", "「", "」"], "Traditional symbol row")

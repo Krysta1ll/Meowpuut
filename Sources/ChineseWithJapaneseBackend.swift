@@ -5,11 +5,6 @@ import SQLite3
 // its original engine so the unconverted suffix is never silently discarded.
 final class ChineseWithJapaneseBackend: InputBackend {
     private struct Choice { let text: String; let source: Int; let index: Int; let metadata: CandidateMetadata? }
-    private static let associations: [String: [String]] = {
-        guard let url = Bundle.main.url(forResource: "associations", withExtension: "json"),
-              let data = try? Data(contentsOf: url), let values = try? JSONDecoder().decode([String: [String]].self, from: data) else { return [:] }
-        return values
-    }()
 
     private let engines: [InputBackend]
     private var raw = ""
@@ -28,12 +23,15 @@ final class ChineseWithJapaneseBackend: InputBackend {
     private var lateJapanese = Set<String>()
     private var englishContext = false
     private var segmentContext = ""
+    /// Emoji and kaomoji of the first candidate, as listed among the choices.
+    private var symbols: Symbols.Found?
     private var rememberedChoicesEnabled = Preferences.shared.rememberChoices
     private var memoryRevision = ChoiceMemory.shared.revision
 
     private let mode: InputMode
     private let literalSpaceAddsSpace: Bool
-    /// iOS: an emoji cell after the first candidate. macOS keeps its numbered list as it was.
+    /// iOS: an emoji cell after the first candidate and a kaomoji cell after the third.
+    /// macOS keeps its numbered list as it was, with the symbols after the words.
     private let emojiCell: Bool
     init(mode: InputMode, literalSpaceAddsSpace: Bool = true, emojiCell: Bool = true) throws {
         self.mode = mode
@@ -75,16 +73,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
         let choice = choices[index]
         return IndexedCandidate(index: index, text: choice.text, backendIndex: choice.index, source: choice.source, metadata: choice.metadata)
     }
-    func predict(context: String, limit: Int) -> [String] {
-        var results = engines[0].predict(context: context, limit: limit)
-        for suffixLen in [2, 1] where context.count >= suffixLen {
-            let suffix = String(context.suffix(suffixLen))
-            for symbol in (Self.associations[suffix] ?? []).prefix(2) where !results.contains(symbol) {
-                results.append(symbol)
-            }
-        }
-        return Array(results.prefix(max(0, limit)))
-    }
+    func predict(context: String, limit: Int) -> [String] { engines[0].predict(context: context, limit: limit) }
     func setSimplified(_ value: Bool) {
         guard simplified != value else { return }
         simplified = value
@@ -93,7 +82,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
     }
     func clear() {
         engines.forEach { $0.clear() }
-        raw = ""; state = Snapshot(); choices = []; locked = nil; englishContext = false; segmentContext = ""
+        raw = ""; state = Snapshot(); choices = []; locked = nil; englishContext = false; segmentContext = ""; symbols = nil
     }
     func commit() {
         if let locked { engines[locked].commit(); readLocked() }
@@ -117,6 +106,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
             return true
         }
         if choice.source < 0 {
+            if let symbols, symbols.all.contains(choice.text) { Symbols.remember(choice.text, for: symbols.word) }
             let committed = state.commit + choice.text
             clear(); state.commit = committed; return true
         }
@@ -424,9 +414,6 @@ final class ChineseWithJapaneseBackend: InputBackend {
         }
         for item in chinese.dropFirst(2).prefix(1) { append(item.text, source: chineseSource, index: item.index) }
         if !supplementFirst { for text in additions.prefix(7) { append(text, source: -3, index: 0) } }
-        if !literal, let first = chinese.first {
-            for symbol in (Self.associations[first.text] ?? []).prefix(2) { append(symbol, source: -1, index: 0) }
-        }
         for item in chinese.dropFirst(3) { append(item.text, source: chineseSource, index: item.index) }
         if japaneseReading {
             for item in pools[1].dropFirst() where !lateJapanese.contains(item.text) && !droppedJapanese.contains(item.text) {
@@ -449,8 +436,8 @@ final class ChineseWithJapaneseBackend: InputBackend {
             if strongTexts.contains(choice.text) { return 2 }
             // End of the list in pinyin: Chinese candidates (tier 3, with reviewed Japanese words),
             // then words of the large Japanese list, then late pure-kanji aliases (both tier 4, in
-            // that append order; symbols for the first candidate are tier 4 too), then the bare
-            // kana spelling (tier 5), then short letters as typed (tier 6).
+            // that append order), then the bare kana spelling (tier 5), then short letters as
+            // typed (tier 6). Emoji and kaomoji are put in before tier 5 further down.
             if choice.source == -4 { return 6 }
             if choice.source == -1 { return bareKana.contains(choice.text) ? 5 : 4 }
             if choice.source == 1, let rank = japaneseRank[choice.text], rank < 20000 { return 4 }
@@ -490,6 +477,14 @@ final class ChineseWithJapaneseBackend: InputBackend {
            }) {
             choices.insert(choices.remove(at: index), at: 0)
         }
+        // Emoji and kaomoji of the first candidate (開心 😊 (*´▽`*)) follow every word; only
+        // the bare kana and the letters as typed come later (source -1).
+        symbols = literal ? nil : choices.first.flatMap { Symbols.of($0.text, japanese: state.japaneseCandidates.contains($0.text)) }
+        if let symbols {
+            let listed = Set(choices.map(\.text))
+            choices.insert(contentsOf: symbols.all.filter { !listed.contains($0) }.map { Choice(text: $0, source: -1, index: 0, metadata: nil) },
+                           at: choices.firstIndex { tier($0) >= 5 } ?? choices.count)
+        }
         // One letter (a, I) is also an English word: the letter as typed stays
         // on the first page, ahead of the bare kana. The one exception to the
         // kana-before-letters order above.
@@ -498,12 +493,21 @@ final class ChineseWithJapaneseBackend: InputBackend {
             choices.removeAll { $0.source == -4 }
             choices.insert(contentsOf: rawChoices, at: min(6, choices.count))
         }
-        // The emoji for the first candidate (你好 👋) comes right after it, as on
-        // Apple's keyboard (source -7). It is never first, so space and Return keep the word.
-        if emojiCell, !literal, let first = choices.first,
-           let emoji = Self.associations[first.text]?.first(where: { $0.unicodeScalars.contains { $0.properties.isEmojiPresentation || $0.value == 0xFE0F } }) {
-            choices.removeAll { $0.text == emoji }
-            choices.insert(Choice(text: emoji, source: -7, index: 0, metadata: nil), at: 1)
+        // iOS: the first emoji comes right after the first candidate (你好 👋), as on Apple's
+        // keyboard (source -7), and the first kaomoji after the third word (source -8), so
+        // the words before it keep their places. Neither is ever first: space and Return
+        // keep the word. A single character gets no kaomoji cell: its row is where the
+        // other characters of the reading are picked (the kaomoji stay in the panel, and
+        // lead the row once the character is typed).
+        if emojiCell, let symbols {
+            if let emoji = symbols.emoji.first {
+                choices.removeAll { $0.text == emoji }
+                choices.insert(Choice(text: emoji, source: -7, index: 0, metadata: nil), at: 1)
+            }
+            if let kaomoji = symbols.kaomoji.first, symbols.word.count > 1 {
+                choices.removeAll { $0.text == kaomoji }
+                choices.insert(Choice(text: kaomoji, source: -8, index: 0, metadata: nil), at: min(choices.count, symbols.emoji.isEmpty ? 3 : 4))
+            }
         }
         if state.preedit.isEmpty { state.preedit = pinyinFirst ? raw : zhuyinText(raw) }
         showPage(0)

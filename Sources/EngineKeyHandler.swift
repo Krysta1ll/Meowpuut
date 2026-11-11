@@ -190,8 +190,12 @@ extension Engine {
     func choosePrediction(_ index: Int) -> String? {
         guard predictions.indices.contains(index) else { return nil }
         let chosen = predictions[index]
-        let nextContext = predictionContext + chosen
-        updatePredictions(context: nextContext)
+        // A tapped emoji or kaomoji is remembered for its word. The row stays, so another can follow.
+        if let symbols = predictionSymbols, symbols.all.contains(chosen) {
+            Symbols.remember(chosen, for: symbols.word)
+            return chosen
+        }
+        updatePredictions(context: predictionContext + chosen)
         return chosen
     }
 
@@ -261,6 +265,7 @@ func readingLabel(_ key: String) -> String {
     if key.hasPrefix("mix:") { return "自動 · " + key.dropFirst(4) }
     if key.hasPrefix("ja:") { return "日本語 · " + key.dropFirst(3) }
     if key.hasPrefix("py:") { return "拼音 · " + key.dropFirst(3) }
+    if key.hasPrefix("sym:") { return "表情 · " + key.dropFirst(4) }
     return (key.hasPrefix("s:") ? "简 · " : "繁 · ") + zhuyinText(String(key.dropFirst(2)))
 }
 
