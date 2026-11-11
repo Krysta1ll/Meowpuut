@@ -50,6 +50,7 @@ import functools
 import hashlib
 import heapq
 import html
+import io
 import json
 import lzma
 import math
@@ -59,6 +60,8 @@ import shutil
 import struct
 import subprocess
 import sys
+import tarfile
+import zipfile
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -282,6 +285,36 @@ def lines(path: Path):
         yield from f
 
 
+def dialogue_turns(path: Path, kind: str, member: str = ""):
+    """What people say in the task dialogues of CrossWOZ (a zip with one JSON file) and KdConv (JSON),
+    and the utterances of MASSIVE (JSON lines inside a tar.gz; `member` names the file)."""
+    if kind == "massive":
+        with tarfile.open(path) as archive:
+            for line in io.TextIOWrapper(archive.extractfile(member), encoding="utf-8"):
+                yield json.loads(line)["utt"]
+    elif kind == "crosswoz":
+        with zipfile.ZipFile(path) as archive:
+            for dialogue in json.load(archive.open(archive.namelist()[0])).values():
+                for turn in dialogue["messages"]:
+                    yield turn["content"]
+    else:
+        for dialogue in json.loads(path.read_text(encoding="utf-8")):
+            for turn in dialogue["messages"]:
+                yield turn["message"]
+
+
+def source_texts(src: dict, excluded_tatoeba_ids=frozenset()):
+    """The sentences (or, for a wiki, the articles) of one source of SOURCE.json."""
+    path = ROOT / src["path"] if "path" in src else CACHE / "dl" / src["cache"]
+    if src["kind"] == "wiki":
+        return wiki_pages(path)
+    if src["kind"] == "tatoeba":
+        return tatoeba_sentences(path, excluded_tatoeba_ids)
+    if src["kind"] in ("crosswoz", "kdconv", "massive"):
+        return dialogue_turns(path, src["kind"], src.get("member", ""))
+    return lines(path)
+
+
 def exclusions(files: list[str], to_simplified: dict):
     """Texts (simplified Han characters, 5 or more) and Tatoeba ids from test and held-out sets."""
     texts, ids = set(), set()
@@ -354,8 +387,19 @@ def merge_runs(runs):
     return codes, counts
 
 
-def count_source(name: str, lexicon_dir: str, exclude: list[str]):
-    lex = lexicon_from_dir(lexicon_dir)
+@functools.lru_cache(maxsize=None)
+def blocked_terms():
+    """Pattern of Resources/Lexicon/blocked-terms.txt: politics, words that put down a group, abuse."""
+    text = (ROOT / "Resources/Lexicon/blocked-terms.txt").read_text(encoding="utf-8")
+    terms = [term for line in text.splitlines() if not line.startswith("#") for term in line.split()]
+    return re.compile("|".join(sorted(map(re.escape, terms), key=len, reverse=True)))
+
+
+def clauses(name: str, lex: Lexicon, exclude: list[str], stats: Counter):
+    """Clauses of one source in simplified characters, each with its runs of Han characters.
+    Left out: clauses of the test and held-out sets (--exclude), and every sentence with a blocked
+    term (the whole line of a source of sentences, the clause in an article).
+    Returns the iterator and what was excluded."""
     src = sources()[name]
     texts, ids = exclusions(exclude, lex.to_simplified)
     head4 = {t[:4] for t in texts}
@@ -367,27 +411,39 @@ def count_source(name: str, lexicon_dir: str, exclude: list[str]):
                 return True
         return False
 
-    path = ROOT / src["path"] if "path" in src else CACHE / "dl" / src["cache"]
-    if src["kind"] == "wiki":
-        documents = wiki_pages(path)
-    elif src["kind"] == "tatoeba":
-        documents = tatoeba_sentences(path, ids)
-    else:
-        documents = lines(path)
+    documents = source_texts(src, ids)
+    blocked, sentences = blocked_terms(), src["kind"] != "wiki"
+
+    def walk():
+        for document in documents:
+            document = document.translate(lex.to_simplified)
+            if sentences and blocked.search(document):
+                stats["sentences_blocked"] += 1
+                continue
+            for segment in BOUNDARY.split(document):
+                runs = HAN_RUN.findall(segment)
+                han = "".join(runs)
+                if len(han) < 2:
+                    continue
+                if not sentences and blocked.search(han):
+                    stats["clauses_blocked"] += 1
+                    continue
+                stats["clauses"] += 1
+                if excluded(han):
+                    stats["clauses_excluded"] += 1
+                    continue
+                stats["characters"] += len(han)
+                yield segment, runs
+    return walk(), texts, ids
+
+
+def count_source(name: str, lexicon_dir: str, exclude: list[str]):
+    lex = lexicon_from_dir(lexicon_dir)
     counts = Counts(len(lex.forms))
     stats = Counter()
-    for document in documents:
-        for segment in BOUNDARY.split(document.translate(lex.to_simplified)):
-            runs = HAN_RUN.findall(segment)
-            han = "".join(runs)
-            if len(han) < 2:
-                continue
-            stats["clauses"] += 1
-            if excluded(han):
-                stats["clauses_excluded"] += 1
-                continue
-            stats["characters"] += len(han)
-            counts.add_clause([lex.split(r) for r in runs], bool(HAN.match(segment[:1])), bool(HAN.match(segment[-1:])))
+    found, texts, ids = clauses(name, lex, exclude, stats)
+    for segment, runs in found:
+        counts.add_clause([lex.split(r) for r in runs], bool(HAN.match(segment[:1])), bool(HAN.match(segment[-1:])))
     codes, pair_counts = counts.finish()
     out = CACHE / "counts"
     out.mkdir(parents=True, exist_ok=True)
@@ -670,17 +726,28 @@ def cap_variants(values, defaults, backoff):
         values[code] = value
 
 
-def spoken_counts(counts_file: Path = COUNTS_FILE) -> dict:
-    """How often each word (simplified text) was counted in the spoken sources: the last U field."""
+@functools.lru_cache(maxsize=None)
+def counted_words(counts_file: Path = COUNTS_FILE) -> dict:
+    """Word (simplified text) -> (count in written text, count in spoken text): the U rows."""
     counts = {}
     with lzma.open(counts_file, "rt", encoding="utf-8") as f:
         for line in f:
             if line.startswith("P"):
                 break
             fields = line.rstrip("\n").split("\t")
-            if fields[0] == "U" and len(fields) > 4 and fields[4] != "0":
-                counts[fields[1]] = int(fields[4])
+            if fields[0] == "U":
+                counts[fields[1]] = (int(fields[2]) - SPOKEN_WEIGHT * int(fields[4]), int(fields[4]))
     return counts
+
+
+def word_counts() -> dict:
+    """How often each word was counted in the sources (spoken text x10)."""
+    return {word: n + SPOKEN_WEIGHT * spoken for word, (n, spoken) in counted_words().items() if n or spoken}
+
+
+def spoken_counts() -> dict:
+    """How often each word was counted in the spoken sources."""
+    return {word: n for word, (_, n) in counted_words().items() if n}
 
 
 def marker_or_id(lex: Lexicon, text: str):

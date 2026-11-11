@@ -20,7 +20,6 @@ lookup reaches; the decoder looks them up on purpose
       DataSources/mimo-latin/latin.tsv and the counts in SOURCE.json.
 """
 import argparse
-import bz2
 import json
 import math
 import re
@@ -29,7 +28,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from mimo_pairs import CACHE, ROOT as PAIRS_ROOT, lines as text_lines, sources
+from mimo_pairs import CACHE, source_texts, sources
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "DataSources/mimo-latin"
@@ -97,24 +96,17 @@ def wiki_lines(path: Path):
 
 
 def count_file(job):
-    name, kind, path = job
+    name, src = job
     counts = Counter()
-    if kind == "wiki":
-        lines = wiki_lines(Path(path))
-    elif kind == "tatoeba":
-        lines = (p[2] for p in (l.rstrip("\n").split("\t") for l in bz2.open(path, "rt", encoding="utf-8")) if len(p) >= 3 and p[1] == "cmn")
-    else:
-        lines = text_lines(Path(path))
-    for line in lines:
+    for line in wiki_lines(CACHE / "dl" / src["cache"]) if src["kind"] == "wiki" else source_texts(src):
         words_in(line, counts)
-    return name, kind, counts
+    return name, src["kind"], counts
 
 
 def count(text_dirs, jobs):
-    work = [(name, src["kind"] if src["group"] == "written" else "spoken" if src["kind"] != "tatoeba" else "tatoeba",
-             str(PAIRS_ROOT / src["path"] if "path" in src else CACHE / "dl" / src["cache"])) for name, src in sources().items()]
+    work = list(sources().items())
     for d in text_dirs:
-        work += [(f"text:{p.name}", "spoken", str(p)) for p in sorted(Path(d).glob("*.txt"))]
+        work += [(f"text:{p.name}", {"path": str(p.resolve()), "kind": "lines"}) for p in sorted(Path(d).glob("*.txt"))]
     forms = defaultdict(Counter)
     anywhere = Counter()
     per_source = Counter()
