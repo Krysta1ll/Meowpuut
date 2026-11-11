@@ -7,6 +7,7 @@ the iOS keyboard changes (emoji in the association table, no typed letters in zh
 kana word such as すし listed as a word). Without ZY1–PL3 the core goldens matched row for row.
 mimo_base.bin of the rewrite: 89d1063da28b67938255bd2d2d3e509742d9ef507f0e86e1ee6ff1737be13eb9.
 Rewritten again on 2026-11-11 for 0.6.0: word-pair table, spoken counts and the everyday sentences, English words inside pinyin, mixed full syllables and initials, whole-input words and guesses ranked by score, the new row order after the first candidate, and a reviewed Japanese word before a Chinese reading made with English pieces. mimo_base.bin: 0ee5c72326b010afb8596f45ebf43ef80ae25500e4061ba5ab5d1074d349c4f9.
+Rewritten on 2026-11-12 for emoji and kaomoji (client-candidates.tsv only; the core goldens did not change): the symbols of the first candidate (source -1, not flagged Japanese) come from emoji.tsv, kaomoji.tsv and CLDR, up to three emoji and six kaomoji, and are listed after every word. 933 of the 3,974 rows changed; in each only these symbols differ. No Chinese candidate moved; in 63 pinyin rows the Japanese words of the large list now come before the symbols. Same mimo_base.bin as above.
 
 | file | what |
 | --- | --- |
