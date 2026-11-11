@@ -5,7 +5,7 @@
 <h1 align="center">喵撲 Meowpuut</h1>
 <p align="center">mimimo。</p>
 <p align="center">
-  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.5.0-alpha.1/Meowpuut-0.5.0-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
+  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
   <a href="THIRD_PARTY.md">GPL-3.0 / 開源致謝</a>
@@ -13,21 +13,25 @@
 
 喵撲是一款從日常中文輸入出發的開源輸入法。拼音和注音各有自己的按鍵規則，繁簡共用一份詞庫；偶爾想打日文單字，可以直接輸入羅馬音，不必為幾個字來回切換輸入法。
 
-目前是公開測試版。它已能在 macOS 輸入中文，選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
+目前是公開測試版。macOS 和 iOS 可以日常輸入中文，Android 和 Windows 有較早的測試包；選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
 
-![喵撲的雙貓玻璃候選列](assets/screenshots/candidates.png)
+![候選列：米米莫在左，莫莫在右；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
 
-## 米米莫、莫莫，和候選窗
+## 米米莫、莫莫，和候選列
 
-左邊是米米莫，右邊是莫莫。貓耳構成玻璃的邊界，尾巴沿著候選列收起，兩張臉留在左右兩端。角色和視窗一起變長、收合；文字仍是中間最重要的部分。
+候選列是一條玻璃。左邊是米米莫，他在玻璃後面，眼睛剛好露出上緣，尾巴沿著玻璃的下緣繞到第一個候選底下。右邊是莫莫，她在玻璃前面，下巴擱在上面。候選多了玻璃跟著變長，兩隻貓留在兩端；文字仍是中間最重要的部分。摸米米莫他會縮一下搖頭，摸莫莫她會蹭手，連摸五下切換繁簡。
 
-「雙貓玻璃」之外，也有「簡潔玻璃」。兩種皮膚共用深色、淺色與跟隨系統的選擇，內建玫瑰奶茶、海鹽藍、鼠尾草綠、霧紫、琥珀蜜、石墨六組配色，玻璃強度亦可調整。兩者都依實際字寬安排候選，短詞可以並排，長句展開閱讀。縮放與展開有輕柔過渡，也會遵守系統的減少動態效果設定。
+玻璃有膠囊、波浪、雲朵三種造型，深色、淺色或跟隨系統，內建玫瑰奶茶、海鹽藍、鼠尾草綠、霧紫、琥珀蜜、石墨六組配色，玻璃強度可調。深色外觀下，玻璃的邊框和下緣那道光跟著配色走。不想要貓也可以關掉，只留玻璃。候選依實際字寬排成一行，長句在中間省略，展開後閱讀全部。縮放與展開有輕柔過渡，也會遵守系統的減少動態效果設定。
+
+![iOS 鍵盤：淺色玫瑰奶茶與深色海鹽藍](assets/screenshots/ios-keyboard.png)
+
+iOS 鍵盤的按鍵也是玻璃，同樣跟著配色。iOS 26 起用系統的液態玻璃；iOS 17 到 18 沒有液態玻璃，候選列是霧面玻璃，按鍵是帶配色的實色鍵面。四個平台的介面照同一份規格，見 [docs/DESIGN.md](docs/DESIGN.md)。
 
 ## 選字，先照顧中文
 
 - **拼音與注音分開。** 拼音用數字直接選詞；注音保留數字聲調，用 Shift＋數字選詞，不讓兩套規則互相搶按鍵。
 - **日語留在旁邊。** 拼音輸入時，完整羅馬音可產生假名或日語詞彙候選；有日語詞彙候選時（sushi 的寿司），收合列保留一個，以傾斜的小貓爪標示；只是假名拼寫的（haluo 的はぅお）排在所有中文候選之後。展開後可按候選排序繼續瀏覽。
-- **英文留得住。** 拼音組字時，空格或 Enter 選取目前高亮的候選，數字可直接選詞；Shift＋Enter 輸出原始字母。單個字母仍可選英文，但中文優先。已識別的英文單字也可以成為首選。
+- **英文留得住。** 拼音組字時，空格或 Enter 選取目前高亮的候選，數字可直接選詞；Shift＋Enter 輸出原始字母。單個字母仍可選英文，但中文優先。打的是英文單字時，首選就是原文，按空格直接輸入。拼音裡也可以夾英文：`wozaiyongiphone` 是「我在用iPhone」。
 - **越用越熟悉你的用詞。** 記住確認過的選詞、使用次數，以及短時間相鄰選詞的關係。反覆使用的短語可進入本機個人詞庫，無須逐個收藏。
 - **表情跟著詞義走。** 「開心」「謝謝」「晚安」等詞可以帶出 emoji 和顏文字，作為文字之外的選擇。
 
@@ -45,6 +49,7 @@
 | 拼音 | `d` | 的、到、都等中文，亦保留原字母 |
 | 拼音 | `sushi` | 中文同音詞，以及日語備選 |
 | 拼音 | `emoji` | 英文原文 |
+| 拼音 | `wozaiyongiphone` | 我在用iPhone |
 
 | 操作 | 快捷鍵 |
 | --- | --- |
@@ -65,16 +70,19 @@
 
 ## 下載與平台
 
-[**下載 0.5.0 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.5.0-alpha.1/Meowpuut-0.5.0-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.5.0-alpha.1/Meowpuut-0.5.0-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.5.0-alpha.1/SHA256SUMS.txt)
+[**下載 macOS 0.6.0 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/SHA256SUMS.txt)
 
-| 平台 | 本次提供 |
+| 平台 | 目前提供 |
 | --- | --- |
-| macOS 27+，Apple silicon | **0.5.0 Alpha 1** 安裝盤與安裝套件 |
-| iOS／iPadOS 27+ | 0.6.0 TestFlight 測試版（宿主 App 與鍵盤擴充），原始碼見 `iOS/` |
-| Windows | Rust 核心與 C ABI 可攜介面 |
+| macOS 27+，Apple silicon | **0.6.0 Alpha 1** 安裝盤與安裝套件 |
+| iOS／iPadOS 17+ | 0.6.0（7）TestFlight 測試版（宿主 App 與鍵盤擴充），原始碼見 `iOS/`。iOS 17、18 上的樣式還沒有在實機上跑過 |
+| Android 7.0+ | [0.1.0 Alpha APK](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-v0.1.0-alpha) |
+| Windows 10／11 x64 | [0.1.1 Alpha](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.1-alpha)，拼音；尚未在 Windows 上實際驗證 |
 | Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |
 
-測試包尚未取得 Developer ID 簽署與 Apple 公證。下載前請讀[安裝與移除說明](docs/INSTALL.md)，Release 同時提供 SHA-256。不需要帳號，也不需要雲端服務。
+macOS、Android、Windows 的安裝檔比原始碼舊：2026 年 11 月 12 日調整過的候選列玻璃目前只在原始碼和 iOS 測試版裡。
+
+macOS 測試包尚未取得 Developer ID 簽署與 Apple 公證。下載前請讀[安裝與移除說明](docs/INSTALL.md)，Release 同時提供 SHA-256。不需要帳號，也不需要雲端服務。
 
 ## mimo 1.0：三層分離架構與一份繁簡詞庫
 
