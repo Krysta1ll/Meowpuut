@@ -16,6 +16,16 @@ enum class Palette(val key: String) {
         GRAPHITE -> if (dark) 0xFF7E848D.toInt() to 0xFF666C75.toInt() else 0xFF8B9099.toInt() to 0xFF717781.toInt()
     }
 
+    /** The palette's own colour in this appearance: `P` in DESIGN.md §3. */
+    fun color(dark: Boolean): Int = when (this) {
+        ROSE -> if (dark) 0xFFE69687.toInt() else 0xFF91453D.toInt()
+        OCEAN -> if (dark) 0xFF70BAF0.toInt() else 0xFF2966A6.toInt()
+        SAGE -> if (dark) 0xFF9CC7A1.toInt() else 0xFF477554.toInt()
+        LAVENDER -> if (dark) 0xFFC2A8F0.toInt() else 0xFF7554A6.toInt()
+        AMBER -> if (dark) 0xFFF0BF6B.toInt() else 0xFF96611F.toInt()
+        GRAPHITE -> if (dark) 0xFFC2CCD9.toInt() else 0xFF525E6E.toInt()
+    }
+
     companion object {
         fun of(key: String?) = entries.firstOrNull { it.key == key } ?: ROSE
     }
@@ -82,8 +92,14 @@ data class Look(
             return ((alpha * 255).toInt() shl 24) or rgb
         }
 
+    val tint get() = palette.color(dark)
+
+    /** The glass edge: white in light, the palette lifted toward white in dark. */
+    val rim get() = if (dark) lighten(tint, 0.25f) else 0xFFFFFFFF.toInt()
+
+    /** Light: a pastel spectrum. Dark: the palette between two lighter tones of itself. */
     val causticColors: IntArray
-        get() = if (dark) intArrayOf(0xFFFFB27A.toInt(), 0xFFFFD4A0.toInt(), 0xFFE8956A.toInt(), 0xFFFFD4A0.toInt())
+        get() = if (dark) intArrayOf(tint, lighten(tint, 0.45f), darken(tint, 0.12f), lighten(tint, 0.45f))
         else intArrayOf(0xFFFFB8D2.toInt(), 0xFFFFD9B0.toInt(), 0xFFFFF4B8.toInt(), 0xFFC9F2DD.toInt(), 0xFFBFD9FF.toInt(), 0xFFDCC8FF.toInt())
 
     companion object {
@@ -92,6 +108,11 @@ data class Look(
                 val c = (color shr shift) and 0xFF
                 return (c + (255 - c) * amount).toInt().coerceIn(0, 255)
             }
+            return (color and 0xFF000000.toInt()) or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
+        }
+
+        fun darken(color: Int, amount: Float): Int {
+            fun channel(shift: Int) = (((color shr shift) and 0xFF) * (1 - amount)).toInt()
             return (color and 0xFF000000.toInt()) or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
         }
 

@@ -186,19 +186,28 @@ struct CandidatePill: View {
         Capsule(style: .continuous)
             .fill(LinearGradient(colors: [colors.top, colors.bottom], startPoint: .top, endPoint: .bottom))
             .overlay {
+                // A bead of tinted glass: light on its upper edge, and the
+                // light that crossed it gathered along the lower edge.
                 Capsule(style: .continuous).inset(by: 0.5)
-                    .stroke(LinearGradient(colors: [.white.opacity(dark ? 0.28 : 0.45), .white.opacity(0)],
+                    .stroke(LinearGradient(colors: [.white.opacity(dark ? 0.34 : 0.55), .white.opacity(0)],
                                            startPoint: .top, endPoint: .center), lineWidth: 0.8)
+                Capsule(style: .continuous).inset(by: 1.2)
+                    .stroke(LinearGradient(colors: [.white.opacity(0), .white.opacity(dark ? 0.16 : 0.26)],
+                                           startPoint: .center, endPoint: .bottom), lineWidth: 1.6)
+                    .blur(radius: 0.8)
+                    .clipShape(Capsule(style: .continuous))
             }
-            .shadow(color: colors.bottom.opacity(dark ? 0.0 : 0.35), radius: 3, y: 1.5)
+            .shadow(color: colors.bottom.opacity(dark ? 0.30 : 0.38), radius: 3.5, y: 1.5)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
 
-/// The candidate glass: native Liquid Glass with an inner glaze, an
-/// iridescent caustic along the lower rim and a polished edge. Equatable so a
-/// keystroke that only changes candidates never redraws it.
+/// The candidate glass: native Liquid Glass carrying a little of the palette,
+/// with light at both ends of its rim, a bright band where the thick edge
+/// bends light, an iridescent caustic along the lower rim and the caustic's
+/// colours showing faintly through its lower half. Equatable so a keystroke that
+/// only changes candidates never redraws it.
 struct LiquidGlassBar: View, Equatable {
     var style: GlassShape
     var dark: Bool
@@ -207,26 +216,47 @@ struct LiquidGlassBar: View, Equatable {
     var tint: Color
 
     private var shape: CandidateGlassShape { CandidateGlassShape(style: style) }
+    private static let smoke = Color(red: 0.227, green: 0.188, blue: 0.172)
 
-    private var glass: Glass {
-        if accessible { return .identity }
-        let base: Glass = strength == .vivid ? .clear : .regular
-        return dark ? base.tint(Color(red: 0.23, green: 0.19, blue: 0.17).opacity(0.55)) : base.tint(tint.opacity(0.04))
+    /// The glass itself. Liquid Glass exists from iOS 26 and macOS 26; older
+    /// systems get frosted glass, a blur material under the same tint, with
+    /// every painted layer of the bar unchanged (docs/DESIGN.md §3).
+    @ViewBuilder private var pane: some View {
+        if accessible {
+            shape.fill(bodyFill)
+        } else if #available(iOS 26, macOS 26, *), LiquidGlass.available {
+            let base: Glass = strength == .vivid ? .clear : .regular
+            shape.fill(bodyFill)
+                .glassEffect(dark ? base.tint(Self.smoke.opacity(0.55)) : base.tint(tint.opacity(0.07)), in: shape)
+        } else {
+            shape.fill(.ultraThinMaterial).environment(\.colorScheme, dark ? .dark : .light)
+            shape.fill(dark ? Self.smoke.opacity(0.5) : Color.white.opacity(0.36))
+            shape.fill(bodyFill)
+            if !dark { shape.fill(tint.opacity(0.07)) }
+        }
     }
 
     private var bodyFill: Color {
         if accessible { return dark ? Color(red: 0.169, green: 0.153, blue: 0.161) : Color(red: 0.957, green: 0.949, blue: 0.965) }
         let amount: Double = switch strength { case .soft: 0.34; case .balanced: 0.20; case .vivid: 0.08 }
-        return dark ? Color(red: 0.227, green: 0.188, blue: 0.172).opacity(amount + 0.12) : Color.white.opacity(amount)
+        return dark ? Self.smoke.opacity(amount + 0.12) : Color.white.opacity(amount)
     }
 
-    private var causticColors: [Color] {
-        let hexes: [UInt32] = dark ? [0xFFB27A, 0xFFD4A0, 0xE8956A, 0xFFD4A0]
-                                   : [0xFFB8D2, 0xFFD9B0, 0xFFF4B8, 0xC9F2DD, 0xBFD9FF, 0xDCC8FF]
-        return hexes.map { Color(red: Double($0 >> 16) / 255, green: Double(($0 >> 8) & 0xff) / 255, blue: Double($0 & 0xff) / 255) }
+    /// Light: a pastel spectrum. Dark: the palette, between two lighter tones of itself.
+    private var caustic: LinearGradient {
+        let colors: [Color]
+        if dark {
+            colors = [tint, tint.blend(.white, 0.45), tint.blend(.black, 0.12), tint.blend(.white, 0.45)]
+        } else {
+            colors = ([0xFFB8D2, 0xFFD9B0, 0xFFF4B8, 0xC9F2DD, 0xBFD9FF, 0xDCC8FF] as [UInt32]).map {
+                Color(red: Double($0 >> 16) / 255, green: Double(($0 >> 8) & 0xff) / 255, blue: Double($0 & 0xff) / 255)
+            }
+        }
+        return LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)
     }
 
     var body: some View {
+        let lowerHalf = LinearGradient(colors: [.clear, .black], startPoint: .center, endPoint: .bottom)
         ZStack {
             if !accessible {
                 // A soft contact shadow that makes the glass float.
@@ -235,30 +265,45 @@ struct LiquidGlassBar: View, Equatable {
                 if dark {
                     shape.fill(Color.black.opacity(0.5)).blur(radius: 8).offset(y: 5).padding(.horizontal, 6)
                 }
+                // The caustic's colours, soft, under the lower half of the body:
+                // seen through the glass they are a faint wash. The mask ends at
+                // the bar's frame, so nothing is coloured below the bar.
+                shape.fill(caustic).opacity(dark ? 0.20 : 0.30)
+                    .blur(radius: 7).offset(y: 6).padding(.horizontal, 14)
+                    .mask(shape.fill(.black).blur(radius: 7).offset(y: 6).padding(.horizontal, 14).mask(lowerHalf))
             }
-            shape.fill(bodyFill).glassEffect(glass, in: shape)
+            pane
             if !accessible {
+                if dark { shape.fill(tint.opacity(0.07)) }
                 shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.09 : 0.32), .white.opacity(dark ? 0 : 0.05)],
                                           startPoint: .top, endPoint: .bottom))
+                // The thick edge bends light: a soft bright band just inside the rim.
+                shape.inset(by: 3)
+                    .stroke(Color.white.opacity(dark ? 0.07 : 0.38), lineWidth: 3.5)
+                    .blur(radius: 1.8)
+                    .clipShape(shape)
                 // Iridescent caustic along the lower rim, fading upward.
                 shape.inset(by: 2)
-                    .stroke(LinearGradient(colors: causticColors, startPoint: .leading, endPoint: .trailing), lineWidth: 2.4)
-                    .opacity(dark ? 0.55 : 0.75)
+                    .stroke(caustic, lineWidth: 2.4)
+                    .opacity(dark ? 0.6 : 0.8)
                     .mask(LinearGradient(stops: [.init(color: .clear, location: 0.35), .init(color: .black, location: 1)],
                                          startPoint: .top, endPoint: .bottom))
                 // Inner thickness: light along the top inside edge.
                 shape.inset(by: 1.2)
-                    .stroke(LinearGradient(stops: [.init(color: .white.opacity(dark ? 0.22 : 0.85), location: 0),
+                    .stroke(LinearGradient(stops: [.init(color: .white.opacity(dark ? 0.24 : 0.9), location: 0),
                                                    .init(color: .white.opacity(0), location: 0.45)],
                                            startPoint: .top, endPoint: .bottom), lineWidth: 1.4)
                 // Specular hotspot on the upper left.
                 shape.inset(by: 1.5)
-                    .stroke(Color.white.opacity(dark ? 0.35 : 0.9), lineWidth: 2)
+                    .stroke(Color.white.opacity(dark ? 0.4 : 0.9), lineWidth: 2)
                     .mask(RadialGradient(colors: [.black, .clear], center: UnitPoint(x: 0.12, y: 0.0), startRadius: 0, endRadius: 70))
             }
-            shape.stroke(LinearGradient(colors: dark
-                                        ? [Color(red: 0.906, green: 0.659, blue: 0.467).opacity(0.9), Color(red: 0.906, green: 0.659, blue: 0.467).opacity(0.18)]
-                                        : [Color.white, Color.white.opacity(0.45)],
+            // The polished rim catches light at both ends: brightest at the
+            // upper left, again at the lower right.
+            let rim = dark ? tint.blend(.white, 0.25) : Color.white
+            shape.stroke(LinearGradient(stops: [.init(color: rim.opacity(dark ? 0.95 : 1), location: 0),
+                                                .init(color: rim.opacity(dark ? 0.16 : 0.4), location: 0.55),
+                                                .init(color: rim.opacity(dark ? 0.5 : 0.8), location: 1)],
                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)
             if !accessible {
                 // The glass is thick: a soft shade inside its lower edge and a
@@ -266,13 +311,48 @@ struct LiquidGlassBar: View, Equatable {
                 shape.inset(by: 3)
                     .stroke(Color(red: 0.30, green: 0.22, blue: 0.34).opacity(dark ? 0.0 : 0.07), lineWidth: 5)
                     .blur(radius: 2.5)
-                    .mask(LinearGradient(colors: [.clear, .black], startPoint: .center, endPoint: .bottom))
+                    .mask(lowerHalf)
                     .clipShape(shape)
                 shape.stroke(Color.black.opacity(dark ? 0.35 : 0.08), lineWidth: 0.5).offset(y: 0.75)
-                    .mask(LinearGradient(colors: [.clear, .black], startPoint: .center, endPoint: .bottom))
+                    .mask(lowerHalf)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// Liquid Glass exists from iOS 26 and macOS 26; earlier systems get frosted
+/// glass (docs/DESIGN.md §3). The iOS lab app shows that look on a newer
+/// system with `-frosted YES`.
+enum LiquidGlass {
+    static let available: Bool = {
+        #if KEYBOARD_LAB
+        if UserDefaults.standard.bool(forKey: "frosted") { return false }
+        #endif
+        if #available(iOS 26, macOS 26, *) { return true }
+        return false
+    }()
+}
+
+extension Color {
+    /// This colour moved toward another in sRGB. (`Color.mix` needs iOS 18.)
+    func blend(_ other: Color, _ amount: Double) -> Color {
+        let a = resolve(in: EnvironmentValues()), b = other.resolve(in: EnvironmentValues())
+        let t = Float(amount)
+        return Color(.sRGB, red: Double(a.red + (b.red - a.red) * t), green: Double(a.green + (b.green - a.green) * t),
+                     blue: Double(a.blue + (b.blue - a.blue) * t), opacity: Double(a.opacity + (b.opacity - a.opacity) * t))
+    }
+}
+
+extension View {
+    /// Glass behind a small control: Liquid Glass from iOS 26 and macOS 26, a
+    /// blur material on earlier systems.
+    @ViewBuilder func controlGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        if #available(iOS 26, macOS 26, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            background(.ultraThinMaterial, in: shape)
+        }
     }
 }

@@ -4,9 +4,11 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
@@ -38,7 +40,7 @@ class ExpandedPanelView(context: Context) : View(context) {
 
     var listener: Listener? = null
     var look: Look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
-        set(value) { field = value; invalidate() }
+        set(value) { field = value; rimShader = null; invalidate() }
     var words = Words(false)
 
     private var candidates: List<Candidate> = emptyList()
@@ -53,6 +55,7 @@ class ExpandedPanelView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pill = PillPainter()
     private val rect = RectF()
+    private var rimShader: Shader? = null
 
     private class Cell(val index: Int, val left: Float, val top: Float, val width: Float, val shown: String, val japanese: Boolean)
     private var cells: List<Cell> = emptyList()
@@ -78,7 +81,10 @@ class ExpandedPanelView(context: Context) : View(context) {
         invalidate()
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = relayout()
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        rimShader = null
+        relayout()
+    }
 
     private fun relayout() {
         val width = this.width / density
@@ -119,10 +125,14 @@ class ExpandedPanelView(context: Context) : View(context) {
         paint.style = Paint.Style.FILL
         paint.color = if (look.dark) Color.rgb(40, 38, 42) else Color.rgb(246, 245, 249)
         canvas.drawRoundRect(rect, 15f, 15f, paint)
+        // The rim is lit from the upper left like the bar's, in the same colour.
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 0.6f
-        paint.color = Look.withAlpha(Color.WHITE, if (look.dark) 0.12f else 0.6f)
+        paint.strokeWidth = 1f
+        paint.shader = rimShader ?: LinearGradient(rect.left, rect.top, rect.right, rect.bottom,
+            Look.withAlpha(look.rim, if (look.dark) 0.6f else 0.95f), Look.withAlpha(look.rim, if (look.dark) 0f else 0.3f),
+            Shader.TileMode.CLAMP).also { rimShader = it }
         canvas.drawRoundRect(rect, 15f, 15f, paint)
+        paint.shader = null
         paint.style = Paint.Style.FILL
         canvas.clipRect(rect)
         canvas.translate(0f, -scroll)

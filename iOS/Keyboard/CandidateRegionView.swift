@@ -370,7 +370,7 @@ struct CandidateRegionView: View {
                 }
                 .padding(.horizontal, 2)
             }
-            .scrollEdgeEffectHidden(true, for: .all)
+            .modifier(PlainScrollEdges())
             .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.94),
                                          .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing))
             // A new reading, a new script or new predictions start from the left.

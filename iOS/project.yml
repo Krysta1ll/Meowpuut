@@ -2,12 +2,12 @@ name: Meowpuut
 options:
   bundleIdPrefix: com.krysta1ll.meowpuut
   deploymentTarget:
-    iOS: "27.0"
+    iOS: "17.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
-    CURRENT_PROJECT_VERSION: "6"
+    CURRENT_PROJECT_VERSION: "7"
     MARKETING_VERSION: "0.6.0"
     DEVELOPMENT_TEAM: "HUZY8F7HQG"
     CODE_SIGN_STYLE: Automatic

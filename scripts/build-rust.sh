@@ -43,7 +43,7 @@ triple_for() {
 }
 
 # Rust reads these to stamp the same minimum OS version Xcode links with.
-export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-27.0}"
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-27.0}"
 # Xcode exports SDKROOT/LIBRARY_PATH for the app's platform; they must not leak
 # into host build scripts or cross targets.

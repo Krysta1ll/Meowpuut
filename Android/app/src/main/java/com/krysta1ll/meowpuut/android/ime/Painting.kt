@@ -34,12 +34,17 @@ fun Path.outline(shape: GlassShape, box: Box, inset: Float = 0f): Path {
 
 /**
  * The emulated glass (Android has no live backdrop blur for an input
- * window): frosted body, inner glaze, iridescent caustic along the lower
- * rim, inner highlight, specular spot and a polished edge. Painted once into
- * a bitmap per size and look; canvases here are in dp.
+ * window): frosted body carrying a little of the palette, inner glaze, a
+ * bright band inside the rim, iridescent caustic along the lower rim, inner
+ * highlight, specular spot and a polished edge, with the caustic's light
+ * showing through the lower half. Painted once into a bitmap per size and
+ * look; canvases here are in dp.
  */
 object GlassPainter {
     private val dstIn = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+
+    /** How far below the glass its shadow reaches. */
+    const val REACH = 20f
 
     fun shadow(canvas: Canvas, shape: GlassShape, glass: Box, dark: Boolean) {
         val path = Path().outline(shape, Box(glass.left + 6, glass.top + 5, glass.width - 12, glass.height))
@@ -51,6 +56,8 @@ object GlassPainter {
             paint.color = Color.argb(33, 61, 41, 69)
             paint.maskFilter = BlurMaskFilter(7f, BlurMaskFilter.Blur.NORMAL)
         }
+        // Only around the glass: under a see-through body it would grey the glass.
+        canvas.clipOutPath(Path().outline(shape, glass))
         canvas.drawPath(path, paint)
     }
 
@@ -59,15 +66,31 @@ object GlassPainter {
         val path = Path().outline(shape, glass)
         val bounds = RectF(glass.left - 2, glass.top - 2, glass.right + 2, glass.bottom + 2)
         val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        if (!look.opaque) {
+            // Light that has passed through the glass: the caustic's colours,
+            // soft, under the lower half of the body.
+            val spill = Box(glass.left + 14, glass.top + 6, glass.width - 28, glass.height)
+            fill.shader = LinearGradient(spill.left, 0f, spill.right, 0f, look.causticColors, null, Shader.TileMode.CLAMP)
+            fill.alpha = ((if (dark) 0.20f else 0.30f) * 255).toInt()
+            fill.maskFilter = BlurMaskFilter(7f, BlurMaskFilter.Blur.NORMAL)
+            masked(canvas, RectF(glass.left, glass.top, glass.right, glass.bottom), LinearGradient(0f, glass.centerY, 0f, glass.bottom,
+                Color.TRANSPARENT, Color.BLACK, Shader.TileMode.CLAMP)) {
+                it.drawPath(Path().outline(shape, spill), fill)
+            }
+            fill.shader = null
+            fill.maskFilter = null
+        }
         fill.color = look.glassFill
         canvas.drawPath(path, fill)
 
         val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
         if (look.opaque) {
             // Solid for more contrast: only the edge is kept.
-            edge(canvas, path, glass, dark, stroke)
+            edge(canvas, path, glass, look, stroke)
             return
         }
+        fill.color = Look.withAlpha(look.tint, 0.07f)
+        canvas.drawPath(path, fill)
 
         // Inner glaze, brighter at the top.
         fill.color = Color.WHITE
@@ -77,17 +100,13 @@ object GlassPainter {
         fill.shader = null
 
         // Thick glass bends light at its rim: a soft bright band just inside
-        // the edge, and a thin darker line where that band ends.
+        // the edge.
         canvas.save()
         canvas.clipPath(path)
-        stroke.strokeWidth = 9f
-        stroke.maskFilter = BlurMaskFilter(4f, BlurMaskFilter.Blur.NORMAL)
-        stroke.color = if (dark) Look.withAlpha(Color.rgb(255, 214, 170), 0.10f) else Look.withAlpha(Color.WHITE, 0.62f)
-        canvas.drawPath(path, stroke)
-        stroke.strokeWidth = 1.1f
-        stroke.maskFilter = BlurMaskFilter(0.9f, BlurMaskFilter.Blur.NORMAL)
-        stroke.color = if (dark) Look.withAlpha(Color.BLACK, 0.30f) else Look.withAlpha(Color.rgb(96, 84, 120), 0.18f)
-        canvas.drawPath(Path().outline(shape, glass, 4.2f), stroke)
+        stroke.strokeWidth = 3.5f
+        stroke.maskFilter = BlurMaskFilter(1.8f, BlurMaskFilter.Blur.NORMAL)
+        stroke.color = Look.withAlpha(Color.WHITE, if (dark) 0.07f else 0.38f)
+        canvas.drawPath(Path().outline(shape, glass, 3f), stroke)
         stroke.maskFilter = null
         canvas.restore()
 
@@ -96,7 +115,7 @@ object GlassPainter {
             intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.BLACK), floatArrayOf(0f, 0.35f, 1f), Shader.TileMode.CLAMP)) {
             stroke.strokeWidth = 2.4f
             stroke.shader = LinearGradient(glass.left, 0f, glass.right, 0f, look.causticColors, null, Shader.TileMode.CLAMP)
-            stroke.alpha = ((if (dark) 0.55f else 0.75f) * 255).toInt()
+            stroke.alpha = ((if (dark) 0.6f else 0.8f) * 255).toInt()
             it.drawPath(Path().outline(shape, glass, 2f), stroke)
             stroke.alpha = 255
         }
@@ -104,7 +123,7 @@ object GlassPainter {
         // Light along the top inside edge gives the glass its thickness.
         stroke.strokeWidth = 1.4f
         stroke.shader = LinearGradient(0f, glass.top, 0f, glass.bottom,
-            intArrayOf(Look.withAlpha(Color.WHITE, if (dark) 0.22f else 0.85f), Look.withAlpha(Color.WHITE, 0f)),
+            intArrayOf(Look.withAlpha(Color.WHITE, if (dark) 0.24f else 0.9f), Look.withAlpha(Color.WHITE, 0f)),
             floatArrayOf(0f, 0.45f), Shader.TileMode.CLAMP)
         canvas.drawPath(Path().outline(shape, glass, 1.2f), stroke)
 
@@ -113,16 +132,27 @@ object GlassPainter {
             Color.BLACK, Color.TRANSPARENT, Shader.TileMode.CLAMP)) {
             stroke.strokeWidth = 2f
             stroke.shader = null
-            stroke.color = Look.withAlpha(Color.WHITE, if (dark) 0.35f else 0.9f)
+            stroke.color = Look.withAlpha(Color.WHITE, if (dark) 0.4f else 0.9f)
             it.drawPath(Path().outline(shape, glass, 1.5f), stroke)
         }
 
-        edge(canvas, path, glass, dark, stroke)
+        edge(canvas, path, glass, look, stroke)
 
-        // A faint darker line under the rim for depth.
+        // The glass is thick: a soft shade inside its lower edge (light
+        // only) and a faint darker line under the rim.
         masked(canvas, bounds, LinearGradient(0f, glass.top, 0f, glass.bottom,
             intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.BLACK), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)) {
             stroke.shader = null
+            if (!dark) {
+                it.save()
+                it.clipPath(path)
+                stroke.strokeWidth = 5f
+                stroke.maskFilter = BlurMaskFilter(2.5f, BlurMaskFilter.Blur.NORMAL)
+                stroke.color = Look.withAlpha(Color.rgb(77, 56, 87), 0.07f)
+                it.drawPath(Path().outline(shape, glass, 3f), stroke)
+                stroke.maskFilter = null
+                it.restore()
+            }
             stroke.strokeWidth = 0.5f
             stroke.color = Look.withAlpha(Color.BLACK, if (dark) 0.35f else 0.08f)
             it.save()
@@ -132,17 +162,14 @@ object GlassPainter {
         }
     }
 
-    /** The polished 1.5 dp edge: white in light, copper in dark, fading toward the lower right. */
-    private fun edge(canvas: Canvas, path: Path, glass: Box, dark: Boolean, stroke: Paint) {
+    /** The polished 1.5 dp edge: brightest at the upper left, bright again at the lower right. */
+    private fun edge(canvas: Canvas, path: Path, glass: Box, look: Look, stroke: Paint) {
+        val dark = look.dark
         stroke.strokeWidth = 1.5f
-        stroke.shader = if (dark) {
-            val copper = Color.rgb(231, 168, 119)
-            LinearGradient(glass.left, glass.top, glass.right, glass.bottom,
-                Look.withAlpha(copper, 0.9f), Look.withAlpha(copper, 0.18f), Shader.TileMode.CLAMP)
-        } else {
-            LinearGradient(glass.left, glass.top, glass.right, glass.bottom,
-                Color.WHITE, Look.withAlpha(Color.WHITE, 0.45f), Shader.TileMode.CLAMP)
-        }
+        stroke.shader = LinearGradient(glass.left, glass.top, glass.right, glass.bottom,
+            intArrayOf(Look.withAlpha(look.rim, if (dark) 0.95f else 1f), Look.withAlpha(look.rim, if (dark) 0.16f else 0.4f),
+                Look.withAlpha(look.rim, if (dark) 0.5f else 0.8f)),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
         canvas.drawPath(path, stroke)
         stroke.shader = null
     }
@@ -156,35 +183,56 @@ object GlassPainter {
     }
 }
 
-/** The selected candidate's capsule (DESIGN.md §4). */
+/** The selected candidate's capsule, a bead of tinted glass (DESIGN.md §3–4). */
 class PillPainter {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.8f }
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1.6f
+        maskFilter = BlurMaskFilter(0.8f, BlurMaskFilter.Blur.NORMAL)
+    }
     private val rect = RectF()
+    private val clip = Path()
     private var cachedKey = 0L
     private var cachedShader: Shader? = null
     private var cachedLine: Shader? = null
+    private var cachedGlow: Shader? = null
 
     fun draw(canvas: Canvas, left: Float, top: Float, width: Float, height: Float, colors: Pair<Int, Int>, dark: Boolean, shadow: Boolean) {
         rect.set(left, top, left + width, top + height)
         val radius = height / 2
-        val key = (colors.first.toLong() shl 32) xor colors.second.toLong() xor (height.toBits().toLong() shl 7) xor top.toBits().toLong()
+        val key = (colors.first.toLong() shl 32) xor colors.second.toLong() xor (height.toBits().toLong() shl 7) xor top.toBits().toLong() xor
+            (if (dark) 1L shl 62 else 0L)
         if (key != cachedKey) {
             cachedKey = key
+            val middle = top + height / 2
             cachedShader = LinearGradient(0f, top, 0f, top + height, colors.first, colors.second, Shader.TileMode.CLAMP)
-            cachedLine = LinearGradient(0f, top, 0f, top + height / 2,
-                Look.withAlpha(Color.WHITE, if (dark) 0.28f else 0.45f), Look.withAlpha(Color.WHITE, 0f), Shader.TileMode.CLAMP)
+            cachedLine = LinearGradient(0f, top, 0f, middle,
+                Look.withAlpha(Color.WHITE, if (dark) 0.34f else 0.55f), Look.withAlpha(Color.WHITE, 0f), Shader.TileMode.CLAMP)
+            cachedGlow = LinearGradient(0f, middle, 0f, top + height,
+                Look.withAlpha(Color.WHITE, 0f), Look.withAlpha(Color.WHITE, if (dark) 0.16f else 0.26f), Shader.TileMode.CLAMP)
         }
         fill.shader = cachedShader
-        if (shadow && !dark && android.os.Build.VERSION.SDK_INT >= 28) {
-            fill.setShadowLayer(3f, 0f, 1.5f, Look.withAlpha(colors.second, 0.35f))
+        // The shadow is the pill's own colour, not grey.
+        if (shadow && android.os.Build.VERSION.SDK_INT >= 28) {
+            fill.setShadowLayer(3.5f, 0f, 1.5f, Look.withAlpha(colors.second, if (dark) 0.30f else 0.38f))
         } else {
             fill.clearShadowLayer()
         }
         canvas.drawRoundRect(rect, radius, radius, fill)
+        clip.rewind()
+        clip.addRoundRect(rect, radius, radius, Path.Direction.CW)
+        // Light on the upper edge.
         line.shader = cachedLine
         rect.inset(0.5f, 0.5f)
         canvas.drawRoundRect(rect, radius - 0.5f, radius - 0.5f, line)
+        // The light that crossed the bead gathers along its lower edge.
+        glow.shader = cachedGlow
+        rect.inset(0.7f, 0.7f)
+        canvas.save()
+        canvas.clipPath(clip)
+        canvas.drawRoundRect(rect, radius - 1.2f, radius - 1.2f, glow)
+        canvas.restore()
     }
 }
 

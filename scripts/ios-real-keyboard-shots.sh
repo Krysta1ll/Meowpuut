@@ -43,6 +43,7 @@ default_plan() {  # $1: suffix
  {"name":"meow-cloud-$s","keyboard":"$ext","taps":["n","i","h","a","o"],"settings":{$p,"glassShape":"cloud"}},
  {"name":"meow-expanded-$s","keyboard":"$ext","taps":["s","h","i","展開候選詞"],"settings":{$p,"glassShape":"capsule"}},
  {"name":"meow-zhuyin-$s","keyboard":"$ext","taps":["ㄋ","ㄧ"],"settings":{"inputMode":"zhuyin","candidateTone":"system","catGlassSkin":true,"glassShape":"capsule"}},
+ {"name":"meow-accessory-$s","keyboard":"$ext","host":"accessory","settings":{$p,"glassShape":"capsule"}},
  {"name":"meow-landscape-$s","keyboard":"$ext","landscape":true,"taps":["n","i","h","a","o"],"settings":{$p,"glassShape":"capsule"}},
  {"name":"apple-pinyin-idle-$s","keyboard":"zh_Hans-Pinyin"},
  {"name":"apple-pinyin-nihao-$s","keyboard":"zh_Hans-Pinyin","taps":["n","i","h","a","o"]},

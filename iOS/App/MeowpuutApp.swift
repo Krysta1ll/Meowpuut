@@ -71,7 +71,7 @@ struct HomeView: View {
                     Text(savedNotice)
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 18).frame(height: 40)
-                        .glassEffect(.regular, in: .capsule)
+                        .controlGlass(in: Capsule())
                         .padding(.bottom, 24)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -171,7 +171,7 @@ struct HomeView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 12).frame(height: 32)
         .background(Capsule().fill(.black.opacity(0.18)))
-        .glassEffect(.regular, in: .capsule)
+        .controlGlass(in: Capsule())
     }
 
     private var grid: some View {

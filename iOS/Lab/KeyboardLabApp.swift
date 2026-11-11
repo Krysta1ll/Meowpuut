@@ -61,7 +61,7 @@ struct LabComposer: View {
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(dark ? Color.white : Color(white: 0.25))
                 .frame(width: 38, height: 38)
-                .glassEffect(.regular, in: .circle)
+                .controlGlass(in: Circle())
             HStack(spacing: 0) {
                 Text("\(Text(before))\(Text(marked).underline())").font(.system(size: 18)).lineLimit(1).truncationMode(.head)
                     .foregroundStyle(dark ? Color.white : Color.black)
@@ -76,7 +76,7 @@ struct LabComposer: View {
             .padding(.leading, 14)
             .padding(.trailing, 4)
             .frame(height: 40)
-            .glassEffect(.regular, in: .capsule)
+            .controlGlass(in: Capsule())
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -3,8 +3,10 @@ import XCTest
 /// Takes the pictures listed in the plan file (REALKB_PLAN, JSON written by
 /// scripts/ios-real-keyboard-shots.sh) into REALKB_OUT. Each entry:
 ///   name, keyboard (input mode identifier prefix), page (light/dark/colour),
-///   landscape, taps (key or button labels, in order), settings (written to
-///   REALKB_SETTINGS, the keyboard's shared settings file, before launch).
+///   host (accessory: a bar above the keyboard), landscape, taps (key or
+///   button labels, in order), turn (landscape/portrait: rotate with the
+///   keyboard open, after the taps), settings (written to REALKB_SETTINGS,
+///   the keyboard's shared settings file, before launch).
 final class RealKeyboardShots: XCTestCase {
     func env(_ name: String) -> String { ProcessInfo.processInfo.environment[name] ?? "" }
 
@@ -22,6 +24,7 @@ final class RealKeyboardShots: XCTestCase {
             let app = XCUIApplication()
             app.launchEnvironment["REALKB_KEYBOARD"] = shot["keyboard"] as? String ?? ""
             app.launchEnvironment["REALKB_PAGE"] = shot["page"] as? String ?? "light"
+            app.launchEnvironment["REALKB_HOST"] = shot["host"] as? String ?? ""
             app.launch()
             XCTAssertTrue(app.textViews["field"].waitForExistence(timeout: 20))
             Thread.sleep(forTimeInterval: 2.5)
@@ -33,6 +36,9 @@ final class RealKeyboardShots: XCTestCase {
                 }
                 element.tap()
                 Thread.sleep(forTimeInterval: 0.35)
+            }
+            if let turn = shot["turn"] as? String {
+                XCUIDevice.shared.orientation = turn == "landscape" ? .landscapeLeft : .portrait
             }
             Thread.sleep(forTimeInterval: 1.2)
             try XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "\(out)/\(name).png"))

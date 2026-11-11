@@ -5,22 +5,39 @@ import UIKit
 struct GlassPanel: View, Equatable {
     var dark: Bool
     var accessible: Bool
+    /// The palette's colour: the dark panel's rim, as on the bar.
+    var tint: Color
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         ZStack {
-            shape.fill(accessible ? (dark ? Color(red: 0.169, green: 0.153, blue: 0.161) : Color(red: 0.957, green: 0.949, blue: 0.965))
-                                  : (dark ? Color(red: 0.227, green: 0.188, blue: 0.172).opacity(0.32) : Color.white.opacity(0.30)))
-                .glassEffect(accessible ? .identity : .regular, in: shape)
+            let fill = accessible ? (dark ? Color(red: 0.169, green: 0.153, blue: 0.161) : Color(red: 0.957, green: 0.949, blue: 0.965))
+                                  : (dark ? Color(red: 0.227, green: 0.188, blue: 0.172).opacity(0.32) : Color.white.opacity(0.30))
+            if accessible {
+                shape.fill(fill)
+            } else if #available(iOS 26, *), LiquidGlass.available {
+                shape.fill(fill).glassEffect(.regular, in: shape)
+            } else {
+                // Before iOS 26: frosted glass, as on the bar.
+                shape.fill(.thinMaterial).environment(\.colorScheme, dark ? .dark : .light)
+                shape.fill(fill)
+            }
             if !accessible {
                 shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.06 : 0.25), .clear], startPoint: .top, endPoint: .bottom))
             }
-            shape.stroke(LinearGradient(colors: dark ? [Color(red: 0.906, green: 0.659, blue: 0.467).opacity(0.6), .clear]
+            shape.stroke(LinearGradient(colors: dark ? [tint.blend(.white, 0.25).opacity(0.6), .clear]
                                                      : [.white.opacity(0.95), .white.opacity(0.3)],
                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// iOS 26 blurs content at a scroll view's edges; the panel's own glass is enough.
+struct PlainScrollEdges: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) { content.scrollEdgeEffectHidden(true, for: .all) } else { content }
     }
 }
 
@@ -98,7 +115,7 @@ struct ExpandedCandidatesView: View {
                         }
                     }
                     .scrollIndicators(.visible)
-                    .scrollEdgeEffectHidden(true, for: .all)
+                    .modifier(PlainScrollEdges())
                     .id("\(engine.snapshot.input)|\(phrasesOnly)|\(preferences.simplified)")
                     .overlay {
                         if items.isEmpty {
@@ -119,7 +136,7 @@ struct ExpandedCandidatesView: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 6)
             .background {
-                GlassPanel(dark: dark, accessible: reduceTransparency || contrast == .increased)
+                GlassPanel(dark: dark, accessible: reduceTransparency || contrast == .increased, tint: accent)
                     .equatable()
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)

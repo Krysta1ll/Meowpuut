@@ -217,10 +217,13 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         val w = (width).coerceAtLeast(1)
         val h = (height).coerceAtLeast(1)
         val current = caches
-        if (current != null && current.shadow.width == w && current.shadow.height == h) return
+        if (current != null && current.glass.width == w && current.glass.height == h) return
         current?.shadow?.recycle(); current?.glass?.recycle()
+        // The shadow goes on below the view, onto the keyboard (the keyboard
+        // does not clip its children).
+        val below = ((region.glass.bottom + GlassPainter.REACH) * density).toInt()
         // Canvas has a density of its own (an Int), so no apply { } here.
-        val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val shadow = Bitmap.createBitmap(w, max(h, below), Bitmap.Config.ARGB_8888)
         val shadowCanvas = Canvas(shadow)
         shadowCanvas.scale(density, density)
         GlassPainter.shadow(shadowCanvas, look.shape, region.glass, look.dark)
@@ -241,8 +244,9 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         ensureCaches()
         val now = SystemClock.uptimeMillis()
         val cache = caches ?: return
-        dst.set(0f, 0f, width.toFloat(), height.toFloat())
+        dst.set(0f, 0f, width.toFloat(), cache.shadow.height.toFloat())
         canvas.drawBitmap(cache.shadow, null, dst, bitmapPaint)
+        dst.bottom = height.toFloat()
         canvas.save()
         canvas.scale(density, density)
         val cats = region.cats && look.cats

@@ -1,6 +1,6 @@
 # 喵撲 iOS
 
-宿主 App 和自訂鍵盤擴充。鍵盤和其他平台共用 Rust 核心（`crates/`）、Swift 候選排序和詞庫。介面依 `docs/DESIGN.md`，節日裝扮依 `docs/FESTIVALS.md`。需要含 iOS 27 SDK 的 Xcode、Rust、Python 3 和 XcodeGen。
+宿主 App 和自訂鍵盤擴充。鍵盤和其他平台共用 Rust 核心（`crates/`）、Swift 候選排序和詞庫。介面依 `docs/DESIGN.md`，節日裝扮依 `docs/FESTIVALS.md`。需要含 iOS 27 SDK 的 Xcode、Rust、Python 3 和 XcodeGen。最低支援 iOS 17；iOS 26 之前沒有 Liquid Glass，用霧面玻璃和實色按鍵（實驗室 app 加 `-frosted YES` 可以在新系統上看這套樣式）。
 
 ```sh
 brew install xcodegen

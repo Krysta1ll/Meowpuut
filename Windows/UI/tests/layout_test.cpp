@@ -407,6 +407,11 @@ void testZhuyinNumbersAndContrast() {
         CHECK(light.pillTop.r == top.r && light.pillTop.g == top.g && light.pillTop.b == top.b);
         CHECK(light.pillBottom.r == bottom.r && light.pillBottom.g == bottom.g && light.pillBottom.b == bottom.b);
     }
+    // The dark rim follows the palette: blue for ocean, warm for amber.
+    const auto ocean = makeTheme(Appearance::Dark, Palette::Ocean, true, false);
+    const auto amber = makeTheme(Appearance::Dark, Palette::Amber, true, false);
+    CHECK(ocean.lipStart.b > ocean.lipStart.r && amber.lipStart.r > amber.lipStart.b);
+    CHECK(ocean.caustic[0].b > ocean.caustic[0].r && ocean.causticCount == 4);
     const auto hc = makeTheme(Appearance::Light, Palette::Rose, true, true, Color::rgb(0x000000),
                               Color::rgb(0xFFFFFF), Color::rgb(0x1AEBFF), Color::rgb(0x000000));
     CHECK(hc.opaque && hc.causticCount == 0 && hc.shadow.a == 0);
@@ -470,8 +475,11 @@ void testScene() {
                 }
                 CHECK(depth == 0);
                 // The body is laid inside the rim; the cat shows on it blurred.
-                CHECK(scene.outlines.size() == 3);
+                // Outlines: glass, body, lip and the selected pill.
+                CHECK(scene.outlines.size() == 4);
                 CHECK(count(scene, DrawCommand::Kind::PushClip) == 1);
+                // Two under the glass, one under the selected pill.
+                CHECK(count(scene, DrawCommand::Kind::Shadow) == 3);
                 // One selected pill and one hover wash.
                 CHECK(count(scene, DrawCommand::Kind::FillRoundRect) == 2);
                 for (std::size_t i = 0; i < model.candidates.size(); ++i) {

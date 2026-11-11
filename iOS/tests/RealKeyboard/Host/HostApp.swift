@@ -5,6 +5,8 @@ import UIKit
 // extension's bundle id, or e.g. zh_Hans-Pinyin), so the globe key is never
 // needed. REALKB_PAGE is light, dark or colour: what shows through the
 // keyboard's translucent backdrop. A label reports the keyboard frame.
+// REALKB_HOST=accessory gives the field a bar above the keyboard, as chat
+// apps have.
 
 func env(_ name: String) -> String { ProcessInfo.processInfo.environment[name] ?? "" }
 
@@ -86,6 +88,12 @@ final class HostController: UIViewController {
             info.leadingAnchor.constraint(equalTo: g.leadingAnchor, constant: 12),
             info.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -12),
         ])
+        if env("REALKB_HOST") == "accessory" {
+            let bar = UILabel(frame: CGRect(x: 0, y: 0, width: 0, height: 48))
+            bar.text = "  accessory"
+            bar.backgroundColor = .systemGray5
+            field.inputAccessoryView = bar
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardFrame(_:)),
                                                name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
     }

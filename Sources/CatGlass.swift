@@ -567,12 +567,14 @@ extension FestivalOutfit {
 private struct DeskPanelGlass: View, Equatable {
     var look: CandidateLook
     var strength: GlassStrength
+    /// The palette's colour: the dark panel's rim, as on the bar.
+    var tint: Color
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Desk.panelCorner, style: .continuous)
         let dark = look.dark
         let smoke = Color(red: 0.227, green: 0.188, blue: 0.172)
-        let copper = Color(red: 0.906, green: 0.659, blue: 0.467)
+        let rim = tint.blend(.white, 0.25)
         let amount: Double = switch strength { case .soft: 0.34; case .balanced: 0.20; case .vivid: 0.08 }
         ZStack {
             shape.fill(Color(red: 0.24, green: 0.16, blue: 0.27).opacity(dark ? 0 : 0.13))
@@ -588,7 +590,7 @@ private struct DeskPanelGlass: View, Equatable {
                 shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.07 : 0.26), .white.opacity(dark ? 0 : 0.05)],
                                           startPoint: .top, endPoint: .bottom))
             }
-            shape.stroke(LinearGradient(colors: dark ? [copper.opacity(0.85), copper.opacity(0.18)] : [Color.white, Color.white.opacity(0.45)],
+            shape.stroke(LinearGradient(colors: dark ? [rim.opacity(0.85), rim.opacity(0.18)] : [Color.white, Color.white.opacity(0.45)],
                                         startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2)
             if look.contrast { shape.stroke(look.outline, lineWidth: 1) }
         }
@@ -652,7 +654,7 @@ private struct DeskExpandedPanel: View {
         .padding(Self.padding)
         // The ideal width stops the window at the computed width; a longer candidate is shortened in the middle.
         .frame(minWidth: width + Self.padding * 2, idealWidth: width + Self.padding * 2, maxWidth: .infinity)
-        .background { DeskPanelGlass(look: look, strength: strength).equatable() }
+        .background { DeskPanelGlass(look: look, strength: strength, tint: palette.color(dark: look.dark)).equatable() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(t("全部候選", "全部候选"))
     }

@@ -24,7 +24,25 @@ PillPair pillFor(Palette palette) {
     return {Color::rgb(0xAB8689), Color::rgb(0x946D71), Color::rgb(0xA88D8C), Color::rgb(0x8C716F)};
 }
 
+// The same values as CandidatePalette.color(dark:) in Sources/CandidatePalette.swift.
+Color tintFor(Palette palette, bool dark) {
+    switch (palette) {
+    case Palette::Ocean: return dark ? Color{0.44f, 0.73f, 0.94f, 1} : Color{0.16f, 0.40f, 0.65f, 1};
+    case Palette::Sage: return dark ? Color{0.61f, 0.78f, 0.63f, 1} : Color{0.28f, 0.46f, 0.33f, 1};
+    case Palette::Lavender: return dark ? Color{0.76f, 0.66f, 0.94f, 1} : Color{0.46f, 0.33f, 0.65f, 1};
+    case Palette::Amber: return dark ? Color{0.94f, 0.75f, 0.42f, 1} : Color{0.59f, 0.38f, 0.12f, 1};
+    case Palette::Graphite: return dark ? Color{0.76f, 0.80f, 0.85f, 1} : Color{0.32f, 0.37f, 0.43f, 1};
+    case Palette::Rose: break;
+    }
+    return dark ? Color{0.90f, 0.59f, 0.53f, 1} : Color{0.57f, 0.27f, 0.24f, 1};
+}
+
+Color mix(Color c, Color toward, float t) {
+    return {c.r + (toward.r - c.r) * t, c.g + (toward.g - c.g) * t, c.b + (toward.b - c.b) * t, 1};
+}
+
 const Color kClear{0, 0, 0, 0};
+const Color kWhite{1, 1, 1, 1};
 } // namespace
 
 Palette parsePalette(std::string_view name) {
@@ -49,7 +67,7 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
     if (highContrast) {
         t.shadow = t.keyShadow = kClear;
         t.glassTop = t.glassBottom = systemWindow;
-        t.rimTint = t.rimShade = t.lipStart = t.lipEnd = t.highlight = kClear;
+        t.rimTint = t.rimShade = t.refraction = t.lipStart = t.lipMid = t.lipEnd = t.highlight = kClear;
         t.edge = systemText;
         t.causticCount = 0;
         t.separator = systemText;
@@ -57,29 +75,36 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
         t.disabledText = systemGrayText;
         t.pillTop = t.pillBottom = systemHighlight;
         t.pillText = systemHighlightText;
-        t.pillHighlight = kClear;
+        t.pillHighlight = t.pillGlow = kClear;
         t.hover = systemHighlight.withAlpha(0.35f);
         t.pressed = systemHighlight.withAlpha(0.55f);
         t.contactShadow = kClear;
         return t;
     }
 
+    t.tint = tintFor(palette, dark);
     if (dark) {
         t.shadow = Color{0, 0, 0, 0.45f};
         t.keyShadow = Color{0, 0, 0, 0.30f};
         t.glassTop = Color::rgb(0x483C37, 0.98f);
         t.glassBottom = Color::rgb(0x382E2A, 0.98f);
         t.rimTint = Color::rgb(0x3A302C, 0.58f);
+        t.tintOpacity = 0.07f;
         t.rimShade = Color{0, 0, 0, 0.20f};
+        t.refraction = kWhite.withAlpha(0.07f);
         t.edge = Color::rgb(0x120C0A, 0.50f);
-        t.lipStart = Color::rgb(0xE7A877, 0.85f);
-        t.lipEnd = Color::rgb(0xE7A877, 0.15f);
-        t.highlight = Color::rgb(0xFFE2C4, 0.55f);
-        t.caustic[0] = Color::rgb(0xFFB27A);
-        t.caustic[1] = Color::rgb(0xFFD4A0);
-        t.caustic[2] = Color::rgb(0xE8956A);
-        t.causticCount = 3;
-        t.causticOpacity = 0.50f;
+        // The rim and the caustic follow the palette: warm for rose and amber, steel blue for ocean.
+        const Color rim = mix(t.tint, kWhite, 0.25f);
+        t.lipStart = rim.withAlpha(0.95f);
+        t.lipMid = rim.withAlpha(0.16f);
+        t.lipEnd = rim.withAlpha(0.5f);
+        t.highlight = kWhite.withAlpha(0.4f);
+        t.caustic[0] = t.tint;
+        t.caustic[1] = t.caustic[3] = mix(t.tint, kWhite, 0.45f);
+        t.caustic[2] = mix(t.tint, Color{0, 0, 0, 1}, 0.12f);
+        t.causticCount = 4;
+        t.causticOpacity = 0.6f;
+        t.spillOpacity = 0.05f;
         t.frostOpacity = 0.32f;
         t.text = Color::rgb(0xF5EFE9);
         t.secondaryText = Color::rgb(0xF5EFE9, 0.62f);
@@ -96,18 +121,24 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
     } else {
         t.shadow = Color::rgb(0x3C2846, 0.12f);
         t.keyShadow = Color::rgb(0x3C2846, 0.10f);
-        t.glassTop = Color::rgb(0xFAF9FC, 0.985f);
-        t.glassBottom = Color::rgb(0xEFEDF4, 0.985f);
+        t.glassTop = Color::rgb(0xF4F3F6, 0.985f);
+        t.glassBottom = Color::rgb(0xEAE8EE, 0.985f);
         t.rimTint = Color{1, 1, 1, 0.42f};
+        // Less than the 0.07 inside Liquid Glass, which thins it out: on this
+        // opaque body 0.07 would turn the bar pink or blue.
+        t.tintOpacity = 0.03f;
         t.rimShade = Color::rgb(0x4A3A5E, 0.07f);
+        t.refraction = kWhite.withAlpha(0.38f);
         t.edge = Color::rgb(0x46385A, 0.17f);
-        t.lipStart = Color{1, 1, 1, 0.95f};
-        t.lipEnd = Color{1, 1, 1, 0.30f};
-        t.highlight = Color{1, 1, 1, 0.95f};
+        t.lipStart = kWhite;
+        t.lipMid = kWhite.withAlpha(0.4f);
+        t.lipEnd = kWhite.withAlpha(0.8f);
+        t.highlight = kWhite.withAlpha(0.9f);
         const std::uint32_t pastel[] = {0xFFB8D2, 0xFFD9B0, 0xFFF4B8, 0xC9F2DD, 0xBFD9FF, 0xDCC8FF};
         for (int i = 0; i < 6; ++i) t.caustic[i] = Color::rgb(pastel[i]);
         t.causticCount = 6;
-        t.causticOpacity = 0.55f;
+        t.causticOpacity = 0.8f;
+        t.spillOpacity = 0.075f;
         t.frostOpacity = 0.14f;
         t.text = Color::rgb(0x3A3334);
         t.secondaryText = Color::rgb(0x7A7072);
@@ -126,12 +157,15 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
     // border stays, the clear rim, the caustic and the frosted cat go.
     if (t.opaque) {
         t.glassTop = t.glassBottom = dark ? Color::rgb(0x2B2729) : Color::rgb(0xF4F2F6);
-        t.rimTint = t.rimShade = kClear;
+        t.rimTint = t.rimShade = t.refraction = kClear;
         t.causticCount = 0;
         t.frostOpacity = 0;
     }
-    t.pillText = Color{1, 1, 1, 1};
-    t.pillHighlight = Color{1, 1, 1, dark ? 0.22f : 0.38f};
+    // The selected pill is a bead of tinted glass.
+    t.pillText = kWhite;
+    t.pillHighlight = kWhite.withAlpha(dark ? 0.34f : 0.55f);
+    t.pillGlow = kWhite.withAlpha(dark ? 0.16f : 0.26f);
+    t.pillShadowOpacity = dark ? 0.30f : 0.38f;
     return t;
 }
 

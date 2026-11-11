@@ -146,13 +146,13 @@ struct PhotoViewer: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .frame(width: 44, height: 44)
                         }
-                        .glassEffect(.regular.interactive(), in: .circle)
+                        .controlGlass(in: Circle(), interactive: true)
                         .accessibilityLabel(t("關閉", "关闭"))
                         Spacer()
                         Text("\(index + 1) / \(photos.count)")
                             .font(.subheadline.monospacedDigit().weight(.medium))
                             .padding(.horizontal, 14).frame(height: 36)
-                            .glassEffect(.regular, in: .capsule)
+                            .controlGlass(in: Capsule())
                             .accessibilityLabel(t("第 \(index + 1) 張，共 \(photos.count) 張", "第 \(index + 1) 张，共 \(photos.count) 张"))
                     }
                     .padding(.horizontal, 16)
@@ -173,7 +173,7 @@ struct PhotoViewer: View {
                                     .font(.subheadline.weight(.semibold))
                                     .padding(.horizontal, 16).frame(height: 44)
                             }
-                            .glassEffect(.regular.interactive(), in: .capsule)
+                            .controlGlass(in: Capsule(), interactive: true)
                             .disabled(saving)
                             if let url = photo.url {
                                 ShareLink(item: url, preview: SharePreview(photo.title(t))) {
@@ -181,7 +181,7 @@ struct PhotoViewer: View {
                                         .font(.system(size: 17, weight: .semibold))
                                         .frame(width: 44, height: 44)
                                 }
-                                .glassEffect(.regular.interactive(), in: .circle)
+                                .controlGlass(in: Circle(), interactive: true)
                                 .accessibilityLabel(t("分享", "分享"))
                             }
                         }
@@ -198,7 +198,7 @@ struct PhotoViewer: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18).frame(height: 40)
-                    .glassEffect(.regular, in: .capsule)
+                    .controlGlass(in: Capsule())
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
                     // Already spoken as an announcement when it appears.
                     .accessibilityHidden(true)

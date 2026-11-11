@@ -130,32 +130,50 @@ void glass(Builder &b, const CandidateLayout &L, const Theme &t) {
         const std::size_t inner = b.outline(insetOutline(L.glass, t.rimWidth));
         b.fill(outer, solid(t.rimTint));
         b.fill(inner, std::move(body));
-        if (L.decorations && t.frostOpacity > 0) {
-            b.pushClip(inner);
-            mimimo(b, L.mimimo, t.frostOpacity, kFrostBlur);
-            b.popClip();
+        b.pushClip(inner);
+        if (L.decorations && t.frostOpacity > 0) mimimo(b, L.mimimo, t.frostOpacity, kFrostBlur);
+        // Light that has passed through the glass: the caustic's colours on
+        // the lower half of the body, strongest at the bottom edge. One soft
+        // patch per colour, evenly spaced, each fading out where its
+        // neighbours peak. Nothing under this body shows through it, so the
+        // light is drawn on top.
+        const float step = box.width / static_cast<float>(t.causticCount + 1);
+        const float reach = L.metrics.barHeight / 2 - t.rimWidth, floorY = L.glass.body.bottom() - t.rimWidth;
+        for (int i = 0; i < t.causticCount; ++i) {
+            const float cx = box.x + step * static_cast<float>(i + 1);
+            b.ellipse({cx - step, floorY - reach, 2 * step, 2 * reach},
+                      radial({cx, floorY}, step, reach,
+                             {{0, t.caustic[i].withAlpha(t.spillOpacity)}, {1, t.caustic[i].withAlpha(0)}}));
         }
-        if (t.causticCount > 0) {
-            // Iridescent band in the lower rim. It fades out over the end caps,
-            // where the rim turns upwards.
-            const float fade = clampf(L.glass.radius / std::max(1.0f, box.width), 0.02f, 0.45f);
-            std::vector<GradientStop> stops;
-            stops.push_back({0, t.caustic[0].withAlpha(0)});
-            for (int i = 0; i < t.causticCount; ++i) {
-                const float u = t.causticCount == 1 ? 0.5f : static_cast<float>(i) / static_cast<float>(t.causticCount - 1);
-                stops.push_back({fade + u * (1 - 2 * fade), t.caustic[i].withAlpha(t.causticOpacity)});
-            }
-            stops.push_back({1, t.caustic[t.causticCount - 1].withAlpha(0)});
-            b.line(outlineRun(L.glass, OutlineEdge::Bottom, t.rimWidth / 2, 0, 1), t.rimWidth,
-                   linear({box.x, 0}, {box.right(), 0}, std::move(stops)));
+        b.popClip();
+        // A little of the palette over the whole glass.
+        b.fill(outer, solid(t.tint.withAlpha(t.tintOpacity)));
+        // The thick edge bends light: a soft bright band where the body meets
+        // the rim. Three stacked strokes stand in for a 3.5 wide stroke
+        // blurred by 1.8.
+        for (float width : {6.0f, 4.0f, 2.0f})
+            b.stroke(inner, width, solid(t.refraction.withAlpha(t.refraction.a * 0.22f)));
+        // Band of colour in the lower rim. It fades out over the end caps,
+        // where the rim turns upwards.
+        const float fade = clampf(L.glass.radius / std::max(1.0f, box.width), 0.02f, 0.45f);
+        std::vector<GradientStop> stops;
+        stops.push_back({0, t.caustic[0].withAlpha(0)});
+        for (int i = 0; i < t.causticCount; ++i) {
+            const float u = static_cast<float>(i) / static_cast<float>(t.causticCount - 1);
+            stops.push_back({fade + u * (1 - 2 * fade), t.caustic[i].withAlpha(t.causticOpacity)});
         }
+        stops.push_back({1, t.caustic[t.causticCount - 1].withAlpha(0)});
+        b.line(outlineRun(L.glass, OutlineEdge::Bottom, 2, 0, 1), 2.4f,
+               linear({box.x, 0}, {box.right(), 0}, std::move(stops)));
         if (t.rimShade.a > 0) b.stroke(inner, 1, solid(t.rimShade));
     }
-    if (t.lipStart.a > 0 || t.lipEnd.a > 0) {
+    if (t.lipStart.a > 0) {
+        // The polished rim catches light at both ends: brightest at the upper
+        // left, again at the lower right.
         const std::size_t lip = b.outline(insetOutline(L.glass, 0.75f));
         b.stroke(lip, 1.5f,
-                 linear({box.x, box.y}, {box.x + std::min(box.width, box.height * 4), box.bottom()},
-                        {{0, t.lipStart}, {1, t.lipEnd}}));
+                 linear({box.x, box.y}, {box.right(), box.bottom()},
+                        {{0, t.lipStart}, {0.55f, t.lipMid}, {1, t.lipEnd}}));
     }
     if (t.edge.a > 0) b.stroke(outer, 1, solid(t.edge));
     if (t.highlight.a > 0)
@@ -189,11 +207,27 @@ void candidates(Builder &b, const CandidateLayout &L, const CandidateViewModel &
         const bool hovered = !selected && model.hovered && *model.hovered == cell.index;
         const float r = cell.pill.height / 2;
         if (selected) {
-            b.roundRect(cell.pill, r,
-                        linear({0, cell.pill.y}, {0, cell.pill.bottom()}, {{0, t.pillTop}, {1, t.pillBottom}}));
-            if (t.pillHighlight.a > 0)
-                b.line({{cell.pill.x + r, cell.pill.y + 0.75f}, {cell.pill.right() - r, cell.pill.y + 0.75f}}, 0.8f,
-                       solid(t.pillHighlight));
+            // A bead of tinted glass: a shadow in its own colour, light on
+            // its upper edge, and the light that crossed it gathered inside
+            // the lower edge.
+            const RectF &pill = cell.pill;
+            const bool bead = t.pillShadowOpacity > 0;
+            const GlassOutline outline = makeBarOutline(GlassShape::Capsule, pill);
+            if (bead) b.shadow(b.outline(outline), t.pillBottom.withAlpha(t.pillShadowOpacity), 3.5f, 1.5f);
+            b.roundRect(pill, r, linear({0, pill.y}, {0, pill.bottom()}, {{0, t.pillTop}, {1, t.pillBottom}}));
+            if (bead) {
+                b.line(outlineRun(outline, OutlineEdge::Top, 0.5f, 0, 1), 0.8f,
+                       linear({0, pill.y}, {0, pill.midY()},
+                              {{0, t.pillHighlight}, {1, t.pillHighlight.withAlpha(0)}}));
+                // A wide faint line under a narrow one stands in for a 1.6
+                // wide stroke blurred by 0.8.
+                const auto glow = [&](float share) {
+                    return linear({0, pill.midY()}, {0, pill.bottom()},
+                                  {{0, t.pillGlow.withAlpha(0)}, {1, t.pillGlow.withAlpha(t.pillGlow.a * share)}});
+                };
+                b.line(outlineRun(outline, OutlineEdge::Bottom, 1.6f, 0, 1), 3.2f, glow(0.25f));
+                b.line(outlineRun(outline, OutlineEdge::Bottom, 1.2f, 0, 1), 1.6f, glow(0.4f));
+            }
         } else if (pressed) {
             // Pressed: the wash shrinks to 0.95 (DESIGN.md §4); the text stays put.
             const RectF pill = cell.pill.inset(cell.pill.width * 0.025f, cell.pill.height * 0.025f);

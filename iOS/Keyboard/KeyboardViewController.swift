@@ -28,7 +28,7 @@ struct KeyboardRootView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            KeyboardBackground(dark: ui.dark)
+            KeyboardBackground(dark: ui.dark, glass: ui.region.glass.offsetBy(dx: ui.sideInset, dy: 0))
             VStack(spacing: 0) {
                 CandidateRegionView(engine: engine, ui: ui, actions: actions)
                     .frame(height: ui.region.height)
@@ -95,6 +95,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     private let keysView = KeyboardKeysView()
     private var hosting: UIHostingController<KeyboardRootView>?
     private var heightConstraint: NSLayoutConstraint?
+    /// When the view was first seen smaller than the height asked for.
+    private var shortSince: TimeInterval?
     private var capitalization = CapitalizationState()
     private var shiftHeld = false
     private var page = 0
@@ -141,9 +143,19 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         hosting.safeAreaRegions = []
         hosting.sizingOptions = []
         addChild(hosting)
-        hosting.view.frame = view.bounds
-        hosting.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Pinned with constraints, not an autoresizing mask: UIKit reports the
+        // keyboard's height (the constraint below) to the host app only when a
+        // subview of the input view takes part in Auto Layout. Without one the
+        // host never hears of it and keeps its default height (216 pt on an
+        // iPhone in portrait).
+        hosting.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(hosting.view)
+        NSLayoutConstraint.activate([
+            hosting.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hosting.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hosting.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hosting.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
         hosting.didMove(toParent: self)
         self.hosting = hosting
 
@@ -186,6 +198,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         // Rebuild only the decorative layer after the extension reappears;
         // the composition and candidates stay as they were.
         ui.appearanceRevision &+= 1
+        shortSince = nil
         if appliedSettingsOnLoad { appliedSettingsOnLoad = false } else { Preferences.shared.applySharedSettings() }
         let wanted = Preferences.shared.inputMode
         if engine.isReady, engine.inputMode != wanted {
@@ -309,21 +322,31 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         let baseRows = engine.inputMode == .zhuyin && !engine.english ? 5 : 4
         let base = KeyMetrics(idiom: idiom, width: width, rows: baseRows)
         var area = base.areaHeight(rows: baseRows)
-        // iOS 27 gives a keyboard extension a fixed height (216 pt on a
-        // 402 pt iPhone in portrait, 160 pt in landscape) and ignores the
-        // height constraint below. Whatever the height, every row stays
-        // inside it: a smaller bar and shorter keys, and in landscape the
-        // bar without the cats.
+        // The height constraint asks iOS for this height, and iOS gives it a
+        // moment after the view is on screen; until then the view has the
+        // system's default height. The keys are drawn at full size meanwhile.
+        // Only a height that stays too small is fitted into: a smaller bar
+        // and shorter keys, and in landscape the bar without the cats, so
+        // every row stays above the system's globe bar.
         let wanted = (region.height + area).rounded()
         let room = (view.bounds.height - insets.bottom).rounded(.down)
-        if view.window != nil, room > 0, region.height + area > room + 0.5 {
-            if idiom == .phone {
-                idiom = .phoneLandscape
-                region = CandidateRegionLayout(width: width, idiom: idiom, cats: prefs.catGlassSkin, rim: rim)
-            } else if idiom == .phoneLandscape {
-                region = CandidateRegionLayout(width: width, idiom: idiom, cats: false, rim: rim)
+        if view.window != nil, room > 0, wanted > room + 0.5 {
+            let now = ProcessInfo.processInfo.systemUptime
+            if shortSince == nil {
+                shortSince = now
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.relayout() }
             }
-            area = max(1, room - region.height)
+            if now - (shortSince ?? now) >= 0.25 {
+                if idiom == .phone {
+                    idiom = .phoneLandscape
+                    region = CandidateRegionLayout(width: width, idiom: idiom, cats: prefs.catGlassSkin, rim: rim)
+                } else if idiom == .phoneLandscape {
+                    region = CandidateRegionLayout(width: width, idiom: idiom, cats: false, rim: rim)
+                }
+                area = max(1, room - region.height)
+            }
+        } else {
+            shortSince = nil
         }
         var metrics = KeyMetrics(idiom: idiom, width: width, rows: keySet.rowCount)
         metrics.keyHeight = max(1, (area - metrics.topPadding - metrics.bottomPadding
@@ -335,7 +358,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         if ui.keysAreaHeight != area { ui.keysAreaHeight = area }
         let theme = KeyboardKeyTheme(dark: ui.dark, highContrast: UIAccessibility.isDarkerSystemColorsEnabled,
                                      palette: prefs.candidatePalette, bold: UIAccessibility.isBoldTextEnabled,
-                                     opaque: UIAccessibility.isReduceTransparencyEnabled || UIAccessibility.isDarkerSystemColorsEnabled)
+                                     opaque: UIAccessibility.isReduceTransparencyEnabled || UIAccessibility.isDarkerSystemColorsEnabled,
+                                     liquid: LiquidGlass.available)
         keysView.configure(keySet: keySet, metrics: metrics, idiom: idiom, theme: theme, width: width, areaTop: region.height)
         if let heightConstraint, abs(heightConstraint.constant - wanted) >= 0.5 { heightConstraint.constant = wanted }
     }
@@ -389,8 +413,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
             keysView.cancelAllTouches()
             keysView.isHidden = true
         } else {
-            keysView.alpha = 0
             keysView.isHidden = false
+            // Glass under a fading parent is drawn wrong: glass keys come back at once.
+            if LiquidGlass.available { return }
+            keysView.alpha = 0
             // The keys take touches while they fade in.
             UIView.animate(withDuration: motion ? 0.18 : 0, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.keysView.alpha = 1

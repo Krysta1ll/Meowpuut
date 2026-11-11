@@ -3,10 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR="${MEOWPUUT_XCODE_DIR:-/Applications/Xcode.app/Contents/Developer}"
 SDK_VERSION="$(xcrun --sdk iphonesimulator --show-sdk-version)"
-TARGET_VERSION=27.0
 case "${1:-}" in
   --check-with-installed-sdk)
-    TARGET_VERSION="$SDK_VERSION"
     echo "仅做已安装 SDK $SDK_VERSION 的编译诊断，不作为 iOS 27 验收。" ;;
   "")
     if [ "${SDK_VERSION%%.*}" -lt 27 ]; then
@@ -18,4 +16,4 @@ esac
 bash scripts/prepare-ios.sh
 xcodebuild -project iOS/Meowpuut.xcodeproj -scheme Meowpuut -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/iOS \
-  IPHONEOS_DEPLOYMENT_TARGET="$TARGET_VERSION" CODE_SIGNING_ALLOWED=NO build
+  CODE_SIGNING_ALLOWED=NO build

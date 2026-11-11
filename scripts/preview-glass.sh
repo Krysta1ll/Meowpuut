@@ -21,7 +21,7 @@ cp -R Resources/Festivals "$APP/Contents/Resources/"
 # scripts/build.sh compiles into the app.
 LEXICON="$PWD/.build/Meowpuut.app/Contents/Resources"
 [ -f "$LEXICON/mimo_base.bin" ] || bash scripts/build.sh
-for file in mimo_base.bin mimo-manifest.json native-pinyin.tsv native-zhuyin.tsv native-japanese.json native-japanese.tsv associations.json language-evidence.sqlite; do
+for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin mimo-manifest.json native-pinyin.tsv native-zhuyin.tsv native-japanese.json native-japanese.tsv associations.json language-evidence.sqlite; do
   if [ -e "$LEXICON/$file" ]; then cp -c "$LEXICON/$file" "$APP/Contents/Resources/" 2>/dev/null || cp "$LEXICON/$file" "$APP/Contents/Resources/"; fi
 done
 bash scripts/build-rust.sh macos

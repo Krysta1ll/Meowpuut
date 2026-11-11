@@ -228,6 +228,7 @@ cases = [
  ("a tap picks a candidate", PY, "keys:nihao;pick:2", dict(text="妳好")),
  ("a tap on the emoji types it", PY, "keys:nihao;pick:1", dict(text="👋", marked="")),
  ("space commits the word, not the emoji", PY, "keys:nihao;tap:space", dict(text="你好")),
+ ("space types an English word as it was typed", PY + ["-autocapitalization", "none"], "keys:hello;tap:space", dict(text="hello", marked="")),
  ("Zhuyin: space and Return commit the word, not the emoji", ZY, "keys:ㄋㄧˇㄏㄠˇ;tap:space;keys:ㄋㄧˇㄏㄠˇ;tap:return", dict(text="你好你好")),
  ("pinyin with overlapping fingers", PY, "d1:n;d2:i;u1;d1:h;u2;d2:a;u1;d1:o;u2;u1;tap:space", dict(text="你好")),
  ("Delete shortens the reading", PY, "keys:nih;tap:delete", dict(marked="ni")),

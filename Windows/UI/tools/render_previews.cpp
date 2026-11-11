@@ -94,6 +94,7 @@ struct Scenario {
     Appearance appearance = Appearance::Light;
     bool highContrast = false;
     bool transparency = true;
+    Palette palette = Palette::Rose;
 };
 
 CandidateViewModel nihao() {
@@ -168,6 +169,21 @@ int main(int argc, char **argv) {
             scenarios.push_back(expanded);
         }
     }
+    // The palettes: the dark rim and caustic take the palette's colour.
+    for (auto appearance : {Appearance::Light, Appearance::Dark}) {
+        for (const char *name : {"ocean", "sage", "lavender", "amber", "graphite"}) {
+            Scenario tinted{std::string(appearance == Appearance::Light ? "light" : "dark") + "-capsule-" + name, sushi(),
+                            appearance};
+            tinted.palette = parsePalette(name);
+            scenarios.push_back(tinted);
+        }
+    }
+    Scenario oceanPanel{"dark-capsule-ocean-expanded", sushi(), Appearance::Dark};
+    oceanPanel.palette = Palette::Ocean;
+    oceanPanel.model.expanded = true;
+    oceanPanel.model.preedit = "sushi";
+    oceanPanel.model.modeLabel = "拼音 · 繁";
+    scenarios.push_back(oceanPanel);
     Scenario hello{"light-capsule-nihao", nihao(), Appearance::Light};
     hello.model.mimimoFace = CatFace::Blink;
     hello.model.momoFace = CatFace::Happy;
@@ -266,7 +282,7 @@ int main(int argc, char **argv) {
         Theme theme = s.highContrast
                           ? makeTheme(s.appearance, Palette::Rose, true, true, Color::rgb(0x000000), Color::rgb(0xFFFFFF),
                                       Color::rgb(0xD6B4FD), Color::rgb(0x2B2B2B), Color::rgb(0xA6A6A6))
-                          : makeTheme(s.appearance, Palette::Rose, s.transparency, false);
+                          : makeTheme(s.appearance, s.palette, s.transparency, false);
         const bool festive = s.name == festivalName;
         if (festive && festivalPill) applyOutfitPill(theme, *festivalPill);
         const Scene scene = buildScene(layout, s.model, theme);

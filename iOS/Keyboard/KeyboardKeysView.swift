@@ -1,6 +1,7 @@
 import UIKit
 
-// One touch surface for every key (docs/DESIGN.md §6). Keys are plain layers;
+// One touch surface for every key (docs/DESIGN.md §6). Keys are layers over a
+// piece of glass that takes no touches;
 // this view resolves each finger to a key itself, so the gaps between keys
 // have no dead zones, several fingers can overlap without losing a key, and
 // visual feedback happens in the same frame as the touch.
@@ -25,7 +26,21 @@ protocol KeyboardKeysViewDelegate: AnyObject {
     func keysView(_ view: KeyboardKeysView, returnToPage page: Int)
 }
 
+/// A key's glass. It remembers what it was last made for, so one handed on to
+/// another key, or a key whose label changed, keeps its effect.
+final class KeyGlassView: UIVisualEffectView {
+    struct Look: Equatable {
+        var theme: KeyboardKeyTheme
+        var accent: Bool
+        var radius: CGFloat
+    }
+    var look: Look?
+}
+
 final class KeyCapView: UIView {
+    /// The key's glass. It lies under the cap, in the keys view's glass
+    /// container, at the cap's frame.
+    let glass: KeyGlassView
     private let label = UILabel()
     private let icon = UIImageView()
     private(set) var key: KeyboardKey
@@ -41,10 +56,11 @@ final class KeyCapView: UIView {
         }
     }
 
-    init(key: KeyboardKey, theme: KeyboardKeyTheme, metrics: KeyMetrics) {
+    init(key: KeyboardKey, theme: KeyboardKeyTheme, metrics: KeyMetrics, glass: KeyGlassView) {
         self.key = key
         self.theme = theme
         self.metrics = metrics
+        self.glass = glass
         super.init(frame: .zero)
         isUserInteractionEnabled = false
         isAccessibilityElement = false
@@ -83,6 +99,20 @@ final class KeyCapView: UIView {
         let weight: UIFont.Weight = theme.bold ? .semibold : (key.style == .accent ? .medium : .regular)
         label.font = .systemFont(ofSize: size, weight: weight)
         label.text = key.label
+        if #available(iOS 26, *), LiquidGlass.available {
+            // Bold Text changes the labels only.
+            var plain = theme
+            plain.bold = false
+            let look = KeyGlassView.Look(theme: plain, accent: key.style == .accent, radius: metrics.cornerRadius)
+            if glass.look != look {
+                glass.look = look
+                let tint = theme.glassTint(for: key.style)
+                let effect = tint.map { _ in UIGlassEffect(style: .regular) }
+                effect?.tintColor = tint
+                glass.effect = effect
+                glass.cornerConfiguration = .corners(radius: .fixed(metrics.cornerRadius))
+            }
+        }
         refresh()
     }
 
@@ -277,6 +307,8 @@ final class KeyboardKeysView: UIView {
     private(set) var keySet: KeyboardKeySet?
     private(set) var placements: [[KeyPlacement]] = []
     private var caps: [[KeyCapView]] = []
+    /// Holds every key's glass under the caps, so iOS draws them as one group.
+    private let glassBoard = UIVisualEffectView()
     private(set) var theme = KeyboardKeyTheme(dark: false, highContrast: false, palette: .rose)
     private(set) var metrics = KeyMetrics(idiom: .phone, width: 393, rows: 4)
     private(set) var idiom: KeyboardIdiom = .phone
@@ -331,6 +363,15 @@ final class KeyboardKeysView: UIView {
         clipsToBounds = false
         backgroundColor = .clear
         isAccessibilityElement = false
+        if #available(iOS 26, *), LiquidGlass.available {
+            let container = UIGlassContainerEffect()
+            container.spacing = 0
+            glassBoard.effect = container
+        }
+        glassBoard.isUserInteractionEnabled = false
+        glassBoard.frame = bounds
+        glassBoard.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(glassBoard)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -360,6 +401,9 @@ final class KeyboardKeysView: UIView {
         self.keySet = keySet
         self.theme = theme
         self.idiom = idiom
+        // The glass follows the keyboard's own light or dark setting, which
+        // can differ from the system's.
+        overrideUserInterfaceStyle = theme.dark ? .dark : .light
         self.areaTop = areaTop
         if !sameGeometry {
             self.metrics = metrics
@@ -371,14 +415,24 @@ final class KeyboardKeysView: UIView {
                 for (c, key) in row.enumerated() { caps[r][c].update(key: key, theme: theme, metrics: metrics) }
             }
         } else {
+            // The old keys' glass goes to the new keys: building an effect
+            // view for every key on each page change would be felt.
+            var spare = caps.flatMap { $0 }.map(\.glass)
             caps.flatMap { $0 }.forEach { $0.removeFromSuperview() }
             caps = keySet.rows.map { row in
                 row.map { key in
-                    let cap = KeyCapView(key: key, theme: theme, metrics: metrics)
-                    insertSubview(cap, at: 0)
+                    let glass = spare.popLast() ?? {
+                        let view = KeyGlassView()
+                        view.isUserInteractionEnabled = false
+                        glassBoard.contentView.addSubview(view)
+                        return view
+                    }()
+                    let cap = KeyCapView(key: key, theme: theme, metrics: metrics, glass: glass)
+                    insertSubview(cap, aboveSubview: glassBoard)
                     return cap
                 }
             }
+            spare.forEach { $0.removeFromSuperview() }
             // A held key from the old layout no longer matches what is drawn.
             for track in tracks.values where !isSlide(track) {
                 retire(track)
@@ -442,6 +496,7 @@ final class KeyboardKeysView: UIView {
         for (r, row) in caps.enumerated() where r < drawFrames.count {
             for (c, cap) in row.enumerated() where c < drawFrames[r].count {
                 cap.frame = drawFrames[r][c]
+                cap.glass.frame = drawFrames[r][c]
             }
         }
         CATransaction.commit()
