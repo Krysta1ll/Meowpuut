@@ -51,8 +51,26 @@ struct SmokeHarness {
     }
 }
 
+/// Pages through every candidate of the current input. True when the bare
+/// kana spelling is listed, is neither required nor the kept Japanese cell,
+/// and no Chinese candidate comes after it.
+func kanaRankedLast(_ engine: Engine, _ kana: String) -> Bool {
+    guard engine.snapshot.requiredCandidate != kana, engine.snapshot.compactJapanese?.text != kana else { return false }
+    let japanese = Set(engine.snapshot.japaneseCandidates)
+    var all = engine.snapshot.candidates
+    for _ in 0..<80 where !engine.snapshot.lastPage { engine.key(0xff56); all += engine.snapshot.candidates }
+    guard let at = all.firstIndex(of: kana) else { return false }
+    let han = { (text: String) in text.unicodeScalars.contains { (0x3400...0x9fff).contains($0.value) || $0.value >= 0x20000 } }
+    return !all[at...].contains { han($0) && !japanese.contains($0) }
+}
+
 func runIndependentSmoke() -> Never {
     setbuf(stdout, nil)
+    // The checks take a few seconds. A hang must not block whoever started them.
+    DispatchQueue.global().asyncAfter(deadline: .now() + 300) {
+        print("FAIL：檢查逾時")
+        exit(3)
+    }
     let menuItem = NSMenuItem(title: "測試皮膚", action: nil, keyEquivalent: "")
     menuItem.representedObject = true
     var h = SmokeHarness(engine: Engine())
@@ -295,26 +313,25 @@ func runIndependentSmoke() -> Never {
     } else { h.check(false, "共用引擎可載入") }
     engine.clear(); h.type("nihao"); engine.key(0xff0d)
     h.check(engine.takeCommit() == "你好", "Enter仍確認中文")
+    // Pinyin keeps the bare kana spelling, after every Chinese candidate.
     for (input, kana) in [("a", "あ"), ("ka", "か"), ("shi", "し"), ("n", "ん"), ("xa", "ぁ")] {
         engine.clear(); h.type(input)
-        var found = engine.snapshot.candidates.contains(kana)
-        for _ in 0..<40 where !found && !engine.snapshot.lastPage {
-            engine.key(0xff56); found = engine.snapshot.candidates.contains(kana)
-        }
-        h.check(found, "短羅馬音候選可展開翻頁 " + input)
+        h.check(kanaRankedLast(engine, kana), "假名拼寫排在所有中文之後 " + input)
     }
     engine.clear(); h.type("k")
     h.check(engine.snapshot.candidates.contains("k"), "未完成字母保留原文候選")
     engine.clear(); h.type("youhua")
     h.check(engine.snapshot.candidates.first == "優化", "完整羅馬音仍以中文優先")
-    h.check(engine.snapshot.requiredCandidate == "ようふあ", "完整羅馬音保留假名候選")
+    h.check(kanaRankedLast(engine, "ようふあ"), "完整羅馬音的假名拼寫排在所有中文之後")
 
     runSmokePinyinAndMemory(&h)
     runSmokeMixedAndLayout(&h)
+    runCandidateWindowChecks(&h)
 
     ChoiceMemory.shared.clear()
     ChoiceMemory.shared.flush()
     try? FileManager.default.removeItem(at: Preferences.directory)
     UserDefaults(suiteName: "app.meowpuut.smoke")?.removePersistentDomain(forName: "app.meowpuut.smoke")
+    print(h.failures == 0 ? "全部通過" : "\(h.failures) 項未通過")
     exit(h.failures == 0 ? 0 : 1)
 }

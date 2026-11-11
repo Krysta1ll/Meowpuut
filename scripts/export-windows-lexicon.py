@@ -5,9 +5,9 @@ import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TABLES = ('mimo_base.bin', 'native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.tsv')
+TABLES = ('mimo_base.bin', 'mimo_pairs.bin', 'native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.tsv')
 NOTICES = {
-    'Meowpuut-MIT.txt': 'LICENSE',
+    'Meowpuut-GPL-3.0.txt': 'LICENSE',
     'mimo-tc-MIT.txt': 'DataSources/mimo-tc/LICENSE.txt',
     'OpenCC-Apache-2.0.txt': 'DataSources/mimo-tc/OPENCC-LICENSE.txt',
     'jieba-MIT.txt': 'DataSources/mimo-tc/JIEBA-LICENSE.txt',
@@ -19,6 +19,13 @@ NOTICES = {
     'mimo-jp-BSD.txt': 'DataSources/mimo-jp/BSD.txt',
     'mimo-jp-COPYING.txt': 'DataSources/mimo-jp/COPYING.txt',
     'mimo-jp-SOURCE.json': 'DataSources/mimo-jp/SOURCE.json',
+    'mimo-jp-Mozc-BSD.txt': 'DataSources/mimo-jp/MOZC-LICENSE.txt',
+    'mimo-jp-Unicode-3.0.txt': 'DataSources/mimo-jp/UNICODE-LICENSE.txt',
+    'mimo-pairs-SOURCE.json': 'DataSources/mimo-pairs/SOURCE.json',
+    'mimo-pairs-CC-BY-SA-4.0.txt': 'DataSources/mimo-pairs/CC-BY-SA-4.0.txt',
+    'mimo-pairs-Tatoeba-CC-BY-2.0-FR.html': 'DataSources/mimo-pairs/CC-BY-2.0-FR.html',
+    'mimo-pairs-CommonVoice-CC0-1.0.txt': 'DataSources/mimo-pairs/CC0-1.0.txt',
+    'mimo-latin-SOURCE.json': 'DataSources/mimo-latin/SOURCE.json',
 }
 
 

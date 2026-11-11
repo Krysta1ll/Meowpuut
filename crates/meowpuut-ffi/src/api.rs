@@ -26,9 +26,12 @@
 //! }
 //! ```
 
-use std::ffi::{c_char, c_int};
+use std::ffi::{c_char, c_int, c_void};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use meowpuut_core::image::ImageOwner;
+use meowpuut_core::pairs::Pairs;
 use meowpuut_core::Lexicon;
 
 use crate::{arg_str, session_mut, session_ref, MPNLexicon, MPNSession, EMPTY};
@@ -91,6 +94,117 @@ pub unsafe extern "C" fn mpn_lexicon_create_from_base(
     match loaded {
         Some(lexicon) => Box::into_raw(Box::new(MPNLexicon { value: Arc::new(lexicon) })),
         None => std::ptr::null_mut(),
+    }
+}
+
+/// Called once with its context when the engine no longer reads the bytes
+/// passed to `mpn_lexicon_create_from_base_in_place`.
+pub type MPNReleaseFn = Option<unsafe extern "C" fn(context: *mut c_void)>;
+
+/// Calls the release callback when dropped, which happens when the last
+/// `Arc<Lexicon>` holding the in-place bytes goes away (or a load fails).
+struct Release {
+    release: MPNReleaseFn,
+    context: *mut c_void,
+}
+
+// SAFETY: the header requires the release callback to accept a call from any
+// thread; the context pointer is only handed back to it, never dereferenced.
+#[allow(unsafe_code)]
+unsafe impl Send for Release {}
+// SAFETY: as above; `Release` has no methods that use the pointer through `&self`.
+#[allow(unsafe_code)]
+unsafe impl Sync for Release {}
+
+impl Drop for Release {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        if let Some(release) = self.release {
+            // SAFETY: the caller's function and context, called exactly once (drop runs once).
+            unsafe { release(self.context) };
+        }
+    }
+}
+
+/// Loads Pinyin (`pinyin != 0`) or Zhuyin from a `MIMO-BASE-1` container
+/// without copying it: the lexicon reads `data` in place. Returns NULL on failure.
+///
+/// The engine takes the bytes over on every call: `release(context)` runs
+/// exactly once, when the lexicon handle and every session created from it
+/// are destroyed, or before this function returns NULL. `release` may be NULL.
+///
+/// # Safety
+/// `data` must be NULL or valid for reads of `size` bytes, and stay valid and
+/// unchanged until `release(context)` is called (with a NULL `release`: until
+/// the lexicon and all its sessions are destroyed). `release` must be safe to
+/// call from any thread.
+#[no_mangle]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn mpn_lexicon_create_from_base_in_place(
+    data: *const c_char,
+    size: usize,
+    pinyin: c_int,
+    release: MPNReleaseFn,
+    context: *mut c_void,
+) -> *mut MPNLexicon {
+    let guard = Release { release, context };
+    if data.is_null() || size == 0 {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller keeps `size` bytes at `data` valid and unchanged until
+    // `release` runs. `guard` is stored in the lexicon as its owner, so release
+    // runs only after the last reference to these bytes is dropped.
+    let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), size) };
+    let owner = ImageOwner::new(Arc::new(guard));
+    let loaded = std::panic::catch_unwind(AssertUnwindSafe(|| Lexicon::from_base_in_place(bytes, pinyin != 0, Some(owner))))
+        .ok()
+        .flatten();
+    match loaded {
+        Some(lexicon) => Box::into_raw(Box::new(MPNLexicon { value: Arc::new(lexicon) })),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Attaches a word-pair table (`mimo_pairs.bin`) to `lexicon`, read in place.
+/// Returns 1 when attached; 0 when `data` is not a pair table for this
+/// lexicon (another word list), or sessions already use the lexicon.
+///
+/// Ownership as for `mpn_lexicon_create_from_base_in_place`: `release(context)`
+/// runs exactly once, when the lexicon and every session created from it are
+/// destroyed, or before this function returns 0. `release` may be NULL.
+///
+/// # Safety
+/// `lexicon` must be NULL or a live handle; `data` must be NULL or valid for
+/// reads of `size` bytes and stay valid and unchanged until `release(context)`
+/// is called. `release` must be safe to call from any thread.
+#[no_mangle]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn mpn_lexicon_attach_pairs(
+    lexicon: *mut MPNLexicon,
+    data: *const c_char,
+    size: usize,
+    release: MPNReleaseFn,
+    context: *mut c_void,
+) -> c_int {
+    let guard = Release { release, context };
+    // SAFETY: NULL or a live handle per the contract.
+    let Some(handle) = (unsafe { lexicon.as_mut() }) else { return 0 };
+    let Some(lex) = Arc::get_mut(&mut handle.value) else { return 0 };
+    if data.is_null() || size == 0 {
+        return 0;
+    }
+    // SAFETY: the caller keeps `size` bytes at `data` valid and unchanged until
+    // `release` runs; `guard` is stored with the table, so release runs only
+    // after the last reference to these bytes is dropped.
+    let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), size) };
+    let owner = ImageOwner::new(Arc::new(guard));
+    let ids = &lex.index().word_ids;
+    match std::panic::catch_unwind(AssertUnwindSafe(|| Pairs::in_place(bytes, ids, Some(owner)))).ok().flatten() {
+        Some(pairs) => {
+            lex.set_pairs(pairs);
+            1
+        }
+        None => 0,
     }
 }
 

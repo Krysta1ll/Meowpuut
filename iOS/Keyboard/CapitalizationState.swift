@@ -3,49 +3,69 @@ import Foundation
 /// A single Shift applies to one letter; a quick second tap locks uppercase.
 struct CapitalizationState: Equatable {
     enum Mode { case lowercase, nextLetter, locked }
+    /// Two taps this close together lock uppercase (docs/DESIGN.md §6).
+    static let doubleTapInterval: TimeInterval = 0.3
+
     private(set) var mode: Mode = .lowercase
     private var lastShiftTime: TimeInterval?
-    private static let doubleTapInterval: TimeInterval = 0.35
+    /// `nextLetter` came from a Shift tap, not from the start of a sentence.
+    private var manual = false
+    /// The user turned off the capital offered at the start of a sentence;
+    /// it is not offered again until a letter is typed or the context changes.
+    private var declinedAutomatic = false
 
     mutating func tapShift(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        // The second of two quick taps locks, whatever the first one did
+        // (it may have turned off the automatic capital at a sentence start).
+        if mode != .locked, let previous = lastShiftTime, time >= previous, time - previous <= Self.doubleTapInterval {
+            mode = .locked
+            manual = true
+            lastShiftTime = nil
+            return
+        }
         switch mode {
         case .lowercase:
             mode = .nextLetter
+            manual = true
             lastShiftTime = time
         case .nextLetter:
-            if let previous = lastShiftTime, time >= previous,
-               time - previous <= Self.doubleTapInterval {
-                mode = .locked
-            } else {
-                mode = .lowercase
-            }
-            lastShiftTime = nil
+            mode = .lowercase
+            declinedAutomatic = !manual
+            manual = false
+            lastShiftTime = time
         case .locked:
             mode = .lowercase
+            manual = false
             lastShiftTime = nil
         }
     }
 
-    /// Consume one alphabetic key. Chinese and Japanese readings stay lowercase;
-    /// Shift changes the committed letter's case only in English mode.
+    /// Consume one alphabetic key and report whether it is typed in uppercase.
+    /// English letters follow Shift. With `english` false the caller decides
+    /// what an uppercase reading means; the one-letter Shift is still used up.
     mutating func consumeLetter(english: Bool) -> Bool {
         let uppercase = english && mode != .lowercase
-        if mode == .nextLetter { mode = .lowercase }
+        if mode == .nextLetter { mode = .lowercase; manual = false }
         lastShiftTime = nil
+        declinedAutomatic = false
         return uppercase
     }
 
+    /// Whether Shift is on in any form (one letter or locked).
+    var isActive: Bool { mode != .lowercase }
+
     /// Synchronize Shift state with the host text field's auto-capitalization context
-    /// without interfering with manual double-tap Caps Lock.
+    /// without interfering with a Shift the user tapped or with Caps Lock.
     mutating func applyAutoCapitalization(_ shouldCapitalize: Bool) {
         guard mode != .locked else { return }
         if shouldCapitalize {
-            if mode == .lowercase {
+            if mode == .lowercase, !declinedAutomatic {
                 mode = .nextLetter
-                lastShiftTime = nil
+                manual = false
             }
-        } else if mode == .nextLetter && lastShiftTime == nil {
-            mode = .lowercase
+        } else {
+            declinedAutomatic = false
+            if mode == .nextLetter && !manual { mode = .lowercase }
         }
     }
 

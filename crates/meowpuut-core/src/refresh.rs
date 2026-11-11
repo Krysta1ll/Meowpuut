@@ -93,6 +93,7 @@ impl Session {
             self.hans,
             true,
             false,
+            false,
             &mut self.scratch.lattice,
             &mut self.scratch.step_paths,
             &mut self.scratch.fallback_raw,
@@ -120,6 +121,7 @@ impl Session {
         }
 
         decode_into(&self.lexicon, &self.input, self.hans, false, true, &mut self.scratch);
+        crate::row::prefix_offers(&self.lexicon, &self.input, self.hans, &self.scratch.lattice, &self.scratch.decoded, &mut self.row_work);
         self.ranked_work.clear();
         for i in 0..self.scratch.decoded.len() {
             self.ranked_work.push(
@@ -132,6 +134,11 @@ impl Session {
         }
 
         unfinished_phrase_into(&self.lexicon, &self.input, self.hans, &mut self.partial_work);
+        // A completion of a shorter reading (chibaomei to 吃飽沒事幹) only when
+        // the letters typed do not spell a reading of their own.
+        if !self.partial_work.is_empty() && self.has_complete_decode() {
+            self.partial_work.clear();
+        }
         prepend_items(&mut self.ranked_work, &self.partial_work);
 
         predictive_segments_into(
@@ -336,6 +343,8 @@ impl Session {
             std::mem::swap(&mut self.ranked_work, &mut self.reorder_buf);
         }
 
+        crate::row::shape(&self.lexicon, &self.input, self.hans, &mut self.ranked_work, &self.row_work, &mut self.reorder_buf);
+        crate::latin::promote(&mut self.ranked_work, self.input.len());
         self.candidates.clear();
         for i in 0..self.ranked_work.len() {
             self.candidates.push(

@@ -17,10 +17,41 @@ typedef struct MPNSession MPNSession;
 // Sessions retain the loaded lexicon independently.
 MPNLexicon *mpn_lexicon_create(const char *data, size_t size);
 // Extracts and loads either Pinyin (pinyin != 0) or Zhuyin (pinyin == 0) from a
-// mapped MIMO-BASE-1 (mimo_base.bin) container.
+// MIMO-BASE-1 (mimo_base.bin) container. The engine copies what it reads
+// to the heap (about 44 MB for pinyin, 26 MB for zhuyin with the lexicon of
+// 2026-11-11), so data may be freed when this returns.
 MPNLexicon *mpn_lexicon_create_from_base(const char *data, size_t size, int pinyin);
+
+// Same, but reads the container in place instead of copying it, so the
+// lexicon costs file pages (from a mapped file) instead of heap.
+//
+// Ownership: the engine takes the bytes over on every call. release(context)
+// is called exactly once: when mpn_lexicon_destroy has been called and every
+// session created from the lexicon has been destroyed (whichever happens
+// last, on that thread), or before this function returns NULL on failure.
+// Until then data[0..size) must stay valid and unchanged; unmap or free it in
+// release. release must be callable from any thread. With a NULL release the
+// caller keeps the bytes alive until the lexicon and all its sessions are
+// destroyed.
+//
+// A version 2 file has index sections and nothing large is built on the heap;
+// with a version 1 file the hash indexes (about 6 MiB) are built at load.
+typedef void (*MPNReleaseFn)(void *context);
+MPNLexicon *mpn_lexicon_create_from_base_in_place(const char *data, size_t size, int pinyin,
+                                                  MPNReleaseFn release, void *context);
+// Attaches the word-pair table (mimo_pairs.bin) to a lexicon, read in place;
+// the decoder then scores each word with the word after it and with the start
+// and end of the input. Call it before creating sessions. Returns 1 when
+// attached, 0 when the bytes are not a pair table for this lexicon (made for
+// another word list) or sessions already exist; the lexicon then ranks as
+// without a table. Ownership as for mpn_lexicon_create_from_base_in_place:
+// release(context) is called exactly once, when the lexicon and all its
+// sessions are destroyed, or before this function returns 0.
+int mpn_lexicon_attach_pairs(MPNLexicon *lexicon, const char *data, size_t size,
+                             MPNReleaseFn release, void *context);
 void mpn_lexicon_destroy(MPNLexicon *lexicon);
 // Heap bytes held by the lexicon tables (memory diagnostics); 0 for NULL.
+// Bytes read in place are not counted.
 size_t mpn_lexicon_heap_bytes(const MPNLexicon *lexicon);
 MPNSession *mpn_session_create(const MPNLexicon *lexicon);
 void mpn_session_destroy(MPNSession *session);
@@ -95,6 +126,70 @@ const char *mpn_mixed_pinyin_prefix(MPNSession *session, const char *reading, in
 // mpn_predict on this session.
 size_t mpn_predict(MPNSession *session, const char *context, size_t limit);
 const char *mpn_prediction(const MPNSession *session, size_t index);
+
+// Japanese lexicon image (mimo_jp.bin, format MIMO-JP-1) and its lookup. One romaji string or
+// ASCII alias gives the words stored for exactly that input; there is no prefix search.
+typedef struct MPNJapanese MPNJapanese;
+typedef struct MPNJapaneseQuery MPNJapaneseQuery;
+
+enum { MPN_JP_MODE_JAPANESE = 0, MPN_JP_MODE_PINYIN = 1 };
+enum { MPN_JP_KIND_READING = 0, MPN_JP_KIND_VARIANT = 1, MPN_JP_KIND_ALIAS_KANA = 2,
+       MPN_JP_KIND_ALIAS_KANJI = 3, MPN_JP_KIND_AUTHORED = 4 };
+enum { MPN_JP_FLAG_PINYIN_OK = 1, MPN_JP_FLAG_REVIEWED = 2, MPN_JP_FLAG_FORM = 4 };
+enum { MPN_JP_REVIEWED_POOL = 1 };
+
+typedef struct {
+    uint32_t kind;
+    uint32_t flags;
+    int32_t  weight;
+    uint32_t word;      // index of the word in the image; equal for the same word under two keys
+} MPNJapaneseInfo;      // 16 bytes
+
+// Opens a MIMO-JP-1 image. size must be the length of the whole file.
+// copy == 0: the bytes are used in place. They must stay mapped and unchanged until
+// mpn_japanese_close has returned: unmap after closing, never before; do not close while a
+// lookup on this handle is running; do not rewrite the file in place while it is mapped
+// (write a new file and rename it). Nothing is read from the bytes after close; a query
+// keeps its own copy of the strings it returns.
+// copy != 0: the bytes are copied and may be released at once.
+// Returns NULL for NULL, a short buffer, a wrong magic or version, a size other than the file_len
+// field, or sections outside the buffer.
+MPNJapanese *mpn_japanese_open(const void *data, size_t size, int copy);
+void mpn_japanese_close(MPNJapanese *japanese);
+size_t mpn_japanese_word_count(const MPNJapanese *japanese);
+// First four bytes of the sha256 of the Chinese lexicon the image was compiled with.
+uint32_t mpn_japanese_chinese_build(const MPNJapanese *japanese);
+
+// Reviewed rows: one per reviewed reading, sorted by reading (at most 4096, at most 512 with
+// MPN_JP_REVIEWED_POOL).
+size_t mpn_japanese_reviewed_count(const MPNJapanese *japanese);
+// Copies row `index` into the caller's buffers (NUL-terminated). Returns 0 and writes nothing
+// when the index is out of range or a buffer is NULL or too small; 97 and 129 bytes are always
+// enough. weight and flags may be NULL.
+int mpn_japanese_reviewed_get(const MPNJapanese *japanese, size_t index,
+                              char *reading, size_t reading_size, char *text, size_t text_size,
+                              int32_t *weight, uint32_t *flags);
+// Index of the reviewed row with exactly this reading, or -1.
+int32_t mpn_japanese_reviewed_find(const MPNJapanese *japanese, const char *reading);
+// Registers every MPN_JP_REVIEWED_POOL row with the session through the rule of
+// mpn_add_japanese_word. Returns the number accepted.
+size_t mpn_session_add_japanese_mixed(MPNSession *session, const MPNJapanese *japanese);
+
+// A query holds the result of one lookup. Use one query on one thread. An MPNJapanese may be shared
+// by any number of threads and queries.
+MPNJapaneseQuery *mpn_japanese_query_create(void);
+void mpn_japanese_query_destroy(MPNJapaneseQuery *query);
+// Looks up the whole input (a-z, ' and -, at most 80 bytes; capitals are read as lower case).
+// Returns the number of words (at most `limit`); 0 for other input or an unknown mode. Strings
+// and info stay valid until the next lookup on this query.
+size_t mpn_japanese_lookup(MPNJapaneseQuery *query, const MPNJapanese *japanese,
+                           const char *input, int mode, size_t limit);
+const char *mpn_japanese_text(const MPNJapaneseQuery *query, size_t index);
+// Writes the fields fitting in info_size; returns 0 for invalid arguments.
+int mpn_japanese_info(const MPNJapaneseQuery *query, size_t index, MPNJapaneseInfo *info, size_t info_size);
+// Hiragana and katakana of the whole input; "" when the input is not a complete romaji string.
+const char *mpn_japanese_kana(const MPNJapaneseQuery *query);
+const char *mpn_japanese_katakana(const MPNJapaneseQuery *query);
 
 #ifdef __cplusplus
 }

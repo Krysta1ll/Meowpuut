@@ -34,6 +34,9 @@ use crate::reading::{is_tone, utf8_char_count, Reading, KEYS, MAX_INPUT};
 use crate::workspace::{DecodeOutputSoA, DecoderScratchSoA};
 use crate::{CandidateKind, CandidateScoreKind};
 
+/// Leading segments checked against the continuation (with a pair table).
+const SCORED: usize = 8;
+
 const PINYIN_ONSET_INITIALS: [&str; 22] = [
     "b", "p", "f", "d", "t", "l", "g", "k", "h", "j", "q", "x", "zh", "ch", "sh", "r", "z", "c",
     "s", "y", "w", "n",
@@ -47,6 +50,7 @@ fn decode_aux(lexicon: &Lexicon, input: &str, hans: bool, complete: bool, scratc
         hans,
         complete,
         false,
+        true,
         &mut scratch.lattice,
         &mut scratch.step_paths,
         &mut scratch.fallback_raw,
@@ -92,11 +96,15 @@ pub fn predictive_segments_at_into(
         return;
     }
 
-    let mut scored_indices = [0usize; 5];
-    let mut scored_evidence = [0i32; 5];
-    let mut scored_order = [0usize; 5];
+    // With a pair table the leading segment is ranked without the word it
+    // starts (我喜 of 我喜歡 is rare as two words), so more of its paths are
+    // checked against the continuation.
+    let checked = if lexicon.pairs().is_some() { SCORED } else { 5 };
+    let mut scored_indices = [0usize; SCORED];
+    let mut scored_evidence = [0i32; SCORED];
+    let mut scored_order = [0usize; SCORED];
     let mut scored_len = 0usize;
-    for i in 0..scratch.aux_decoded.len().min(5) {
+    for i in 0..scratch.aux_decoded.len().min(checked) {
         if utf8_char_count(scratch.aux_decoded.text(i)) >= 2 {
             scored_indices[scored_len] = i;
             scored_order[scored_len] = i;
@@ -128,7 +136,7 @@ pub fn predictive_segments_at_into(
             if bkey.len() - cont_sounds.len() <= 6 {
                 let (lo, hi) = lexicon.buckets.range(bucket);
                 for i in lo..hi.min(lo + 5) {
-                    let weight = lexicon.words.weight[i];
+                    let weight = lexicon.words.weight(i);
                     let wr = lexicon.words.reading(&lexicon.storage, i);
                     if weight < 4000 || !continuation.matches(wr.as_bytes(), 0, continuation.len()) {
                         continue;
@@ -166,7 +174,7 @@ pub fn predictive_segments_at_into(
         return;
     }
 
-    let mut perm = [0usize, 1, 2, 3, 4];
+    let mut perm: [usize; SCORED] = std::array::from_fn(|i| i);
     perm[..scored_len].sort_by(|&a, &b| {
         if scored_evidence[a] == scored_evidence[b] {
             scored_order[a].cmp(&scored_order[b])

@@ -25,7 +25,9 @@
 
 use std::collections::HashMap;
 
-use crate::context_index::PhraseIndex;
+use crate::context_index::{phrase_hash, PhraseIndex};
+use crate::image::{ImageOwner, Text, U32Col};
+use crate::pairs::Pairs;
 use crate::reading::{
     han_characters_stack, is_fully_spelled_reading, is_tone, strict_han_count, KEYS, MAX_INPUT,
 };
@@ -35,19 +37,254 @@ use crate::soa::{
 };
 
 /// Immutable dictionary stored in Structure-of-Arrays (SoA) layout.
+///
+/// The tables and the lookup index are either read in place from a lexicon
+/// image (no heap copy; see `Lexicon::from_base_in_place`) or owned.
 #[derive(Debug, Clone)]
 pub struct Lexicon {
-    pub storage: String,
+    pub storage: Text,
     pub words: WordTableSoA,
     pub buckets: BucketTableSoA,
     pub context: ContextTableSoA,
-    context_index: PhraseIndex,
-    bucket_index: PhraseIndex,
-    traditional_by_str: HashMap<String, (u32, u16, i32)>,
-    simplified_by_trad: HashMap<String, (u32, u16, i32)>,
+    pub(crate) index: LexiconIndex,
     pub longest: usize,
     pub pinyin: bool,
-    pub initials: Vec<Vec<u32>>,
+    /// Word-pair table; without it the decoder ranks as before it existed.
+    pairs: Option<Pairs>,
+    /// Keeps in-place bytes alive; `None` when everything is owned.
+    owner: Option<ImageOwner>,
+}
+
+/// Single-character conversion table: a character's UTF-8 bytes packed
+/// big-endian into a `u32` key, mapped to the word row that holds the
+/// converted form. Sorted by key; looked up by binary search.
+#[derive(Debug, Clone, Default)]
+pub struct CharTable {
+    keys: U32Col,
+    words: U32Col,
+}
+
+impl CharTable {
+    /// Packs a string of 1 to 4 bytes into a key (byte order is kept).
+    #[inline]
+    pub fn pack(text: &str) -> Option<u32> {
+        let bytes = text.as_bytes();
+        if bytes.is_empty() || bytes.len() > 4 {
+            return None;
+        }
+        let mut arr = [0u8; 4];
+        arr[..bytes.len()].copy_from_slice(bytes);
+        Some(u32::from_be_bytes(arr))
+    }
+
+    fn build(mut entries: Vec<(u32, u32)>) -> Self {
+        entries.sort_unstable();
+        let mut table = Self { keys: U32Col::with_capacity(entries.len()), words: U32Col::with_capacity(entries.len()) };
+        for (key, word) in entries {
+            table.keys.push(key);
+            table.words.push(word);
+        }
+        table
+    }
+
+    /// A table over prebuilt columns; `None` unless keys are strictly
+    /// increasing and every row is below `word_count`.
+    pub fn from_columns(keys: U32Col, words: U32Col, word_count: usize) -> Option<Self> {
+        if keys.len() != words.len() {
+            return None;
+        }
+        for i in 0..keys.len() {
+            if (i > 0 && keys.get(i - 1) >= keys.get(i)) || words.get(i) as usize >= word_count {
+                return None;
+            }
+        }
+        Some(Self { keys, words })
+    }
+
+    /// Word row stored for `text`, if any.
+    #[inline]
+    pub fn get(&self, text: &str) -> Option<usize> {
+        let key = Self::pack(text)?;
+        let (mut size, mut left) = (self.keys.len(), 0usize);
+        while size > 0 {
+            let half = size / 2;
+            let mid = left + half;
+            let probe = self.keys.get(mid);
+            if probe == key {
+                return Some(self.words.get(mid) as usize);
+            }
+            if probe < key {
+                left = mid + 1;
+                size -= half + 1;
+            } else {
+                size = half;
+            }
+        }
+        None
+    }
+
+    /// Key and word columns (for writing them into an image).
+    pub fn columns(&self) -> (&U32Col, &U32Col) {
+        (&self.keys, &self.words)
+    }
+
+    fn heap_bytes(&self) -> usize {
+        self.keys.heap_bytes() + self.words.heap_bytes()
+    }
+}
+
+/// Up to 64 short words per first reading byte (ASCII), heaviest first.
+/// `starts` has 129 entries; the words for byte `b` are `words[starts[b]..starts[b + 1]]`.
+#[derive(Debug, Clone, Default)]
+pub struct Initials {
+    starts: U32Col,
+    words: U32Col,
+}
+
+impl Initials {
+    /// Words kept per first byte.
+    pub const LIMIT: usize = 64;
+
+    /// A table over prebuilt columns; `None` unless `starts` is a valid
+    /// partition of `words` and every row is below `word_count`.
+    pub fn from_columns(starts: U32Col, words: U32Col, word_count: usize) -> Option<Self> {
+        if starts.len() != 129 || starts.get(0) != 0 || starts.get(128) as usize != words.len() {
+            return None;
+        }
+        for b in 0..128 {
+            let (lo, hi) = (starts.get(b) as usize, starts.get(b + 1) as usize);
+            if lo > hi || hi - lo > Self::LIMIT {
+                return None;
+            }
+        }
+        if words.iter().any(|w| w as usize >= word_count) {
+            return None;
+        }
+        Some(Self { starts, words })
+    }
+
+    /// Start and word columns (for writing them into an image).
+    pub fn columns(&self) -> (&U32Col, &U32Col) {
+        (&self.starts, &self.words)
+    }
+
+    fn heap_bytes(&self) -> usize {
+        self.starts.heap_bytes() + self.words.heap_bytes()
+    }
+}
+
+/// Word id of every row, the key of the word-pair table (`crate::pairs`).
+///
+/// The ids number the distinct simplified texts of both modes in byte
+/// order, from 2; 0 and 1 are the clause start and end. The writer of
+/// `mimo_base.bin` stores them; a lexicon built on the heap has none.
+/// `fingerprint` is the hash of that sorted text list joined by newlines; a
+/// pair table carries the same number.
+#[derive(Debug, Clone, Default)]
+pub struct WordIds {
+    pub ids: U32Col,
+    /// Number of ids, the two markers included (0 = no ids).
+    pub count: u32,
+    pub fingerprint: u64,
+}
+
+impl WordIds {
+    /// Ids for two images (pinyin, zhuyin) of one build, as the writer stores them.
+    pub fn number(images: [(&str, &WordTableSoA); 2]) -> [Self; 2] {
+        let mut texts: Vec<&str> = Vec::new();
+        for (storage, words) in images {
+            texts.extend((0..words.len()).map(|i| words.text(storage, i, true)));
+        }
+        texts.sort_unstable();
+        texts.dedup();
+        let fingerprint = phrase_hash(texts.join("\n").as_bytes());
+        let count = texts.len() as u32 + 2;
+        images.map(|(storage, words)| {
+            let mut ids = U32Col::with_capacity(words.len());
+            for i in 0..words.len() {
+                let at = texts.binary_search(&words.text(storage, i, true)).unwrap_or_default();
+                ids.push(at as u32 + 2);
+            }
+            Self { ids, count, fingerprint }
+        })
+    }
+}
+
+/// Lookup structures derived from the tables: exact-match hash indexes for
+/// bucket keys and context phrases, the two character conversion tables, the
+/// initials lists and the word ids. Built on the heap (without word ids), or
+/// read in place from a `MIMO-IDX-1` section of a version 2 `mimo_base.bin`.
+#[derive(Debug, Clone, Default)]
+pub struct LexiconIndex {
+    pub bucket: PhraseIndex,
+    pub context: PhraseIndex,
+    /// Simplified character -> word whose traditional text is the most frequent form.
+    pub traditional: CharTable,
+    /// Traditional character -> word whose simplified text is the most frequent form.
+    pub simplified: CharTable,
+    pub initials: Initials,
+    pub word_ids: WordIds,
+}
+
+impl LexiconIndex {
+    /// Builds every structure on the heap from the tables.
+    pub fn build(storage: &str, words: &WordTableSoA, buckets: &BucketTableSoA, context: &ContextTableSoA) -> Self {
+        let mut traditional: HashMap<u32, (u32, i32)> = HashMap::new();
+        let mut simplified: HashMap<u32, (u32, i32)> = HashMap::new();
+        let mut initials: Vec<Vec<u32>> = vec![Vec::new(); 128];
+        for i in 0..words.len() {
+            let flags = words.flags(i);
+            let weight = words.weight(i);
+            if (flags & FLAG_SINGLE_HAN_HANT) != 0 && (flags & FLAG_SINGLE_HAN_HANS) != 0 {
+                let hans = words.text(storage, i, true);
+                if let Some(key) = CharTable::pack(hans) {
+                    if traditional.get(&key).map_or(true, |&(_, old_w)| old_w < weight) {
+                        traditional.insert(key, (i as u32, weight));
+                    }
+                }
+                let hant = words.text(storage, i, false);
+                if hant != hans {
+                    if let Some(key) = CharTable::pack(hant) {
+                        if simplified.get(&key).map_or(true, |&(_, old_w)| old_w < weight) {
+                            simplified.insert(key, (i as u32, weight));
+                        }
+                    }
+                }
+            }
+            if words.hant_len.get(i) <= 4 {
+                let first_byte = storage.as_bytes()[words.reading_offset.get(i) as usize] as usize;
+                if first_byte < initials.len() { initials[first_byte].push(i as u32); }
+            }
+        }
+        let mut starts = U32Col::with_capacity(129);
+        let mut flat = U32Col::default();
+        starts.push(0);
+        for items in &mut initials {
+            items.sort_by(|&a, &b| words.weight(b as usize).cmp(&words.weight(a as usize)));
+            items.truncate(Initials::LIMIT);
+            for &w in items.iter() { flat.push(w); }
+            starts.push(flat.len() as u32);
+        }
+        flat.shrink_to_fit();
+        Self {
+            bucket: PhraseIndex::build(buckets.len(), |i| buckets.key(storage, i).as_bytes()),
+            context: PhraseIndex::build(context.len(), |i| context.phrase(storage, i).as_bytes()),
+            traditional: CharTable::build(traditional.into_iter().map(|(k, (w, _))| (k, w)).collect()),
+            simplified: CharTable::build(simplified.into_iter().map(|(k, (w, _))| (k, w)).collect()),
+            initials: Initials { starts, words: flat },
+            word_ids: WordIds::default(),
+        }
+    }
+
+    /// Heap bytes held (0 when read in place).
+    pub fn heap_bytes(&self) -> usize {
+        self.bucket.heap_bytes()
+            + self.context.heap_bytes()
+            + self.traditional.heap_bytes()
+            + self.simplified.heap_bytes()
+            + self.initials.heap_bytes()
+            + self.word_ids.ids.heap_bytes()
+    }
 }
 
 fn parse_non_negative_i32(s: &str) -> Option<i32> {
@@ -78,6 +315,7 @@ impl Lexicon {
         let mut context = ContextTableSoA::default();
         let mut longest = 0usize;
         let mut reading_context = false;
+        let mut last_weight = 0i32;
 
         let mut offset_cursor = header.len();
         while offset_cursor < data.len() {
@@ -128,7 +366,8 @@ impl Lexicon {
                     if !has_sound { return None; }
                     has_sound = false;
                 } else {
-                    let valid_key = if pinyin { (b'a'..=b'z').contains(&key) } else { KEYS.contains(&key) };
+                    // Upper-case keys are English words (crate::latin).
+                    let valid_key = if pinyin { key.is_ascii_alphabetic() } else { KEYS.contains(&key) };
                     if position == bare_bytes.len() || key != bare_bytes[position] || !valid_key || key == b'\'' {
                         return None;
                     }
@@ -147,8 +386,9 @@ impl Lexicon {
                 arena.push_str(bare);
                 longest = longest.max(bare.len());
             } else {
-                if *words.weight.last()? < weight { return None; }
-                if let Some(end) = buckets.word_end.last_mut() { *end = word_idx + 1; }
+                if last_weight < weight { return None; }
+                let last = buckets.len() - 1;
+                buckets.word_end.set(last, word_idx + 1);
             }
 
             let hant = &row[first_sep + 1..second_sep];
@@ -170,72 +410,66 @@ impl Lexicon {
             if hant.len() <= 4 && strict_han_count(hant) == 1 { flags |= FLAG_SINGLE_HAN_HANT; }
             if hans.len() <= 4 && strict_han_count(hans) == 1 { flags |= FLAG_SINGLE_HAN_HANS; }
             words.push(r_off, first_sep as u16, t_off, hant.len() as u16, s_off, hans.len() as u16, weight, flags);
+            last_weight = weight;
         }
         arena.shrink_to_fit();
         words.shrink_to_fit();
-        let storage = arena;
-        Self::from_soa_parts(storage, words, buckets, context, longest, pinyin, false)
+        let mut lex = Self::assemble(Text::owned(arena), words, buckets, context, longest, pinyin, None, None)?;
+        lex.precompute_verified_spellings();
+        Some(lex)
     }
 
-    pub(crate) fn from_soa_parts(
-        storage: String,
+    /// Puts the tables together. Without a prebuilt `index` it is built on the heap.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn assemble(
+        storage: Text,
         words: WordTableSoA,
         buckets: BucketTableSoA,
         context: ContextTableSoA,
         longest: usize,
         pinyin: bool,
-        verified_ready: bool,
+        index: Option<LexiconIndex>,
+        owner: Option<ImageOwner>,
     ) -> Option<Self> {
         if words.is_empty() { return None; }
+        let index = index.unwrap_or_else(|| LexiconIndex::build(&storage, &words, &buckets, &context));
+        Some(Self { storage, words, buckets, context, index, longest, pinyin, pairs: None, owner })
+    }
 
-        let mut traditional_by_str: HashMap<String, (u32, u16, i32)> = HashMap::new();
-        let mut simplified_by_trad: HashMap<String, (u32, u16, i32)> = HashMap::new();
-        let mut initials: Vec<Vec<u32>> = vec![Vec::new(); 128];
-        for i in 0..words.len() {
-            let flags = words.flags[i];
-            let weight = words.weight[i];
-            if (flags & FLAG_SINGLE_HAN_HANT) != 0 && (flags & FLAG_SINGLE_HAN_HANS) != 0 {
-                let simplified = words.text(&storage, i, true);
-                if traditional_by_str.get(simplified).map_or(true, |&(_, _, old_w)| old_w < weight) {
-                    traditional_by_str.insert(String::from(simplified), (words.hant_offset[i], words.hant_len[i], weight));
-                }
-                let traditional = words.text(&storage, i, false);
-                if traditional != simplified
-                    && simplified_by_trad.get(traditional).map_or(true, |&(_, _, old_w)| old_w < weight)
-                {
-                    simplified_by_trad.insert(String::from(traditional), (words.hans_offset[i], words.hans_len[i], weight));
-                }
-            }
-            if words.hant_len[i] <= 4 {
-                let first_byte = storage.as_bytes()[words.reading_offset[i] as usize] as usize;
-                if first_byte < initials.len() { initials[first_byte].push(i as u32); }
-            }
-        }
-        for items in &mut initials {
-            items.sort_by(|&a, &b| words.weight[b as usize].cmp(&words.weight[a as usize]));
-            if items.len() > 64 { items.truncate(64); }
-        }
+    /// Uses `pairs` for ranking (see `crate::pairs`).
+    pub fn set_pairs(&mut self, pairs: Pairs) {
+        self.pairs = Some(pairs);
+    }
 
-        let context_index = PhraseIndex::build(context.len(), |i| context.phrase(&storage, i).as_bytes());
-        let bucket_index = PhraseIndex::build(buckets.len(), |i| buckets.key(&storage, i).as_bytes());
-        let mut lex = Self {
-            storage, words, buckets, context, context_index, bucket_index, traditional_by_str, simplified_by_trad, longest, pinyin, initials,
-        };
-        if !verified_ready {
-            lex.precompute_verified_spellings();
-        }
-        Some(lex)
+    /// The word-pair table, if one is attached.
+    #[inline]
+    pub fn pairs(&self) -> Option<&Pairs> {
+        self.pairs.as_ref()
+    }
+
+    /// The lookup index (for writing it into an image).
+    pub fn index(&self) -> &LexiconIndex {
+        &self.index
+    }
+
+    /// True when the tables are read in place from caller-owned bytes.
+    pub fn is_in_place(&self) -> bool {
+        self.owner.is_some()
     }
 
     fn precompute_verified_spellings(&mut self) {
         if !self.pinyin {
-            for f in &mut self.words.flags { *f |= FLAG_VERIFIED_SPELLING; }
+            for idx in 0..self.words.len() {
+                let f = self.words.flags(idx);
+                self.words.flags.set(idx, f | FLAG_VERIFIED_SPELLING);
+            }
             return;
         }
         let mut single_str_cache: HashMap<String, bool> = HashMap::new();
+        let mut verified: Vec<(usize, u8)> = Vec::new();
         for idx in 0..self.words.len() {
-            let r_off = self.words.reading_offset[idx] as usize;
-            let r_len = self.words.reading_len[idx] as usize;
+            let r_off = self.words.reading_offset.get(idx) as usize;
+            let r_len = self.words.reading_len.get(idx) as usize;
             let spelling = &self.storage[r_off..r_off + r_len];
             let bytes = spelling.as_bytes();
             let (mut start, mut ok) = (0usize, true);
@@ -256,8 +490,12 @@ impl Lexicon {
                 start = end + 1;
             }
             if ok && start == bytes.len() {
-                self.words.flags[idx] |= FLAG_VERIFIED_SPELLING;
+                let f = self.words.flags(idx);
+                verified.push((idx, f | FLAG_VERIFIED_SPELLING));
             }
+        }
+        for (idx, f) in verified {
+            self.words.flags.set(idx, f);
         }
     }
 
@@ -279,30 +517,44 @@ impl Lexicon {
 
     #[inline]
     pub fn range(&self, key: &str) -> (usize, usize) {
-        let (storage, buckets) = (&self.storage, &self.buckets);
-        self.bucket_index
+        let (storage, buckets): (&str, _) = (&self.storage, &self.buckets);
+        self.index
+            .bucket
             .get(key.as_bytes(), |i| buckets.key(storage, i).as_bytes())
             .map_or((0, 0), |idx| buckets.range(idx))
     }
 
-    /// Heap bytes of the lexicon tables (storage, SoA columns, hash indexes).
+    /// Heap bytes of the lexicon tables (storage, SoA columns, index).
+    /// Bytes read in place are not counted.
     pub fn heap_bytes(&self) -> usize {
-        self.storage.capacity()
+        self.storage.heap_bytes()
             + self.words.heap_bytes()
-            + self.buckets.key_offset.capacity() * 12
-            + self.context.frequency.capacity() * 10
-            + self.context_index.heap_bytes()
-            + self.bucket_index.heap_bytes()
-            + self.initials.iter().map(|v| v.capacity() * 4).sum::<usize>()
+            + self.buckets.heap_bytes()
+            + self.context.heap_bytes()
+            + self.index.heap_bytes()
+            + self.pairs.as_ref().map_or(0, Pairs::heap_bytes)
+    }
+
+    /// Words with a short text whose reading starts with `first_byte`,
+    /// heaviest first (at most 64; none for non-ASCII bytes).
+    pub fn initials(&self, first_byte: u8) -> impl Iterator<Item = usize> + '_ {
+        let (starts, words) = self.index.initials.columns();
+        let (lo, hi) = if first_byte < 128 {
+            (starts.get(first_byte as usize) as usize, starts.get(first_byte as usize + 1) as usize)
+        } else {
+            (0, 0)
+        };
+        (lo..hi).map(move |k| words.get(k) as usize)
     }
 
     /// Frequency of an exact context phrase, via the O(1) hashed index.
     #[inline]
     pub fn context_frequency(&self, phrase: &[u8]) -> Option<i32> {
-        let (storage, context) = (&self.storage, &self.context);
-        self.context_index
+        let (storage, context): (&str, _) = (&self.storage, &self.context);
+        self.index
+            .context
             .get(phrase, |i| context.phrase(storage, i).as_bytes())
-            .map(|row| context.frequency[row])
+            .map(|row| context.frequency(row))
     }
 
     /// Computes context join bonus between `left` and `right` using a stack-allocated 64-byte buffer.
@@ -360,8 +612,8 @@ impl Lexicon {
 
     #[inline]
     pub fn traditional_char<'a>(&'a self, ch: &'a str) -> &'a str {
-        if let Some(&(t_off, t_len, _)) = self.traditional_by_str.get(ch) {
-            &self.storage[t_off as usize..t_off as usize + t_len as usize]
+        if let Some(word) = self.index.traditional.get(ch) {
+            self.words.text(&self.storage, word, false)
         } else {
             ch
         }
@@ -370,8 +622,8 @@ impl Lexicon {
     /// Most frequent simplified form of one traditional character (identity if unknown).
     #[inline]
     pub fn simplified_char<'a>(&'a self, ch: &'a str) -> &'a str {
-        if let Some(&(s_off, s_len, _)) = self.simplified_by_trad.get(ch) {
-            &self.storage[s_off as usize..s_off as usize + s_len as usize]
+        if let Some(word) = self.index.simplified.get(ch) {
+            self.words.text(&self.storage, word, true)
         } else {
             ch
         }

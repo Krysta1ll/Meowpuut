@@ -15,12 +15,26 @@ final class ChoiceMemory: ObservableObject {
     // or a clear operation without storing or copying any user text elsewhere.
     private(set) var revision: UInt64 = 0
     static var storageDirectory: URL {
+        #if os(iOS)
+        // An iOS keyboard without Full Access can read the shared container
+        // but cannot write to it, so what it learns stays in its own sandbox.
+        return Preferences.directory
+        #else
         if !Preferences.testing,
            let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared") {
             return group
         }
         return Preferences.directory
+        #endif
     }
+    #if os(iOS)
+    // 0.5.0 kept the records in the shared container. They are read from
+    // there once, when the keyboard's own files do not exist yet.
+    private static let earlierSharedDirectory: URL? = Preferences.testing ? nil
+        : FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared")
+    #else
+    private static let earlierSharedDirectory: URL? = nil
+    #endif
     private let file = ChoiceMemory.storageDirectory.appendingPathComponent("mimo_user.db")
     private let legacyFile = Preferences.directory.appendingPathComponent("ChoiceMemory.json")
     private let walFile = ChoiceMemory.storageDirectory.appendingPathComponent("mimo_user_wal.log")
@@ -62,17 +76,27 @@ final class ChoiceMemory: ObservableObject {
     func reload() {
         var loaded: [String: [RememberedChoice]] = [:]
         var loadFailed = false
-        let baseTarget = FileManager.default.fileExists(atPath: file.path) ? file : (FileManager.default.fileExists(atPath: legacyFile.path) ? legacyFile : nil)
+        var baseTarget = FileManager.default.fileExists(atPath: file.path) ? file : (FileManager.default.fileExists(atPath: legacyFile.path) ? legacyFile : nil)
+        var logs = [walFile]
+        var importing = false
+        if baseTarget == nil, !FileManager.default.fileExists(atPath: walFile.path), let shared = Self.earlierSharedDirectory {
+            let earlier = shared.appendingPathComponent("mimo_user.db")
+            if FileManager.default.fileExists(atPath: earlier.path) { baseTarget = earlier }
+            logs.append(shared.appendingPathComponent("mimo_user_wal.log"))
+            importing = true
+        }
         if let baseTarget {
             do {
                 loaded = try JSONDecoder().decode([String: [RememberedChoice]].self, from: Data(contentsOf: baseTarget))
             } catch {
-                loadFailed = true
+                // An unreadable earlier file is skipped; it must not stop new records.
+                loadFailed = !importing
             }
         }
         records = loaded
         var replayed = 0
-        if let walText = try? String(contentsOf: walFile, encoding: .utf8) {
+        for log in logs {
+            guard let walText = try? String(contentsOf: log, encoding: .utf8) else { continue }
             for line in walText.split(separator: "\n") {
                 let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
                 if parts.count == 4, parts[0] == "W", let ts = TimeInterval(parts[1]) {
@@ -86,6 +110,8 @@ final class ChoiceMemory: ObservableObject {
         uncompactedWalCount = replayed
         revision &+= 1
         error = loadFailed ? "選詞記錄讀取失敗，已保留原檔案。" : ""
+        // Imported records move into this process's own files right away.
+        if importing, !records.isEmpty { save() }
     }
 
     func remember(_ selections: [(reading: String, text: String)]) {
@@ -101,7 +127,12 @@ final class ChoiceMemory: ObservableObject {
         guard !walLines.isEmpty else { return }
         trimReadingLimit()
         revision &+= 1
-        appendWal(walLines, shouldCompact: uncompactedWalCount >= 64)
+        // Every 64 records the log is folded into the main file, and the
+        // count starts again. Without the reset every later choice would
+        // rewrite the whole file.
+        let compact = uncompactedWalCount >= 64
+        if compact { uncompactedWalCount = 0 }
+        appendWal(walLines, shouldCompact: compact)
     }
 
     private static func rank(_ left: RememberedChoice, _ right: RememberedChoice) -> Bool {
@@ -170,10 +201,14 @@ final class ChoiceMemory: ObservableObject {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoded = try JSONEncoder().encode(snapshot)
             try encoded.write(to: file, options: .atomic)
+            #if !os(iOS)
+            // The older file name is still written on the Mac. The iOS
+            // keyboard reads mimo_user.db and skips the second write.
             if legacyFile != file {
                 try? FileManager.default.createDirectory(at: legacyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? encoded.write(to: legacyFile, options: .atomic)
             }
+            #endif
             try? FileManager.default.removeItem(at: walFile)
             return true
         } catch {

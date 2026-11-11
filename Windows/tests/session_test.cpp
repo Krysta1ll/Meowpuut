@@ -85,14 +85,14 @@ static void verifyInputLimit(meowpuut::Session &py, meowpuut::Session &zy) {
         require(state.committed == beforeSpace + u8"ˉ" && state.input.empty(), "first tone remains with the old reading");
     }
 
-    py.clear(); py.setSimplified(false); type(py, "woxihuann");
+    py.clear(); py.setSimplified(false); type(py, "woxihuanw");
     auto state = py.takeSnapshot();
     require(py.chooseOnPage(indexOf(state, u8"我喜歡")), "prefix before rollover");
     // Do not read the selected prefix until after the rollover and next key.
     feed(py, meowpuut::InputMode::Pinyin, pinyinA, limit - 1);
     require(meowpuut::handleKey(py, meowpuut::InputMode::Pinyin, pinyinB), "rollover after selected prefix");
     state = py.takeSnapshot();
-    require(state.committed == u8"我喜歡" + std::string("n") + std::string(limit - 1, 'a') && state.input == "b",
+    require(state.committed == u8"我喜歡" + std::string("w") + std::string(limit - 1, 'a') && state.input == "b",
             "selected prefix and raw suffix commit in order without loss");
     require(py.segmentContext().empty(), "rollover ends the previous segment context");
     require(py.takeSnapshot().committed.empty(), "selected prefix and rollover delivered once");
@@ -152,7 +152,11 @@ int main(int argc, char **argv) {
         auto simplified = py.takeSnapshot();
         require(py.chooseOnPage(indexOf(simplified, u8"汉语")), "simplified output");
         require(py.takeSnapshot().committed == u8"汉语", "simplified commit");
-        require(!py.chooseOnPage(7) && !py.chooseOnPage(SIZE_MAX), "invalid indexes rejected");
+        py.clear(); type(py, "hanyu");
+        auto live = py.takeSnapshot();
+        require(!live.candidates.empty(), "a page to choose from");
+        require(!py.chooseOnPage(live.candidates.size()) && !py.chooseOnPage(SIZE_MAX), "indexes past the page are rejected");
+        require(py.takeSnapshot().committed.empty(), "a rejected index commits nothing");
         py.clear(); py.setSimplified(false); type(py, "hanyu");
         auto traditional = py.takeSnapshot();
         require(py.chooseOnPage(indexOf(traditional, u8"漢語")), "traditional output");
@@ -214,9 +218,15 @@ int main(int argc, char **argv) {
         require(!page.japaneseCandidates.empty() && page.japaneseCandidates.back(), "mixed choice appears after Chinese");
         require(std::count(page.japaneseCandidates.begin(), page.japaneseCandidates.end(), true) == 1, "one mixed choice per page");
         require(std::find(page.candidates.begin(), page.candidates.end(), u8"我好き你好") != page.candidates.end(), "whole mixed sentence appears");
-        if (page.candidates.size() == 8) {
-            const meowpuut::KeyEvent eighth{'8', '8'};
-            require(meowpuut::canHandleKey(py, meowpuut::InputMode::Pinyin, eighth), "eighth shortcut reaches extra mixed candidate");
+        {
+            // The digit of the last shown candidate selects; the next digit does not.
+            require(!page.candidates.empty() && page.candidates.size() <= 8, "a page holds one to eight candidates");
+            const auto lastDigit = static_cast<char>('0' + page.candidates.size());
+            const auto nextDigit = static_cast<char>(lastDigit + 1);
+            require(meowpuut::canHandleKey(py, meowpuut::InputMode::Pinyin, {static_cast<std::uint32_t>(lastDigit), lastDigit}),
+                    "shortcut reaches the last shown candidate");
+            require(!meowpuut::canHandleKey(py, meowpuut::InputMode::Pinyin, {static_cast<std::uint32_t>(nextDigit), nextDigit}),
+                    "no shortcut past the last shown candidate");
         }
         require(py.key(0xff56), "next candidate page");
         page = py.takeSnapshot();
@@ -264,6 +274,7 @@ int main(int argc, char **argv) {
         py.clear(); type(py, "haokini");
         page = py.takeSnapshot();
         require(page.candidates.size() == 8 && page.candidates.back() == u8"好き你", "eighth displayed candidate is mixed");
+        require(meowpuut::canHandleKey(py, meowpuut::InputMode::Pinyin, {'8', '8'}), "eight is offered for the eighth candidate");
         require(meowpuut::handleKey(py, meowpuut::InputMode::Pinyin, {'8', '8'}), "eight selects the eighth displayed candidate");
         require(py.takeSnapshot().committed == u8"好き你", "eighth shortcut commits mixed choice");
         py.clear(); type(py, "wosukinihao");
@@ -285,39 +296,40 @@ int main(int argc, char **argv) {
         require(zy.chooseOnPage(indexOf(zhPartial, u8"你好")), "select zhuyin prefix");
         zhPartial = zy.takeSnapshot();
         require(zhPartial.committed == u8"你好" && zhPartial.input == "v", "zhuyin partial choice preserves unfinished syllable");
-        py.clear(); py.setSimplified(false); type(py, "woxihuann");
+        // woxihuann reads as a whole now (我西湖ANN, English inside pinyin), so the unfinished initial is w.
+        py.clear(); py.setSimplified(false); type(py, "woxihuanw");
         page = py.takeSnapshot();
         require(py.chooseOnPage(indexOf(page, u8"我喜歡")), "pinyin incomplete sentence prefix");
         page = py.takeSnapshot();
-        require(page.committed == u8"我喜歡" && page.input == "n" && py.segmentContext() == u8"我喜歡",
+        require(page.committed == u8"我喜歡" && page.input == "w" && py.segmentContext() == u8"我喜歡",
                 "partial selection retains short-lived context");
         meowpuut::Session separate(argv[1]);
         require(separate.segmentContext().empty(), "context remains isolated to its session");
-        type(py, "i"); page = py.takeSnapshot();
-        require(!page.candidates.empty() && page.candidates.front() == u8"你", "context helps rank continued reading");
-        require(py.chooseOnPage(indexOf(page, u8"你")), "finish sentence");
-        require(py.takeSnapshot().committed == u8"你" && py.segmentContext().empty(), "completed sentence clears context");
-        py.clear(); py.setSimplified(true); type(py, "woxihuann");
+        type(py, "o"); page = py.takeSnapshot();
+        require(!page.candidates.empty() && page.candidates.front() == u8"我", "context helps rank continued reading");
+        require(py.chooseOnPage(indexOf(page, u8"我")), "finish sentence");
+        require(py.takeSnapshot().committed == u8"我" && py.segmentContext().empty(), "completed sentence clears context");
+        py.clear(); py.setSimplified(true); type(py, "woxihuanw");
         page = py.takeSnapshot();
         require(py.chooseOnPage(indexOf(page, u8"我喜欢")), "simplified partial selection");
         require(py.segmentContext() == u8"我喜歡", "simplified context normalized for ranking");
         require(py.key(0xff1b), "cancel remaining composition");
         require(py.segmentContext().empty(), "cancel clears composition context");
         require(py.takeSnapshot().committed == u8"我喜欢", "cancel preserves an undelivered selected prefix");
-        py.clear(); py.setSimplified(false); type(py, "woxihuann");
+        py.clear(); py.setSimplified(false); type(py, "woxihuanw");
         page = py.takeSnapshot();
         require(py.chooseOnPage(indexOf(page, u8"我喜歡")), "select prefix before deleting remainder");
         require(py.key(0xff08), "delete last unconverted key");
         require(py.segmentContext().empty(), "deleting remaining input clears context");
         require(py.takeSnapshot().committed == u8"我喜歡", "deletion preserves pending prefix");
-        py.clear(); py.setSimplified(false); type(py, "woxihuann");
+        py.clear(); py.setSimplified(false); type(py, "woxihuanw");
         page = py.takeSnapshot();
         require(py.chooseOnPage(indexOf(page, u8"我喜歡")), "select prefix before mixed continuation");
         require(py.segmentContext() == u8"我喜歡", "prefix context set");
-        type(py, "ihaosukinihao");
+        type(py, "ohaosukinihao");
         require(py.key(0xff56), "page to mixed prefix");
         page = py.takeSnapshot();
-        require(py.chooseOnPage(indexOf(page, u8"你好好き")), "select mixed prefix after Chinese prefix");
+        require(py.chooseOnPage(indexOf(page, u8"我好好き")), "select mixed prefix after Chinese prefix");
         page = py.takeSnapshot();
         require(page.input == "nihao" && py.segmentContext().empty(), "mixed prefix retains raw suffix but clears old Chinese context");
         py.clear();

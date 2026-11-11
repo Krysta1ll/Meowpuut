@@ -1,0 +1,102 @@
+{
+  "name": "mimo-pairs",
+  "description": "Counts of which word follows which, made by scripts/mimo_pairs.py from the texts below; packed into mimo_pairs.bin at build time.",
+  "license": "CC-BY-SA-4.0 (the counts are derived from Wikipedia, Wikivoyage and Wikibooks text)",
+  "attribution": "Chinese Wikipedia, Wikivoyage and Wikibooks contributors; Tatoeba (https://tatoeba.org) and its contributors; Mozilla Common Voice sentence-collector contributors. Everyday sentences written for this project (DataSources/mimo-everyday).",
+  "sources": {
+    "zhwiki-1": {
+      "url": "https://dumps.wikimedia.org/zhwiki/20261101/zhwiki-20261101-pages-articles1.xml-p1p187712.bz2",
+      "sha256": "18bc5593d7dca687a4e63c5f7f2de561c6fda8c82fa6caf3afe6122786f21eff",
+      "cache": "zhwiki-20261101-pages-articles1.xml-p1p187712.bz2",
+      "kind": "wiki",
+      "group": "written",
+      "version": "dump 20261101, part 1",
+      "license": "CC-BY-SA-4.0",
+      "license_file": "CC-BY-SA-4.0.txt"
+    },
+    "zhwiki-2": {
+      "url": "https://dumps.wikimedia.org/zhwiki/20261101/zhwiki-20261101-pages-articles2.xml-p187713p630160.bz2",
+      "sha256": "ce9c4acc970b26eb4eb766086f848819d92b700388a6bc64cbc603a92b2e576d",
+      "cache": "zhwiki-20261101-pages-articles2.xml-p187713p630160.bz2",
+      "kind": "wiki",
+      "group": "written",
+      "version": "dump 20261101, part 2",
+      "license": "CC-BY-SA-4.0",
+      "license_file": "CC-BY-SA-4.0.txt"
+    },
+    "zhwikivoyage": {
+      "url": "https://dumps.wikimedia.org/zhwikivoyage/20261101/zhwikivoyage-20261101-pages-articles.xml.bz2",
+      "sha256": "5d6e604f8f8f6e571be38b67c8572660e48f3056f0a75721dffbd7f05292cfa1",
+      "cache": "zhwikivoyage-20261101-pages-articles.xml.bz2",
+      "kind": "wiki",
+      "group": "written",
+      "version": "dump 20261101",
+      "license": "CC-BY-SA-4.0",
+      "license_file": "CC-BY-SA-4.0.txt"
+    },
+    "zhwikibooks": {
+      "url": "https://dumps.wikimedia.org/zhwikibooks/20261101/zhwikibooks-20261101-pages-articles.xml.bz2",
+      "sha256": "1db3e7ab78deff32f2f5061889febd05acb0c062799201d016de0e47013964ed",
+      "cache": "zhwikibooks-20261101-pages-articles.xml.bz2",
+      "kind": "wiki",
+      "group": "written",
+      "version": "dump 20261101",
+      "license": "CC-BY-SA-4.0",
+      "license_file": "CC-BY-SA-4.0.txt"
+    },
+    "tatoeba": {
+      "url": "https://downloads.tatoeba.org/exports/per_language/cmn/cmn_sentences_detailed.tsv.bz2",
+      "sha256": "df15b916580d97db21a4f28c4f49f47aad7755025bc969b81762bcde6a47ea6a",
+      "cache": "tatoeba-cmn_sentences_detailed.tsv.bz2",
+      "kind": "tatoeba",
+      "group": "spoken",
+      "version": "weekly export downloaded 2026-11-11; the file at the URL changes every week",
+      "license": "CC-BY-2.0-FR",
+      "license_file": "CC-BY-2.0-FR.html"
+    },
+    "commonvoice-zh-TW": {
+      "url": "https://raw.githubusercontent.com/common-voice/common-voice/bc5d2c4cc31f2fd853f7ef0026581fe50c67779b/server/data/zh-TW/sentence-collector.txt",
+      "sha256": "c85d4b4cb9f20195c015d4c74c947c520e6bdc9e50c83d75d0eaa77c67cf2e7b",
+      "cache": "commonvoice-zh-TW-sentence-collector.txt",
+      "kind": "lines",
+      "group": "spoken",
+      "version": "git commit bc5d2c4cc31f2fd853f7ef0026581fe50c67779b",
+      "license": "CC0-1.0",
+      "license_file": "CC0-1.0.txt",
+      "license_note": "commonvoice-README.md: sentence-collector submissions are CC0; other files in server/data are not used"
+    },
+    "commonvoice-zh-CN": {
+      "url": "https://raw.githubusercontent.com/common-voice/common-voice/bc5d2c4cc31f2fd853f7ef0026581fe50c67779b/server/data/zh-CN/sentence-collector.txt",
+      "sha256": "c3431534ec4dc0a087546c6e9f254295babec6a42f70bce738da629d41c76ca8",
+      "cache": "commonvoice-zh-CN-sentence-collector.txt",
+      "kind": "lines",
+      "group": "spoken",
+      "version": "git commit bc5d2c4cc31f2fd853f7ef0026581fe50c67779b",
+      "license": "CC0-1.0",
+      "license_file": "CC0-1.0.txt",
+      "license_note": "commonvoice-README.md: sentence-collector submissions are CC0; other files in server/data are not used"
+    },
+    "everyday": {
+      "path": "DataSources/mimo-everyday/everyday.txt.xz",
+      "kind": "lines",
+      "group": "spoken",
+      "version": "written 2026-11-11 for this project (DataSources/mimo-everyday/SOURCE.json)",
+      "license": "GPL-3.0-or-later"
+    }
+  },
+  "not_used": {
+    "zhwikinews": "its terms were not checked",
+    "libpinyin model20, sunpinyin open-gram": "the training text and its terms are not stated",
+    "Google Books Ngram": "books only, simplified only, pruned; not worth the download"
+  },
+  "license_files": {
+    "CC-BY-SA-4.0.txt": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+    "CC-BY-2.0-FR.html": "597d4c64f6606c64da65ba6c079e5cc87e4cce2b5187eda908c939b538e7ab9b",
+    "CC0-1.0.txt": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+    "commonvoice-README.md": "8a64679b9ba392f0517ddb0c708f71f6cc9f4d792ef34bcea10c2b856313c001"
+  },
+  "files": {
+    "counts.txt.xz": "130728d9f45a627d70d190ddf25f310f8c312c8111379987c6b6b6258173768c",
+    "counts.json": "7c8891f80f79447881fca85d82b591277d36385e7fc79637c7290099b719c4a9"
+  }
+}

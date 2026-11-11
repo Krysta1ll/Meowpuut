@@ -1,0 +1,100 @@
+{
+ "rule": "kl:2000000",
+ "spoken_weight": 10,
+ "pairs_counted": 21873871,
+ "pairs_kept": 2000000,
+ "bytes": 7903660,
+ "exclude_files": {
+  "abbrev.pinyin-hans.jsonl": "b265672659a853e7ba743ff467943d18fdb9caf95545cf1833a36c7615ce6b85",
+  "abbrev.pinyin-hant.jsonl": "43ded4154351339e6003fbe68f68d31b2ab537d549d22fe2f744f150b4f40886",
+  "all.pinyin-hans.jsonl": "c402d7935970dd6b54126d72617f37617e383fb7e199d77dbdf3d06540e4b2c0",
+  "all.pinyin-hant.jsonl": "f717929a4b6788bcac9b8c402c3d3ddfce34bee4aa5ddf3ba61864ce9d3f1305",
+  "all.zhuyin.jsonl": "8f13262493ad90ad4daaabe3014fa9ed51567c2b5588678d46d96a4a4eab739b",
+  "chat.pinyin-hans.jsonl": "af57deb805b62fe22399ef96de86c3702b6e005daca887bfdf062a91fb9a4518",
+  "chat.pinyin-hant.jsonl": "d1d96d709e58b5250775470091b9e9a4bd8640f43febede9699026d32fbe47a9",
+  "chat.zhuyin.jsonl": "7a32da5ff36a82a58cc6ffde104dbba5b0138c6bb9add1ced589b5ad6c2387bd",
+  "fuzzy.pinyin-hans.jsonl": "5f522b68e768e57c74082f003c4cb1da9f75b314316ab2b904d549369c8d5bf2",
+  "fuzzy.pinyin-hant.jsonl": "002f244b3b59ce82ccf0b4d85efba7ef58335bb9b1b96406772c5c427810a6a0",
+  "mixed.pinyin-hans.jsonl": "721af5703fb65e9fb00cfb88652c9edd5cc6a55120864e4486acbf97b7516c12",
+  "mixed.pinyin-hant.jsonl": "966757f1df5b6cdfe861be622f92b1234baf1c59bb097a49079aa11cd0f40ca7",
+  "sentences.pinyin-hans.jsonl": "a4e6a639d6c035d67ca14c19592cf0b89d424fb99c734d6ea0830393ad24cf6b",
+  "sentences.pinyin-hant.jsonl": "cdfaf09efa93dbd5563814e7a8a906729459ee72a7e29a39809ac2f1d76bde5f",
+  "sentences.zhuyin.jsonl": "4504f82197472caae83e93951eb4342fdfc2c4b48ab85f1847837b6c19692934",
+  "tricky.pinyin-hans.jsonl": "2d6edee4085024609f72f94f525e859830a7abde7c26774d234c05e9269574a3",
+  "tricky.pinyin-hant.jsonl": "d711ee70394f432bb8df38ffebe589565fa2e214829e75b3220e736c71a84206",
+  "tricky.zhuyin.jsonl": "c8a74bfc6ee2f8584fa8a0fdefc47c5b245dbc944c37b5ac0fc9e0eb36ae2a74",
+  "words.pinyin-hans.jsonl": "5c3cebb7ba64379595845c2da1b721b7001cf0977e4d4f848d7a07ce8ebc9829",
+  "words.pinyin-hant.jsonl": "a252fbd250298e525208989f7d1fa7e0fe63ec9bcee142b5a79281848c4ac3ca",
+  "words.zhuyin.jsonl": "c8c744e42ddecaf192e789ca163cb63257c96c66207161a308533cfb2240e7ca",
+  "dev_tatoeba.jsonl": "37a831ce485672a640c9233e3ccc20912b6a3819beaf4458f2dda9827c56fe91",
+  "heldout.jsonl": "dd356ab8554ba8cfb45fa8a735c100bcc743103ef14e775f9b6a0de04743aac1",
+  "heldout-abbrev.jsonl": "2d32281f9d7eedc29b8821e64af0e14fb0d98b5ef9e99cb57d3043af88b7efda"
+ },
+ "excluded_texts": 2343,
+ "excluded_tatoeba_ids": 7000,
+ "sources": {
+  "zhwiki-1": {
+   "clauses": 10388050,
+   "characters": 90375650,
+   "clauses_excluded": 94,
+   "pairs": 12472420,
+   "pair_tokens": 58451697,
+   "words": 50601011
+  },
+  "zhwiki-2": {
+   "clauses": 11102568,
+   "characters": 94331087,
+   "clauses_excluded": 107,
+   "pairs": 12759419,
+   "pair_tokens": 62330433,
+   "words": 54256455
+  },
+  "zhwikivoyage": {
+   "clauses": 446746,
+   "characters": 3990043,
+   "clauses_excluded": 207,
+   "pairs": 766768,
+   "pair_tokens": 2520865,
+   "words": 2141701
+  },
+  "zhwikibooks": {
+   "clauses": 1315594,
+   "characters": 9899073,
+   "clauses_excluded": 34,
+   "pairs": 1839971,
+   "pair_tokens": 6996897,
+   "words": 5811767
+  },
+  "tatoeba": {
+   "clauses": 104632,
+   "characters": 878172,
+   "clauses_excluded": 242,
+   "pairs": 258865,
+   "pair_tokens": 573927,
+   "words": 472233
+  },
+  "commonvoice-zh-TW": {
+   "clauses": 16226,
+   "characters": 120079,
+   "clauses_excluded": 3,
+   "pairs": 53305,
+   "pair_tokens": 79318,
+   "words": 63115
+  },
+  "commonvoice-zh-CN": {
+   "clauses": 1260,
+   "characters": 12358,
+   "pairs": 6269,
+   "pair_tokens": 7653,
+   "words": 6401
+  },
+  "everyday": {
+   "clauses": 135689,
+   "characters": 993071,
+   "clauses_excluded": 326,
+   "pairs": 226230,
+   "pair_tokens": 684440,
+   "words": 549611
+  }
+ }
+}

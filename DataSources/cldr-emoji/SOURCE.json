@@ -1,0 +1,17 @@
+{
+  "name": "cldr-emoji",
+  "version": "1",
+  "source_version": "CLDR 49 (tag release-49)",
+  "source_files": {
+    "https://raw.githubusercontent.com/unicode-org/cldr/release-49/common/annotations/zh.xml": "820de5034133077d2baa31464de0c91e748ae3c659880c2918bf6a55e560a282",
+    "https://raw.githubusercontent.com/unicode-org/cldr/release-49/common/annotations/zh_Hant.xml": "af3512dfbb82e71d2d4dc2ca2fa42c62d689cc5457639fabca84b4f555e7cda7"
+  },
+  "license": "Unicode-3.0",
+  "license_sha256": {
+    "LICENSE.txt": "65eb33419e22a297550a811b5b535f5e532f9a7e0114b516c0ea18afd53c3804"
+  },
+  "derived_table_sha256": "61279e51a993caa9dfb7aaf95b22e8a3aa85e6f6bc8e619ad811dc5314c52cea",
+  "curated_file": "cldr-emoji.tsv",
+  "reviewed_at": "2026-11-11",
+  "notes": "Chinese words (1-4 Han characters) and up to two emoji each, from the emoji names and keywords. Built by scripts/build-emoji-associations.py --cldr; a keyword shared by more than six emoji and a single character that is only a keyword are left out."
+}

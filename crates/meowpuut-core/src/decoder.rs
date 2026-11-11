@@ -23,15 +23,30 @@
 //! assert_eq!(scratch.decoded.text(0), "你好");
 //! ```
 
-use std::cmp::Ordering;
-
 pub use crate::fallback::{fallback_into, has_exact_match, unfinished_phrase_into};
+use crate::latin;
 use crate::lexicon::Lexicon;
+use crate::merge;
+use crate::pairs::{END, START, STEP};
 use crate::reading::{Reading, BEAM, CANDIDATE_LIMIT};
 use crate::workspace::{
-    DecodeOutputSoA, DecoderScratchSoA, NasalVariantsStack, PathLatticeSoA, StepPathsSoA,
+    text_hash, DecodeOutputSoA, DecoderScratchSoA, NasalVariantsStack, PathLatticeSoA, StepPathsSoA, LATTICE_STATES,
 };
 use crate::{CandidateKind, CandidateScoreKind};
+
+/// Paths kept per input position with a pair table (the research behind the
+/// table lost nothing at 16 and 5 sentences at 5).
+pub const PAIR_STATES: usize = LATTICE_STATES;
+/// Paths per position that may start with the same word, so that different
+/// neighbouring words survive for the pair score (not at the first position,
+/// whose paths are the candidates).
+pub const PAIR_STATES_PER_WORD: usize = 4;
+/// Steps kept per word and span past the first position (see `word_floor`).
+const PAIR_WORD_STEPS: usize = PAIR_STATES_PER_WORD * 2;
+/// Distinct texts taken per span, heaviest first, with a pair table.
+pub const PAIR_SPAN_WORDS: usize = 10;
+/// Word id of the end of a decoded prefix that more keys follow: no clause-end term there.
+const OPEN_END: u32 = u32::MAX;
 
 /// Core SoA beam decoder (`decode_into` on `DecoderScratchSoA::decoded`).
 pub fn decode_into(
@@ -48,6 +63,7 @@ pub fn decode_into(
         hans,
         complete_only,
         compute_metadata,
+        false,
         &mut scratch.lattice,
         &mut scratch.step_paths,
         &mut scratch.fallback_raw,
@@ -58,6 +74,8 @@ pub fn decode_into(
 }
 
 /// Core SoA beam decoder writing into an explicit `DecodeOutputSoA` target.
+/// `open_end`: more keys follow `input` (a leading segment), so the last
+/// word gets no clause-end term.
 #[allow(clippy::too_many_arguments)]
 pub fn decode_with_buffers(
     lexicon: &Lexicon,
@@ -65,6 +83,7 @@ pub fn decode_with_buffers(
     hans: bool,
     complete_only: bool,
     compute_metadata: bool,
+    open_end: bool,
     lattice: &mut PathLatticeSoA,
     step_paths: &mut StepPathsSoA,
     fb_raw: &mut DecodeOutputSoA,
@@ -87,10 +106,16 @@ pub fn decode_with_buffers(
         }
     };
 
+    // With a pair table only abbreviation rows are listed first here; the
+    // spelled whole-input words compete with the paths by score (merge.rs).
+    let ranked = lexicon.pairs().is_some();
     let (whole_lo, whole_hi) = lexicon.range(reading.sounds());
     for index in whole_lo..whole_hi {
         let wr = lexicon.words.reading(&lexicon.storage, index).as_bytes();
         let spelled = lexicon.words.is_fully_spelled(index);
+        if ranked && (spelled || !lexicon.pinyin) {
+            continue;
+        }
         if (!complete_only || spelled) && reading.matches(wr, 0, length) {
             let kind = if !reading.unambiguous {
                 CandidateKind::Unknown as u32
@@ -108,12 +133,25 @@ pub fn decode_with_buffers(
                     input.len(),
                     kind,
                     CandidateScoreKind::Lexicon as u32,
-                    f64::from(lexicon.words.weight[index]),
+                    f64::from(lexicon.words.weight(index)),
                 );
             }
         }
         if out.len() == CANDIDATE_LIMIT {
             return;
+        }
+    }
+
+    // English for the whole input keeps its fixed place (latin.rs), ahead of the
+    // part of the list that is sorted by score.
+    latin::whole_into(lexicon, &reading, input.len(), hans, out);
+
+    let mut sort_from: Option<usize> = None;
+    if ranked {
+        sort_from = Some(out.len());
+        merge::push_whole_words(lexicon, &reading, input, hans, compute_metadata, out);
+        if !complete_only && input == reading.sounds() {
+            merge::push_mixed_whole(lexicon, input, hans, out);
         }
     }
 
@@ -127,7 +165,7 @@ pub fn decode_with_buffers(
                 if added >= 2 {
                     break;
                 }
-                let weight = lexicon.words.weight[index];
+                let weight = lexicon.words.weight(index);
                 if weight < 4000 {
                     break;
                 }
@@ -139,7 +177,7 @@ pub fn decode_with_buffers(
                         input.len(),
                         CandidateKind::Correction as u32,
                         CandidateScoreKind::Lexicon as u32,
-                        f64::from(weight),
+                        if ranked { merge::whole_word_score(lexicon, index) - merge::GUESS_PENALTY - 900.0 / 700.0 } else { f64::from(weight) },
                     );
                     insertion += 1;
                     added += 1;
@@ -162,16 +200,27 @@ pub fn decode_with_buffers(
                     input.len(),
                     CandidateKind::Correction as u32,
                     CandidateScoreKind::Fallback as u32,
-                    fb_out.score[i],
+                    if sort_from.is_some() { merge::guess_score(fb_out.score[i]) } else { fb_out.score[i] },
                 );
             }
         }
     }
 
     lattice.reset(length);
-    lattice.push_raw_at(length, "", "", 0.0, true, true);
+    lattice.push_end(length, if open_end { OPEN_END } else { END });
+    let pairs = lexicon.pairs();
+    if let Some(p) = pairs {
+        lattice.pair_cache.use_table(std::ptr::from_ref(p) as usize);
+    }
+    // Without a pair table the decoder keeps BEAM paths per position and
+    // BEAM rows per span, as before the table existed.
+    let (states, span_words) = if pairs.is_some() { (PAIR_STATES, PAIR_SPAN_WORDS) } else { (BEAM, BEAM) };
     let sounds_str = reading.sounds();
+    let matches = |index: usize, start: usize, end: usize| {
+        reading.matches(lexicon.words.reading(&lexicon.storage, index).as_bytes(), start, end)
+    };
 
+    let mut mixed_buf = [0u32; merge::MIXED_ROWS];
     for start in (0..length).rev() {
         step_paths.clear();
         let max_end = length.min(start + lexicon.longest);
@@ -181,86 +230,106 @@ pub fn decode_with_buffers(
                 continue;
             }
             let (lo, hi) = lexicon.range(&sounds_str[start..end]);
+            // Full syllables mixed with initials at the end of the input (wobuzd).
+            let mixed = if pairs.is_some() && !complete_only && end == length && start > 0 && reading.boundary_count[end] == reading.boundary_count[start] {
+                merge::mixed_rows(lexicon, &sounds_str[start..end], &mut mixed_buf)
+            } else {
+                0
+            };
+            let english = latin::span(lexicon, reading.sounds_bytes(), start, end);
+            // First-letter abbreviations only where the span is not a spelled word, or at the end of the input,
+            // and never where an English word stands.
+            let skip_short = english.is_some() || pairs.is_some()
+                && lexicon.pinyin
+                && end != length
+                && (lo..hi).any(|i| lexicon.words.is_fully_spelled(i) && matches(i, start, end));
+            let mut taken = [0usize; PAIR_SPAN_WORDS];
             let mut used = 0usize;
-            for index in lo..hi {
-                let word_spelled = lexicon.words.is_fully_spelled(index);
-                if complete_only && !word_spelled {
+            for index in (lo..hi).chain(mixed_buf[..mixed].iter().map(|&r| r as usize)) {
+                let is_mixed = index < lo || index >= hi;
+                let word_spelled = lexicon.words.is_fully_spelled(index) && !is_mixed;
+                if (complete_only || skip_short) && !word_spelled {
                     continue;
                 }
-                let wr = lexicon.words.reading(&lexicon.storage, index).as_bytes();
-                if !reading.matches(wr, start, end) {
+                if !matches(index, start, end) {
                     continue;
                 }
-                let score = f64::from(lexicon.words.weight[index]) / 700.0 - 19.0;
+                let word_text = lexicon.words.text(&lexicon.storage, index, hans);
+                if pairs.is_some() && taken[..used].iter().any(|&t| lexicon.words.text(&lexicon.storage, t, hans) == word_text) {
+                    continue;
+                }
+                let score = f64::from(lexicon.words.weight(index)) / 700.0 - 19.0 - if is_mixed { merge::MIXED_PENALTY } else { 0.0 };
                 let verified = verified_word(index);
                 let traditional = lexicon.words.text(&lexicon.storage, index, false);
-                let word_text = lexicon.words.text(&lexicon.storage, index, hans);
-
+                let (hash, pow) = text_hash(word_text);
+                let (id, start_term) = match pairs {
+                    Some(p) => {
+                        let id = lexicon.index.word_ids.ids.get(index);
+                        (id, if start == 0 { f64::from(p.score(lattice.left, id)) / STEP } else { 0.0 })
+                    }
+                    None => (0, 0.0),
+                };
+                let mut totals = [0.0f64; LATTICE_STATES];
                 for b_idx in 0..suffix_count {
                     let s_slot = PathLatticeSoA::slot_index(end, b_idx);
-                    let s_text = lattice.text(s_slot);
-                    let s_trad = lattice.trad(s_slot);
-                    let right = if hans { s_trad } else { s_text };
-                    let bonus = lexicon.join_bonus(traditional, right, false);
-                    step_paths.push_joined(
-                        word_text,
-                        s_text,
-                        traditional,
-                        right,
-                        hans,
-                        score + lattice.score[s_slot] + bonus,
+                    totals[b_idx] = match pairs {
+                        Some(p) => {
+                            let next = lattice.id[s_slot];
+                            let pair = if next == OPEN_END { 0 } else { lattice.pair_cache.score(p, id, next) };
+                            score + lattice.score[s_slot] + (f64::from(pair) / STEP + start_term)
+                        }
+                        None => score + lattice.score[s_slot] + lexicon.join_bonus(traditional, lattice.head(s_slot), false),
+                    };
+                }
+                let floor = if pairs.is_some() && start > 0 { word_floor(&totals[..suffix_count]) } else { f64::NEG_INFINITY };
+                for b_idx in 0..suffix_count {
+                    let s_slot = PathLatticeSoA::slot_index(end, b_idx);
+                    let total = totals[b_idx];
+                    if total < floor {
+                        continue;
+                    }
+                    step_paths.push(
+                        lattice,
+                        s_slot,
+                        index as u32,
+                        id,
+                        hash,
+                        pow,
+                        word_text.len(),
+                        total,
                         lattice.spelled[s_slot] && (!lexicon.pinyin || word_spelled),
                         lattice.verified[s_slot] && verified,
                     );
                 }
+                taken[used.min(PAIR_SPAN_WORDS - 1)] = index;
                 used += 1;
-                if used == BEAM {
+                if used == span_words {
                     break;
                 }
+            }
+            if let Some(rows) = english {
+                latin::push_steps(lexicon, &reading, rows, start, end, hans, OPEN_END, lattice, step_paths);
             }
         }
 
-        let sp_arena = &step_paths.arena;
-        let sp_off = &step_paths.text_offset;
-        let sp_len = &step_paths.text_len;
-        let sp_scores = &step_paths.score;
-        step_paths.order.sort_by(|&a, &b| {
-            let sa = sp_scores[a];
-            let sb = sp_scores[b];
-            if sa == sb {
-                let ta = &sp_arena[sp_off[a] as usize..sp_off[a] as usize + sp_len[a] as usize];
-                let tb = &sp_arena[sp_off[b] as usize..sp_off[b] as usize + sp_len[b] as usize];
-                ta.cmp(tb)
-            } else if sa > sb {
-                Ordering::Less
-            } else {
-                Ordering::Greater
+        let mut ranked = 0usize;
+        for k in 0..step_paths.order.len() {
+            if k == ranked {
+                ranked = rank_next(lexicon, lattice, hans, step_paths, k, states * PAIR_STATES_PER_WORD * 2);
             }
-        });
-
-        for &idx in &step_paths.order {
-            let cand_text = step_paths.text(idx);
-            let mut duplicate = false;
-            let current_count = lattice.count_at(start);
-            for b_idx in 0..current_count {
-                let existing_slot = PathLatticeSoA::slot_index(start, b_idx);
-                if lattice.text(existing_slot) == cand_text {
-                    duplicate = true;
-                    break;
-                }
+            let idx = step_paths.order[k];
+            let base = PathLatticeSoA::slot_index(start, 0);
+            let current = base..base + lattice.count_at(start);
+            if current.clone().any(|s| lattice.hash[s] == step_paths.hash[idx] && lattice.len[s] == step_paths.len[idx]) {
+                continue;
             }
-            if !duplicate {
-                lattice.push_raw_at(
-                    start,
-                    cand_text,
-                    step_paths.trad(idx),
-                    step_paths.score[idx],
-                    step_paths.spelled[idx],
-                    step_paths.verified[idx],
-                );
-                if lattice.count_at(start) == BEAM {
-                    break;
-                }
+            if pairs.is_some() && start > 0 && current.filter(|&s| lattice.id[s] == step_paths.id[idx]).count() == PAIR_STATES_PER_WORD {
+                continue;
+            }
+            let traditional = lexicon.words.text(&lexicon.storage, step_paths.word[idx] as usize, false);
+            lattice.push_step(start, step_paths, idx, traditional);
+            if lattice.count_at(start) == states {
+                break;
             }
         }
     }
@@ -277,18 +346,83 @@ pub fn decode_with_buffers(
         } else {
             CandidateKind::Unknown as u32
         };
-        let text = lattice.text(slot);
-        if !out.contains_text(text) {
-            out.push(
-                text,
-                input.len(),
-                kind,
-                CandidateScoreKind::Path as u32,
-                lattice.score[slot],
-            );
+        let mut text = std::mem::take(&mut lattice.text);
+        text.clear();
+        for s in lattice.words_from(slot) {
+            text.push_str(lexicon.words.text(&lexicon.storage, lattice.word[s] as usize, hans));
         }
+        if sort_from.is_some() {
+            merge::push_best(out, &text, input.len(), kind, CandidateScoreKind::Path as u32, lattice.score[slot]);
+        } else if !out.contains_text(&text) {
+            out.push(&text, input.len(), kind, CandidateScoreKind::Path as u32, lattice.score[slot]);
+        }
+        lattice.text = text;
         if out.len() == CANDIDATE_LIMIT {
             break;
         }
     }
+    if let Some(from) = sort_from {
+        merge::sort_from(out, from);
+    }
+}
+
+/// Lowest total worth a step for one word over one span: past the first
+/// position at most `PAIR_STATES_PER_WORD` paths per word survive, so only
+/// the word's best `PAIR_WORD_STEPS` steps are kept (twice that, for steps
+/// lost to paths with the same text).
+fn word_floor(totals: &[f64]) -> f64 {
+    if totals.len() <= PAIR_WORD_STEPS {
+        return f64::NEG_INFINITY;
+    }
+    let mut copy = [0.0f64; LATTICE_STATES];
+    let copy = &mut copy[..totals.len()];
+    copy.copy_from_slice(totals);
+    *copy.select_nth_unstable_by(PAIR_WORD_STEPS - 1, |a, b| b.total_cmp(a)).1
+}
+
+/// Puts the best `chunk` entries of `step_paths.order[from..]` in order (score,
+/// then text, then push order: the order a full stable sort would give) and
+/// returns the end of the sorted part. The rest is only partitioned, so most
+/// keys sort a small slice, and nothing is allocated.
+fn rank_next(lexicon: &Lexicon, lattice: &PathLatticeSoA, hans: bool, step_paths: &mut StepPathsSoA, from: usize, chunk: usize) -> usize {
+    let StepPathsSoA { score, word, next, order, .. } = step_paths;
+    let text = |idx: usize| path_bytes(lexicon, lattice, hans, word[idx], next[idx] as usize);
+    let cmp = |&a: &usize, &b: &usize| score[b].total_cmp(&score[a]).then_with(|| text(a).cmp(text(b))).then(a.cmp(&b));
+    let rest = &mut order[from..];
+    if rest.len() > chunk {
+        rest.select_nth_unstable_by(chunk - 1, cmp);
+        rest[..chunk].sort_unstable_by(cmp);
+        from + chunk
+    } else {
+        rest.sort_unstable_by(cmp);
+        order.len()
+    }
+}
+
+/// Word id of the last word of `text`, picked for the keys `input`: the
+/// longest lexicon word that spells the end of `input` and ends `text`.
+/// `START` when there is no pair table or no such word.
+pub fn last_word_id(lexicon: &Lexicon, input: &str, text: &str, hans: bool) -> u32 {
+    if lexicon.pairs().is_none() {
+        return START;
+    }
+    let reading = Reading::new(input, lexicon.pinyin);
+    let length = reading.len();
+    for start in length.saturating_sub(lexicon.longest)..length {
+        let (lo, hi) = lexicon.range(&reading.sounds()[start..]);
+        for index in lo..hi {
+            let word = lexicon.words.text(&lexicon.storage, index, hans);
+            if !word.is_empty() && text.ends_with(word) && reading.matches(lexicon.words.reading(&lexicon.storage, index).as_bytes(), start, length) {
+                return lexicon.index.word_ids.ids.get(index);
+            }
+        }
+    }
+    START
+}
+
+/// Output text of word `word` followed by the lattice path in slot `next`, byte by byte.
+fn path_bytes<'a>(lexicon: &'a Lexicon, lattice: &'a PathLatticeSoA, hans: bool, word: u32, next: usize) -> impl Iterator<Item = u8> + 'a {
+    std::iter::once(word as usize)
+        .chain(lattice.words_from(next).map(move |s| lattice.word[s] as usize))
+        .flat_map(move |w| lexicon.words.text(&lexicon.storage, w, hans).bytes())
 }

@@ -56,27 +56,76 @@ enum Romaji {
     }
 }
 
-final class JapaneseBackend: InputBackend {
-    private struct Entry: Decodable { let text: String; let weight: Int }
-    private static let dictionary: [String: [Entry]]? = {
-        guard let url = Bundle.main.url(forResource: "native-japanese", withExtension: "json"),
-              let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode([String: [Entry]].self, from: data)
+// The Japanese word list mimo_jp.bin (format MIMO-JP-1), read in place by the core.
+// One lookup gives the words stored for exactly that input (crates/meowpuut-core/src/japanese.rs).
+enum JapaneseLexicon {
+    struct Word { let text: String; let weight: Int; let flags: UInt32; let kind: UInt32 }
+    static let pinyinMode = Int32(MPN_JP_MODE_PINYIN), japaneseMode = Int32(MPN_JP_MODE_JAPANESE)
+    static let reviewedFlag = UInt32(MPN_JP_FLAG_REVIEWED)
+    static let kanjiAliasKind = UInt32(MPN_JP_KIND_ALIAS_KANJI)
+
+    // The mapping stays for the life of the process; the core reads it in place.
+    private static let data: NSData? = Bundle.main.url(forResource: "mimo_jp", withExtension: "bin")
+        .flatMap { try? NSData(contentsOf: $0, options: .alwaysMapped) }
+    static let shared: OpaquePointer? = {
+        guard let data, let handle = mpn_japanese_open(data.bytes, data.length, 0) else { return nil }
+        // Make the pages resident off the main thread: madvise is only a hint, the reads are not.
+        DispatchQueue.global(qos: .utility).async {
+            let start = UnsafeMutableRawPointer(mutating: data.bytes)
+            _ = madvise(start, data.length, MADV_WILLNEED)
+            var sum: UInt8 = 0
+            for offset in stride(from: 0, to: data.length, by: 16_384) { sum &+= data.bytes.load(fromByteOffset: offset, as: UInt8.self) }
+            _ = sum
+        }
+        return handle
     }()
+    // One query, used on the main thread only, like the session.
+    private static let query = mpn_japanese_query_create()
+
+    static func words(_ input: String, mode: Int32, limit: Int) -> [Word] {
+        guard let handle = shared, let query, !input.isEmpty else { return [] }
+        let count = mpn_japanese_lookup(query, handle, input, mode, limit)
+        return (0..<count).compactMap { index in
+            guard let text = mpn_japanese_text(query, index) else { return nil }
+            var info = MPNJapaneseInfo()
+            guard mpn_japanese_info(query, index, &info, MemoryLayout<MPNJapaneseInfo>.size) != 0 else { return nil }
+            return Word(text: String(cString: text), weight: Int(info.weight), flags: info.flags, kind: info.kind)
+        }
+    }
+
+    // Reviewed section: the first word of every reading of the small reviewed list (383 today).
+    private static let reviewedRows: [(reading: String, text: String, weight: Int, pool: Bool)] = {
+        guard let handle = shared else { return [] }
+        var rows: [(reading: String, text: String, weight: Int, pool: Bool)] = []
+        var reading = [CChar](repeating: 0, count: 97), text = [CChar](repeating: 0, count: 129)
+        for index in 0..<mpn_japanese_reviewed_count(handle) {
+            var weight: Int32 = 0, flags: UInt32 = 0
+            guard mpn_japanese_reviewed_get(handle, index, &reading, reading.count, &text, text.count, &weight, &flags) != 0 else { continue }
+            rows.append((String(cString: reading), String(cString: text), Int(weight), flags & UInt32(MPN_JP_REVIEWED_POOL) != 0))
+        }
+        return rows
+    }()
+    static let reviewed: [String: (text: String, weight: Int)] =
+        Dictionary(reviewedRows.map { ($0.reading, (text: $0.text, weight: $0.weight)) }, uniquingKeysWith: { first, _ in first })
+    // Rows for mixed sentences, as the core accepts them (mpn_add_japanese_word).
+    static let mixedWords: [(reading: String, text: String, weight: Int)] =
+        reviewedRows.filter(\.pool).map { (reading: $0.reading, text: $0.text, weight: $0.weight) }.sorted { $0.reading < $1.reading }
+    // Reviewed readings spelled the way the old SQLite rows were stored (apostrophes removed).
+    static let reviewedEvidence = Set(reviewedRows.map { $0.reading.replacingOccurrences(of: "'", with: "") })
+}
+
+final class JapaneseBackend: InputBackend {
     // Return only independently recorded complete words; kana guesses do not
     // provide enough evidence to split a mixed-language composition.
-    static func knownWord(_ reading: String) -> (text: String, weight: Int)? {
-        guard let entry = dictionary?[reading]?.first else { return nil }
-        return (entry.text, entry.weight)
-    }
-    static let mixedWords: [(reading: String, text: String, weight: Int)] =
-        (dictionary ?? [:]).compactMap { reading, entries in
-            entries.first.map { (reading: reading, text: $0.text, weight: $0.weight) }
-        }.sorted { $0.reading < $1.reading }
+    static func knownWord(_ reading: String) -> (text: String, weight: Int)? { JapaneseLexicon.reviewed[reading] }
+    static var mixedWords: [(reading: String, text: String, weight: Int)] { JapaneseLexicon.mixedWords }
+    // Set by ChineseWithJapaneseBackend: the side engine of pinyin mode asks for gated words only.
+    var pinyinSide = false
     private var raw = ""
     private var state = Snapshot()
     private var choices: [String] = []
-    init() throws { guard Self.dictionary != nil else { throw CocoaError(.fileReadCorruptFile) } }
+    // A bundle without mimo_jp.bin fails here, as a bundle without the old JSON did.
+    init() throws { guard JapaneseLexicon.shared != nil else { throw CocoaError(.fileReadCorruptFile) } }
     func snapshot() -> Snapshot { defer { state.commit = "" }; return state }
     func candidates(limit: Int) -> [IndexedCandidate] { choices.prefix(limit).enumerated().map { IndexedCandidate(index: $0.offset, text: $0.element) } }
     func setSimplified(_ simplified: Bool) {} // Japanese spelling does not follow Chinese script settings.
@@ -95,11 +144,13 @@ final class JapaneseBackend: InputBackend {
     private func refresh() {
         guard !raw.isEmpty else { clear(); return }
         let reading = Romaji.reading(raw)
-        choices = (Self.dictionary?[raw.lowercased()] ?? []).map(\.text)
+        choices = JapaneseLexicon.words(raw, mode: pinyinSide ? JapaneseLexicon.pinyinMode : JapaneseLexicon.japaneseMode,
+                                        limit: pinyinSide ? 5 : 64).map(\.text)
         let katakana = reading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? reading
         for text in [reading, katakana] where !choices.contains(text) { choices.append(text) }
         if raw == raw.uppercased(), raw != raw.lowercased() { choices.removeAll(where: { $0 == katakana }); choices.insert(katakana, at: 0) }
-        state = Snapshot(preedit: reading, input: raw, japaneseCandidates: choices)
+        // Japanese mode: nothing is flagged, so the collapsed row shows every word, not one.
+        state = Snapshot(preedit: reading, input: raw, japaneseCandidates: pinyinSide ? choices : [])
         page(0)
     }
     func key(_ key: Int32, modifiers: Int32) -> Bool {
@@ -110,8 +161,10 @@ final class JapaneseBackend: InputBackend {
         guard (32...126).contains(key), let scalar = UnicodeScalar(UInt32(key)) else { return false }
         let character = Character(scalar)
         if "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'-".contains(character) {
-            guard raw.count < 80 else { return true }
-            raw.append(character); refresh(); return true
+            // At 80 letters the conversion so far is typed and a new reading starts.
+            var pending = ""
+            if raw.count >= 80 { commit(); pending = state.commit }
+            raw.append(character); refresh(); state.commit = pending; return true
         }
         if !raw.isEmpty {
             commit()

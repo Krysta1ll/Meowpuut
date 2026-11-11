@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.krysta1ll.meowpuut.android.app.SettingsActivity"
+    android:supportsSwitchingToNextInputMethod="true">
+    <subtype
+        android:label="@string/subtype_hant"
+        android:imeSubtypeLocale="zh_TW"
+        android:languageTag="zh-Hant-TW"
+        android:imeSubtypeMode="keyboard" />
+    <subtype
+        android:label="@string/subtype_hans"
+        android:imeSubtypeLocale="zh_CN"
+        android:languageTag="zh-Hans-CN"
+        android:imeSubtypeMode="keyboard" />
+</input-method>

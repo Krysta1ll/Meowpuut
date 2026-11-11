@@ -45,8 +45,8 @@ root = Path(__file__).resolve().parent.parent
 source = root / 'DataSources/mimo-jp'
 manifest = json.loads((source / 'SOURCE.json').read_text())
 assert manifest['name'] == 'mimo-jp'
-assert hashlib.sha256((source / 'mimo-jp.tsv').read_bytes()).hexdigest() == manifest['curated_sha256']
-for name, expected in manifest['license_sha256'].items():
+# The generated snapshot and every notice file match the source record.
+for name, expected in manifest['files'].items():
     assert hashlib.sha256((source / name).read_bytes()).hexdigest() == expected, name
 
 # Mixed-input adapters register the first candidate only for each reading.
@@ -54,7 +54,7 @@ for name, expected in manifest['license_sha256'].items():
 # reviewed word. The common 優しい takes precedence over 易しい intentionally.
 reviewed_shadowed = {('yasashii', '易しい'): '優しい'}
 observed_shadowed = {}
-for line in (source / 'mimo-jp.tsv').read_text().splitlines():
+for line in (root / 'Resources/Lexicon/japanese-reviewed.tsv').read_text().splitlines():
     if not line or line.startswith('#'): continue
     _, word, standard, syllables, _ = line.split('|')
     alias = pinyin_kana(word, syllables.split())
@@ -83,7 +83,9 @@ assert readings['yinyue'][0]['weight'] == 3500  # Pure-kanji alias is ambiguous.
 for dest, original in [('mimo-jp-BSD.txt', 'BSD.txt'),
                        ('mimo-jp-derived-BSD.txt', 'LICENSE.txt'),
                        ('mimo-jp-COPYING.txt', 'COPYING.txt'),
-                       ('mimo-jp-SOURCE.json', 'SOURCE.json')]:
+                       ('mimo-jp-SOURCE.json', 'SOURCE.json'),
+                       ('mimo-jp-Mozc-BSD.txt', 'MOZC-LICENSE.txt'),
+                       ('mimo-jp-Unicode-3.0.txt', 'UNICODE-LICENSE.txt')]:
     assert (resources / 'Licenses' / dest).read_bytes() == (source / original).read_bytes(), dest
 
 tsv = [line.split('|') for line in (resources / 'native-japanese.tsv').read_text().splitlines()]

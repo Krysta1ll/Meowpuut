@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "outfits": [
+    {
+      "id": "test-new-year",
+      "title": { "hant": "新年", "hans": "新年" },
+      "start": "2027-02-03",
+      "end": "2027-02-12",
+      "cats": {
+        "mimimo": { "front": "mimimo_front.png" },
+        "momo": { "front": "momo_front.png", "back": "momo_back.png", "frames": { "happy": "momo_happy.png", "sleepy": "x.png" } }
+      },
+      "pill": "#C8463C"
+    },
+    { "id": "test-overlap", "start": "2027-02-10", "end": "2027-02-20", "cats": {} },
+    { "id": "../escape", "start": "2027-01-01", "end": "2027-12-31" },
+    { "id": "bad-dates", "start": "2027-05-02", "end": "2027-05-01" },
+    { "id": "no-date" }
+  ]
+}

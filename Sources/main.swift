@@ -6,37 +6,51 @@ import InputMethodKit
 class MeowpuutInputController: IMKInputController {
     private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
     private var shiftTap = ShiftTapTracker()
-    private var panel: NSPanel?
-    private var catHosting: NSHostingView<GlassCandidateView>?
-    private var displayedCatSkin = false
-    private var anchor: NSRect?
-    private var composing = false
-    private var lastPanelAnchor: NSRect?
-    private var candidatesExpanded = false {
-        didSet {
-            if let catHosting { catHosting.rootView.expanded = candidatesExpanded }
-
+    private lazy var candidates: CandidatePanelController = {
+        let controller = CandidatePanelController(engine: engine)
+        controller.onChoose = { [weak self] index in
+            guard let self, let client = self.client() else { return }
+            // A click chooses what is under it, in the row or in the panel.
+            self.chooseCompactCandidate(index)
+            self.deliver(client)
         }
-    }
+        controller.onPage = { [weak self] key in
+            guard let self, let client = self.client() else { return }
+            self.engine.key(key)
+            self.deliver(client)
+        }
+        controller.onToggle = { [weak self] in
+            guard let self, let client = self.client() else { return }
+            self.setCandidatesExpanded(!self.candidatesExpanded)
+            self.deliver(client)
+        }
+        controller.onAppearanceChange = { [weak self] in
+            guard let self, let client = self.client() else { return }
+            self.deliver(client)
+        }
+        return controller
+    }()
+    /// The caret now (end of the marked text) and where this composition began.
+    private var anchor: NSRect?
+    private var compositionStart: NSRect?
+    /// Where the window goes while the client reports no caret: the pointer when this composition began.
+    private var pointerAnchor: NSRect?
+    private var composing = false
+    private var candidatesExpanded = false
 
-    private var canExpandCandidates: Bool {
-        let snapshot = engine.snapshot
-        guard !snapshot.candidates.isEmpty else { return false }
-        let layout = CollapsedCandidateLayout(snapshot)
-        return layout.truncated || layout.indices.filter { $0 < snapshot.candidates.count }.count < snapshot.candidates.count ||
-            !snapshot.lastPage || snapshot.page > 0
-    }
+    /// The menu follows the system language, like the settings window it opens.
+    private var t: InterfaceText { .system }
+    private var canExpandCandidates: Bool { candidatesCanExpand(engine.snapshot) }
 
     private func setCandidatesExpanded(_ expanded: Bool) {
         candidatesExpanded = expanded
-        if expanded && engine.snapshot.highlighted >= engine.snapshot.candidates.count {
+        if expanded && compactCandidateText(engine.snapshot, at: engine.snapshot.highlighted) == nil {
             engine.snapshot.highlighted = 0
         }
         if !expanded && !collapsedCandidateIndices(engine.snapshot).contains(engine.snapshot.highlighted) {
             engine.snapshot.highlighted = 0
         }
     }
-
 
     private func caret(_ client: IMKTextInput, markedText: String? = nil) -> NSRect? {
         SystemInput.caretRect(markedText: markedText, screens: NSScreen.screens.map(\.frame)) { index in
@@ -91,9 +105,9 @@ class MeowpuutInputController: IMKInputController {
             deliver(client)
             return true
         }
-        if candidatesExpanded, modifiers == 0, [Int32(0xff51), 0xff52, 0xff53, 0xff54].contains(key) {
+        if candidatesExpanded, [Int32(0xff51), 0xff52, 0xff53, 0xff54].contains(key) {
             let current = engine.snapshot.highlighted
-            let next = expandedCandidateMove(engine.snapshot.layoutCandidates, from: current, key: key)
+            let next = expandedCandidateMove(expandedCandidates(engine.snapshot), from: current, key: key)
             if next == current && (key == 0xff54 || key == 0xff53) && !engine.snapshot.lastPage {
                 engine.key(0xff56)
             } else if next == current && (key == 0xff52 || key == 0xff51) && engine.snapshot.page > 0 {
@@ -102,6 +116,23 @@ class MeowpuutInputController: IMKInputController {
             } else { engine.snapshot.highlighted = next }
             deliver(client)
             return true
+        }
+        if candidatesExpanded, !engine.english {
+            let cells = expandedCandidates(engine.snapshot).count
+            if key == 0xff09, cells > 0 {
+                // Tab steps through every cell of the panel and wraps.
+                engine.snapshot.highlighted = (min(engine.snapshot.highlighted, cells - 1) + (modifiers == 1 ? cells - 1 : 1)) % cells
+                deliver(client)
+                return true
+            }
+            if let index = expandedCandidateShortcut(engine.snapshot, key: key, modifiers: modifiers,
+                                                     shifted: engine.candidateShortcut(0).hasPrefix("⇧")) {
+                let previousInput = engine.snapshot.input
+                chooseCompactCandidate(index)
+                if engine.snapshot.input != previousInput { setCandidatesExpanded(false) }
+                deliver(client)
+                return true
+            }
         }
         if !candidatesExpanded {
             if let next = collapsedCandidateMove(engine.snapshot, key: key, modifiers: modifiers), !engine.english {
@@ -123,18 +154,28 @@ class MeowpuutInputController: IMKInputController {
                 return true
             case .pass: break
             }
-            let snapshot = engine.snapshot
-            if snapshot.compactJapanese != nil && snapshot.highlighted == snapshot.candidates.count &&
-                modifiers == 0 && (key == 0xff0d || (key == 32 && engine.inputMode == .pinyin)) {
-                chooseCompactCandidate(snapshot.highlighted)
-                deliver(client)
-                return true
-            }
         }
+        // Enter or Space on the kept Japanese candidate, in the row or in the panel.
+        let snapshot = engine.snapshot
+        if snapshot.compactJapanese != nil && snapshot.highlighted == snapshot.candidates.count &&
+            modifiers == 0 && (key == 0xff0d || (key == 32 && engine.inputMode == .pinyin)) {
+            chooseCompactCandidate(snapshot.highlighted)
+            deliver(client)
+            return true
+        }
+        if confirmJapaneseCandidate(engine, key: key, modifiers: modifiers) {
+            candidates.candidateChosen()
+            deliver(client)
+            return true
+        }
+        // No caret moves inside the reading, so Left and Right stay here while composing
+        // instead of reaching the app with the marked text open.
+        if !engine.snapshot.preedit.isEmpty, key == 0xff51 || key == 0xff53 { return true }
         let previousInput = engine.snapshot.input
         let handled = engine.key(key, modifiers: modifiers)
+        if handled && (key == 32 || key == 0xff0d) { candidates.candidateChosen() }
         if handled && engine.snapshot.input != previousInput { setCandidatesExpanded(false) }
-        if handled && (key == 0xff52 || key == 0xff09 || key == 0xff55 || key == 0xff56) &&
+        if handled && (key == 0xff52 || key == 0xff54 || key == 0xff09 || key == 0xff55 || key == 0xff56) &&
             (!collapsedCandidateIndices(engine.snapshot).contains(engine.snapshot.highlighted) ||
              engine.snapshot.page > 0) && canExpandCandidates {
             setCandidatesExpanded(true)
@@ -148,98 +189,39 @@ class MeowpuutInputController: IMKInputController {
         } else {
             engine.choose(index)
         }
+        candidates.candidateChosen()
     }
     private func deliver(_ client: IMKTextInput) {
         let commit = engine.takeCommit()
         if !commit.isEmpty { client.insertText(commit, replacementRange: NSRange(location: NSNotFound, length: 0)) }
         let preedit = engine.snapshot.preedit
         if !commit.isEmpty || preedit.isEmpty { setCandidatesExpanded(false) }
-        if !preedit.isEmpty && (!composing || !commit.isEmpty) { anchor = caret(client) }
+        // Before the marked text goes in, the caret is where this composition starts.
+        if !preedit.isEmpty && (!composing || !commit.isEmpty) {
+            compositionStart = caret(client)
+            anchor = compositionStart
+        }
         composing = !preedit.isEmpty
         client.setMarkedText(preedit, selectionRange: NSRange(location: (preedit as NSString).length, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         guard composing else {
             anchor = nil
-            panel?.orderOut(nil)
+            compositionStart = nil
+            pointerAnchor = nil
+            candidates.hide()
             return
         }
         anchor = caret(client, markedText: preedit) ?? anchor
-        let catSkin = Preferences.shared.catGlassSkin
-        if panel != nil && displayedCatSkin != catSkin {
-            panel?.orderOut(nil)
-            panel = nil
-            catHosting = nil
+        if let start = compositionStart, let anchor, !candidateSameLine(start, anchor) {
+            // The text scrolled or wrapped: ask again where the marked text begins.
+            compositionStart = caret(client) ?? start
         }
-        displayedCatSkin = catSkin
-        deliverCandidatePanel(client)
-    }
-
-    private func deliverCandidatePanel(_ client: IMKTextInput) {
-        if catHosting == nil {
-            let view = GlassCandidateView(engine: engine, cats: Preferences.shared.catGlassSkin, expanded: candidatesExpanded, canExpand: canExpandCandidates,
-                onChoose: { [weak self] index in
-                    guard let self, let client = self.client() else { return }
-                    if self.candidatesExpanded { self.engine.choose(index) }
-                    else { self.chooseCompactCandidate(index) }
-                    self.deliver(client)
-                }, onPage: { [weak self] key in
-                    guard let self, let client = self.client() else { return }
-                    self.engine.key(key)
-                    self.deliver(client)
-                }, onToggle: { [weak self] in
-                    guard let self, let client = self.client() else { return }
-                    self.setCandidatesExpanded(!self.candidatesExpanded)
-                    self.deliver(client)
-                }, onAppearanceChange: { [weak self] in
-                    guard let self, let client = self.client() else { return }
-                    self.deliver(client)
-                })
-            let hosting = NSHostingView(rootView: view)
-            let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
-                                 backing: .buffered, defer: false)
-            window.level = .popUpMenu
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.hasShadow = true
-            window.contentView = hosting
-            catHosting = hosting
-            panel = window
+        // Without a usable caret the window goes to the pointer and stays there
+        // for this composition. The height stands for one line of text.
+        if anchor == nil, pointerAnchor == nil {
+            pointerAnchor = NSRect(origin: NSEvent.mouseLocation, size: NSSize(width: 0, height: 18))
         }
-        guard let panel, let catHosting else { return }
-        catHosting.rootView.cats = Preferences.shared.catGlassSkin
-        catHosting.rootView.canExpand = canExpandCandidates
-        let rect = anchor ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
-        let point = NSPoint(x: rect.midX, y: rect.midY)
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main else { return }
-        catHosting.rootView.maxPanelHeight = candidatePanelAvailableHeight(anchor: rect, bounds: screen.visibleFrame)
-        catHosting.layoutSubtreeIfNeeded()
-        let frame = candidateFrame(size: catHosting.fittingSize, anchor: rect, bounds: screen.visibleFrame)
-        presentPanel(panel, frame: frame, anchor: rect)
-    }
-
-    // Shared by both skins and input modes. Retarget one native animation, never
-    // enqueue timers; caret jumps remain immediate and Reduce Motion is respected.
-    private func presentPanel(_ panel: NSPanel, frame: NSRect, anchor: NSRect, layout: (Bool) -> Void = { _ in }) {
-        let nearby = lastPanelAnchor.map { abs($0.minX - anchor.minX) < 8 && abs($0.minY - anchor.minY) < 8 } ?? false
-        lastPanelAnchor = anchor
-        let animate = panel.isVisible && nearby && panel.frame.size != frame.size && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animate ? 0.18 : 0
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            layout(animate)
-            if animate { panel.animator().setFrame(frame, display: true) }
-            else if panel.frame != frame { panel.setFrame(frame, display: true) }
-        }
-        if !panel.isVisible {
-            let motion = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            panel.alphaValue = motion ? 0 : 1
-            panel.orderFrontRegardless()
-            if motion {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.12
-                    panel.animator().alphaValue = 1
-                }
-            }
-        }
+        guard let rect = anchor ?? pointerAnchor else { return }
+        candidates.show(expanded: candidatesExpanded, canExpand: canExpandCandidates, caret: rect, start: compositionStart)
     }
 
     override func deactivateServer(_ sender: Any!) {
@@ -249,7 +231,7 @@ class MeowpuutInputController: IMKInputController {
             if engine.isReady { engine.finishComposition(); deliver(client) }
         }
         ChoiceMemory.shared.flush()
-        engine.clear(); anchor = nil; composing = false; setCandidatesExpanded(false); panel?.orderOut(nil)
+        engine.clear(); anchor = nil; compositionStart = nil; pointerAnchor = nil; composing = false; setCandidatesExpanded(false); candidates.hide()
     }
     override func commitComposition(_ sender: Any!) {
         if let client = self.client(), engine.isReady { engine.finishComposition(); deliver(client) }
@@ -260,10 +242,12 @@ class MeowpuutInputController: IMKInputController {
         engine.modeChanged()
     }
     override func menu() -> NSMenu! {
+        let t = self.t
+        let preferences = Preferences.shared
         let menu = NSMenu()
-        menu.addItem(withTitle: "Meowpuut 設定…", action: #selector(openSettings), keyEquivalent: "")
+        menu.addItem(withTitle: t("Meowpuut 設定…", "Meowpuut 设置…"), action: #selector(openSettings), keyEquivalent: "")
         menu.items.first?.target = self
-        let item = menu.addItem(withTitle: Preferences.shared.simplified ? "切換為繁體" : "切換為簡體", action: #selector(toggleScript), keyEquivalent: "")
+        let item = menu.addItem(withTitle: preferences.simplified ? "切换为繁体" : "切換為簡體", action: #selector(toggleScript), keyEquivalent: "")
         item.target = self
         item.isEnabled = engine.inputMode != .japanese
         menu.addItem(.separator())
@@ -274,21 +258,26 @@ class MeowpuutInputController: IMKInputController {
             choice.state = engine.inputMode == mode ? .on : .off
         }
         menu.addItem(.separator())
-        for (title, cats) in [("皮膚 · 雙貓玻璃", true), ("皮膚 · 簡潔玻璃", false)] {
-            let choice = menu.addItem(withTitle: title, action: #selector(switchSkin(_:)), keyEquivalent: "")
-            choice.target = self
-            choice.representedObject = cats
-            choice.state = Preferences.shared.catGlassSkin == cats ? .on : .off
+        for (title, key, on) in [(t("米米莫與莫莫", "米米莫与莫莫"), "cats", preferences.catGlassSkin),
+                                 (t("節日裝扮", "节日装扮"), "festival", preferences.festivalOutfits)] {
+            let toggle = menu.addItem(withTitle: title, action: #selector(switchAppearance(_:)), keyEquivalent: "")
+            toggle.target = self
+            toggle.representedObject = key + ":" + (on ? "off" : "on")
+            toggle.state = on ? .on : .off
         }
-        for (title, values) in [("色調", CandidateTone.allCases.map { ($0.title, "tone:" + $0.rawValue) }),
-                                ("玻璃強度", GlassStrength.allCases.map { ($0.title, "glass:" + $0.rawValue) }),
-                                ("色系", CandidatePalette.allCases.map { ($0.title, "palette:" + $0.rawValue) })] {
+        let groups: [(String, [(String, String, Bool)])] = [
+            (t("造型", "造型"), GlassShape.allCases.map { ($0.name(t), "shape:" + $0.rawValue, $0 == preferences.glassShape) }),
+            (t("色調", "色调"), CandidateTone.allCases.map { ($0.name(t), "tone:" + $0.rawValue, $0 == preferences.candidateTone) }),
+            (t("色系", "色系"), CandidatePalette.allCases.map { ($0.name(t), "palette:" + $0.rawValue, $0 == preferences.candidatePalette) }),
+            (t("玻璃", "玻璃"), GlassStrength.allCases.map { ($0.name(t), "glass:" + $0.rawValue, $0 == preferences.glassStrength) }),
+        ]
+        for (title, values) in groups {
             let parent = menu.addItem(withTitle: title, action: nil, keyEquivalent: "")
             let submenu = NSMenu(title: title)
-            for (name, value) in values {
+            for (name, value, on) in values {
                 let item = submenu.addItem(withTitle: name, action: #selector(switchAppearance(_:)), keyEquivalent: "")
                 item.target = self; item.representedObject = value
-                item.state = (value == "tone:" + Preferences.shared.candidateTone.rawValue || value == "glass:" + Preferences.shared.glassStrength.rawValue || value == "palette:" + Preferences.shared.candidatePalette.rawValue) ? .on : .off
+                item.state = on ? .on : .off
             }
             parent.submenu = submenu
         }
@@ -296,9 +285,7 @@ class MeowpuutInputController: IMKInputController {
     }
     @objc private func switchAppearance(_ sender: Any) {
         guard let item = SystemInput.menuItem(from: sender), let value = item.representedObject as? String else { return }
-        if value.hasPrefix("tone:"), let tone = CandidateTone(rawValue: String(value.dropFirst(5))) { Preferences.shared.candidateTone = tone }
-        if value.hasPrefix("glass:"), let strength = GlassStrength(rawValue: String(value.dropFirst(6))) { Preferences.shared.glassStrength = strength }
-        if value.hasPrefix("palette:"), let palette = CandidatePalette(rawValue: String(value.dropFirst(8))) { Preferences.shared.candidatePalette = palette }
+        applyAppearance(value)
         if let client = self.client() { deliver(client) }
     }
     private func changeInputMode(_ mode: InputMode, client: IMKTextInput) {
@@ -314,11 +301,6 @@ class MeowpuutInputController: IMKInputController {
         guard let item = SystemInput.menuItem(from: sender), let name = item.representedObject as? String, let mode = InputMode(rawValue: name),
               let client = self.client() else { return }
         changeInputMode(mode, client: client)
-    }
-    @objc private func switchSkin(_ sender: Any) {
-        guard let item = SystemInput.menuItem(from: sender), let cats = item.representedObject as? Bool else { return }
-        Preferences.shared.catGlassSkin = cats
-        if let client = self.client() { deliver(client) }
     }
     @objc func openSettings() { (NSApp.delegate as? Application)?.showStudio() }
     @objc func toggleScript() { Preferences.shared.simplified.toggle(); engine.modeChanged(); if let client = self.client() { deliver(client) } }
@@ -347,14 +329,15 @@ final class Application: NSObject, NSApplicationDelegate {
     func showStudio() {
         NSApp.setActivationPolicy(.regular)
         if window == nil {
+            let t = InterfaceText.system
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 710), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window?.title = Preferences.enginePreview ? "Meowpuut 引擎試打" : "Meowpuut"
+            window?.title = Preferences.enginePreview ? t("Meowpuut 引擎試打", "Meowpuut 引擎试打") : "Meowpuut"
             window?.contentView = NSHostingView(rootView: Studio()); window?.center()
             window?.isReleasedWhenClosed = false
             let menu = NSMenu(); let appItem = NSMenuItem(); menu.addItem(appItem)
-            let submenu = NSMenu(); submenu.addItem(withTitle: "退出 Meowpuut", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); appItem.submenu = submenu
-            let edit = NSMenuItem(); menu.addItem(edit); edit.submenu = NSMenu(title: "編輯")
-            for (title, action, key) in [("拷貝", "copy:", "c"), ("貼上", "paste:", "v"), ("全選", "selectAll:", "a")] {
+            let submenu = NSMenu(); submenu.addItem(withTitle: t("結束 Meowpuut", "退出 Meowpuut"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); appItem.submenu = submenu
+            let edit = NSMenuItem(); menu.addItem(edit); edit.submenu = NSMenu(title: t("編輯", "编辑"))
+            for (title, action, key) in [(t("拷貝", "拷贝"), "copy:", "c"), (t("貼上", "粘贴"), "paste:", "v"), (t("全選", "全选"), "selectAll:", "a")] {
                 edit.submenu?.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
             }
             NSApp.mainMenu = menu

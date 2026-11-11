@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Meowpuut" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:colorAccent">#C8A9A8</item>
+        <item name="android:windowBackground">#1C1B1E</item>
+    </style>
+</resources>

@@ -1,0 +1,20 @@
+{
+  "mimimo": {
+    "aspect": 0.9135,
+    "eyeLineY": 0.4528,
+    "eyeBottomY": 0.5378,
+    "eyeLeftX": 0.4377,
+    "eyeRightX": 0.6982,
+    "noseX": 0.6057,
+    "noseY": 0.4935,
+    "faceRightX": 0.9677,
+    "bodyLeftX": 0.0035
+  },
+  "momo": {
+    "aspect": 1.0543,
+    "eyeLineY": 0.5003
+  },
+  "mimimo_tail": {
+    "aspect": 4.0205
+  }
+}

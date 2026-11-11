@@ -120,6 +120,13 @@ extension Engine {
                 return true
             }
             if code == 0xff0d {
+                // Japanese: Return keeps the kana as typed (の for no), as Apple's
+                // Romaji keyboard does; Space or a moved highlight converts.
+                if inputMode == .japanese, snapshot.highlighted == 0, !snapshot.preedit.isEmpty {
+                    let reading = snapshot.preedit.replacingOccurrences(of: " ", with: "")
+                    clear(); snapshot.commit = reading
+                    return true
+                }
                 choose(snapshot.highlighted)
                 if snapshot.commit.isEmpty { backend.commit(); refresh() }
                 return true
@@ -190,7 +197,7 @@ extension Engine {
 
     func chooseBackendCandidate(index: Int, text: String) {
         let reading = pinKey
-        guard backend?.choose(index) == true else { error = "選詞未成功，請重試。"; refresh(); return }
+        guard backend?.choose(index) == true else { error = Preferences.shared.simplified ? "没有选到这个词，请再试一次。" : "沒有選到這個詞，請再試一次。"; refresh(); return }
         if !pendingChoices.contains(where: { $0.reading == reading && $0.text == text }) { pendingChoices.append((reading, text)) }
         refresh()
         if snapshot.commit.isEmpty && snapshot.candidates.isEmpty && !snapshot.preedit.isEmpty {
@@ -254,8 +261,12 @@ func readingLabel(_ key: String) -> String {
     if key.hasPrefix("mix:") { return "自動 · " + key.dropFirst(4) }
     if key.hasPrefix("ja:") { return "日本語 · " + key.dropFirst(3) }
     if key.hasPrefix("py:") { return "拼音 · " + key.dropFirst(3) }
-    let keys = Array("1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/- 6347'")
-    let symbols = Array("ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄧㄨㄩㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦˉˊˇˋ˙ ")
-    let mapping = Dictionary(uniqueKeysWithValues: zip(keys, symbols))
-    return (key.hasPrefix("s:") ? "简 · " : "繁 · ") + String(key.dropFirst(2).map { mapping[$0] ?? $0 })
+    return (key.hasPrefix("s:") ? "简 · " : "繁 · ") + zhuyinText(String(key.dropFirst(2)))
+}
+
+/// Zhuyin key codes as bopomofo: 1qaz is ㄅㄆㄇㄈ.
+func zhuyinText(_ keys: String) -> String {
+    let mapping = Dictionary(uniqueKeysWithValues: zip(Array("1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/- 6347'"),
+                                                       Array("ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄧㄨㄩㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦˉˊˇˋ˙ ")))
+    return String(keys.map { mapping[$0] ?? $0 })
 }

@@ -30,9 +30,11 @@
 //! ```
 
 pub mod api;
+pub mod japanese;
 pub mod text;
 
 pub use api::*;
+pub use japanese::*;
 
 use std::ffi::{c_char, CStr};
 use std::panic::{catch_unwind, AssertUnwindSafe};

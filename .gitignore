@@ -12,3 +12,6 @@ __pycache__/
 .env.*
 *.p12
 *.mobileprovision
+iOS/LabFestivals/
+# Life photos of the cats are personal: they stay on the build machine, not in the repository.
+iOS/Photos/

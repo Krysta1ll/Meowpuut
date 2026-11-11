@@ -7,8 +7,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
-    CURRENT_PROJECT_VERSION: "4"
-    MARKETING_VERSION: "0.5.0"
+    CURRENT_PROJECT_VERSION: "5"
+    MARKETING_VERSION: "0.6.0"
     DEVELOPMENT_TEAM: "HUZY8F7HQG"
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -20,8 +20,21 @@ targets:
       - SharedKeyboardSettings.swift
       - InterfaceText.swift
       - ../Sources/Brand.swift
+      - ../Sources/Appearance.swift
+      - ../Sources/CandidatePalette.swift
+      - ../Sources/GlassShapes.swift
+      - ../Sources/Festivals.swift
+      - Keyboard/KeyboardGeometry.swift
+      - Keyboard/CandidateStripLayout.swift
       - ../assets/brand/MeowpuutMark.png
+      - Keyboard/Cats.xcassets
       - Generated/Assets.xcassets
+      - path: Festivals
+        type: folder
+        buildPhase: resources
+      - path: Photos
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.krysta1ll.meowpuut.ios
@@ -30,6 +43,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: 喵撲
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: 把米米莫和莫莫的照片存到照片圖庫。
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
@@ -41,8 +55,13 @@ targets:
   MeowpuutKeyboard:
     type: app-extension
     platform: iOS
-    sources:
-      - Keyboard
+    sources: &keyboardSources
+      - path: Keyboard
+        excludes:
+          - Info.plist
+      # The keyboard's name in the keyboard list (喵撲 / 喵扑). Kept out of
+      # the Keyboard folder, which the lab app compiles too.
+      - path: KeyboardStrings
       - SharedKeyboardSettings.swift
       - InterfaceText.swift
       - ../Sources/Engine.swift
@@ -53,30 +72,29 @@ targets:
       - ../crates/meowpuut-ffi/include/meowpuut.h
       - ../Sources/ChoiceMemory.swift
       - ../Sources/Brand.swift
+      - ../Sources/Appearance.swift
       - ../Sources/CandidatePalette.swift
+      - ../Sources/GlassShapes.swift
+      - ../Sources/Festivals.swift
       - ../Sources/Bridge.h
+      - path: Festivals
+        type: folder
+        buildPhase: resources
       - path: Generated/Licenses
         type: folder
         buildPhase: resources
       - path: Generated/mimo_base.bin
         buildPhase: resources
-      - path: Generated/native-zhuyin.tsv
+      - path: Generated/mimo_jp.bin
         buildPhase: resources
-      - path: Generated/native-pinyin.tsv
-        buildPhase: resources
-      - path: Generated/native-japanese.json
-        buildPhase: resources
-      - path: Generated/mimo-manifest.json
+      - path: Generated/mimo_pairs.bin
         buildPhase: resources
       - path: Generated/associations.json
         buildPhase: resources
       - path: Generated/language-evidence.sqlite
         buildPhase: resources
-      - path: ../Modules
-        type: folder
-        buildPhase: resources
     settings:
-      base:
+      base: &keyboardSettings
         INFOPLIST_FILE: Keyboard/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         PRODUCT_BUNDLE_IDENTIFIER: com.krysta1ll.meowpuut.ios.keyboard
@@ -87,15 +105,78 @@ targets:
         LIBRARY_SEARCH_PATHS: ["$(inherited)", "$(PROJECT_DIR)/../.build/rust/$(PLATFORM_NAME)"]
         OTHER_LDFLAGS: ["$(inherited)", "-lmeowpuut_ffi", "-lsqlite3"]
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-    preBuildScripts:
+    preBuildScripts: &rustBuild
       - name: Build Rust engine
         script: bash "$PROJECT_DIR/../scripts/build-rust.sh" xcode
         basedOnDependencyAnalysis: false
         outputFiles:
           - $(PROJECT_DIR)/../.build/rust/$(PLATFORM_NAME)/libmeowpuut_ffi.a
+  # Development only: hosts the real keyboard controller in an app so every
+  # state can be opened from the command line and captured in the simulator
+  # (scripts/ios-keyboard-shots.sh). Not part of the shipped scheme.
+  MeowpuutKeyboardLab:
+    type: application
+    platform: iOS
+    sources:
+      - path: Keyboard
+        excludes:
+          - Info.plist
+          - PrivacyInfo.xcprivacy
+      - Lab
+      - SharedKeyboardSettings.swift
+      - InterfaceText.swift
+      - ../Sources/Engine.swift
+      - ../Sources/EngineKeyHandler.swift
+      - ../Sources/InputBackend.swift
+      - ../Sources/ChineseWithJapaneseBackend.swift
+      - ../Sources/JapaneseBackend.swift
+      - ../crates/meowpuut-ffi/include/meowpuut.h
+      - ../Sources/ChoiceMemory.swift
+      - ../Sources/Brand.swift
+      - ../Sources/Appearance.swift
+      - ../Sources/CandidatePalette.swift
+      - ../Sources/GlassShapes.swift
+      - ../Sources/Festivals.swift
+      - ../Sources/Bridge.h
+      - path: LabFestivals
+        type: folder
+        buildPhase: resources
+        optional: true
+      - path: Generated/mimo_base.bin
+        buildPhase: resources
+      - path: Generated/mimo_pairs.bin
+        buildPhase: resources
+      - path: Generated/mimo_jp.bin
+        buildPhase: resources
+      - path: Generated/associations.json
+        buildPhase: resources
+      - path: Generated/language-evidence.sqlite
+        buildPhase: resources
+      - path: ../Modules
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.krysta1ll.meowpuut.ios.lab
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        SWIFT_OBJC_BRIDGING_HEADER: Keyboard/Bridge.h
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: ["$(inherited)", "KEYBOARD_LAB"]
+        LIBRARY_SEARCH_PATHS: ["$(inherited)", "$(PROJECT_DIR)/../.build/rust/$(PLATFORM_NAME)"]
+        OTHER_LDFLAGS: ["$(inherited)", "-lmeowpuut_ffi", "-lsqlite3"]
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CODE_SIGN_STYLE: Automatic
+    preBuildScripts: *rustBuild
 
 schemes:
   Meowpuut:
     build:
       targets:
         Meowpuut: all
+  MeowpuutKeyboardLab:
+    build:
+      targets:
+        MeowpuutKeyboardLab: all

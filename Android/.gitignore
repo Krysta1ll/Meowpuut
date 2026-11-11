@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.cxx/
+.kotlin/
+captures/
+# Produced by scripts/build-android.sh from the shared lexicon build.
+app/src/main/assets/lexicon/
+app/src/main/assets/licenses/

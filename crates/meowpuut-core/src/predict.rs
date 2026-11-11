@@ -135,7 +135,7 @@ impl Lexicon {
                     break;
                 }
                 let rest = &phrase[prefix.len()..];
-                let freq = self.context.frequency[row];
+                let freq = self.context.frequency(row);
                 // A 1-char fallback behind a longer context is weak evidence:
                 // only keep common continuations so the bar stays clean.
                 let floor = if k == 1 && count > 1 { 4500 } else { 500 };

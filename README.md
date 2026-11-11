@@ -26,12 +26,12 @@
 ## 選字，先照顧中文
 
 - **拼音與注音分開。** 拼音用數字直接選詞；注音保留數字聲調，用 Shift＋數字選詞，不讓兩套規則互相搶按鍵。
-- **日語留在旁邊。** 拼音輸入時，完整羅馬音可產生假名或日語詞彙候選；有日語候選時，收合列保留一個，以傾斜的小貓爪標示。展開後可按候選排序繼續瀏覽。
+- **日語留在旁邊。** 拼音輸入時，完整羅馬音可產生假名或日語詞彙候選；有日語詞彙候選時（sushi 的寿司），收合列保留一個，以傾斜的小貓爪標示；只是假名拼寫的（haluo 的はぅお）排在所有中文候選之後。展開後可按候選排序繼續瀏覽。
 - **英文留得住。** 拼音組字時，空格或 Enter 選取目前高亮的候選，數字可直接選詞；Shift＋Enter 輸出原始字母。單個字母仍可選英文，但中文優先。已識別的英文單字也可以成為首選。
 - **越用越熟悉你的用詞。** 記住確認過的選詞、使用次數，以及短時間相鄰選詞的關係。反覆使用的短語可進入本機個人詞庫，無須逐個收藏。
 - **表情跟著詞義走。** 「開心」「謝謝」「晚安」等詞可以帶出 emoji 和顏文字，作為文字之外的選擇。
 
-日語目前是羅馬音轉假名加小型單字詞表，不是完整的日語整句漢字轉換器。能轉成假名，也不代表那串字一定是有意義的日語。
+日語是羅馬音轉假名加約 46,000 詞的日語詞表（`mimo-jp` 2.0，`mimo_jp.bin`），一個讀音給出那個讀音的詞，不是日語整句漢字轉換器，也不做前綴補全。拼音模式只在不打擾中文時給日語詞：詞表裡一般的詞排在所有中文候選之後；不知道日語讀音時，可用漢字的拼音加假名的羅馬字打（`shiberu` 食べる、`dushu` 読書）。能轉成假名，也不代表那串字一定是有意義的日語。
 
 ## 先試幾個字
 
@@ -70,7 +70,7 @@
 | 平台 | 本次提供 |
 | --- | --- |
 | macOS 27+，Apple silicon | **0.5.0 Alpha 1** 安裝盤與安裝套件 |
-| iOS／iPadOS 27+ | 宿主 App 與鍵盤擴充原始碼（零拷貝 `mimo_base.bin` + App Group WAL 記憶層） |
+| iOS／iPadOS 27+ | 0.6.0 TestFlight 測試版（宿主 App 與鍵盤擴充），原始碼見 `iOS/` |
 | Windows | Rust 核心與 C ABI 可攜介面 |
 | Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |
 
@@ -78,11 +78,11 @@
 
 ## mimo 1.0：三層分離架構與一份繁簡詞庫
 
-中文解碼、斷詞與排序由喵撲 100% 原創的 Rust SoA（Structure-of-Arrays）核心完成，全工作區強制啟用 `#![forbid(unsafe_code)]`。詞庫系統採用三層分離設計：
+中文解碼、斷詞與排序由本專案以 Rust 寫成的 SoA（Structure-of-Arrays）核心完成，全工作區強制啟用 `#![forbid(unsafe_code)]`。詞庫系統採用三層分離設計：
 
-1. **第一層（離線構建管線）**：整合 `mimo-tc`（繁體注音／拼音，MIT）、`mimo-sc`（簡體帶調詞表，MIT）、`rime-ice`（霧凇拼音，GPL-3.0）、`OpenCC`（繁簡一對多消歧與港台詞彙，Apache-2.0）、`jieba`（繁體大詞表，MIT）與 `mimo-jp`（日語常用詞，BSD-3-Clause），統一校準為 `i16` 對數機率分數（Log-Probability），編譯為原創二進位唯讀檔 **`mimo_base.bin`**（`MIMO-BASE-1` / `MIMO-BIN-1`）。
-2. **第二層（零拷貝靜態底座）**：iOS 鍵盤擴充與 macOS 客戶端透過 `mmap`（`.mappedIfSafe`）映射 `mimo_base.bin`，無需啟動時解析巨型字串或將整座大詞庫讀入私有 Heap。
-3. **第三層（輕量動態用戶層）**：鍵盤擴充以唯追加日誌 `mimo_user_wal.log` 記錄選詞、造詞與退格負回饋，宿主 App 於背景自動合併壓縮至 `mimo_user.db`。
+1. **第一層（離線構建管線）**：整合 `mimo-tc`（繁體注音／拼音，MIT）、`mimo-sc`（簡體帶調詞表，MIT）、`rime-ice`（霧凇拼音，GPL-3.0）、`OpenCC`（繁簡一對多消歧與港台詞彙，Apache-2.0）、`jieba`（繁體大詞表，MIT）與 `mimo-jp`（日語詞表，由 Mozc、UniDic、OpenCC、Unihan 經 `scripts/mimo_jp_pipeline.py` 產生，編譯為 `mimo_jp.bin`），統一校準為 `i16` 對數機率分數（Log-Probability），編譯為本專案自訂格式的唯讀二進位檔 **`mimo_base.bin`**（`MIMO-BASE-1` 第 2 版：每種輸入法一份 `MIMO-BIN-1` 詞表，加一份 `MIMO-IDX-1` 查找索引）。另從維基百科與 Tatoeba、Common Voice 的口語句子計算哪個詞後面常接哪個詞，打包為詞對表 **`mimo_pairs.bin`**（CC BY-SA 4.0，見 `scripts/mimo_pairs.py`）。
+2. **第二層（映射的唯讀底座）**：iOS 鍵盤擴充、macOS 與 Android 客戶端以 `mmap` 映射 `mimo_base.bin`，經 `mpn_lexicon_create_from_base_in_place` 交給 Rust 核心。核心直接讀取映射的檔案頁（詞表欄位與預先建好的雜湊索引），不複製到堆積，也不在啟動時建索引；詞庫在堆積上佔 0 位元組。詞對表 `mimo_pairs.bin` 同樣映射後以 `mpn_lexicon_attach_pairs` 交給核心，也不佔堆積。排序時每個詞的分數是詞庫權重，加上它與後一個詞的詞對分數，輸入開頭與結尾也各算一次；長句和口語句子因此比只看詞頻準。Windows 仍讀 TSV 並複製到堆積（`mpn_lexicon_create`），尚未使用詞對表。
+3. **第三層（選詞記錄）**：鍵盤以唯追加日誌 `mimo_user_wal.log` 記錄確認過的選詞，每 64 筆由鍵盤自己併入 `mimo_user.db`。iOS 上這兩個檔案只放在鍵盤自己的沙盒，宿主 App 不讀也不寫。
 
 固定版本、校驗值與開源致謝見 [THIRD_PARTY.md](THIRD_PARTY.md)。合併策略與引擎架構見[引擎說明](docs/ENGINE.md)。
 
@@ -106,13 +106,6 @@ bash scripts/package-macos.sh
 
 詞庫快照隨原始碼保存，正常建置不用下載外部引擎或詞庫。測試使用獨立偏好設定，不修改日常選詞記憶。安裝包輸出至 `.build/releases/`。
 
-C++ 核心可以單獨建置：
-
-```sh
-cmake -S Core -B .build/core
-cmake --build .build/core
-```
-
 iOS 另需 XcodeGen，見 [iOS/README.md](iOS/README.md)。
 
 ## 一起把選詞做好
@@ -121,4 +114,4 @@ iOS 另需 XcodeGen，見 [iOS/README.md](iOS/README.md)。
 
 詞庫修訂放在 `Resources/Lexicon/`，不要直接修改上游快照。歡迎修讀音、調排序、補日常詞彙和改善跨應用相容性。提交方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-原創程式碼與隨附專案素材採 [MIT](LICENSE)；外部詞庫保留各自授權。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語單字覆蓋和不同應用中的候選定位，都還有需要打磨的地方。
+喵撲以 [GPL-3.0-or-later](LICENSE) 發佈：合併詞庫用了霧凇拼音（rime-ice，GPL-3.0）的資料，所以程式和詞庫一起採同一份授權。各上游詞庫的版權與授權聲明見 [THIRD_PARTY.md](THIRD_PARTY.md)。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語詞表的審讀（不收的詞目前由自動審讀判定，尚未經母語者審讀）和不同應用中的候選定位，都還有需要打磨的地方。

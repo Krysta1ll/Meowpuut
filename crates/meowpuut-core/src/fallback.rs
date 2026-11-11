@@ -26,6 +26,7 @@
 use std::cmp::Ordering;
 
 use crate::lexicon::Lexicon;
+use crate::pairs::{END, START, STEP};
 use crate::reading::{utf8_char_count, Reading};
 use crate::workspace::{DecodeOutputSoA, NasalVariantsStack};
 use crate::{CandidateKind, CandidateScoreKind};
@@ -115,7 +116,7 @@ pub fn unfinished_phrase_into(
                     count,
                     CandidateKind::Partial as u32,
                     CandidateScoreKind::None as u32,
-                    f64::from(lexicon.words.weight[i]),
+                    f64::from(lexicon.words.weight(i)),
                 );
             }
         }
@@ -142,6 +143,18 @@ pub fn fallback_into(
     let reading = Reading::new(input, lexicon.pinyin);
     let sounds = reading.sounds();
     let sounds_bytes = reading.sounds_bytes();
+    // With a pair table a word that fills the whole input also gets the
+    // clause start and end terms, in weight units (700 per nat), as in the lattice.
+    let edges = |i: usize, whole: bool| -> f64 {
+        match lexicon.pairs() {
+            Some(p) => {
+                let id = lexicon.index.word_ids.ids.get(i);
+                let end = if whole { p.score(id, END) } else { 0 };
+                700.0 * f64::from(p.score(START, id) + end) / STEP
+            }
+            None => 0.0,
+        }
+    };
 
     let collect = |key: &str, penalty: f64, raw_buf: &mut DecodeOutputSoA| {
         let (lo, hi) = lexicon.range(key);
@@ -152,20 +165,19 @@ pub fn fallback_into(
                 input.len(),
                 CandidateKind::Correction as u32,
                 CandidateScoreKind::Fallback as u32,
-                f64::from(lexicon.words.weight[i]) - penalty,
+                f64::from(lexicon.words.weight(i)) - penalty + edges(i, true),
             );
         }
     };
 
-    if sounds_bytes.len() == 1 && (sounds_bytes[0] as usize) < lexicon.initials.len() {
-        for &word_idx in &lexicon.initials[sounds_bytes[0] as usize] {
-            let idx = word_idx as usize;
+    if sounds_bytes.len() == 1 {
+        for idx in lexicon.initials(sounds_bytes[0]) {
             raw.push(
                 lexicon.words.text(&lexicon.storage, idx, hans),
                 input.len(),
                 CandidateKind::Correction as u32,
                 CandidateScoreKind::Fallback as u32,
-                f64::from(lexicon.words.weight[idx]),
+                f64::from(lexicon.words.weight(idx)) + edges(idx, true),
             );
         }
     }
@@ -237,7 +249,7 @@ pub fn fallback_into(
                             count,
                             CandidateKind::Partial as u32,
                             CandidateScoreKind::Fallback as u32,
-                            f64::from(lexicon.words.weight[i]),
+                            f64::from(lexicon.words.weight(i)) + edges(i, count == input.len()),
                         );
                     }
                 }

@@ -5,14 +5,24 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
     for input in ["watashihaneko", "ashitahaame", "gakkou", "shin'ya"] {
         engine.clear(); h.type(input)
         let kana = Romaji.reading(input)
-        h.check(engine.snapshot.requiredCandidate != nil && engine.snapshot.japaneseCandidates.contains(kana), "完整羅馬音標記 " + input)
         let visible = collapsedCandidateIndices(engine.snapshot)
         h.check(visible.contains { compactCandidateText(engine.snapshot, at: $0) == engine.snapshot.requiredCandidate }, "日語候選收合可見 " + input)
+        h.check(engine.snapshot.requiredCandidate != nil && engine.snapshot.japaneseCandidates.contains(kana), "完整羅馬音標記 " + input)
+        h.check(kanaRankedLast(engine, kana), "假名拼寫排在所有中文之後 " + input)
+        engine.clear(); h.type(input)
         if let index = engine.snapshot.candidates.firstIndex(of: kana) {
             engine.choose(index)
             h.check(engine.takeCommit() == kana, "貓爪不隨文字上屏 " + input)
         }
     }
+    engine.clear(); h.type("sushi")
+    h.check(engine.snapshot.requiredCandidate == "寿司" && collapsedCandidateIndices(engine.snapshot)
+        .contains { compactCandidateText(engine.snapshot, at: $0) == "寿司" }, "sushi 收合仍見寿司")
+    h.check(kanaRankedLast(engine, "すし"), "sushi 的假名拼寫排在所有中文之後")
+    engine.clear(); h.type("haluo")
+    h.check(engine.snapshot.requiredCandidate == nil && engine.snapshot.compactJapanese == nil
+        && !engine.snapshot.candidates.prefix(3).contains("はぅお"), "haluo 前幾格不放假名拼寫")
+    h.check(kanaRankedLast(engine, "はぅお"), "haluo 的假名拼寫排在所有中文之後")
     let crowdedJapanese = Snapshot(candidates: ["甲", "乙", "丙", "丁", "戊", "己", "あ"],
         requiredCandidate: "甲", confidentCandidates: ["甲", "乙", "丙", "丁", "戊", "己"], japaneseCandidates: ["あ"])
     h.check(collapsedCandidateIndices(crowdedJapanese).contains(6), "中文同形詞不占用日語保留位置")
@@ -104,7 +114,7 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
         h.check(engine.takeCommit() == expected, "收合上鍵高亮末項後 Enter 選中同一詞")
     } else { h.check(false, "收合上鍵高亮末項後 Enter 選中同一詞") }
     for toggle in [false, true] {
-        engine.clear(); engine.english = false; engine.selectMode(.pinyin); h.type("gan")
+        engine.clear(); engine.english = false; engine.selectMode(.pinyin); h.type("hai")
         if let candidate = engine.snapshot.compactJapanese {
             engine.snapshot.highlighted = engine.snapshot.candidates.count
             if toggle { engine.key(Engine.toggleEnglishKey) } else { engine.key(44) }
@@ -153,7 +163,7 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
         for byte in "gan".utf8 { _ = expandedBackend.key(Int32(byte), modifiers: 0) }
         h.check(engine.snapshot.candidates == expandedBackend.snapshot().candidates, "展開候選保留後端排序")
     } else { h.check(false, "展開候選排序引擎可載入") }
-    for input in ["a", "sushi", "watashihaneko"] {
+    for input in ["sushi", "watashihaneko"] {
         engine.clear(); h.type(input)
         let snapshot = engine.snapshot
         let visible = collapsedCandidateIndices(snapshot)
@@ -240,26 +250,28 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
         Preferences.shared.rememberChoices = true
         let script = simplified ? "s:" : "t:"
         let phrase = simplified ? "我喜欢" : "我喜歡"
-        let whole = simplified ? "我喜欢你" : "我喜歡你"
+        let whole = simplified ? "我喜欢我" : "我喜歡我"
         let selectedKey = "py:" + script + "woxihuan"
-        let unfinishedKey = selectedKey + "n"
-        let wholeKey = selectedKey + "ni"
-        for key in [selectedKey, unfinishedKey, wholeKey, "py:" + script + "ni"] { ChoiceMemory.shared.forget(key) }
+        let unfinishedKey = selectedKey + "w"
+        let wholeKey = selectedKey + "wo"
+        for key in [selectedKey, unfinishedKey, wholeKey, "py:" + script + "wo"] { ChoiceMemory.shared.forget(key) }
         let segmented = Engine(.meowpuut, mode: .pinyin)
-        for key in "woxihuann".utf8 { segmented.key(Int32(key)) }
+        // woxihuann reads as a whole now (我喜歡你, n as the initial of 你), so the
+        // unfinished initial is w here.
+        for key in "woxihuanw".utf8 { segmented.key(Int32(key)) }
         let choice = segmented.snapshot.candidates.firstIndex(of: phrase)
         h.check(choice != nil, "拼音未完成聲母可選前段（\(script)）")
         if let choice {
             segmented.choose(choice)
-            h.check(segmented.takeCommit() == phrase && segmented.snapshot.input == "n", "拼音部分選詞保留聲母（\(script)）")
+            h.check(segmented.takeCommit() == phrase && segmented.snapshot.input == "w", "拼音部分選詞保留聲母（\(script)）")
             h.check(ChoiceMemory.shared.records[selectedKey]?.contains(where: { $0.text == phrase }) == true, "記憶只記已選拼音（\(script)）")
             h.check(ChoiceMemory.shared.records[unfinishedKey]?.contains(where: { $0.text == phrase }) != true, "未完成後綴不納入記憶（\(script)）")
-            segmented.key(Int32(Character("i").asciiValue!))
-            if let next = segmented.snapshot.candidates.firstIndex(of: "你") { segmented.choose(next) }
-            h.check(segmented.takeCommit() == "你" && segmented.snapshot.input.isEmpty, "剩餘拼音可完成上屏（\(script)）")
+            segmented.key(Int32(Character("o").asciiValue!))
+            if let next = segmented.snapshot.candidates.firstIndex(of: "我") { segmented.choose(next) }
+            h.check(segmented.takeCommit() == "我" && segmented.snapshot.input.isEmpty, "剩餘拼音可完成上屏（\(script)）")
             h.check(ChoiceMemory.shared.records[wholeKey]?.contains(where: { $0.text == whole }) == true, "多段選詞記憶完整句（\(script)）")
         }
-        for key in [selectedKey, unfinishedKey, wholeKey, "py:" + script + "ni", "ctx|" + phrase + "|py:" + script + "ni"] { ChoiceMemory.shared.forget(key) }
+        for key in [selectedKey, unfinishedKey, wholeKey, "py:" + script + "wo", "ctx|" + phrase + "|py:" + script + "wo"] { ChoiceMemory.shared.forget(key) }
 
         let zhuyinKey = script + "jivu"
         let zhuyinUnfinished = zhuyinKey + "c"

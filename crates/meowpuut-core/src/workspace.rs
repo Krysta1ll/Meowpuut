@@ -17,7 +17,8 @@
 //! assert_eq!(variants.get(0), "wan");
 //! ```
 
-use crate::reading::{BEAM, CANDIDATE_LIMIT, MAX_INPUT};
+use crate::pairs::Pairs;
+use crate::reading::{CANDIDATE_LIMIT, MAX_INPUT};
 
 /// Stack-allocated nasal variants (`n` <-> `ng`) for a Pinyin sound string of length `4..=32`.
 #[derive(Debug, Clone)]
@@ -67,90 +68,192 @@ impl NasalVariantsStack {
     }
 }
 
-/// Preallocated SoA suffix lattice for dynamic programming beam search.
+/// Most paths kept per input position (the decoder keeps fewer without a pair table).
+pub const LATTICE_STATES: usize = 16;
+/// Slot number meaning "no further path" (the end of the input).
+pub const NO_SLOT: u32 = u32::MAX;
+const HASH_BASE: u64 = 0x0000_0100_0000_01B3;
+
+/// Polynomial hash of `text` and `HASH_BASE^len`; the hash of `a + b` is
+/// `hash(a) * pow(b) + hash(b)`, so a path's text hash is built word by word.
+#[inline]
+pub fn text_hash(text: &str) -> (u64, u64) {
+    text.bytes().fold((0u64, 1u64), |(h, p), b| (h.wrapping_mul(HASH_BASE).wrapping_add(u64::from(b)), p.wrapping_mul(HASH_BASE)))
+}
+
+/// Preallocated suffix lattice: for each input position, the best paths from
+/// there to the end of the input. A path is its first word (a lexicon row)
+/// and the slot of the path after it, so no text is copied while decoding;
+/// paths with the same text are told apart by `hash` and `len`.
 #[derive(Debug, Clone)]
 pub struct PathLatticeSoA {
-    pub text_arena: String,
-    pub text_offset: Vec<u32>,
-    pub text_len: Vec<u16>,
-    pub trad_offset: Vec<u32>,
-    pub trad_len: Vec<u16>,
     pub score: Vec<f64>,
+    /// Lexicon row of the first word.
+    pub word: Vec<u32>,
+    /// Slot of the rest of the path, `NO_SLOT` at the end of the input.
+    pub next: Vec<u32>,
+    /// Word id of the first word (`pairs::END` at the end of the input).
+    pub id: Vec<u32>,
+    pub hash: Vec<u64>,
+    pub pow: Vec<u64>,
+    /// Bytes of output text.
+    pub len: Vec<u16>,
+    /// First four characters of the traditional text, for `Lexicon::join_bonus`.
+    pub head: Vec<[u8; 16]>,
+    pub head_len: Vec<u8>,
     pub spelled: Vec<bool>,
     pub verified: Vec<bool>,
     pub counts: [u8; MAX_INPUT + 1],
+    /// Output text of one path (see `PathLatticeSoA::text_into`).
+    pub text: String,
+    /// Word id before the input: `pairs::START`, or the last word the person picked.
+    pub left: u32,
+    pub pair_cache: PairCache,
 }
 
 impl PathLatticeSoA {
     pub fn new() -> Self {
-        let slots = (MAX_INPUT + 1) * BEAM;
+        let slots = (MAX_INPUT + 1) * LATTICE_STATES;
         Self {
-            text_arena: String::with_capacity(slots * 24),
-            text_offset: vec![0; slots],
-            text_len: vec![0; slots],
-            trad_offset: vec![0; slots],
-            trad_len: vec![0; slots],
             score: vec![0.0; slots],
+            word: vec![0; slots],
+            next: vec![NO_SLOT; slots],
+            id: vec![0; slots],
+            hash: vec![0; slots],
+            pow: vec![1; slots],
+            len: vec![0; slots],
+            head: vec![[0; 16]; slots],
+            head_len: vec![0; slots],
             spelled: vec![false; slots],
             verified: vec![false; slots],
             counts: [0u8; MAX_INPUT + 1],
+            text: String::with_capacity(MAX_INPUT * 4),
+            left: crate::pairs::START,
+            pair_cache: PairCache::new(),
         }
     }
 
     #[inline]
     pub fn reset(&mut self, length: usize) {
-        self.text_arena.clear();
         self.counts[..=length].fill(0);
     }
 
     #[inline]
     pub fn count_at(&self, pos: usize) -> usize { self.counts[pos] as usize }
     #[inline]
-    pub fn slot_index(pos: usize, beam_idx: usize) -> usize { pos * BEAM + beam_idx }
+    pub fn slot_index(pos: usize, beam_idx: usize) -> usize { pos * LATTICE_STATES + beam_idx }
 
-    #[inline]
-    pub fn push_raw_at(&mut self, pos: usize, text: &str, trad: &str, score: f64, spelled: bool, verified: bool) {
-        let b = self.counts[pos] as usize;
-        if b >= BEAM { return; }
-        let slot = Self::slot_index(pos, b);
-        let t_off = self.text_arena.len() as u32;
-        self.text_arena.push_str(text);
-        let tr_off = self.text_arena.len() as u32;
-        self.text_arena.push_str(trad);
-        self.text_offset[slot] = t_off;
-        self.text_len[slot] = text.len() as u16;
-        self.trad_offset[slot] = tr_off;
-        self.trad_len[slot] = trad.len() as u16;
-        self.score[slot] = score;
-        self.spelled[slot] = spelled;
-        self.verified[slot] = verified;
+    /// The empty path at the end of the input.
+    pub fn push_end(&mut self, pos: usize, end_id: u32) {
+        let slot = Self::slot_index(pos, 0);
+        self.score[slot] = 0.0;
+        self.word[slot] = NO_SLOT;
+        self.next[slot] = NO_SLOT;
+        self.id[slot] = end_id;
+        self.hash[slot] = 0;
+        self.pow[slot] = 1;
+        self.len[slot] = 0;
+        self.head_len[slot] = 0;
+        self.spelled[slot] = true;
+        self.verified[slot] = true;
+        self.counts[pos] = 1;
+    }
+
+    /// Adds step `idx` as a path at `pos`; `traditional` is the first word's traditional text.
+    pub fn push_step(&mut self, pos: usize, step: &StepPathsSoA, idx: usize, traditional: &str) {
+        let slot = Self::slot_index(pos, self.counts[pos] as usize);
+        let next = step.next[idx] as usize;
+        let mut head = [0u8; 16];
+        let mut head_len = 0usize;
+        let mut chars = 0usize;
+        for &b in traditional.as_bytes().iter().chain(&self.head[next][..self.head_len[next] as usize]) {
+            let starts_char = (b & 0xC0) != 0x80;
+            if starts_char && chars == 4 {
+                break;
+            }
+            chars += usize::from(starts_char);
+            if head_len < 16 {
+                head[head_len] = b;
+                head_len += 1;
+            }
+        }
+        self.score[slot] = step.score[idx];
+        self.word[slot] = step.word[idx];
+        self.next[slot] = step.next[idx];
+        self.id[slot] = step.id[idx];
+        self.hash[slot] = step.hash[idx];
+        self.pow[slot] = step.pow[idx];
+        self.len[slot] = step.len[idx];
+        self.head[slot] = head;
+        self.head_len[slot] = head_len as u8;
+        self.spelled[slot] = step.spelled[idx];
+        self.verified[slot] = step.verified[idx];
         self.counts[pos] += 1;
     }
 
+    /// First four characters of the traditional text of the path in `slot`.
     #[inline]
-    pub fn text(&self, slot: usize) -> &str {
-        let s = self.text_offset[slot] as usize;
-        &self.text_arena[s..s + self.text_len[slot] as usize]
+    pub fn head(&self, slot: usize) -> &str {
+        std::str::from_utf8(&self.head[slot][..self.head_len[slot] as usize]).unwrap_or("")
     }
 
-    #[inline]
-    pub fn trad(&self, slot: usize) -> &str {
-        let s = self.trad_offset[slot] as usize;
-        &self.text_arena[s..s + self.trad_len[slot] as usize]
+    /// Slots of the path in `slot`, one per word, up to the end of the input.
+    pub fn words_from(&self, slot: usize) -> impl Iterator<Item = usize> + '_ {
+        std::iter::successors(Some(slot), move |&s| Some(self.next[s] as usize)).take_while(move |&s| self.word[s] != NO_SLOT)
     }
 }
 
 impl Default for PathLatticeSoA { fn default() -> Self { Self::new() } }
 
-/// Preallocated SoA step candidate transitions within a single DP position.
+/// Recent word-pair scores, one per slot by hash, kept from key to key: the
+/// decode after the next key looks up mostly the same pairs again.
+#[derive(Debug, Clone)]
+pub struct PairCache {
+    keys: Vec<u64>,
+    scores: Vec<i32>,
+    table: usize,
+}
+
+impl PairCache {
+    const BITS: u32 = 14;
+
+    pub fn new() -> Self {
+        Self { keys: vec![u64::MAX; 1 << Self::BITS], scores: vec![0; 1 << Self::BITS], table: 0 }
+    }
+
+    /// Empties the cache when `table` (the address of the pair table) changed.
+    pub fn use_table(&mut self, table: usize) {
+        if self.table != table {
+            self.keys.fill(u64::MAX);
+            self.table = table;
+        }
+    }
+
+    /// `pairs.score(left, right)`, from the cache when it holds it.
+    #[inline]
+    pub fn score(&mut self, pairs: &Pairs, left: u32, right: u32) -> i32 {
+        let key = (u64::from(left) << 32) | u64::from(right);
+        let slot = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - Self::BITS)) as usize;
+        if self.keys[slot] != key {
+            self.keys[slot] = key;
+            self.scores[slot] = pairs.score(left, right);
+        }
+        self.scores[slot]
+    }
+}
+
+impl Default for PairCache { fn default() -> Self { Self::new() } }
+
+/// Preallocated candidate paths for one input position: a word followed by a path of the lattice.
 #[derive(Debug, Clone)]
 pub struct StepPathsSoA {
-    pub arena: String,
-    pub text_offset: Vec<u32>,
-    pub text_len: Vec<u16>,
-    pub trad_offset: Vec<u32>,
-    pub trad_len: Vec<u16>,
     pub score: Vec<f64>,
+    pub word: Vec<u32>,
+    pub next: Vec<u32>,
+    pub id: Vec<u32>,
+    pub hash: Vec<u64>,
+    pub pow: Vec<u64>,
+    pub len: Vec<u16>,
     pub spelled: Vec<bool>,
     pub verified: Vec<bool>,
     pub order: Vec<usize>,
@@ -158,14 +261,15 @@ pub struct StepPathsSoA {
 
 impl StepPathsSoA {
     pub fn new() -> Self {
-        let cap = 1024;
+        let cap = 4096;
         Self {
-            arena: String::with_capacity(cap * 24),
-            text_offset: Vec::with_capacity(cap),
-            text_len: Vec::with_capacity(cap),
-            trad_offset: Vec::with_capacity(cap),
-            trad_len: Vec::with_capacity(cap),
             score: Vec::with_capacity(cap),
+            word: Vec::with_capacity(cap),
+            next: Vec::with_capacity(cap),
+            id: Vec::with_capacity(cap),
+            hash: Vec::with_capacity(cap),
+            pow: Vec::with_capacity(cap),
+            len: Vec::with_capacity(cap),
             spelled: Vec::with_capacity(cap),
             verified: Vec::with_capacity(cap),
             order: Vec::with_capacity(cap),
@@ -174,51 +278,32 @@ impl StepPathsSoA {
 
     #[inline]
     pub fn clear(&mut self) {
-        self.arena.clear();
-        self.text_offset.clear();
-        self.text_len.clear();
-        self.trad_offset.clear();
-        self.trad_len.clear();
         self.score.clear();
+        self.word.clear();
+        self.next.clear();
+        self.id.clear();
+        self.hash.clear();
+        self.pow.clear();
+        self.len.clear();
         self.spelled.clear();
         self.verified.clear();
         self.order.clear();
     }
 
+    /// Word `word` (with word id `id`, text hash `hash`/`pow`, `len` bytes) before the lattice path in `next`.
     #[inline]
     #[allow(clippy::too_many_arguments)]
-    pub fn push_joined(&mut self, w_text: &str, s_text: &str, w_trad: &str, s_trad: &str, keep_trad: bool, score: f64, spelled: bool, verified: bool) {
-        let idx = self.score.len();
-        let t_off = self.arena.len() as u32;
-        self.arena.push_str(w_text);
-        self.arena.push_str(s_text);
-        let t_len = (w_text.len() + s_text.len()) as u16;
-        let (tr_off, tr_len) = if keep_trad {
-            let off = self.arena.len() as u32;
-            self.arena.push_str(w_trad);
-            self.arena.push_str(s_trad);
-            (off, (w_trad.len() + s_trad.len()) as u16)
-        } else { (0, 0) };
-        self.text_offset.push(t_off);
-        self.text_len.push(t_len);
-        self.trad_offset.push(tr_off);
-        self.trad_len.push(tr_len);
+    pub fn push(&mut self, lattice: &PathLatticeSoA, next: usize, word: u32, id: u32, hash: u64, pow: u64, len: usize, score: f64, spelled: bool, verified: bool) {
+        self.order.push(self.score.len());
         self.score.push(score);
+        self.word.push(word);
+        self.next.push(next as u32);
+        self.id.push(id);
+        self.hash.push(hash.wrapping_mul(lattice.pow[next]).wrapping_add(lattice.hash[next]));
+        self.pow.push(pow.wrapping_mul(lattice.pow[next]));
+        self.len.push((len + lattice.len[next] as usize) as u16);
         self.spelled.push(spelled);
         self.verified.push(verified);
-        self.order.push(idx);
-    }
-
-    #[inline]
-    pub fn text(&self, idx: usize) -> &str {
-        let s = self.text_offset[idx] as usize;
-        &self.arena[s..s + self.text_len[idx] as usize]
-    }
-
-    #[inline]
-    pub fn trad(&self, idx: usize) -> &str {
-        let s = self.trad_offset[idx] as usize;
-        &self.arena[s..s + self.trad_len[idx] as usize]
     }
 }
 
@@ -355,9 +440,8 @@ impl DecoderScratchSoA {
     }
 
     pub fn capacity_signature(&self) -> usize {
-        self.lattice.text_arena.capacity()
+        self.lattice.text.capacity()
             + self.lattice.score.capacity()
-            + self.step_paths.arena.capacity()
             + self.step_paths.score.capacity()
             + self.decoded.arena.capacity()
             + self.decoded.score.capacity()

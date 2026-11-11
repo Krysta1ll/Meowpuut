@@ -31,17 +31,18 @@ enum SystemInput {
     }
 
     static let bundleID = "app.meowpuut.inputmethod.Meowpuut"
+    private static var t: InterfaceText { .system }
     static func enable() throws {
         let location = Bundle.main.bundleURL
         let userDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods").path + "/"
         guard location.path.hasPrefix(userDirectory) || location.path.hasPrefix("/Library/Input Methods/") else {
-            throw NSError(domain: bundleID, code: 1, userInfo: [NSLocalizedDescriptionKey: "請先安裝 Meowpuut，再啟用輸入法。"])
+            throw NSError(domain: bundleID, code: 1, userInfo: [NSLocalizedDescriptionKey: t("請先安裝 Meowpuut，再啟用輸入法。", "请先安装 Meowpuut，再启用输入法。")])
         }
         let registration = TISRegisterInputSource(location as CFURL)
         guard registration == noErr else { throw failure(registration) }
         let filter = [kTISPropertyBundleID as String: bundleID] as CFDictionary
         guard let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource], !sources.isEmpty else {
-            throw NSError(domain: bundleID, code: 2, userInfo: [NSLocalizedDescriptionKey: "系統未發現 Meowpuut 輸入來源。"])
+            throw NSError(domain: bundleID, code: 2, userInfo: [NSLocalizedDescriptionKey: t("系統找不到 Meowpuut 輸入方式。", "系统找不到 Meowpuut 输入法。")])
         }
         for source in sources {
             let status = TISEnableInputSource(source)
@@ -49,6 +50,6 @@ enum SystemInput {
         }
     }
     private static func failure(_ status: OSStatus) -> NSError {
-        NSError(domain: bundleID, code: Int(status), userInfo: [NSLocalizedDescriptionKey: "啟用失敗（\(status)）。"])
+        NSError(domain: bundleID, code: Int(status), userInfo: [NSLocalizedDescriptionKey: t("啟用失敗（\(status)）。", "启用失败（\(status)）。")])
     }
 }

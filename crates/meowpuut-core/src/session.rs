@@ -37,6 +37,8 @@ use crate::reading::{
     is_tone, strict_han_count, zhuyin_symbol_for_key, CANDIDATE_LIMIT, KEYS, MAX_INPUT, PAGE_SIZE,
 };
 use crate::soa::{CandidatePoolSoA, JapaneseTableSoA};
+use crate::decoder::last_word_id;
+use crate::pairs::START;
 use crate::workspace::{DecodeOutputSoA, DecoderScratchSoA};
 use crate::CandidateInfo;
 
@@ -60,11 +62,18 @@ pub struct Session {
     pub(crate) predictive_work: DecodeOutputSoA,
     pub(crate) segments_work: DecodeOutputSoA,
     pub(crate) reorder_buf: DecodeOutputSoA,
+    /// Partial candidates for the leading syllables (row.rs).
+    pub(crate) row_work: DecodeOutputSoA,
     pub(crate) scratch: DecoderScratchSoA,
     pub(crate) page: usize,
     pub(crate) hans: bool,
     /// Per-`refresh` memo of the complete-only decode: 0 unknown, 1 empty, 2 non-empty.
     pub(crate) complete_memo: u8,
+    /// Word id of the last picked word and the segment context it ends, so
+    /// that the same context set again (clients retype the rest after a
+    /// pick) gives the decoder the same left word.
+    pub(crate) picked_id: u32,
+    pub(crate) picked_context: String,
 }
 
 impl Session {
@@ -89,10 +98,13 @@ impl Session {
             predictive_work: DecodeOutputSoA::with_capacity(32),
             segments_work: DecodeOutputSoA::with_capacity(32),
             reorder_buf: DecodeOutputSoA::with_capacity(CANDIDATE_LIMIT + 32),
+            row_work: DecodeOutputSoA::with_capacity(CANDIDATE_LIMIT),
             scratch: DecoderScratchSoA::new(),
             page: 0,
             hans: false,
             complete_memo: 0,
+            picked_id: START,
+            picked_context: String::with_capacity(256),
         }
     }
 
@@ -114,6 +126,7 @@ impl Session {
         self.candidates.clear();
         self.segment_context.clear();
         self.page = 0;
+        self.scratch.lattice.left = START;
     }
 
     #[inline]
@@ -198,6 +211,8 @@ impl Session {
         } else {
             self.segment_context.clear();
         }
+        let same = !self.segment_context.is_empty() && self.segment_context == self.picked_context;
+        self.scratch.lattice.left = if same { self.picked_id } else { START };
         if !self.input.is_empty() {
             self.refresh();
         }
@@ -272,6 +287,7 @@ impl Session {
         self.tmp_text.clear();
         self.tmp_text.push_str(self.candidates.text(index));
         let consumed = self.candidates.consumed[index];
+        let picked = last_word_id(&self.lexicon, &self.input[..consumed], &self.tmp_text, self.hans);
         self.tmp_remaining.clear();
         self.tmp_remaining.push_str(&self.input[consumed..]);
         self.lexicon
@@ -287,6 +303,10 @@ impl Session {
         self.input.push_str(&self.tmp_remaining);
         if !self.input.is_empty() {
             self.segment_context.push_str(&self.tmp_trad);
+            self.picked_id = picked;
+            self.picked_context.clear();
+            self.picked_context.push_str(&self.segment_context);
+            self.scratch.lattice.left = picked;
         }
         self.refresh();
         self.committed.clear();

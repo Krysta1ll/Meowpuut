@@ -35,29 +35,47 @@ extension InputBackend {
     func predict(context: String, limit: Int) -> [String] { [] }
 }
 
+/// A read-only mapping of a whole file, unmapped on deinit. The lexicon's
+/// pages then count as file-backed memory instead of heap. A file in use must
+/// be replaced by rename, not rewritten in place.
+final class MappedFile {
+    let base: UnsafeMutableRawPointer
+    let size: Int
+
+    init?(url: URL) {
+        let fd = open(url.path, O_RDONLY)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_size > 0 else { return nil }
+        let size = Int(info.st_size)
+        guard let base = mmap(nil, size, PROT_READ, MAP_PRIVATE, fd, 0), base != MAP_FAILED else { return nil }
+        self.base = base
+        self.size = size
+    }
+
+    deinit { munmap(base, size) }
+}
+
 final class NativeBackend: InputBackend {
     private static let lock = NSLock()
     private static var zhuyinLexicon: OpaquePointer?
     private static var pinyinLexicon: OpaquePointer?
 
     private static func load(_ name: String, pinyin: Bool) -> OpaquePointer? {
-        var baseCandidates: [URL] = []
-        if !Preferences.testing,
-           let shared = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared")?
-               .appendingPathComponent("mimo_base.bin") {
-            baseCandidates.append(shared)
-        }
-        if let bundled = Bundle.main.url(forResource: "mimo_base", withExtension: "bin") {
-            baseCandidates.append(bundled)
-        }
-        for baseURL in baseCandidates {
-            if let data = try? Data(contentsOf: baseURL, options: .mappedIfSafe), !data.isEmpty {
-                let lex = data.withUnsafeBytes { raw -> OpaquePointer? in
-                    guard let ptr = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return nil }
-                    return mpn_lexicon_create_from_base(ptr, raw.count, pinyin ? 1 : 0)
-                }
-                if let lex { return lex }
-            }
+        // The file in the bundle is read-only: the engine reads the mapping in
+        // place and keeps it until the lexicon and every session using it are
+        // destroyed; then it calls the release callback, which unmaps it.
+        if let bundled = Bundle.main.url(forResource: "mimo_base", withExtension: "bin"),
+           let file = MappedFile(url: bundled) {
+            let context = Unmanaged.passRetained(file).toOpaque()
+            let lex = mpn_lexicon_create_from_base_in_place(
+                file.base.assumingMemoryBound(to: CChar.self), file.size, pinyin ? 1 : 0,
+                { context in
+                    guard let context else { return }
+                    Unmanaged<MappedFile>.fromOpaque(context).release()
+                }, context)
+            if let lex { return lex }
         }
         if let binURL = Bundle.main.url(forResource: name, withExtension: "bin"),
            let data = try? Data(contentsOf: binURL, options: .mappedIfSafe), !data.isEmpty {
@@ -74,16 +92,42 @@ final class NativeBackend: InputBackend {
             mpn_lexicon_create(cstr, byteCount)
         }
     }
-    private static func retainLexicon(for mode: InputMode) -> OpaquePointer? {
+    /// Attaches the bundled word-pair table, read in place like the bundled
+    /// lexicon and unmapped by the release callback. The engine refuses a
+    /// table made for another lexicon; that lexicon then ranks without pairs.
+    private static func withPairs(_ lexicon: OpaquePointer) -> OpaquePointer {
+        if let url = Bundle.main.url(forResource: "mimo_pairs", withExtension: "bin"),
+           let file = MappedFile(url: url) {
+            _ = mpn_lexicon_attach_pairs(
+                lexicon, file.base.assumingMemoryBound(to: CChar.self), file.size,
+                { context in
+                    guard let context else { return }
+                    Unmanaged<MappedFile>.fromOpaque(context).release()
+                }, Unmanaged.passRetained(file).toOpaque())
+        }
+        return lexicon
+    }
+    /// A session on the lexicon for `mode`, loading it if needed. The session
+    /// is made under the lock, so releaseInactiveLexicons cannot destroy the
+    /// lexicon before the session holds it.
+    private static func makeSession(for mode: InputMode) -> OpaquePointer? {
         lock.lock()
         defer { lock.unlock() }
+        let lexicon: OpaquePointer?
         if mode == .pinyin {
-            if pinyinLexicon == nil { pinyinLexicon = load("native-pinyin", pinyin: true) }
-            return pinyinLexicon
+            if pinyinLexicon == nil { pinyinLexicon = load("native-pinyin", pinyin: true).map(withPairs) }
+            lexicon = pinyinLexicon
         } else {
-            if zhuyinLexicon == nil { zhuyinLexicon = load("native-zhuyin", pinyin: false) }
-            return zhuyinLexicon
+            if zhuyinLexicon == nil { zhuyinLexicon = load("native-zhuyin", pinyin: false).map(withPairs) }
+            lexicon = zhuyinLexicon
         }
+        return lexicon.flatMap { mpn_session_create($0) }
+    }
+    /// Heap held by the lexicons that are loaded now (memory diagnostics).
+    static var loadedLexiconHeapBytes: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return [zhuyinLexicon, pinyinLexicon].compactMap { $0 }.reduce(0) { $0 + mpn_lexicon_heap_bytes($1) }
     }
     static func releaseInactiveLexicons(keeping activeMode: InputMode?) {
         lock.lock()
@@ -106,8 +150,7 @@ final class NativeBackend: InputBackend {
         #if os(iOS)
         Self.releaseInactiveLexicons(keeping: mode)
         #endif
-        guard let lexicon = Self.retainLexicon(for: mode),
-              let handle = mpn_session_create(lexicon) else { throw CocoaError(.fileReadCorruptFile) }
+        guard let handle = Self.makeSession(for: mode) else { throw CocoaError(.fileReadCorruptFile) }
         session = handle
         if mode == .pinyin {
             for word in JapaneseBackend.mixedWords {

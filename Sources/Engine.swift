@@ -60,27 +60,6 @@ struct PhraseModule: Codable, Identifiable {
     var phrases: [String]
 }
 
-enum CandidateTone: String, CaseIterable, Identifiable {
-    case system, light, dark
-    var id: String { rawValue }
-    var title: String { switch self { case .system: "跟隨系統"; case .light: "淺色"; case .dark: "深色" } }
-}
-
-enum GlassStrength: String, CaseIterable, Identifiable {
-    case soft, balanced, vivid
-    var id: String { rawValue }
-    var title: String { switch self { case .soft: "柔和"; case .balanced: "標準"; case .vivid: "鮮明" } }
-}
-
-enum CandidatePalette: String, CaseIterable, Identifiable {
-    case rose, ocean, sage, lavender, amber, graphite
-    var id: String { rawValue }
-    var title: String { switch self {
-        case .rose: "玫瑰奶茶"; case .ocean: "海鹽藍"; case .sage: "鼠尾草綠"
-        case .lavender: "霧紫"; case .amber: "琥珀蜜"; case .graphite: "石墨"
-    } }
-}
-
 final class Preferences: ObservableObject {
     static let shared = Preferences()
     static let testing = CommandLine.arguments.contains("--smoke-languages") || CommandLine.arguments.contains("--smoke")
@@ -93,6 +72,9 @@ final class Preferences: ObservableObject {
     @Published var candidateTone: CandidateTone { didSet { defaults.set(candidateTone.rawValue, forKey: "candidateTone") } }
     @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
     @Published var candidatePalette: CandidatePalette { didSet { defaults.set(candidatePalette.rawValue, forKey: "candidatePalette") } }
+    @Published var glassShape: GlassShape { didSet { defaults.set(glassShape.rawValue, forKey: "glassShape") } }
+    // Holiday outfits for the cats (docs/FESTIVALS.md).
+    @Published var festivalOutfits: Bool { didSet { defaults.set(festivalOutfits, forKey: "festivalOutfits") } }
     var inputMode: InputMode {
         get { InputMode(rawValue: defaults.string(forKey: "inputMode") ?? "") ?? .zhuyin }
         set { defaults.set(newValue.rawValue, forKey: "inputMode") }
@@ -110,11 +92,10 @@ final class Preferences: ObservableObject {
             .appendingPathComponent(enginePreview ? "Meowpuut Engine Preview" : "Meowpuut")
     var moduleDirectory: URL { Self.directory.appendingPathComponent("Modules") }
     private init() {
-        #if os(iOS)
+        // 米米莫 and 莫莫 are the default on every platform.
         catGlassSkin = defaults.object(forKey: "catGlassSkin") as? Bool ?? true
-        #else
-        catGlassSkin = defaults.bool(forKey: "catGlassSkin")
-        #endif
+        glassShape = GlassShape(rawValue: defaults.string(forKey: "glassShape") ?? "") ?? .capsule
+        festivalOutfits = defaults.object(forKey: "festivalOutfits") as? Bool ?? true
         candidateTone = CandidateTone(rawValue: defaults.string(forKey: "candidateTone") ?? "") ?? .system
         glassStrength = GlassStrength(rawValue: defaults.string(forKey: "glassStrength") ?? "") ?? .balanced
         candidatePalette = CandidatePalette(rawValue: defaults.string(forKey: "candidatePalette") ?? "") ?? .rose
@@ -140,6 +121,8 @@ final class Preferences: ObservableObject {
         if let value = settings.candidateTone, let tone = CandidateTone(rawValue: value), candidateTone != tone { candidateTone = tone }
         if let value = settings.glassStrength, let strength = GlassStrength(rawValue: value), glassStrength != strength { glassStrength = strength }
         if let value = settings.candidatePalette, let palette = CandidatePalette(rawValue: value), candidatePalette != palette { candidatePalette = palette }
+        if let value = settings.glassShape, let shape = GlassShape(rawValue: value), glassShape != shape { glassShape = shape }
+        if let value = settings.festivals, festivalOutfits != value { festivalOutfits = value }
         if let request = settings.clearMemoryRequest, request != defaults.string(forKey: "lastClearMemoryRequest") {
             ChoiceMemory.shared.clear()
             if ChoiceMemory.shared.flush() { defaults.set(request, forKey: "lastClearMemoryRequest") }
@@ -279,27 +262,59 @@ final class Engine: ObservableObject {
         refresh()
     }
     init(_ kind: InputBackendKind = .meowpuut, mode: InputMode = .zhuyin) { configure(kind, mode: mode) }
+    /// Starts without a backend; `install` supplies one later. The iOS
+    /// keyboard uses this to draw its keys before the lexicon is parsed.
+    init(deferredMode mode: InputMode) { inputMode = mode }
+    /// Lets go of the backend and shows `mode` until `install` supplies the
+    /// next one. The iOS keyboard uses this when the mode was changed in the
+    /// app: the old lexicon is released before the new one is parsed.
+    func unload(for mode: InputMode) {
+        clear(); learningTail = nil
+        backend = nil
+        inputMode = mode
+    }
     func selectMode(_ mode: InputMode) { configure(Preferences.shared.keyboardBackend, mode: mode) }
     func selectBackend(_ kind: InputBackendKind) { configure(kind, mode: inputMode) }
     private func configure(_ requestedKind: InputBackendKind, mode: InputMode) {
         let kind = requestedKind
         guard backend == nil || kind != backendKind || mode != inputMode else { return }
         do {
-            let next: InputBackend
-            #if os(macOS)
-            next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: false)
-            #else
-            next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode)
-            #endif
-            clear(); learningTail = nil
-            backend = next
-            backendKind = kind
-            inputMode = mode
-            error = ""
-            modeChanged()
+            install(try Self.makeBackend(mode: mode), kind: kind, mode: mode)
         } catch {
-            self.error = "無法載入 Meowpuut 詞庫。"
+            self.error = Self.loadFailedMessage
         }
+    }
+    static var loadFailedMessage: String {
+        Preferences.shared.simplified ? "无法加载喵扑词库。" : "無法載入喵撲詞庫。"
+    }
+    /// Builds the backend for a mode. The lexicon is parsed here, the slow
+    /// part of starting up, so this may run off the main thread. With `warm`
+    /// it also types and clears a short reading, so the first real key does
+    /// not pay for opening the word database.
+    static func makeBackend(mode: InputMode, warm: Bool = false) throws -> InputBackend {
+        let next: InputBackend
+        #if os(macOS)
+        next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: false, emojiCell: false)
+        #else
+        next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode)
+        #endif
+        if warm {
+            for scalar in (mode == .zhuyin ? "su3" : "ni").unicodeScalars { _ = next.key(Int32(scalar.value), modifiers: 0) }
+            _ = next.snapshot()
+            _ = next.candidates(limit: 32)
+            next.clear()
+            _ = next.snapshot()
+        }
+        return next
+    }
+    /// Makes a backend from `makeBackend` the current one (main thread).
+    func install(_ next: InputBackend, kind: InputBackendKind = .meowpuut, mode: InputMode) {
+        clear(); learningTail = nil
+        backend = next
+        backendKind = kind
+        inputMode = mode
+        error = ""
+        modeChanged()
     }
     func refresh() {
         guard moduleBuffer == nil, let backend else { return }

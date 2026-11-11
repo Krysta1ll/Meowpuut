@@ -1,98 +1,181 @@
 import AppKit
 import SwiftUI
 
-// The outline is also the native glass boundary, including both pairs of ears.
-private struct CatGlassOutline: Shape {
-    func path(in rect: CGRect) -> Path {
-        let w = rect.width
-        let h = rect.height
-        return Path { p in
-            p.move(to: CGPoint(x: 4, y: 32))
-            p.addQuadCurve(to: CGPoint(x: 8, y: 19), control: CGPoint(x: 4, y: 24))
-            p.addCurve(to: CGPoint(x: 12, y: 3), control1: CGPoint(x: 7, y: 6), control2: CGPoint(x: 8, y: 1))
-            p.addLine(to: CGPoint(x: 27, y: 12))
-            p.addCurve(to: CGPoint(x: 39, y: 1), control1: CGPoint(x: 32, y: 10), control2: CGPoint(x: 35, y: -1))
-            p.addQuadCurve(to: CGPoint(x: 48, y: 21), control: CGPoint(x: 43, y: 3))
-            p.addCurve(to: CGPoint(x: w - 49, y: 22), control1: CGPoint(x: 65, y: 27), control2: CGPoint(x: w - 69, y: 24))
-            p.addLine(to: CGPoint(x: w - 41, y: 9))
-            p.addQuadCurve(to: CGPoint(x: w - 31, y: 20), control: CGPoint(x: w - 39, y: 7))
-            p.addLine(to: CGPoint(x: w - 16, y: 11))
-            p.addQuadCurve(to: CGPoint(x: w - 13, y: 30), control: CGPoint(x: w - 10, y: 9))
-            p.addCurve(to: CGPoint(x: w - 2, y: h - 22), control1: CGPoint(x: w, y: 36), control2: CGPoint(x: w, y: h - 35))
-            p.addQuadCurve(to: CGPoint(x: w - 24, y: h - 1), control: CGPoint(x: w, y: h))
-            p.addLine(to: CGPoint(x: 25, y: h - 1))
-            p.addQuadCurve(to: CGPoint(x: 2, y: h - 23), control: CGPoint(x: 0, y: h))
-            p.closeSubpath()
+// What the macOS candidate window draws (docs/DESIGN.md): the Liquid Glass
+// bar with 米米莫 behind its left end and 莫莫 resting on its right end, and
+// the panel that opens under it, or over it when the window is above the caret. The candidates in the row, their order and
+// their number keys come from CollapsedCandidateLayout (CandidateWindow.swift),
+// which key handling uses too.
+
+/// Cat sprites copied into Contents/Resources by scripts/build.sh.
+enum DesktopCatArt {
+    private static var cache: [String: NSImage] = [:]
+
+    static func image(_ name: String) -> NSImage? {
+        if let hit = cache[name] { return hit }
+        let image = Bundle.main.image(forResource: NSImage.Name(name))
+        if let image { cache[name] = image }
+        return image
+    }
+
+    /// Holiday outfit layers (exported at 2x by scripts/render_cats.py).
+    static func festival(_ outfit: FestivalOutfit, _ file: String) -> NSImage? {
+        let key = outfit.id + "/" + file
+        if let hit = cache[key] { return hit }
+        guard let url = Festivals.imageURL(outfit: outfit, file: file), let image = NSImage(contentsOf: url) else { return nil }
+        if let rep = image.representations.first { image.size = NSSize(width: CGFloat(rep.pixelsWide) / 2, height: CGFloat(rep.pixelsHigh) / 2) }
+        cache[key] = image
+        return image
+    }
+}
+
+/// How the window is drawn. The installed input method follows the system
+/// settings; the preview and the snapshots set each one to check that path.
+struct CandidateLook: Equatable {
+    var dark = false
+    /// Reduce Transparency or Increase Contrast: opaque glass, no caustic.
+    var opaque = false
+    /// Increase Contrast: darker outlines and full-strength secondary text.
+    var contrast = false
+    /// Reduce Motion: only blinks and fades.
+    var still = false
+
+    var text: Color {
+        if contrast { return dark ? .white : .black }
+        return CandidateInk.text(dark: dark)
+    }
+    var secondary: Color {
+        if contrast { return text.opacity(0.85) }
+        return CandidateInk.secondary(dark: dark)
+    }
+    var outline: Color { (dark ? Color.white : Color.black).opacity(0.7) }
+
+    /// A tone under the glass. On the desktop anything can be behind the
+    /// window: without this, dark glass over a white page (or light glass
+    /// over a black one) turns mid grey and the candidates lose contrast.
+    func floor(_ strength: GlassStrength) -> Color {
+        let amount: Double = switch (strength, dark) {
+        case (.soft, false): 0.62
+        case (.balanced, false): 0.52
+        case (.vivid, false): 0.36
+        case (.soft, true): 0.74
+        case (.balanced, true): 0.64
+        case (.vivid, true): 0.46
         }
+        return dark ? Color(red: 0.169, green: 0.153, blue: 0.161).opacity(amount) : Color.white.opacity(amount)
     }
 }
 
-private struct CandidateGlassOutline: Shape {
-    var cats: Bool
-    var expanded: Bool
-    func path(in rect: CGRect) -> Path {
-        cats ? CatGlassOutline().path(in: rect) : RoundedRectangle(cornerRadius: expanded ? 16 : rect.height / 2).path(in: rect)
-    }
+struct CandidateLookOverride: Equatable {
+    var dark: Bool?
+    var opaque: Bool?
+    var contrast: Bool?
+    var still: Bool?
 }
 
-// A short, fixed-width coat fades into the glass without changing shape when
-// the candidate window grows. The muted warm sheen keeps the black cat legible
-// on both pale and dark backgrounds.
-private struct BlackCatCoat: View {
-    var dark: Bool
+private struct DeskCat: View {
+    let name: String
+    var blinking = false
+    var outfit: FestivalOutfit?
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            LinearGradient(stops: [
-                .init(color: Color(white: 0.025).opacity(0.98), location: 0),
-                .init(color: Color(white: 0.035).opacity(0.96), location: 0.26),
-                .init(color: Color(red: 0.10, green: 0.09, blue: 0.09).opacity(0.88), location: 0.48),
-                .init(color: Color(red: 0.16, green: 0.14, blue: 0.14).opacity(0.58), location: 0.68),
-                .init(color: Color(red: 0.19, green: 0.17, blue: 0.17).opacity(0.22), location: 0.84),
-                .init(color: .clear, location: 1)
-            ], startPoint: .leading, endPoint: .trailing)
-            RadialGradient(colors: [Color.white.opacity(dark ? 0.10 : 0.13), .clear],
-                           center: UnitPoint(x: 0.58, y: 0.12), startRadius: 0, endRadius: 46)
+        let layers = outfit?.layers(for: name)
+        ZStack {
+            if let outfit, let back = layers?.back, let art = DesktopCatArt.festival(outfit, back) {
+                Image(nsImage: art).resizable().interpolation(.high)
+            }
+            ForEach(["open", "blink"], id: \.self) { frame in
+                Group {
+                    if let outfit, let file = layers?.frames?[frame], let art = DesktopCatArt.festival(outfit, file) {
+                        Image(nsImage: art).resizable().interpolation(.high)
+                    } else if let art = DesktopCatArt.image("\(name)_\(frame)") {
+                        Image(nsImage: art).resizable().interpolation(.high)
+                    }
+                }
+                .opacity((frame == "blink") == blinking ? 1 : 0)
+            }
+            if let outfit, let front = layers?.front, let art = DesktopCatArt.festival(outfit, front) {
+                Image(nsImage: art).resizable().interpolation(.high)
+            }
         }
-        .frame(width: 70)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }
 
-private struct BlackCatEarLight: Shape {
+/// Everything except the glass. 米米莫 is behind the glass; drawing him only
+/// outside its outline keeps the left end clear instead of a grey blur.
+private struct OutsideGlass: Shape {
+    var style: GlassShape
+    var insets: EdgeInsets
+
     func path(in rect: CGRect) -> Path {
-        Path { p in
-            p.move(to: CGPoint(x: 8, y: 19))
-            p.addCurve(to: CGPoint(x: 12, y: 3), control1: CGPoint(x: 7, y: 6), control2: CGPoint(x: 8, y: 1))
-            p.addLine(to: CGPoint(x: 27, y: 12))
-            p.addCurve(to: CGPoint(x: 39, y: 1), control1: CGPoint(x: 32, y: 10), control2: CGPoint(x: 35, y: -1))
-            p.addQuadCurve(to: CGPoint(x: 48, y: 21), control: CGPoint(x: 43, y: 3))
-        }
+        var path = Path(rect)
+        let glass = CGRect(x: rect.minX + insets.leading, y: rect.minY + insets.top,
+                           width: rect.width - insets.leading - insets.trailing,
+                           height: rect.height - insets.top - insets.bottom)
+        // Half a point under the rim, so no gap shows between him and the edge.
+        path.addPath(CandidateGlassShape(style: style, insetAmount: 0.5).path(in: glass))
+        return path
     }
 }
 
-// Keep the light inside the glass boundary so the edge stays delicate even
-// against a busy desktop. The native glass remains responsible for refraction.
-private struct CandidateGlassRim: View {
-    var cats: Bool
-    var expanded: Bool
-    var dark: Bool
-    var highContrast: Bool
+/// The selected candidate's capsule. A holiday outfit may bring its own colour.
+private struct DeskPill: View {
+    var palette: CandidatePalette
+    var festival: Color?
+    var look: CandidateLook
 
     var body: some View {
-        CandidateGlassOutline(cats: cats, expanded: expanded)
-            .stroke(
-                LinearGradient(stops: [
-                    .init(color: .white.opacity(highContrast ? 0.72 : (dark ? 0.46 : 0.76)), location: 0),
-                    .init(color: .white.opacity(dark ? 0.12 : 0.32), location: 0.38),
-                    .init(color: .black.opacity(dark ? 0.22 : 0.15), location: 1)
-                ], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 0.8
-            )
-            .clipShape(CandidateGlassOutline(cats: cats, expanded: expanded))
+        // Increase Contrast: the palette's deep tone under the white text, whatever the holiday colour, and an outline.
+        CandidatePill(palette: palette, dark: look.dark, highContrast: look.contrast, festival: festival)
+            .overlay {
+                if look.contrast { Capsule(style: .continuous).stroke(look.outline, lineWidth: 1) }
+            }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+}
+
+/// The number key in front of a candidate. "⇧1" is drawn as a small shift mark and the digit.
+private struct DeskHint: View {
+    var label: String
+    var selected: Bool
+    var look: CandidateLook
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0.5) {
+            if label.hasPrefix("⇧") {
+                Image(systemName: "shift").font(.system(size: 7.5, weight: .semibold)).opacity(0.85)
+            }
+            Text(label.hasPrefix("⇧") ? String(label.dropFirst()) : label)
+                .font(.system(size: Desk.hintFont, weight: .medium, design: .rounded))
+        }
+        .foregroundStyle(selected ? Color.white.opacity(look.contrast ? 1 : 0.88) : look.secondary)
+        .fixedSize()
+        .accessibilityHidden(true)
+    }
+}
+
+/// A candidate under the pointer gets a pale capsule; a press shrinks it a little.
+private struct DeskCellStyle: ButtonStyle {
+    var tint: Color
+    var look: CandidateLook
+    var selected: Bool
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                if !selected {
+                    Capsule(style: .continuous)
+                        .fill(tint.opacity(configuration.isPressed ? (look.dark ? 0.30 : 0.22) : (look.dark ? 0.18 : 0.12)))
+                        .opacity(hovering || configuration.isPressed ? 1 : 0)
+                }
+            }
+            .scaleEffect(configuration.isPressed && !look.still ? 0.96 : 1)
+            .animation(look.still ? nil : .easeOut(duration: 0.1), value: configuration.isPressed)
+            .onHover { hovering = $0 }
     }
 }
 
@@ -103,229 +186,543 @@ struct GlassCandidateView: View {
     @Environment(\.colorScheme) private var systemScheme
     @ObservedObject private var preferences = Preferences.shared
     @ObservedObject var engine: Engine
-    var cats = true
+    var cats: Bool
     var expanded: Bool
     var canExpand: Bool
-    var maxPanelHeight: CGFloat = .greatestFiniteMagnitude
+    /// The panel opens over the bar: the window is above the caret.
+    var panelAbove: Bool
+    /// Height and width the whole window may take, clear margin included.
+    var maxHeight: CGFloat
+    var maxWidth: CGFloat
+    /// False while the panel is hidden, so the cats stop blinking.
+    var visible: Bool
+    var forced: CandidateLookOverride
     var onChoose: (Int) -> Void
     var onPage: (Int32) -> Void
     var onToggle: () -> Void
-    var onAppearanceChange: () -> Void = {}
+    var onAppearanceChange: () -> Void
+    @State private var mimimoBlink = false
+    @State private var momoBlink = false
 
-    private var scheme: ColorScheme {
-        switch preferences.candidateTone {
+    init(engine: Engine, cats: Bool = true, expanded: Bool, canExpand: Bool, panelAbove: Bool = false,
+         maxHeight: CGFloat = .greatestFiniteMagnitude, maxWidth: CGFloat = .greatestFiniteMagnitude,
+         visible: Bool = true, forced: CandidateLookOverride = CandidateLookOverride(),
+         onChoose: @escaping (Int) -> Void, onPage: @escaping (Int32) -> Void, onToggle: @escaping () -> Void,
+         onAppearanceChange: @escaping () -> Void = {}) {
+        self.engine = engine
+        self.cats = cats
+        self.expanded = expanded
+        self.canExpand = canExpand
+        self.panelAbove = panelAbove
+        self.maxHeight = maxHeight
+        self.maxWidth = maxWidth
+        self.visible = visible
+        self.forced = forced
+        self.onChoose = onChoose
+        self.onPage = onPage
+        self.onToggle = onToggle
+        self.onAppearanceChange = onAppearanceChange
+    }
+
+    /// Visible height of the collapsed window, without the clear margin.
+    static func collapsedHeight(cats: Bool) -> CGFloat { cats ? Desk.catsBarHeight : Desk.glass + 8 }
+    /// The least the expanded panel needs: three rows and the page buttons.
+    static let minimumPanelHeight: CGFloat = panelGap + 16 + 3 * Desk.gridRowHeight + 2 * Desk.gridRowSpacing + 26
+    private static let panelGap: CGFloat = 6
+
+    private var look: CandidateLook {
+        let scheme: ColorScheme = switch preferences.candidateTone {
         case .system: systemScheme
         case .light: .light
         case .dark: .dark
         }
+        let highContrast = forced.contrast ?? (contrast == .increased)
+        return CandidateLook(dark: forced.dark ?? (scheme == .dark),
+                             opaque: forced.opaque ?? (reduceTransparency || highContrast),
+                             contrast: highContrast,
+                             still: forced.still ?? reduceMotion)
     }
-    private var dark: Bool { scheme == .dark }
-    private var tint: Color { preferences.candidatePalette.color(dark: dark) }
-    private var glass: Glass {
-        guard !reduceTransparency, contrast != .increased else { return .identity }
-        return switch preferences.glassStrength {
-        case .soft: .regular.tint(tint.opacity(0.04))
-        case .balanced: .clear.tint(tint.opacity(0.035))
-        case .vivid: .clear.tint(tint.opacity(0.01))
+    /// Labels and menus follow the system language, like the settings window; only candidates follow the output script.
+    private var t: InterfaceText { .system }
+    private var palette: CandidatePalette { preferences.candidatePalette }
+    private var outfit: FestivalOutfit? { preferences.festivalOutfits ? Festivals.active() : nil }
+    private var style: GlassShape { preferences.glassShape }
+
+    var body: some View {
+        let look = self.look
+        VStack(alignment: .leading, spacing: Self.panelGap) {
+            if !panelAbove { bar(look) }
+            if expanded && !engine.snapshot.candidates.isEmpty {
+                let chrome = Desk.margin.top + Desk.margin.bottom + Self.collapsedHeight(cats: cats) + Self.panelGap
+                DeskExpandedPanel(engine: engine, look: look, palette: palette, festivalPill: outfit?.pillColor,
+                                  strength: preferences.glassStrength, t: t,
+                                  maximumHeight: max(60, maxHeight - chrome),
+                                  maximumWidth: maxWidth - Desk.margin.left - Desk.margin.right - (cats ? Desk.glassLeft + Desk.momoOverhang : 0),
+                                  onChoose: onChoose, onPage: onPage)
+                    .padding(.leading, cats ? Desk.glassLeft : 0)
+                    .padding(.trailing, cats ? Desk.momoOverhang : 0)
+                    .transition(.opacity)
+            }
+            if panelAbove { bar(look) }
+        }
+        .padding(EdgeInsets(top: Desk.margin.top, leading: Desk.margin.left, bottom: Desk.margin.bottom, trailing: Desk.margin.right))
+        .fixedSize()
+        .environment(\.colorScheme, look.dark ? .dark : .light)
+        .contextMenu { menu }
+        .task(id: visible && cats) { if visible && cats { await blink(mimimo: true) } }
+        .task(id: visible && cats) { if visible && cats { await blink(mimimo: false) } }
+    }
+
+    // MARK: Bar
+
+    private struct Cell {
+        var index: Int
+        var text: String
+        var japanese: Bool
+        /// Set when the text is shortened to this width.
+        var width: CGFloat?
+    }
+
+    @ViewBuilder
+    private func bar(_ look: CandidateLook) -> some View {
+        if cats { catsBar(look) } else { plainBar(look) }
+    }
+
+    private var cells: [Cell] {
+        let snapshot = engine.snapshot
+        let layout = CollapsedCandidateLayout(snapshot)
+        let japaneseTexts = markedJapanese(snapshot)
+        return layout.indices.compactMap { index in
+            guard let text = compactCandidateText(snapshot, at: index) else { return nil }
+            let japanese = japaneseTexts.contains(text)
+            let full = CandidateMeasure.width(text)
+            let given = (layout.textWidths[index] ?? full) - (japanese ? CollapsedCandidateLayout.paw : 0)
+            return Cell(index: index, text: text, japanese: japanese, width: given < full ? max(Desk.font * 2, given) : nil)
         }
     }
-    private var shade: Double {
-        switch preferences.glassStrength { case .soft: 0.40; case .balanced: 0.30; case .vivid: 0.18 }
+
+    @ViewBuilder
+    private func candidateRow(_ look: CandidateLook) -> some View {
+        if engine.snapshot.candidates.isEmpty {
+            Text(engine.snapshot.preedit)
+                .font(.system(size: Desk.font))
+                .foregroundStyle(look.text)
+                .lineLimit(1).truncationMode(.head)
+                .frame(minWidth: 96, maxWidth: 260, alignment: .leading)
+                .padding(.horizontal, Desk.cellPadding)
+                .accessibilityLabel(t("輸入中：", "输入中：") + engine.snapshot.preedit)
+        } else {
+            HStack(spacing: Desk.cellSpacing) {
+                ForEach(Array(cells.enumerated()), id: \.element.index) { ordinal, cell in
+                    candidate(cell, shortcut: engine.candidateShortcut(ordinal), look: look)
+                }
+            }
+            .animation(look.still ? nil : .easeOut(duration: 0.12), value: engine.snapshot.highlighted)
+        }
     }
-    var body: some View {
-        CandidateStrip(engine: engine, onChoose: onChoose, onPage: onPage,
-                       compact: true, expanded: expanded,
-                       maximumContentHeight: max(16, maxPanelHeight - (expanded ? 110 : (cats ? 31 : 9))))
-            .foregroundStyle(dark ? Color.white : Color(white: 0.12))
-            // Keep the first label clear of the dark coat in both layouts.
-            .padding(.leading, cats ? 39 : 3)
-            .padding(.trailing, cats ? (expanded ? 12 : 35) : (canExpand || expanded ? 25 : 3))
-            .padding(.top, cats ? 23 : 3)
-            .padding(.bottom, cats ? 8 : 6)
+
+    /// The row and the expand key. While the panel is open the row shows what
+    /// is being typed, so only the panel carries numbers; the hidden row
+    /// keeps the bar as wide as it was.
+    private func row(_ look: CandidateLook) -> some View {
+        HStack(spacing: 0) {
+            if expanded && !engine.snapshot.candidates.isEmpty {
+                candidateRow(look)
+                    .hidden()
+                    .accessibilityHidden(true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay {
+                        HStack(spacing: 8) {
+                            Text(engine.snapshot.preedit)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(look.text)
+                                .lineLimit(1).truncationMode(.head)
+                                .accessibilityLabel(t("輸入中：", "输入中：") + engine.snapshot.preedit)
+                            Spacer(minLength: 0)
+                            Text(engine.modeLabel)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(look.secondary)
+                                .fixedSize()
+                        }
+                        .padding(.horizontal, Desk.cellPadding)
+                    }
+            } else {
+                candidateRow(look)
+            }
+            if canExpand || expanded {
+                Button(action: onToggle) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                        .animation(look.still ? nil : .easeInOut(duration: 0.18), value: expanded)
+                        .foregroundStyle(look.text.opacity(look.contrast ? 1 : 0.72))
+                        .frame(width: Desk.chevronWidth, height: Desk.pill)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expanded ? t("收起候選", "收起候选") : t("展開候選", "展开候选"))
+                .help(expanded ? t("收起候選（Esc）", "收起候选（Esc）") : t("展開候選（↓）", "展开候选（↓）"))
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(t("候選字", "候选字"))
+    }
+
+    private func glassBar(_ look: CandidateLook) -> some View {
+        let shape = CandidateGlassShape(style: style)
+        return ZStack {
+            if look.opaque {
+                // The opaque bar still floats: the shared material leaves its shadow out here.
+                shape.fill(Color(red: 0.24, green: 0.16, blue: 0.27).opacity(look.dark ? 0 : 0.14))
+                    .blur(radius: 6).offset(y: 4).padding(.horizontal, 6)
+                if look.dark { shape.fill(Color.black.opacity(0.45)).blur(radius: 7).offset(y: 4).padding(.horizontal, 6) }
+            } else {
+                // A thin shadow all round keeps the outline on a white page.
+                shape.fill(Color.black.opacity(look.dark ? 0.35 : 0.13)).blur(radius: 1.3).offset(y: 0.6)
+                shape.fill(look.floor(preferences.glassStrength))
+            }
+            LiquidGlassBar(style: style, dark: look.dark, accessible: look.opaque,
+                           strength: preferences.glassStrength, tint: palette.color(dark: look.dark))
+                .equatable()
+            if look.contrast { shape.stroke(look.outline, lineWidth: 1) }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func catsBar(_ look: CandidateLook) -> some View {
+        let band = CandidateGlassShape.contentBand(style, height: Desk.glass)
+        let glassInsets = EdgeInsets(top: Desk.glassTop, leading: Desk.glassLeft, bottom: Desk.glassBottom, trailing: Desk.momoOverhang)
+        let chevron = canExpand || expanded
+        return row(look)
+            .frame(height: band.bottom - band.top)
+            .frame(maxWidth: expanded ? .infinity : nil, alignment: .leading)
+            .padding(.leading, Desk.glassLeft + Desk.rowLead)
+            // The expand key tucks under 莫莫's cheek.
+            .padding(.trailing, Desk.momoWidth - (chevron ? Desk.chevronTuck : 8))
+            .padding(.top, Desk.glassTop + band.top)
+            .padding(.bottom, Desk.glass - band.bottom + Desk.glassBottom)
+            // Back to front: 米米莫, the glass, his tail and 莫莫's shadow on it, the candidates, 莫莫.
+            .background(alignment: .bottomLeading) {
+                // The tail leaves his rump at the glass's left end and lies along the lower rim.
+                // The selected capsule sits over its tip.
+                if style == .capsule, let tail = DesktopCatArt.image("mimimo_tail") {
+                    Image(nsImage: tail).resizable().interpolation(.high)
+                        .frame(width: Desk.tailWidth, height: Desk.tailHeight)
+                        .padding(.leading, Desk.tailLeft)
+                        .padding(.bottom, Desk.glassBottom - Desk.tailDrop)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .background(alignment: .topTrailing) {
+                // Where 莫莫 rests on the glass she leaves a soft shadow.
+                if !look.opaque, let art = DesktopCatArt.image("momo_open") {
+                    Image(nsImage: art).resizable().renderingMode(.template)
+                        .foregroundStyle(Color(red: 0.20, green: 0.12, blue: 0.10))
+                        .frame(width: Desk.momoWidth, height: Desk.momoHeight)
+                        .opacity(look.dark ? 0.5 : 0.3)
+                        .blur(radius: 2.5)
+                        .offset(x: -1, y: 3)
+                        .padding(.top, Desk.momoTop)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .mask { CandidateGlassShape(style: style).padding(glassInsets) }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .background { glassBar(look).padding(glassInsets) }
             .background {
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        CandidateGlassOutline(cats: cats, expanded: expanded)
-                            .fill(dark ? Color.black.opacity(reduceTransparency || contrast == .increased ? 1 : shade)
-                                       : Brand.paper.opacity(reduceTransparency || contrast == .increased ? 1 : shade + 0.02))
-                        if !reduceTransparency && contrast != .increased {
-                            // A restrained tint gives both skins a common material
-                            // without obscuring the desktop behind the glass.
-                            LinearGradient(colors: [tint.opacity(dark ? 0.09 : 0.07), .clear, .white.opacity(dark ? 0.025 : 0.06)],
-                                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                        }
-                        if cats {
-                            BlackCatCoat(dark: dark).frame(height: geometry.size.height)
-                        }
+                DeskCat(name: "mimimo", blinking: mimimoBlink, outfit: outfit)
+                    .frame(width: Desk.mimimoWidth, height: Desk.mimimoHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .mask { OutsideGlass(style: style, insets: glassInsets).fill(style: FillStyle(eoFill: true)) }
+            }
+            .overlay(alignment: .topTrailing) {
+                DeskCat(name: "momo", blinking: momoBlink, outfit: outfit)
+                    .frame(width: Desk.momoWidth, height: Desk.momoHeight)
+                    .padding(.top, Desk.momoTop)
+            }
+    }
+
+    private func plainBar(_ look: CandidateLook) -> some View {
+        let band = CandidateGlassShape.contentBand(style, height: Desk.glass)
+        return row(look)
+            .frame(height: band.bottom - band.top)
+            .frame(maxWidth: expanded ? .infinity : nil, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.top, band.top)
+            .padding(.bottom, Desk.glass - band.bottom)
+            .background { glassBar(look) }
+            .padding(.vertical, 4)
+    }
+
+    private func candidate(_ cell: Cell, shortcut: String, look: CandidateLook) -> some View {
+        let selected = cell.index == engine.snapshot.highlighted
+        let spoken = shortcut.hasPrefix("⇧") ? "Shift " + shortcut.dropFirst() : shortcut
+        return Button { onChoose(cell.index) } label: {
+            HStack(spacing: 0) {
+                DeskHint(label: shortcut, selected: selected, look: look)
+                    .padding(.trailing, Desk.hintGap)
+                // The medium weight sizes the cell, so the row does not shift as the highlight moves.
+                Text(cell.text)
+                    .font(.system(size: Desk.font, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(width: cell.width, alignment: .leading)
+                    .fixedSize()
+                    .hidden()
+                    .overlay(alignment: .leading) {
+                        Text(cell.text)
+                            .font(.system(size: Desk.font, weight: selected ? .medium : .regular))
+                            .foregroundStyle(selected ? Color.white : look.text)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    .clipShape(CandidateGlassOutline(cats: cats, expanded: expanded))
+                if cell.japanese {
+                    Image(systemName: "pawprint.fill").font(.system(size: (Desk.font * 0.45).rounded()))
+                        .rotationEffect(.degrees(-20))
+                        .foregroundStyle(selected ? Color.white.opacity(0.88) : look.secondary)
+                        .frame(width: Desk.pawWidth)
+                        .padding(.leading, Desk.pawGap)
+                        .accessibilityHidden(true)
                 }
             }
-            .glassEffect(glass, in: CandidateGlassOutline(cats: cats, expanded: expanded))
-            .overlay {
-                CandidateGlassRim(cats: cats, expanded: expanded, dark: dark, highContrast: contrast == .increased)
+            .padding(.horizontal, Desk.cellPadding)
+            .frame(height: Desk.pill)
+            .background { if selected { DeskPill(palette: palette, festival: outfit?.pillColor, look: look) } }
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(DeskCellStyle(tint: palette.color(dark: look.dark), look: look, selected: selected))
+        .help(cell.text)
+        .accessibilityLabel(cell.text + (cell.japanese ? t("，日語", "，日语") : ""))
+        .accessibilityHint(t("按 \(spoken) 選這個", "按 \(spoken) 选这个"))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    // Irregular blinks while the window is up; 莫莫 sometimes blinks twice.
+    private func blink(mimimo: Bool) async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(Double.random(in: 2.8...6.4)))
+            let twice = !mimimo && Int.random(in: 0..<5) == 0
+            for _ in 0..<(twice ? 2 : 1) {
+                guard !Task.isCancelled else { return }
+                if mimimo { mimimoBlink = true } else { momoBlink = true }
+                try? await Task.sleep(for: .milliseconds(120))
+                if mimimo { mimimoBlink = false } else { momoBlink = false }
+                if twice { try? await Task.sleep(for: .milliseconds(140)) }
             }
-            .overlay {
-                if cats { GeometryReader { geometry in
-                    let w = geometry.size.width
-                    let h = geometry.size.height
-                    BlackCatEarLight()
-                        .stroke(LinearGradient(colors: [Color.white.opacity(dark ? 0.27 : 0.38), .clear],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                style: StrokeStyle(lineWidth: 0.65, lineCap: .round, lineJoin: .round))
-                        .frame(width: 50, height: 24, alignment: .topLeading)
-                        .position(x: 25, y: 12)
-                    Canvas { context, _ in
-                        let tail = Path { p in
-                            p.move(to: CGPoint(x: 28, y: h - 3))
-                            p.addCurve(to: CGPoint(x: w - 25, y: h - 10),
-                                       control1: CGPoint(x: 70, y: h - 15), control2: CGPoint(x: w - 73, y: h + 8))
-                            p.addCurve(to: CGPoint(x: w - 15, y: 34),
-                                       control1: CGPoint(x: w + 1, y: h - 28), control2: CGPoint(x: w - 7, y: 42))
-                            p.addCurve(to: CGPoint(x: w - 5, y: h - 19),
-                                       control1: CGPoint(x: w + 1, y: 49), control2: CGPoint(x: w - 1, y: h - 31))
-                            p.addQuadCurve(to: CGPoint(x: w - 25, y: h - 2), control: CGPoint(x: w - 5, y: h - 2))
-                            p.closeSubpath()
-                        }
-                        context.fill(tail, with: .linearGradient(
-                            Gradient(colors: dark ? [Color(white: 0.08).opacity(0.70), Color(white: 0.16).opacity(0.06)] : [Brand.paper.opacity(reduceTransparency ? 1 : 0.40), Brand.paper.opacity(reduceTransparency ? 1 : 0.025)]),
-                            startPoint: CGPoint(x: w, y: h), endPoint: CGPoint(x: 28, y: h - 9)))
-                        context.stroke(tail, with: .color((dark ? Color(white: 0.65) : Brand.paper).opacity(0.20)), lineWidth: 0.45)
-                    }
-                    CatFace(cream: false).frame(width: 32, height: 26).position(x: 25, y: 31)
-                    CatFace(cream: true).frame(width: 33, height: 27).position(x: w - 25, y: 32)
-                }
-                .clipShape(CatGlassOutline())
-                .allowsHitTesting(false)
-                .accessibilityHidden(true) }
+        }
+    }
+
+    // MARK: Menu
+
+    private func check<Value: Equatable>(_ title: String, _ value: Value, _ current: Value, _ choose: @escaping () -> Void) -> some View {
+        Button { choose(); onAppearanceChange() } label: {
+            if value == current { Label(title, systemImage: "checkmark") } else { Text(title) }
+        }
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+        Button(expanded ? t("收起候選", "收起候选") : t("展開候選", "展开候选"), action: onToggle)
+            .disabled(!canExpand && !expanded)
+        Divider()
+        Toggle(t("米米莫與莫莫", "米米莫与莫莫"), isOn: Binding(get: { preferences.catGlassSkin },
+                                                         set: { preferences.catGlassSkin = $0; onAppearanceChange() }))
+        Toggle(t("節日裝扮", "节日装扮"), isOn: Binding(get: { preferences.festivalOutfits },
+                                                   set: { preferences.festivalOutfits = $0; onAppearanceChange() }))
+        Menu(t("造型", "造型")) {
+            ForEach(GlassShape.allCases) { shape in
+                check(shape.name(t), shape, preferences.glassShape) { preferences.glassShape = shape }
             }
-            .overlay {
-                GeometryReader { geometry in
-                    Canvas { context, size in
-                        let h = size.height
-                        let reach = min(cats ? 112.0 : 76.0, size.width * 0.38)
-                        let curl = Path { p in
-                            p.move(to: CGPoint(x: reach, y: h - 3.5))
-                            p.addCurve(to: CGPoint(x: 20, y: h - 5), control1: CGPoint(x: reach * 0.65, y: h - 1.5), control2: CGPoint(x: 39, y: h - 2))
-                            p.addCurve(to: CGPoint(x: 16, y: h - (cats ? 15 : 10)), control1: CGPoint(x: 10, y: h - 7), control2: CGPoint(x: 10, y: h - (cats ? 15 : 10)))
-                            p.addQuadCurve(to: CGPoint(x: 23, y: h - (cats ? 12 : 8)), control: CGPoint(x: 22, y: h - (cats ? 17 : 12)))
-                        }
-                        let tailColor = dark ? Color(white: 0.12) : Brand.paper
-                        context.stroke(curl, with: .color(tailColor.opacity(0.90)), style: StrokeStyle(lineWidth: cats ? 4 : 2.8, lineCap: .round))
-                        context.stroke(curl, with: .linearGradient(Gradient(colors: [Color.white.opacity(dark ? 0.30 : 0.75), .clear]), startPoint: CGPoint(x: 14, y: h - 15), endPoint: CGPoint(x: reach, y: h)), style: StrokeStyle(lineWidth: 0.55, lineCap: .round))
-                        if !dark {
-                            context.stroke(curl.trimmedPath(from: 0.90, to: 1), with: .color(Color(red: 0.39, green: 0.30, blue: 0.25).opacity(0.75)), style: StrokeStyle(lineWidth: cats ? 3.4 : 2.4, lineCap: .round))
-                        }
-                    }
-                    .clipShape(CandidateGlassOutline(cats: cats, expanded: expanded))
-                }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+        }
+        Menu(t("色調", "色调")) {
+            ForEach(CandidateTone.allCases) { tone in
+                check(tone.name(t), tone, preferences.candidateTone) { preferences.candidateTone = tone }
             }
-            .overlay(alignment: .bottomTrailing) {
-                if canExpand || expanded {
-                    Button(action: onToggle) {
-                        Image(systemName: "chevron.down")
-                            .rotationEffect(.degrees(expanded ? 180 : 0))
-                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: expanded)
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(dark ? Brand.paper.opacity(0.90) : Color(white: 0.25))
-                            .frame(width: 25, height: 23)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 5)
-                    .padding(.bottom, 5)
-                    .accessibilityLabel(expanded ? "收起候選" : "展開候選")
-                }
+        }
+        Menu(t("色系", "色系")) {
+            ForEach(CandidatePalette.allCases) { palette in
+                check(palette.name(t), palette, preferences.candidatePalette) { preferences.candidatePalette = palette }
             }
-            .contentShape(CandidateGlassOutline(cats: cats, expanded: expanded))
-            .contextMenu {
-                Button(expanded ? "收起候選" : "展開候選", action: onToggle)
-                    .disabled(!canExpand && !expanded)
-                Divider()
-                Menu("皮膚") {
-                    Button("雙貓玻璃") { preferences.catGlassSkin = true; onAppearanceChange() }
-                    Button("簡潔玻璃") { preferences.catGlassSkin = false; onAppearanceChange() }
-                }
-                Menu("色調") {
-                    ForEach(CandidateTone.allCases) { tone in
-                        Button { preferences.candidateTone = tone; onAppearanceChange() } label: {
-                            if preferences.candidateTone == tone { Label(tone.title, systemImage: "checkmark") }
-                            else { Text(tone.title) }
-                        }
-                    }
-                }
-                Menu("玻璃強度") {
-                    ForEach(GlassStrength.allCases) { strength in
-                        Button { preferences.glassStrength = strength; onAppearanceChange() } label: {
-                            if preferences.glassStrength == strength { Label(strength.title, systemImage: "checkmark") }
-                            else { Text(strength.title) }
-                        }
-                    }
-                }
-                Menu("色系") {
-                    ForEach(CandidatePalette.allCases) { palette in
-                        Button { preferences.candidatePalette = palette; onAppearanceChange() } label: {
-                            if preferences.candidatePalette == palette { Label(palette.title, systemImage: "checkmark") }
-                            else { Text(palette.title) }
-                        }
-                    }
-                }
+        }
+        Menu(t("玻璃", "玻璃")) {
+            ForEach(GlassStrength.allCases) { strength in
+                check(strength.name(t), strength, preferences.glassStrength) { preferences.glassStrength = strength }
             }
-            .environment(\.colorScheme, scheme)
-            .fixedSize()
+        }
     }
 }
 
-private struct CatFace: View {
-    let cream: Bool
+extension FestivalOutfit {
+    /// The outfit's colour for the selected candidate ("#RRGGBB"), when it has one.
+    var pillColor: Color? {
+        guard let pill, pill.hasPrefix("#"), pill.count == 7, let value = UInt32(pill.dropFirst(), radix: 16) else { return nil }
+        return Color(red: Double((value >> 16) & 0xff) / 255, green: Double((value >> 8) & 0xff) / 255, blue: Double(value & 0xff) / 255)
+    }
+}
+
+/// The glass behind the expanded candidates: the bar's material on a rounded rectangle.
+private struct DeskPanelGlass: View, Equatable {
+    var look: CandidateLook
+    var strength: GlassStrength
+
     var body: some View {
-        Canvas { context, size in
-            context.scaleBy(x: size.width / 34, y: size.height / 28)
-            let ink = Color(white: 0.09)
-            if cream {
-                context.fill(Path(ellipseIn: CGRect(x: 0, y: 0, width: 34, height: 27)),
-                             with: .linearGradient(Gradient(colors: [Brand.paper, Color(red: 0.77, green: 0.69, blue: 0.61)]),
-                                                   startPoint: .zero, endPoint: CGPoint(x: 34, y: 28)))
-                context.fill(Path(ellipseIn: CGRect(x: 7, y: 6, width: 23, height: 16)),
-                             with: .color(Color(red: 0.62, green: 0.49, blue: 0.40).opacity(0.42)))
-                for x in [10.0, 25.0] {
-                    context.fill(Path(ellipseIn: CGRect(x: x, y: 8, width: 3, height: 6)),
-                                 with: .color(Color(red: 0.26, green: 0.44, blue: 0.56)))
-                }
-                var mouth = Path()
-                mouth.move(to: CGPoint(x: 15, y: 17))
-                mouth.addQuadCurve(to: CGPoint(x: 19, y: 16), control: CGPoint(x: 18, y: 19))
-                mouth.addQuadCurve(to: CGPoint(x: 22, y: 18), control: CGPoint(x: 19, y: 19))
-                context.stroke(mouth, with: .color(ink), style: StrokeStyle(lineWidth: 1.1, lineCap: .round))
+        let shape = RoundedRectangle(cornerRadius: Desk.panelCorner, style: .continuous)
+        let dark = look.dark
+        let smoke = Color(red: 0.227, green: 0.188, blue: 0.172)
+        let copper = Color(red: 0.906, green: 0.659, blue: 0.467)
+        let amount: Double = switch strength { case .soft: 0.34; case .balanced: 0.20; case .vivid: 0.08 }
+        ZStack {
+            shape.fill(Color(red: 0.24, green: 0.16, blue: 0.27).opacity(dark ? 0 : 0.13))
+                .blur(radius: 8).offset(y: 5).padding(.horizontal, 6)
+            if dark { shape.fill(Color.black.opacity(0.5)).blur(radius: 9).offset(y: 5).padding(.horizontal, 6) }
+            if look.opaque {
+                shape.fill(dark ? Color(red: 0.169, green: 0.153, blue: 0.161) : Color(red: 0.957, green: 0.949, blue: 0.965))
             } else {
-                for x in [3.0, 21.0] {
-                    var eye = Path()
-                    eye.move(to: CGPoint(x: x, y: 8))
-                    eye.addLine(to: CGPoint(x: x + 10, y: x < 10 ? 11 : 4))
-                    eye.addQuadCurve(to: CGPoint(x: x, y: 8), control: CGPoint(x: x + 8, y: 21))
-                    context.fill(eye, with: .linearGradient(
-                        Gradient(colors: [Brand.paper, Color(red: 0.89, green: 0.85, blue: 0.78)]),
-                        startPoint: CGPoint(x: x, y: 7), endPoint: CGPoint(x: x + 9, y: 18)))
-                    // The old pupil extended above its almond-shaped eye. Clip only the pupil,
-                    // not the glass surface, so the lens keeps its native edge rendering.
-                    var pupil = context
-                    pupil.clip(to: eye)
-                    pupil.fill(Path(ellipseIn: CGRect(x: x + 5, y: 6, width: 2.6, height: 8)),
-                               with: .linearGradient(Gradient(colors: [Color(red: 0.72, green: 0.57, blue: 0.28), Color(red: 0.40, green: 0.29, blue: 0.11)]),
-                                                     startPoint: CGPoint(x: x + 5, y: 6), endPoint: CGPoint(x: x + 7, y: 14)))
-                    pupil.fill(Path(ellipseIn: CGRect(x: x + 5.5, y: 9, width: 0.65, height: 0.9)),
-                               with: .color(Brand.paper.opacity(0.62)))
+                shape.fill(Color.black.opacity(dark ? 0.35 : 0.13)).blur(radius: 1.3).offset(y: 0.6)
+                shape.fill(look.floor(strength))
+                shape.fill(dark ? smoke.opacity(amount + 0.12) : Color.white.opacity(amount))
+                    .glassEffect(dark ? Glass.regular.tint(smoke.opacity(0.55)) : Glass.regular, in: shape)
+                shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.07 : 0.26), .white.opacity(dark ? 0 : 0.05)],
+                                          startPoint: .top, endPoint: .bottom))
+            }
+            shape.stroke(LinearGradient(colors: dark ? [copper.opacity(0.85), copper.opacity(0.18)] : [Color.white, Color.white.opacity(0.45)],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2)
+            if look.contrast { shape.stroke(look.outline, lineWidth: 1) }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The expanded candidates: every candidate of the page on one line each,
+/// short words three to a row, then the Japanese candidate the row kept from
+/// a later page. Arrow keys move through the same rows.
+private struct DeskExpandedPanel: View {
+    @ObservedObject var engine: Engine
+    var look: CandidateLook
+    var palette: CandidatePalette
+    var festivalPill: Color?
+    var strength: GlassStrength
+    var t: InterfaceText
+    var maximumHeight: CGFloat
+    var maximumWidth: CGFloat
+    var onChoose: (Int) -> Void
+    var onPage: (Int32) -> Void
+
+    private static let padding: CGFloat = 8
+
+    var body: some View {
+        let snapshot = engine.snapshot
+        let candidates = expandedCandidates(snapshot)
+        let limit = max(180, min(Desk.gridMaxWidth, maximumWidth) - Self.padding * 2)
+        let rows = expandedCandidateRows(candidates, limit: limit)
+        let width = expandedCandidateWidth(candidates, limit: limit)
+        let paged = snapshot.page > 0 || !snapshot.lastPage
+        let gridHeight = CGFloat(rows.count) * Desk.gridRowHeight + CGFloat(max(0, rows.count - 1)) * Desk.gridRowSpacing
+        let room = maximumHeight - Self.padding * 2 - (paged ? 26 : 0)
+        let japanese = markedJapanese(snapshot)
+        VStack(spacing: 4) {
+            if gridHeight > room {
+                // Only a short display gets here: whole rows, and the highlight stays in view.
+                let stride = Desk.gridRowHeight + Desk.gridRowSpacing
+                let shown = max(1, floor((room + Desk.gridRowSpacing) / stride))
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) { grid(rows, japanese: japanese) }
+                        .frame(height: shown * stride - Desk.gridRowSpacing)
+                        .onChange(of: snapshot.highlighted) { _, index in proxy.scrollTo(index) }
+                        .onChange(of: snapshot.page) { _, _ in proxy.scrollTo(0, anchor: .top) }
                 }
-                for y in [18.0, 22.0] {
-                    var whisker = Path()
-                    whisker.move(to: CGPoint(x: 0, y: y + 2))
-                    whisker.addLine(to: CGPoint(x: 7, y: y))
-                    context.stroke(whisker, with: .color(Brand.paper.opacity(0.8)),
-                                   style: StrokeStyle(lineWidth: 1, lineCap: .round))
+            } else {
+                grid(rows, japanese: japanese)
+            }
+            if paged {
+                HStack(spacing: 10) {
+                    page(0xff55, symbol: "chevron.left", label: t("上一頁", "上一页")).disabled(snapshot.page == 0)
+                    Text("\(snapshot.page + 1)").font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(look.secondary)
+                        .accessibilityLabel(t("第 \(snapshot.page + 1) 頁", "第 \(snapshot.page + 1) 页"))
+                    page(0xff56, symbol: "chevron.right", label: t("下一頁", "下一页")).disabled(snapshot.lastPage)
+                }
+                .frame(height: 22)
+            }
+        }
+        .padding(Self.padding)
+        // The ideal width stops the window at the computed width; a longer candidate is shortened in the middle.
+        .frame(minWidth: width + Self.padding * 2, idealWidth: width + Self.padding * 2, maxWidth: .infinity)
+        .background { DeskPanelGlass(look: look, strength: strength).equatable() }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(t("全部候選", "全部候选"))
+    }
+
+    private func grid(_ rows: [[Int]], japanese: Set<String>) -> some View {
+        VStack(alignment: .leading, spacing: Desk.gridRowSpacing) {
+            ForEach(rows.indices, id: \.self) { row in
+                HStack(spacing: 4) {
+                    ForEach(rows[row], id: \.self) { index in
+                        cell(index, japanese: japanese)
+                    }
                 }
             }
         }
+        .animation(look.still ? nil : .easeOut(duration: 0.12), value: engine.snapshot.highlighted)
+    }
+
+    private func cell(_ index: Int, japanese: Set<String>) -> some View {
+        let text = compactCandidateText(engine.snapshot, at: index) ?? ""
+        let selected = index == engine.snapshot.highlighted
+        let shortcut = engine.candidateShortcut(index)
+        let spoken = shortcut.hasPrefix("⇧") ? "Shift " + shortcut.dropFirst() : shortcut
+        let marked = japanese.contains(text)
+        return Button { onChoose(index) } label: {
+            HStack(spacing: 0) {
+                DeskHint(label: shortcut, selected: selected, look: look)
+                    .frame(width: Desk.gridHint(shifted: shortcut.hasPrefix("⇧")), alignment: .trailing)
+                    .padding(.trailing, 5)
+                Text(text)
+                    .font(.system(size: Desk.font, weight: selected ? .medium : .regular))
+                    .foregroundStyle(selected ? Color.white : look.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if marked {
+                    Image(systemName: "pawprint.fill").font(.system(size: (Desk.font * 0.45).rounded()))
+                        .rotationEffect(.degrees(-20))
+                        .foregroundStyle(selected ? Color.white.opacity(0.88) : look.secondary)
+                        .frame(width: Desk.pawWidth)
+                        .padding(.leading, Desk.pawGap)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.leading, shortcut.hasPrefix("⇧") ? 6 : 9).padding(.trailing, 10)
+            .frame(height: Desk.pill)
+            .background { if selected { DeskPill(palette: palette, festival: festivalPill, look: look) } }
+            .frame(maxWidth: .infinity, minHeight: Desk.gridRowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(text)
+        .id(index)
+        .accessibilityLabel(text + (marked ? t("，日語", "，日语") : ""))
+        .accessibilityHint(t("按 \(spoken) 選這個", "按 \(spoken) 选这个"))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func page(_ key: Int32, symbol: String, label: String) -> some View {
+        Button { onPage(key) } label: {
+            HStack(spacing: 3) {
+                if key == 0xff55 { Image(systemName: symbol) }
+                Text(label)
+                if key == 0xff56 { Image(systemName: symbol) }
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(look.secondary)
+            .padding(.horizontal, 6).frame(height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .help(label + (key == 0xff55 ? "（⌥← / Page Up）" : "（⌥→ / Page Down）"))
     }
 }

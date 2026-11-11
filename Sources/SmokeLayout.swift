@@ -81,16 +81,16 @@ func runSmokePunctuationAndGrid(_ h: inout SmokeHarness) {
 
     let finalPage = ["斡", "玩偶", "圍毆", "握手"]
     h.check(expandedCandidateRows(finalPage).first == [0, 1, 2], "尾頁短詞可同列")
-    h.check(expandedCandidateRowHeight(finalPage, row: [0, 1, 2]) >= 28, "候選文字與選中背景共用列高")
+    h.check(Desk.gridRowHeight >= Desk.pill && expandedCandidateHeight(finalPage) == 2 * Desk.gridRowHeight + Desk.gridRowSpacing, "候選文字與選中背景共用列高")
     let mixedGrid = ["你好", "妳好", String(repeating: "長", count: 20), "你好"]
     h.check(expandedCandidateRows(mixedGrid) == [[0, 1], [2], [3]], "長詞獨立整行不截斷")
     h.check(expandedCandidateRows([]).isEmpty, "空候選無展開行")
-    h.check(expandedCandidateHeight(Array(repeating: String(repeating: "長", count: 80), count: 7)) == 220, "長句展開限高並可捲動")
+    h.check(expandedCandidateHeight(Array(repeating: String(repeating: "長", count: 80), count: 7)) == 7 * Desk.gridRowHeight + 6 * Desk.gridRowSpacing, "長句展開仍是每個候選一行")
     h.check(expandedCandidateMove(shortGrid, from: 1, key: 0xff54) == 4 && expandedCandidateMove(shortGrid, from: 4, key: 0xff52) == 1, "上下鍵依欄移動")
     h.check(expandedCandidateMove(shortGrid, from: 5, key: 0xff54) == 6 && expandedCandidateMove(shortGrid, from: 0, key: 0xff51) == 0, "末行與邊界不越界")
 
     let reserved = CollapsedCandidateLayout(longRow, budget: 230)
-    let japaneseWidth = ceil(("こんにちは" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14)]).width)
+    let japaneseWidth = CandidateMeasure.width("こんにちは")
     h.check(reserved.textWidths[2] == japaneseWidth, "短日語不被長中文等比例壓窄")
     h.check(reserved.truncated, "長詞可展開閱讀")
     let singleLong = CollapsedCandidateLayout(Snapshot(candidates: [String(repeating: "長", count: 40)]))
@@ -99,8 +99,8 @@ func runSmokePunctuationAndGrid(_ h: inout SmokeHarness) {
     h.check(!collapsedCandidateIndices(laterPage).contains(5), "後續頁不插入首屏日語保留位")
     for candidates in [["你", "妳", "擬", "泥", "妮", "倪", "尼"], longRow.candidates, ["蘇軾", "素食", "寿司"], [String(repeating: "長", count: 40)]] {
         let layout = CollapsedCandidateLayout(Snapshot(candidates: candidates, requiredCandidate: candidates.contains("寿司") ? "寿司" : nil))
-        let width = 14 + CGFloat(layout.indices.count * 34 + max(0, layout.indices.count - 1) * 4) + layout.textWidths.values.reduce(0, +)
-        h.check(width <= 230 && layout.indices.first == 0 && Set(layout.indices).count == layout.indices.count, "候選寬度有界、首選保留且索引唯一")
+        let width = layout.textWidths.values.reduce(0, +) + CGFloat(layout.indices.count) * CollapsedCandidateLayout.chrome
+        h.check(width <= CollapsedCandidateLayout.rowLimit && layout.indices.first == 0 && Set(layout.indices).count == layout.indices.count, "候選寬度有界、首選保留且索引唯一")
     }
 
     engine.clear(); engine.selectMode(.pinyin)

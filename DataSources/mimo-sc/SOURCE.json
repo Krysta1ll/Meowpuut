@@ -6,7 +6,14 @@
     {
       "name": "rime-ice",
       "repo": "https://github.com/iDvel/rime-ice",
-      "license": "GPL-3.0"
+      "license": "GPL-3.0",
+      "counts_from": {
+        "cn_dicts/base.dict.yaml": "551cad93c2e74c7325599e0d23afbf71c2d2e57df9af3f8f6fa16d87e60290a3",
+        "cn_dicts/8105.dict.yaml": "1f9a42b91dea6982baee2551981780271aeffd78876662b9c9f324e56b37b120",
+        "branch": "main",
+        "downloaded": "2026-11-11",
+        "note": "rime_ice_counts and rime_ice_additions in mimo-sc.json; rebuild with python3 scripts/mimo_pipeline.py --rime-ice-from DIR"
+      }
     },
     {
       "name": "pinyin-pro",
@@ -16,7 +23,7 @@
     }
   ],
   "files": {
-    "mimo-sc.json": "4f3434b6cedc980d1d400b1c0bb719cff4d9b471155c1c27490c03d2317fa750",
+    "mimo-sc.json": "4cdc27c8fb5ef01830eabb1b0f3095323db10c68a4ffc6ff7b485a848beb2867",
     "RIME-ICE-LICENSE.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "LICENSE": "b067f06144168bd83317c1dbd12a5d5dd0cb8c0c153c4b04ddf194ac61f1925e"
   }

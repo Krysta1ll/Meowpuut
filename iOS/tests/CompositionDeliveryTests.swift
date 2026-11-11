@@ -79,6 +79,40 @@ struct CompositionDeliveryTests {
         precondition(host.text == oldDocument && newDocument.text.isEmpty)
         newDocument.apply(delivery.actions(commit: "新", preedit: ""))
         precondition(newDocument.text == "新" && !delivery.hasMarkedText)
-        print("PASS: marked text preserves partial commits, continuation and cancellation")
+        // What the host should show before the caret while a reading is open.
+        var typing = CompositionDelivery()
+        _ = typing.actions(commit: "", preedit: "n")
+        _ = typing.actions(commit: "", preedit: "ni")
+        _ = typing.actions(commit: "", preedit: "nih")
+        precondition(typing.agrees(withContextBefore: "今天nih"), "the marked text is before the caret")
+        precondition(!typing.agrees(withContextBefore: "今天ni"), "an earlier report is left to the controller's wait")
+        precondition(typing.agrees(withContextBefore: "ih"), "or only the tail of the context")
+        precondition(!typing.agrees(withContextBefore: ""), "caret at the start of the field: the marked text is not before it")
+        precondition(!typing.agrees(withContextBefore: "今"), "caret moved into earlier text")
+        precondition(!typing.agrees(withContextBefore: "今天nih貼上的字"), "something was pasted after it")
+        // Only the current marked text counts: a tap between 你 and 好 leaves a
+        // context that ends with an earlier commit.
+        _ = typing.actions(commit: "你", preedit: "h")
+        _ = typing.actions(commit: "好", preedit: "")
+        _ = typing.actions(commit: "", preedit: "w")
+        precondition(typing.agrees(withContextBefore: "今天你好w"), "the new reading")
+        precondition(!typing.agrees(withContextBefore: "今天你") && !typing.agrees(withContextBefore: "今天你好"), "a caret moved before it")
+        typing.reset()
+        precondition(typing.shown.isEmpty && !typing.agrees(withContextBefore: "wh"), "a reset forgets it")
+        print("PASS: marked text preserves partial commits, continuation and cancellation; stale context is recognised")
+        // Syllable breaks as Apple shows them (U+2006 pinyin, U+2004 zhuyin).
+        let p = "\u{2006}", z = "\u{2004}"
+        for (typed, shown) in [("nihao", "ni\(p)hao"), ("nih", "ni\(p)h"), ("xian", "xian"), ("fangan", "fang\(p)an"),
+                               ("xi'an", "xi'an"), ("ni3hao", "ni3\(p)hao"), ("Nihao", "Ni\(p)hao"), ("NIHAO", "NIHAO"),
+                               ("iphone", "iphone"), ("hello", "hello"), ("zhonghuarenmin", "zhong\(p)hua\(p)ren\(p)min")] {
+            precondition(SyllableBreaks.pinyin(typed) == shown, "\(typed) is shown as \(SyllableBreaks.pinyin(typed))")
+        }
+        precondition(SyllableBreaks.zhuyin("ㄋㄧˇㄏㄠˇ") == "ㄋㄧˇ\(z)ㄏㄠˇ" && SyllableBreaks.zhuyin("ㄇㄣ˙ㄑㄩˋ") == "ㄇㄣ˙\(z)ㄑㄩˋ"
+                     && SyllableBreaks.zhuyin("ㄋㄧㄏ") == "ㄋㄧ\(z)ㄏ" && SyllableBreaks.zhuyin("ㄇㄚˉ") == "ㄇㄚˉ")
+        // The marked text with breaks is what the host shows, so it still agrees with the context.
+        var spaced = CompositionDelivery()
+        _ = spaced.actions(commit: "", preedit: SyllableBreaks.pinyin("nihao"))
+        precondition(spaced.agrees(withContextBefore: "今天ni\(p)hao"))
+        print("PASS: syllable breaks in the marked text")
     }
 }

@@ -109,7 +109,7 @@ impl StackSpanCache {
         let parsed = Reading::new(part, true);
         let (lo, hi) = lexicon.range(parsed.sounds());
         for i in lo..hi {
-            let w = lexicon.words.weight[i];
+            let w = lexicon.words.weight(i);
             if w < 2000 { break; }
             if parsed.matches(lexicon.words.reading(&lexicon.storage, i).as_bytes(), 0, parsed.len()) {
                 return self.push_entry(key, lexicon.words.text(&lexicon.storage, i, simplified), w);
@@ -117,8 +117,9 @@ impl StackSpanCache {
         }
         if self.decodes < 12 {
             self.decodes += 1;
-            decode_with_buffers(lexicon, part, simplified, true, false, &mut sc.lattice, &mut sc.step_paths, &mut sc.fallback_raw, &mut sc.fallback_order, &mut sc.fallback_out, &mut sc.aux_decoded);
-            if !sc.aux_decoded.is_empty() {
+            decode_with_buffers(lexicon, part, simplified, true, false, true, &mut sc.lattice, &mut sc.step_paths, &mut sc.fallback_raw, &mut sc.fallback_order, &mut sc.fallback_out, &mut sc.aux_decoded);
+            // The Chinese part is Han text: no English words (sushiswap is not 寿司swap).
+            if !sc.aux_decoded.is_empty() && !sc.aux_decoded.text(0).bytes().any(|b| b.is_ascii_alphabetic()) {
                 return self.push_entry(key, sc.aux_decoded.text(0), 2000);
             }
         }

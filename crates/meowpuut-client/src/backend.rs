@@ -166,7 +166,7 @@ impl ChineseWithJapaneseBackend {
         for i in 0..lexicon.words.len() {
             pairs.push((
                 lexicon.words.text(&lexicon.storage, i, false),
-                lexicon.words.weight[i],
+                lexicon.words.weight(i),
             ));
         }
         let evidence = WordEvidenceSoA::from_pairs(&pairs);

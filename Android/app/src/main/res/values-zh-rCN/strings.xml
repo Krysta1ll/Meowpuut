@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">喵扑</string>
+    <string name="app_title">喵扑  Meowpuut</string>
+    <string name="ime_name">喵扑</string>
+    <string name="subtype_hant">中文（繁體）</string>
+    <string name="subtype_hans">中文（简体）</string>
+
+    <string name="setup_title">添加键盘</string>
+    <string name="setup_off">喵扑还没有启用。先在系统设置的“屏幕键盘”里开启喵扑，再切换过去。</string>
+    <string name="setup_enabled">喵扑已启用。点一下“切换键盘”改用喵扑。</string>
+    <string name="setup_selected">当前使用的键盘是喵扑。</string>
+    <string name="setup_open_settings">打开键盘设置</string>
+    <string name="setup_pick">切换键盘</string>
+
+    <string name="try_title">试打</string>
+    <string name="try_hint">在这里试打</string>
+
+    <string name="input_title">输入</string>
+    <string name="input_mode">输入方式</string>
+    <string name="mode_zhuyin">注音</string>
+    <string name="mode_pinyin">拼音</string>
+    <string name="mode_japanese">日本語</string>
+    <string name="script">中文</string>
+    <string name="script_traditional">繁體</string>
+    <string name="script_simplified">简体</string>
+    <string name="script_note">在键盘上连续轻摸右边的莫莫五下，也能切换简体／繁体。</string>
+
+    <string name="look_title">外观</string>
+    <string name="shape">造型</string>
+    <string name="shape_capsule">胶囊</string>
+    <string name="shape_wave">波浪</string>
+    <string name="shape_cloud">云朵</string>
+    <string name="tone">色调</string>
+    <string name="tone_system">跟随系统</string>
+    <string name="tone_light">浅色</string>
+    <string name="tone_dark">深色</string>
+    <string name="palette">色系</string>
+    <string name="palette_rose">玫瑰奶茶</string>
+    <string name="palette_ocean">海盐蓝</string>
+    <string name="palette_sage">鼠尾草绿</string>
+    <string name="palette_lavender">雾紫</string>
+    <string name="palette_amber">琥珀蜜</string>
+    <string name="palette_graphite">石墨</string>
+    <string name="strength">玻璃强度</string>
+    <string name="strength_soft">柔和</string>
+    <string name="strength_balanced">标准</string>
+    <string name="strength_vivid">通透</string>
+    <string name="cats">米米莫与莫莫</string>
+    <string name="festivals">节日装扮</string>
+    <string name="festivals_note">节日期间，米米莫和莫莫会换上节日的衣服。</string>
+
+    <string name="feedback_title">按键反馈</string>
+    <string name="haptics">振动</string>
+    <string name="sound">按键声</string>
+
+    <string name="licenses">第三方授权</string>
+    <string name="close">关闭</string>
+    <string name="preview_label">候选栏预览</string>
+</resources>

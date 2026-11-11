@@ -20,4 +20,6 @@ for mode in ("pinyin", "zhuyin"):
 base_bytes = (root / "mimo_base.bin").read_bytes()
 assert base_bytes.startswith(b"MIMO-BASE-1\x00"), "invalid mimo_base.bin magic"
 assert len(base_bytes) == report["mimo_base_bin_bytes"]
-print(f"PASS: {count:,} merged readings; mimo_base.bin ({len(base_bytes):,} bytes); no duplicate simplified reading; reviewed weights, polyphony and both native indexes verified")
+pair_bytes = (root / "mimo_pairs.bin").read_bytes()
+assert pair_bytes.startswith(b"MIMO-PAIR-1\x00") and len(pair_bytes) == report["mimo_pairs_bin_bytes"], "mimo_pairs.bin missing or not from this build"
+print(f"PASS: {count:,} merged readings; mimo_base.bin ({len(base_bytes):,} bytes); mimo_pairs.bin ({report['pairs']:,} pairs); no duplicate simplified reading; reviewed weights, polyphony and both native indexes verified")

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Shared palette for both candidate skins; paired values keep light and dark readable.
+// Candidate colours. Each palette has a light and a dark value.
 extension CandidatePalette {
     func color(dark: Bool) -> Color {
         let rgb: (Double, Double, Double) = switch self {
