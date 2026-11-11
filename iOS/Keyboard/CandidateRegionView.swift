@@ -18,8 +18,6 @@ final class KeyboardUIState: ObservableObject {
     /// The kaomoji in the candidate row while the ^_^ list is open; empty when
     /// it is closed. Set when the list opens, so cells stay put while it is used.
     @Published var kaomojiRow: [String] = []
-    /// The kaomoji typed recently, as of when the list opened (the panel's first group).
-    var kaomojiRecent: [String] = []
     var kaomojiOpen: Bool { !kaomojiRow.isEmpty }
 }
 

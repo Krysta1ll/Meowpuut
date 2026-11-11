@@ -99,10 +99,10 @@ struct ExpandedCandidatesView: View {
         return order.indices.contains(highlighted) ? order[highlighted] : nil
     }
 
-    /// The recent kaomoji, when there are any, then the groups of the list.
+    /// What the bar shows (recent ones, then the first of every group), then the groups of the list.
     private var kaomojiGroups: [(title: String, items: [String])] {
-        let recent = ui.kaomojiRecent.isEmpty ? [] : [(title: t("常用", "常用"), items: ui.kaomojiRecent)]
-        return recent + Kaomoji.groups.map { (title: preferences.simplified ? $0.simplifiedName : $0.name, items: $0.items) }
+        [(title: t("常用", "常用"), items: ui.kaomojiRow)]
+            + Kaomoji.groups.map { (title: preferences.simplified ? $0.simplifiedName : $0.name, items: $0.items) }
     }
 
     private var entries: [Entry] {

@@ -434,8 +434,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
             engine.finishComposition(); deliver()
             if !engine.predictions.isEmpty { engine.updatePredictions(context: "") }
             updateContext()
-            ui.kaomojiRecent = Preferences.shared.rememberChoices ? Kaomoji.recent : []
-            ui.kaomojiRow = Kaomoji.row(recent: ui.kaomojiRecent)
+            ui.kaomojiRow = Kaomoji.row(recent: Preferences.shared.rememberChoices ? Kaomoji.recent : [])
         } else {
             ui.kaomojiRow = []
             setExpanded(false)
