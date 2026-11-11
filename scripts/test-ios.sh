@@ -228,6 +228,17 @@ cases = [
  ("a tap picks a candidate", PY, "keys:nihao;pick:2", dict(text="妳好")),
  ("a tap on the emoji types it", PY, "keys:nihao;pick:1", dict(text="👋", marked="")),
  ("space commits the word, not the emoji", PY, "keys:nihao;tap:space", dict(text="你好")),
+ ("a kaomoji follows the third word", PY, "keys:kaixin", dict(_first="開心", _second="😊", _kaomoji_after=3)),
+ ("space and Return never type a kaomoji", ZY, "keys:ㄎㄞ;tap:space;keys:ㄒㄧㄣ;tap:space;tap:space;keys:ㄎㄞ;tap:space;keys:ㄒㄧㄣ;tap:space;tap:return", dict(text="開心開心")),
+ ("after a commit the word's emoji and kaomoji come first", PY, "keys:shengrikuaile;tap:space", dict(text="生日快樂", _symbols_first={"🎂", "🎉"})),
+ ("a tapped emoji is typed and the row stays", PY, "keys:shengrikuaile;tap:space;suggest:0;suggest:0", dict(_typed_first_twice="生日快樂", _symbols_first={"🎂", "🎉"})),
+ ("Japanese words have emoji too", JA, "keys:arigatou", dict(_first="ありがとう", _second="🙏")),
+ ("the ^_^ key lists kaomoji", PY, "tap:symbols;tap:kaomoji", dict(text="", page=1, _kaomoji_open=True)),
+ ("a kaomoji is typed and the list stays open", PY, "tap:symbols;tap:kaomoji;kaomoji:0;kaomoji:0", dict(text="(*´▽`*)(*´▽`*)", _kaomoji_open=True)),
+ ("the ^_^ key closes the list", PY, "tap:symbols;tap:kaomoji;tap:kaomoji", dict(_kaomoji_open=False)),
+ ("a letter closes the list and is typed", PY, "tap:symbols;tap:kaomoji;tap:letters;keys:ni", dict(marked="ni", _kaomoji_open=False)),
+ ("the ^_^ key commits what is being typed", PY, "keys:nihao;tap:symbols;tap:kaomoji;kaomoji:0", dict(text="你好(*´▽`*)", marked="")),
+ ("the kaomoji panel stays open while typing from it", PY, "tap:symbols;tap:kaomoji;expand;w300;kaomoji:0", dict(expanded=True, text="(*´▽`*)")),
  ("space types an English word as it was typed", PY + ["-autocapitalization", "none"], "keys:hello;tap:space", dict(text="hello", marked="")),
  ("Zhuyin: space and Return commit the word, not the emoji", ZY, "keys:ㄋㄧˇㄏㄠˇ;tap:space;keys:ㄋㄧˇㄏㄠˇ;tap:return", dict(text="你好你好")),
  ("pinyin with overlapping fingers", PY, "d1:n;d2:i;u1;d1:h;u2;d2:a;u1;d1:o;u2;u1;tap:space", dict(text="你好")),
@@ -291,6 +302,20 @@ for name, args, script, want in cases:
             # be on a later page; it must not come before a Chinese candidate.
             if value in shown and han and shown.index(value) < han[-1]:
                 problems.append(f"{value} is not after the Chinese candidates: {shown}")
+        elif key == "_kaomoji_after":
+            # A kaomoji in the row, with at least `value` words before it.
+            shown = got.get("candidates") or []
+            at = [i for i, text in enumerate(shown) if text.startswith("(") and i > 0]
+            words = [text for text in shown[:at[0]] if any(0x3400 <= ord(c) <= 0x9fff for c in text)] if at else []
+            if len(words) < value: problems.append(f"no kaomoji after {value} words: {shown}")
+        elif key == "_symbols_first":
+            # The lab remembers picks between runs, so the two may come in either order.
+            if set((got.get("predictions") or [])[:len(value)]) != value: problems.append(f"the row does not start with {value}: {got.get('predictions')}")
+        elif key == "_typed_first_twice":
+            first = (got.get("predictions") or [""])[0]
+            if got.get("text") != value + first * 2: problems.append(f"text is {got.get('text')!r}, expected {value + first * 2!r}")
+        elif key == "_kaomoji_open":
+            if bool(got.get("kaomoji")) != value: problems.append(f"the kaomoji list is {'open' if got.get('kaomoji') else 'closed'}")
         elif key == "_japanese":
             if value not in (got.get("japanese") or []): problems.append(f"{value} is not marked Japanese")
         elif got.get(key) != value:

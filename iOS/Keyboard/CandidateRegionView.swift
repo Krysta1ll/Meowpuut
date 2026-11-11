@@ -15,6 +15,12 @@ final class KeyboardUIState: ObservableObject {
     @Published var suggestions: [String] = []
     /// Bumped when the extension reappears to rebuild the decorative layer.
     @Published var appearanceRevision = 0
+    /// The kaomoji in the candidate row while the ^_^ list is open; empty when
+    /// it is closed. Set when the list opens, so cells stay put while it is used.
+    @Published var kaomojiRow: [String] = []
+    /// The kaomoji typed recently, as of when the list opened (the panel's first group).
+    var kaomojiRecent: [String] = []
+    var kaomojiOpen: Bool { !kaomojiRow.isEmpty }
 }
 
 /// What the candidate area can ask the controller to do.
@@ -23,6 +29,7 @@ struct KeyboardActions {
     var choosePool: (IndexedCandidate) -> Void = { _ in }
     var selectPrediction: (Int) -> Void = { _ in }
     var insertSymbol: (String) -> Void = { _ in }
+    var insertKaomoji: (String) -> Void = { _ in }
     var toggleExpanded: () -> Void = {}
     var switchScript: () -> Bool = { false }
     var delete: (Bool) -> Void = { _ in }
@@ -48,7 +55,7 @@ struct CandidatePressStyle: ButtonStyle {
 }
 
 struct StripItem: Identifiable, Equatable {
-    enum Target: Equatable { case visible(Int), pool(IndexedCandidate), prediction(Int) }
+    enum Target: Equatable { case visible(Int), pool(IndexedCandidate), prediction(Int), kaomoji(String) }
     var id: String
     var text: String
     var japanese: Bool
@@ -66,6 +73,8 @@ struct CandidateCell: View {
     var highContrast = false
     var festival: Color? = nil
 
+    private var kaomoji: Bool { Kaomoji.contains(item.text) }
+
     var body: some View {
         HStack(spacing: 3) {
             Text(item.text)
@@ -81,7 +90,10 @@ struct CandidateCell: View {
         }
         .foregroundStyle(item.selected ? Color.white : CandidateInk.text(dark: dark))
         .padding(.horizontal, CandidateStripLayout.padding)
-        .frame(width: item.width, height: pillHeight)
+        // A kaomoji takes the width it is drawn at: its characters come from
+        // fallback fonts, and the measured width can be short of that.
+        .frame(minWidth: item.width, maxWidth: kaomoji ? nil : item.width, minHeight: pillHeight, maxHeight: pillHeight)
+        .fixedSize(horizontal: kaomoji, vertical: false)
         .background {
             if item.selected { CandidatePill(palette: palette, dark: dark, highContrast: highContrast, festival: festival) }
         }
@@ -253,26 +265,31 @@ struct CandidateRegionView: View {
 
     private func rowContent(_ layout: CandidateRegionLayout) -> some View {
         let candidates = hasCandidates && !ui.expanded
+        // The ^_^ list takes the row while nothing is being typed.
+        let kaomoji = !candidates && !ui.expanded && !composing && ui.kaomojiOpen
         let words = engine.english ? ui.suggestions : engine.predictions
-        let predictions = !candidates && !ui.expanded && !composing && !words.isEmpty
-        let showsStrip = candidates || predictions
+        let predictions = !candidates && !kaomoji && !ui.expanded && !composing && !words.isEmpty
+        let showsStrip = candidates || kaomoji || predictions
+        let list = candidates ? items(layout) : kaomoji ? kaomojiItems(layout)
+            : predictions ? predictionItems(layout, words) : [Self.placeholder]
         return ZStack {
             // The strip stays in place, hidden, while there is nothing to
             // show: the first candidates then fill it in instead of building it.
-            strip(layout, list: candidates ? items(layout) : (predictions ? predictionItems(layout, words) : [Self.placeholder]))
+            strip(layout, list: list)
                 .opacity(showsStrip ? 1 : 0)
                 .allowsHitTesting(showsStrip)
                 .accessibilityHidden(!showsStrip)
             if ui.expanded {
+                let title = composing ? engine.snapshot.preedit : t("顏文字", "颜文字")
                 HStack {
-                    Text(engine.snapshot.preedit)
+                    Text(title)
                         .font(.system(size: layout.fontSize - 2, weight: .medium))
                         .foregroundStyle(CandidateInk.secondary(dark: dark))
                         .lineLimit(1).truncationMode(.head)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12)
-                .accessibilityLabel(t("輸入中：", "输入中：") + engine.snapshot.preedit)
+                .accessibilityLabel(composing ? t("輸入中：", "输入中：") + title : title)
             } else if !showsStrip {
                 idle(layout)
             }
@@ -288,6 +305,16 @@ struct CandidateRegionView: View {
                                                        paw: 0, maximum: layout.maximumCandidateWidth)
             return StripItem(id: "s\(index)", text: word, japanese: false, selected: false, width: max(44, width),
                              target: .prediction(index))
+        }
+    }
+
+    /// The ^_^ list: recent kaomoji, then the first of every group.
+    private func kaomojiItems(_ layout: CandidateRegionLayout) -> [StripItem] {
+        ui.kaomojiRow.enumerated().map { index, text in
+            let width = CandidateStripLayout.cellWidth(text: CandidateTextMetrics.width(text, size: layout.fontSize), japanese: false,
+                                                       paw: 0, maximum: layout.maximumCandidateWidth)
+            return StripItem(id: "s\(index)", text: text, japanese: false, selected: false, width: max(44, width),
+                             target: .kaomoji(text))
         }
     }
 
@@ -347,6 +374,7 @@ struct CandidateRegionView: View {
                             case .visible(let index): actions.chooseVisible(index)
                             case .pool(let candidate): actions.choosePool(candidate)
                             case .prediction(let index): actions.selectPrediction(index)
+                            case .kaomoji(let text): actions.insertKaomoji(text)
                             }
                         } label: {
                             CandidateCell(item: item, fontSize: layout.fontSize, pillHeight: layout.pillHeight,
@@ -378,10 +406,13 @@ struct CandidateRegionView: View {
             .onChange(of: preferences.simplified) { _, _ in proxy.scrollTo("s0", anchor: .leading) }
             .onChange(of: engine.predictions) { _, _ in proxy.scrollTo("s0", anchor: .leading) }
             .onChange(of: ui.suggestions) { _, _ in proxy.scrollTo("s0", anchor: .leading) }
+            .onChange(of: ui.kaomojiRow) { _, _ in proxy.scrollTo("s0", anchor: .leading) }
         }
     }
 
     private func label(for item: StripItem) -> String {
+        // A kaomoji is spoken as its group; its characters read as noise.
+        if let kaomoji = Kaomoji.spokenName(item.text, simplified: preferences.simplified) { return kaomoji }
         if case .prediction = item.target { return (engine.english ? t("建議：", "建议：") : t("聯想詞：", "联想词：")) + item.text }
         return item.text + (item.japanese ? t("，日語", "，日语") : "")
     }
@@ -473,14 +504,15 @@ struct CandidateRegionView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .rotationEffect(.degrees(ui.expanded ? 180 : 0))
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: ui.expanded)
-                .foregroundStyle(CandidateInk.text(dark: dark).opacity(hasCandidates || ui.expanded ? 0.85 : 0.25))
+                .foregroundStyle(CandidateInk.text(dark: dark).opacity(hasCandidates || ui.kaomojiOpen || ui.expanded ? 0.85 : 0.25))
                 .frame(width: layout.chevron.width, height: layout.chevron.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!hasCandidates && !ui.expanded)
+        .disabled(!hasCandidates && !ui.kaomojiOpen && !ui.expanded)
         .position(x: layout.chevron.midX, y: layout.chevron.midY)
-        .accessibilityLabel(ui.expanded ? t("收合候選詞", "收起候选词") : t("展開候選詞", "展开候选词"))
+        .accessibilityLabel(ui.kaomojiOpen && !composing ? (ui.expanded ? t("收合顏文字", "收起颜文字") : t("展開顏文字", "展开颜文字"))
+                            : (ui.expanded ? t("收合候選詞", "收起候选词") : t("展開候選詞", "展开候选词")))
     }
 
     // MARK: Cats

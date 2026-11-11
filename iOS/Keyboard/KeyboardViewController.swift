@@ -295,7 +295,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                                   spaceTitle: spaceTitle, returnTitle: composing ? t("確認", "确认") : returnTitle,
                                   returnAccent: composing || keyboardContext.isActionReturnKey,
                                   returnEnabled: composing || !automatic || textDocumentProxy.hasText,
-                                  pad: idiom(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right) == .pad)
+                                  pad: idiom(width: view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right) == .pad,
+                                  kaomoji: ui.kaomojiOpen)
     }
 
     private func relayout() {
@@ -424,6 +425,28 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         }
     }
 
+    /// The ^_^ list: kaomoji in the candidate row, all of them by group in the
+    /// panel. Opening it commits what is being typed. It stays open while
+    /// kaomoji are tapped and closes with the next key that types.
+    private func setKaomoji(_ open: Bool) {
+        guard open != ui.kaomojiOpen else { return }
+        if open {
+            engine.finishComposition(); deliver()
+            if !engine.predictions.isEmpty { engine.updatePredictions(context: "") }
+            updateContext()
+            ui.kaomojiRecent = Preferences.shared.rememberChoices ? Kaomoji.recent : []
+            ui.kaomojiRow = Kaomoji.row(recent: ui.kaomojiRecent)
+        } else {
+            ui.kaomojiRow = []
+            setExpanded(false)
+        }
+    }
+
+    /// A kaomoji picked from the candidates counts as recently used in the ^_^ list.
+    private func noteKaomoji(_ text: String) {
+        if Kaomoji.contains(text) { Kaomoji.used(text) }
+    }
+
     // MARK: Actions from the candidate area
 
     private func makeActions() -> KeyboardActions {
@@ -432,7 +455,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                 guard let self else { return }
                 self.lastIdleSpaceTime = 0
                 self.clearError()
-                if self.engine.snapshot.candidates.indices.contains(index) { self.engine.choose(index) }
+                if self.engine.snapshot.candidates.indices.contains(index) {
+                    self.noteKaomoji(self.engine.snapshot.candidates[index])
+                    self.engine.choose(index)
+                }
                 else if index == self.engine.snapshot.candidates.count, self.engine.snapshot.compactJapanese != nil {
                     self.engine.chooseCompactJapanese()
                 }
@@ -444,6 +470,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                 guard let self else { return }
                 self.lastIdleSpaceTime = 0
                 self.clearError()
+                self.noteKaomoji(candidate.text)
                 self.engine.chooseBackendCandidate(index: candidate.index, text: candidate.text)
                 self.setExpanded(false)
                 self.deliver()
@@ -454,9 +481,16 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                 guard let self else { return }
                 if self.engine.english { self.chooseSuggestion(index); return }
                 guard let text = self.engine.choosePrediction(index) else { return }
+                self.noteKaomoji(text)
                 self.insertText(text, keepPredictions: true)
             },
             insertSymbol: { [weak self] text in self?.whenReady { self?.insertText(text) } },
+            insertKaomoji: { [weak self] text in
+                self?.whenReady {
+                    self?.insertText(text)
+                    Kaomoji.used(text)
+                }
+            },
             toggleExpanded: { [weak self] in
                 guard let self else { return }
                 self.setExpanded(!self.ui.expanded)
@@ -496,7 +530,11 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     private func commit(_ key: KeyboardKey, alternate: String?) {
         let afterSuggestion = suggestionSpace
         suggestionSpace = false
+        // Any key that types closes the kaomoji list; Delete is not one of them.
+        if key.action != .kaomoji { setKaomoji(false) }
         switch key.action {
+        case .kaomoji:
+            setKaomoji(!ui.kaomojiOpen)
         case .engine(let code):
             if let alternate {
                 _ = capitalization.consumeLetter(english: engine.english)
@@ -684,7 +722,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                 textDocumentProxy.insertText(text)
             }
         }
-        if engine.snapshot.preedit.isEmpty { setExpanded(false) }
+        if engine.snapshot.preedit.isEmpty, !ui.kaomojiOpen { setExpanded(false) }
     }
 
     private func tryDoubleSpaceShortcut() -> Bool {
@@ -785,6 +823,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                 // Another text field: start with nothing open.
                 engine.clear(); compositionDelivery.reset()
                 hostShowsMarkedText = false
+                setKaomoji(false)
                 setExpanded(false)
                 capitalization = CapitalizationState()
             }
@@ -859,6 +898,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         keysView.cancelAllTouches()
         if let id = MPKeyboardDocumentIdentifier(textDocumentProxy), documentID == id { engine.finishComposition(); deliver() }
         else { engine.clear(); compositionDelivery.reset() }
+        setKaomoji(false)
         setExpanded(false)
         // The keyboard comes back on letters, as the system keyboard does,
         // or on the digits in a number field.
@@ -882,6 +922,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     func labPress(_ label: String, alternates: Bool) { keysView.labPress(label: label, alternates: alternates) }
     func labChoose(_ index: Int) { makeActions().chooseVisible(index) }
     func labPrediction(_ index: Int) { makeActions().selectPrediction(index) }
+    func labKaomoji(_ index: Int) { if ui.kaomojiRow.indices.contains(index) { makeActions().insertKaomoji(ui.kaomojiRow[index]) } }
+    func labOpenKaomoji() { setKaomoji(true); updateKeys() }
+    var labKaomojiRow: [String] { ui.kaomojiRow }
     var labSuggestions: [String] { ui.suggestions }
     func labRefresh() { updateContext(); updateKeys() }
     var labKeys: KeyboardKeysView { keysView }
