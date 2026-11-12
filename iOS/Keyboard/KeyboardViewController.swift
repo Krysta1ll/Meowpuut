@@ -417,8 +417,13 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
 
     private func refreshAppearance() {
         let prefs = Preferences.shared
+        // The system's appearance only. The host's keyboardAppearance cannot
+        // be trusted: for a field that asks for nothing it reports the
+        // appearance the system had when the host last looked, so after the
+        // system turns light it can still say dark, for as long as the
+        // keyboard is up and also the next time it opens.
         let dark: Bool = switch prefs.candidateTone {
-        case .system: traitCollection.userInterfaceStyle == .dark || textDocumentProxy.keyboardAppearance == .dark
+        case .system: traitCollection.userInterfaceStyle == .dark
         case .light: false
         case .dark: true
         }
