@@ -17,9 +17,14 @@ Branch: worktree-agent-a490ea3ecee5b1e5f. Phase 1 done; Phase 2 under way. docs/
 - `bash scripts/build.sh --test`: exit 0. Android `testDebugUnitTest`: 55/0. `bash scripts/build-windows-check.sh`: layout and session tests pass, MinGW cross build of the preview app succeeds. Windows never run on Windows.
 - iOS app and lab build for the simulator.
 
+## Pictures
+
+- .build/festival-previews/ornaments/01…06-*.png (24 themes from the lab, by date from 2026-11-12; capsule light/dark, long candidate, wave light, cloud dark) and 給主人的說明.md.
+- .build/festival-previews/real/: the four December themes on the real system keyboard (FESTIVAL_SHOTS build), capsule and wave; keyboard frame 390 × 386.
+
 ## Open
 
 - Android and Windows: dressed cats and the right-end ornament.
-- Owner sheets: .build/festival-previews/ornaments/ (in progress).
-- Cut quality: a few clusters keep a short arc of the tube (halloween, songkran) or lose a ribbon end (new_year, white_day, midsummer); tune with `ADAPT` after looking.
+- Cut quality: halloween and songkran keep a short piece of tube, mid_autumn's moon loses an edge; raising `tau` for them cut the ornaments instead. new_year, white_day, midsummer lose ribbon ends. Narrow clusters (tanabata, midsummer, lantern_festival) come out about 30 pt tall.
+- Not looked at yet: landscape, iPad, 320 pt phones, Increase Contrast with a theme.
 - iOS catalog still ships the unused `_frame` images (~2 MB); drop them once Android/Windows decide what they draw.
