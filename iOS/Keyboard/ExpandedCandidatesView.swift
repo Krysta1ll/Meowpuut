@@ -242,7 +242,7 @@ struct ExpandedCandidatesView: View {
             .background {
                 if entry.selected {
                     CandidatePill(palette: preferences.candidatePalette, dark: dark, highContrast: contrast == .increased,
-                                  festival: ui.outfit?.pillTint)
+                                  festival: ui.festival?.pill(dark: ui.dark))
                         .padding(.vertical, 5).padding(.horizontal, 2)
                 }
             }

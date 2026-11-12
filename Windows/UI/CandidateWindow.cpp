@@ -373,7 +373,7 @@ struct CandidateWindow::Impl {
     std::vector<bool> clips;          // open PushClip commands; true when a layer was pushed
 
     FestivalManifest manifest;
-    std::optional<Outfit> outfit;
+    std::optional<FestivalTheme> festival;
     LocalDate outfitDay;
 
     std::optional<std::size_t> hovered;
@@ -485,7 +485,7 @@ struct CandidateWindow::Impl {
         Theme t = makeTheme(dark() ? Appearance::Dark : Appearance::Light, options.palette, transparency, highContrast,
                             sysColor(COLOR_WINDOW), sysColor(COLOR_WINDOWTEXT), sysColor(COLOR_HIGHLIGHT),
                             sysColor(COLOR_HIGHLIGHTTEXT), sysColor(COLOR_GRAYTEXT));
-        if (outfitActive() && outfit->pill) applyOutfitPill(t, *outfit->pill);
+        if (outfitActive()) applyFestivalPill(t, *festival);
         return t;
     }
 
@@ -503,12 +503,12 @@ struct CandidateWindow::Impl {
         const LocalDate today{now.wYear, now.wMonth, now.wDay};
         if (today.key() == outfitDay.key()) return;
         outfitDay = today;
-        const Outfit *active = activeOutfit(manifest, today);
-        if (active) outfit = *active;
-        else outfit.reset();
+        const FestivalTheme *worn = wornTheme(manifest, today, FestivalWardrobe{});
+        if (worn) festival = *worn;
+        else festival.reset();
     }
 
-    bool outfitActive() const { return options.festivalOutfits && outfit.has_value() && !highContrast; }
+    bool outfitActive() const { return options.festivalOutfits && festival.has_value() && !highContrast; }
 
     // File behind a cat's picture (catArt: where a festival can bring its own).
     std::wstring spritePath(Sprite sprite) const {
@@ -1283,7 +1283,7 @@ HWND CandidateWindow::hwnd() const { return impl_->hwnd; }
 
 std::wstring CandidateWindow::activeOutfitTitle() const {
     if (!impl_->outfitActive()) return {};
-    return widen(impl_->options.simplified ? impl_->outfit->titleHans : impl_->outfit->titleHant);
+    return widen(impl_->options.simplified ? impl_->festival->hans : impl_->festival->hant);
 }
 
 } // namespace meowpuut::ui

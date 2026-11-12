@@ -71,6 +71,9 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         set(value) { field = value; caches = null; seats = null; layoutRow(); invalidate() }
     var look: Look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
         set(value) { if (field != value) { field = value; caches = null; seats = null; invalidate() } }
+    /** Today's festival pictures, or null on an ordinary day. */
+    var festival: FestivalArt? = null
+        set(value) { if (field?.theme?.id != value?.theme?.id) { field = value; caches = null; seats = null; invalidate() } }
     var content = Content()
         private set
 
@@ -252,6 +255,7 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         canvas.drawBitmap(cache.glass, null, dst, bitmapPaint)
         canvas.save()
         canvas.scale(density, density)
+        drawFestivalEnd(canvas)
         // The cats are in front of the glass and under the candidates.
         for (seat in seats()) drawCat(canvas, seat, now)
         // A note from the cats takes the row's place while it shows.
@@ -270,14 +274,28 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
 
     private fun rectOf(box: Box): RectF = rect.apply { set(box.left, box.top, box.right, box.bottom) }
 
+    /** The festival's ornament cluster at the bar's right end, over the glass and under the cats and candidates. */
+    private fun drawFestivalEnd(canvas: Canvas) {
+        val f = festival ?: return
+        val piece = f.theme.right ?: return
+        val bitmap = f.right ?: return
+        val glass = region.glass
+        val box = Festivals.placeRight(piece, glass, GlassOutline.contentBand(look.shape, glass.height), region.width,
+            region.chevron.centerX + CandidateRegionLayout.ARROW_WIDTH / 2) ?: return
+        canvas.drawBitmap(bitmap, null, rectOf(box), bitmapPaint)
+    }
+
     private fun seats(): List<Seat> = seats ?: seatCats().also { seats = it }
 
     private fun seatCats(): List<Seat> {
         if (!(region.cats && look.cats)) return emptyList()
         val stage = region.stage(look.shape)
-        val mimimo = sprites.art(Cat.MIMIMO)
-        val momo = sprites.art(Cat.MOMO)
-        val places = CatSeats.ends(stage, mimimo.sprite, momo.sprite) ?: return emptyList()
+        // On a festival day the dressed pair, where it fits; otherwise the everyday cats.
+        val dressed = festival?.let { f -> if (f.mimimo != null && f.momo != null) f.mimimo to f.momo else null }
+        val dressedPlaces = dressed?.let { (m, o) -> CatSeats.ends(stage, m.sprite, o.sprite) }
+        val mimimo = if (dressedPlaces != null) dressed.first else sprites.art(Cat.MIMIMO)
+        val momo = if (dressedPlaces != null) dressed.second else sprites.art(Cat.MOMO)
+        val places = dressedPlaces ?: CatSeats.ends(stage, mimimo.sprite, momo.sprite) ?: return emptyList()
         return places.map { place ->
             val art = if (place.cat == Cat.MIMIMO) mimimo else momo
             val frame = place.frame

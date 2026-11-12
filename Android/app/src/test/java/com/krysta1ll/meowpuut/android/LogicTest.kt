@@ -10,6 +10,9 @@ import com.krysta1ll.meowpuut.android.engine.Romaji
 import com.krysta1ll.meowpuut.android.ime.Capitalization
 import com.krysta1ll.meowpuut.android.ime.CatAffection
 import com.krysta1ll.meowpuut.android.ime.DeleteRepeat
+import com.krysta1ll.meowpuut.android.ime.FestivalDays
+import com.krysta1ll.meowpuut.android.ime.FestivalInsets
+import com.krysta1ll.meowpuut.android.ime.FestivalWardrobe
 import com.krysta1ll.meowpuut.android.ime.Festivals
 import com.krysta1ll.meowpuut.android.ime.GlassOutline
 import com.krysta1ll.meowpuut.android.ime.GlassShape
@@ -260,24 +263,69 @@ class LogicTest {
         assertEquals(CatAffection.Outcome.Pleased(1), a.pet(t + 5000))
     }
 
+    // The same cases as iOS/tests/FestivalsTests.swift and Windows' layout_test.
     @Test
     fun festivalsManifest() {
-        assertTrue(Festivals.parse("""{"version":1,"outfits":[]}""").isEmpty())
-        assertTrue(Festivals.parse("not json").isEmpty())
-        assertTrue(Festivals.parse("""{"version":2,"outfits":[{"id":"x","start":"2027-01-01","end":"2027-01-02"}]}""").isEmpty())
-        val text = javaClass.classLoader!!.getResource("festivals/fixture.json").readText()
-        val outfits = Festivals.parse(text)
-        assertEquals(listOf("test-new-year", "test-overlap"), outfits.map { it.id })
-        val first = outfits[0]
-        assertEquals(0xFFC8463C.toInt(), first.pill)
-        assertEquals("momo_back.png", first.cats["momo"]?.back)
-        assertEquals(setOf("happy"), first.cats["momo"]?.frames?.keys)
-        assertEquals("festivals/test-new-year/momo_front.png", first.asset("momo_front.png"))
-        assertNull(Festivals.active(outfits, LocalDate.of(2027, 2, 2)))
-        assertEquals("test-new-year", Festivals.active(outfits, LocalDate.of(2027, 2, 3))?.id)
-        // Overlap: the earlier entry wins; the end date is included.
-        assertEquals("test-new-year", Festivals.active(outfits, LocalDate.of(2027, 2, 12))?.id)
-        assertEquals("test-overlap", Festivals.active(outfits, LocalDate.of(2027, 2, 13))?.id)
+        assertTrue(Festivals.parse("""{"version":1,"outfits":[]}""").themes.isEmpty())
+        assertTrue(Festivals.parse("not json").themes.isEmpty())
+        val fixture = Festivals.parse(javaClass.classLoader!!.getResource("festivals/fixture.json").readText())
+        assertEquals(listOf("alpha", "beta", "gamma", "delta"), fixture.themes.map { it.id })
+        val alpha = fixture.themes[0]
+        assertEquals(FestivalInsets(0f, 70f, 0f, 70f), alpha.trim.caps)
+        assertEquals(90f, alpha.trim.safeText.left)
+        assertEquals("alpha_momo", alpha.momo.image)
+        assertEquals("アルファ", alpha.ja)
+        assertEquals(listOf(FestivalDays(LocalDate.of(2027, 2, 5), LocalDate.of(2027, 2, 6), LocalDate.of(2027, 2, 12))), alpha.days)
+        assertEquals(listOf("#AA0000", "#990000"), alpha.colors.dark)
+
+        fun worn(day: String, wardrobe: FestivalWardrobe = FestivalWardrobe()) =
+            Festivals.theme(LocalDate.parse(day), fixture, wardrobe)?.id ?: "-"
+        val days = listOf("2027-01-28", "2027-01-29", "2027-02-02", "2027-02-06", "2027-02-07", "2027-02-09", "2027-02-10",
+            "2027-02-12", "2027-02-13", "2027-02-14", "2027-02-15")
+        assertEquals(listOf("-", "alpha", "alpha", "alpha", "alpha", "delta", "alpha", "alpha", "beta", "gamma", "-"), days.map { worn(it) })
+        assertEquals("gamma", worn("2027-02-13", FestivalWardrobe(skipped = setOf("beta"))))
+        assertEquals("gamma", worn("2027-02-14", FestivalWardrobe(skipped = setOf("beta"))))
+        assertEquals("delta", worn("2027-02-06", FestivalWardrobe(skipped = setOf("alpha"))))
+        assertEquals("-", worn("2027-02-06", FestivalWardrobe(on = false)))
+        fun met(since: String, today: String) = Festivals.met(LocalDate.parse(since), LocalDate.parse(today), fixture).map { it.id }
+        assertEquals(listOf("alpha"), met("2027-02-01", "2027-02-01"))
+        assertEquals(listOf("alpha", "beta", "gamma", "delta"), met("2027-02-01", "2027-02-07"))
+        assertEquals(listOf("beta", "gamma"), met("2027-02-13", "2027-02-13"))
+        assertEquals(listOf("beta"), met("2027-03-01", "2028-02-07"))
+    }
+
+    /** Every day of 2026–2030 against the file the Swift tests write, with all themes on and with four off. */
+    @Test
+    fun festivalsEveryDay() {
+        val shipped = Festivals.parse(java.io.File("src/main/assets/festivals/festivals.json").readText())
+        assertEquals(24, shipped.themes.size)
+        val lines = javaClass.classLoader!!.getResource("festivals/worn-2026-2030.txt").readText().lines()
+        val skipped = lines[0].substringAfter(": ").split(" ").toSet()
+        assertEquals(4, skipped.size)
+        var compared = 0
+        for (line in lines.drop(1).filter { it.isNotEmpty() }) {
+            val (day, all, some) = line.split(" ")
+            val date = LocalDate.parse(day)
+            assertEquals(line, all, Festivals.theme(date, shipped, FestivalWardrobe())?.id ?: "-")
+            assertEquals(line, some, Festivals.theme(date, shipped, FestivalWardrobe(skipped = skipped))?.id ?: "-")
+            compared++
+        }
+        assertEquals(1826, compared)
+        // Each theme's dressed cats sit at the ends and its cluster fits the right end, on the three shapes.
+        for (theme in shipped.themes) {
+            for (shape in com.krysta1ll.meowpuut.android.ime.GlassShape.values()) {
+                val layout = com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout(393f, com.krysta1ll.meowpuut.android.ime.Idiom.PHONE,
+                    rim = com.krysta1ll.meowpuut.android.ime.GlassOutline.contentBand(shape, 1f).first)
+                val stage = layout.stage(shape)
+                assertTrue("${theme.id} $shape cats", com.krysta1ll.meowpuut.android.ime.CatSeats.ends(stage, theme.mimimo.catSprite()!!, theme.momo.catSprite()!!) != null)
+                val box = Festivals.placeRight(theme.right!!, layout.glass, com.krysta1ll.meowpuut.android.ime.GlassOutline.contentBand(shape, layout.glass.height),
+                    layout.width, layout.chevron.centerX + com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout.ARROW_WIDTH / 2)
+                assertTrue("${theme.id} $shape ornament", box != null && box.right <= layout.width && box.left > layout.chevron.centerX)
+            }
+        }
+        // 光明節 2026 is met once its lead-up week begins.
+        assertTrue(Festivals.met(LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 27), shipped).isEmpty())
+        assertEquals(listOf("hanukkah"), Festivals.met(LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 28), shipped).map { it.id })
     }
 
     @Test

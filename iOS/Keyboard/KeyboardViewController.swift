@@ -116,8 +116,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     private var observers = Set<AnyCancellable>()
     private var keySetContext: KeyboardKeyContext?
     private var keySet: KeyboardKeySet?
-    private var festivalHour = -1
-    private var festivalOutfit: FestivalOutfit?
     /// The day the cats' arrangement is for. It is read when the keyboard
     /// appears, so the cats never move while someone is typing.
     private var catDay = CatSchedule.day()
@@ -126,6 +124,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         var shape: GlassShape
         var setting: String
         var day: Int
+        var festival: String?
     }
     private var catInputs: CatInputs?
     private var t: InterfaceText { InterfaceText(simplified: Preferences.shared.simplified) }
@@ -388,11 +387,20 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     /// the shape, the setting or the day changes.
     private func placeCats(_ region: CandidateRegionLayout) {
         let prefs = Preferences.shared
-        let inputs = CatInputs(region: region, shape: prefs.glassShape, setting: prefs.catPlacement, day: catDay)
+        let theme = ui.festival
+        let inputs = CatInputs(region: region, shape: prefs.glassShape, setting: prefs.catPlacement, day: catDay, festival: theme?.id)
         guard inputs != catInputs else { return }
         catInputs = inputs
+        let stage = region.stage(shape: inputs.shape)
+        // On a festival day the dressed pair sits at the two ends; where that
+        // does not fit, the everyday cats keep their place of the day.
+        let dressed = theme.flatMap { theme in
+            CatSchedule.arrangement(setting: "ends", day: catDay, on: stage, sprite: { cat, pose in
+                theme.catSprite(cat) ?? CatArt.sprite(cat, pose)
+            }).flatMap { $0.arrangement.id == "ends" ? $0.places : nil }
+        }
         let places = region.cats
-            ? CatSchedule.arrangement(setting: inputs.setting, day: catDay, on: region.stage(shape: inputs.shape))?.places ?? [] : []
+            ? dressed ?? CatSchedule.arrangement(setting: inputs.setting, day: catDay, on: stage)?.places ?? [] : []
         if ui.cats != places { ui.cats = places }
     }
 
@@ -407,18 +415,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         return built
     }
 
-    /// Today's outfit, looked up at most once an hour. The bundled manifest
-    /// is usually empty, and then there is nothing to look up.
-    private func activeOutfit() -> FestivalOutfit? {
-        guard Preferences.shared.festivalOutfits, !Festivals.bundled.isEmpty else { return nil }
-        let hour = Int(Date().timeIntervalSinceReferenceDate / 3600)
-        if hour != festivalHour {
-            festivalHour = hour
-            festivalOutfit = Festivals.active()
-        }
-        return festivalOutfit
-    }
-
     private func refreshAppearance() {
         let prefs = Preferences.shared
         let dark: Bool = switch prefs.candidateTone {
@@ -427,8 +423,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         case .dark: true
         }
         if ui.dark != dark { ui.dark = dark }
-        let outfit = activeOutfit()
-        if ui.outfit != outfit { ui.outfit = outfit }
+        let festival = KeyboardFestival.today()
+        if ui.festival != festival { ui.festival = festival }
         relayout()
     }
 

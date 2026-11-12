@@ -23,7 +23,7 @@ struct KeyboardSettingsView: View {
                 Section {
                     CandidateBarPreview(shape: shape, dark: previewDark, palette: palette, strength: strength,
                                         cats: settings.catGlassSkin ?? true, placement: settings.catPlacement ?? CatSchedule.daily,
-                                        simplified: settings.simplified ?? false)
+                                        simplified: settings.simplified ?? false, festival: settings.festivalToday)
                         .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                         .animation(.easeInOut(duration: 0.25), value: shape)
                 }
@@ -53,7 +53,7 @@ struct KeyboardSettingsView: View {
                             ForEach(CatArrangement.all) { Text($0.name(t)).tag($0.id) }
                         }
                     }
-                    Toggle(t("節日裝扮", "节日装扮"), isOn: binding(\.festivals, default: true))
+                    FestivalWardrobeLink(settings: $settings)
                 } header: {
                     Text(t("外觀", "外观"))
                 } footer: {

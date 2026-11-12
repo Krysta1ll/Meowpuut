@@ -24,7 +24,9 @@ import UIKit
 //   -keyboardType <url|number>
 //   -autocapitalization <none|words|sentences|all>
 //   -globe YES            show the Globe key
-//   -festivalTest YES     read outfits from the LabFestivals folder
+//   -festivalDay <yyyy-MM-dd>  the festival theme of that day instead of today's
+//   -festivalTheme <id>   wear that festival theme whatever the date
+//   -festivalOutfits NO, -festivalsSkipped '(christmas)'  the wardrobe switches
 //   -landscape YES        start in landscape (the screenshot comes out turned)
 //   -plain YES            the glass without the cats
 //   -keyboardWidth <pt>   a narrower keyboard, centred (320: a small phone, or an iPad's floating keyboard)
@@ -97,9 +99,12 @@ final class LabViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         let args = UserDefaults.standard
-        if args.bool(forKey: "festivalTest") {
-            Festivals.directoryOverride = Bundle.main.url(forResource: "LabFestivals", withExtension: nil)
-        }
+        KeyboardFestival.labDay = args.string(forKey: "festivalDay")
+        KeyboardFestival.labTheme = args.string(forKey: "festivalTheme")
+        // From this launch's arguments only: the saved values are the last run's.
+        let launch = args.volatileDomain(forName: UserDefaults.argumentDomain)
+        Preferences.shared.festivalOutfits = (launch["festivalOutfits"] as? String).map { $0 == "YES" } ?? true
+        Preferences.shared.festivalsSkipped = launch["festivalsSkipped"] as? [String] ?? []
         dark = args.string(forKey: "candidateTone") == "dark"
         overrideUserInterfaceStyle = dark ? .dark : .light
         // Set on every launch, so one run does not carry over into the next.

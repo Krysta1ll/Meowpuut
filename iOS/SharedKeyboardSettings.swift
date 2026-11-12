@@ -17,6 +17,7 @@ struct SharedKeyboardSettings: Codable {
     var candidatePalette: String?
     var glassShape: String?
     var festivals: Bool?
+    var festivalsSkipped: [String]?
     var rememberChoices: Bool?
     var clearMemoryRequest: String?
 

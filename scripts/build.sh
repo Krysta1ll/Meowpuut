@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Engine, appearance and candidate window. iOS/InterfaceText.swift is the
 # Traditional/Simplified text helper both Apple clients use.
-SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift iOS/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
+SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift iOS/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
 if [ "${1:-}" = "--sources" ]; then
   echo "$SOURCES"
   exit 0
