@@ -54,7 +54,9 @@ if [ -f "$LEX/native-pinyin.tsv" ] && [ -f "$LEX/native-zhuyin.tsv" ] && [ -f "$
   cargo rustc --quiet --release -p meowpuut-ffi --crate-type staticlib
   "$CXX" -std=c++17 -O2 Windows/Session.cpp Windows/Keyboard.cpp Windows/tests/session_test.cpp \
     target/release/libmeowpuut_ffi.a -o "$OUT/session_test"
-  "$OUT/session_test" "$LEX/native-pinyin.tsv" "$LEX/native-zhuyin.tsv" "$LEX/native-japanese.tsv"
+  BASE=()
+  if [ -f "$LEX/mimo_base.bin" ]; then BASE=("$LEX/mimo_base.bin"); fi
+  "$OUT/session_test" "$LEX/native-pinyin.tsv" "$LEX/native-zhuyin.tsv" "$LEX/native-japanese.tsv" ${BASE[@]+"${BASE[@]}"}
   echo "session_test passed"
 else
   echo "skipped: no lexicon in $LEX (set MEOWPUUT_LEXICON_DIR)"
