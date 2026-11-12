@@ -92,3 +92,20 @@ struct FestivalTrimView: View {
         .accessibilityHidden(true)
     }
 }
+
+/// A theme's ornament clusters at the two ends of the candidate bar
+/// (FestivalEndsLayout). Takes no touches and says nothing to VoiceOver.
+struct FestivalEndsView: View {
+    var placed: [(image: String, frame: CGRect)]
+
+    var body: some View {
+        Canvas { context, _ in
+            for piece in placed {
+                guard let image = FestivalImages.image(piece.image) else { continue }
+                context.draw(Image(decorative: image, scale: 1), in: piece.frame)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}

@@ -110,8 +110,30 @@ struct FestivalTheme: Decodable, Equatable, Identifiable {
     var mimimo: Sprite
     var momo: Sprite
     var trim: Trim
+    /// The trim's ornaments cut off the rim by the importer, one cluster
+    /// for each end of the bar (FestivalEndsLayout); nil in older manifests.
+    var ends: Ends?
     var colors: Colors
     var days: [Days]
+
+    struct Ends: Decodable, Equatable {
+        struct Piece: Decodable, Equatable {
+            var image: String
+            var size: CGSize
+
+            private enum Keys: String, CodingKey { case image, size }
+
+            init(image: String, size: CGSize) { (self.image, self.size) = (image, size) }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: Keys.self)
+                image = try c.decode(String.self, forKey: .image)
+                size = try Sprite.pair(c.decode([CGFloat].self, forKey: .size), c, .size).size
+            }
+        }
+        var left: Piece?
+        var right: Piece?
+    }
 
     func name(simplified: Bool) -> String { simplified ? names.hans : names.hant }
 }
@@ -137,7 +159,8 @@ enum Festivals {
         var theme: FestivalTheme?
         init(from decoder: Decoder) throws {
             theme = (try? FestivalTheme(from: decoder)).flatMap { theme in
-                [theme.id, theme.mimimo.image, theme.momo.image, theme.trim.image].allSatisfy(Festivals.isName) ? theme : nil
+                ([theme.id, theme.mimimo.image, theme.momo.image, theme.trim.image]
+                 + [theme.ends?.left?.image, theme.ends?.right?.image].compactMap { $0 }).allSatisfy(Festivals.isName) ? theme : nil
             }
         }
     }
@@ -331,6 +354,44 @@ struct FestivalTrimLayout: Equatable {
         if middle {
             out.insert((CGRect(x: left, y: 0, width: trim.size.width - left - right, height: h),
                         CGRect(x: left, y: 0, width: width - left - right, height: h)), at: 1)
+        }
+        return out
+    }
+}
+
+// MARK: The ends of the bar
+
+/// Where a theme's two ornament clusters go on the candidate bar. The bar
+/// has room only at its ends: on the left between the screen edge and the
+/// first candidate, on the right between the expand arrow and the screen
+/// edge. Each cluster sits on the glass's lower edge, as tall as the glass
+/// at most, and shrinks to fit its gap; it may hang past the glass's end.
+/// A cluster that would come out under 60 % of the glass's height is left
+/// out: too small to read.
+enum FestivalEndsLayout {
+    /// `left` is where the first candidate starts, `right` where the
+    /// expand arrow's glyph ends; `width` is the bar's.
+    static func place(_ ends: FestivalTheme.Ends, glass: CGRect, shape: GlassShape, width: CGFloat,
+                      left: CGFloat, right: CGFloat) -> [(image: String, frame: CGRect)] {
+        let band = FestivalTrimLayout.contentBand(shape, height: glass.height)
+        let tallest = band.bottom - band.top
+        let bottom = glass.minY + band.bottom + 1
+        var out: [(String, CGRect)] = []
+        if let piece = ends.left {
+            let start = max(1, glass.minX - 10)
+            let k = min(tallest / piece.size.height, (left - 2 - start) / piece.size.width)
+            if piece.size.height * k >= 0.6 * tallest {
+                out.append((piece.image, CGRect(x: start, y: bottom - piece.size.height * k,
+                                                width: piece.size.width * k, height: piece.size.height * k)))
+            }
+        }
+        if let piece = ends.right {
+            let end = min(width - 1, glass.maxX + 4)
+            let k = min(tallest / piece.size.height, (end - right - 2) / piece.size.width)
+            if piece.size.height * k >= 0.6 * tallest {
+                out.append((piece.image, CGRect(x: end - piece.size.width * k, y: bottom - piece.size.height * k,
+                                                width: piece.size.width * k, height: piece.size.height * k)))
+            }
         }
         return out
     }

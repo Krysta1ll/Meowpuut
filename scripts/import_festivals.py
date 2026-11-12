@@ -133,6 +133,19 @@ NAMES = {
 
 PARTS = ("mimimo", "momo", "frame")
 
+# How each trim is fitted to the real bar (docs/FESTIVALS.md, 「飾邊怎麼放上候選列」).
+# The bar has no room for the whole 360×80 frame, so the importer cuts the
+# ornaments off the rim and keeps one cluster for each end of the bar. Per
+# theme: `band`, how far either side of the rim's middle line (in trim points)
+# the tube may reach; `tau`, how close in colour a pixel there must be to the
+# bare tube to count as tube; `left` and `right`, which cluster goes to that end: "left",
+# "right", the other side mirrored ("left-mirrored", "right-mirrored"), or
+# None for nothing at that end. On the bar the left end has room only for a
+# cluster too small to read (the first candidate starts 12 pt into the glass),
+# so by default only the right end is dressed.
+ADAPT_DEFAULT = {"band": 6.5, "tau": 0.12, "thin": 9, "fragment": 0.08, "left": None, "right": "right"}
+ADAPT = {}
+
 # Capsule colours under white text (docs/DESIGN.md §4): light top 3.2:1 and
 # bottom 4:1, dark at least 3:1, Increase Contrast 5:1. Each target has a
 # little room above the rule.
@@ -226,6 +239,76 @@ def feet(sprite):
     return alpha.getbbox()[3] / sprite.size[1]
 
 
+def ornaments(frame, trim, rim_insets, adapt):
+    """The trim's two ornament clusters without the rim, as (left, right)
+    RGBA images of the frame's size.
+
+    The rim is a glass tube along the capsule the `rim` insets describe.
+    Near that line, a pixel counts as rim when its colour is close to the
+    tube's colours along the bare middle of the trim (`tau`); what is left in
+    the end caps, less thin leftovers of the tube, is ornament."""
+    import numpy as np
+    from scipy import ndimage
+    from scipy.spatial import cKDTree
+    im = np.asarray(frame.convert("RGBA")).astype(float)
+    a = im[..., 3] / 255
+    h, w = a.shape
+    W, H = trim["frameLogicalSize"]
+    px = w / W
+    top, left, bottom, right = rim_insets
+    yy, xx = np.mgrid[0:h, 0:w]
+    x, y = (xx + .5) / px, (yy + .5) / px
+    r = (H - top - bottom) / 2
+    d = np.hypot(x - np.clip(x, left + r, W - right - r), y - (top + r)) - r
+    band = np.abs(d) < adapt["band"]
+
+    def colour(mask):
+        return np.column_stack([im[mask][:, :3] * a[mask][:, None] / 255, a[mask], d[mask] / adapt["band"]])
+
+    bare = band & (x > W * 0.3) & (x < W * 0.7) & (a > 0.05)
+    near = band & (a > 0.05)
+    distance, _ = cKDTree(colour(bare)[::3]).query(colour(near), k=1)
+    tube = np.zeros_like(a, bool)
+    tube[near] = distance < adapt["tau"]
+
+    def pieces(mask, rule):
+        labels, n = ndimage.label(mask)
+        sizes = ndimage.sum(np.ones_like(a), labels, range(1, n + 1))
+        in_band = ndimage.sum(band.astype(float), labels, range(1, n + 1))
+        return np.isin(labels, [i + 1 for i in range(n) if rule(sizes[i], in_band[i])])
+
+    small = 400 * px * px / 9
+    caps = (x < trim["frameCapInsets"][1]) | (x > W - trim["frameCapInsets"][3])
+    keep = pieces(ndimage.binary_opening((a > 0.3) & ~tube, iterations=2), lambda s, b: s > small and b / s < 0.7) & caps
+    keep &= ~(band & ~ndimage.binary_opening(keep, iterations=round(adapt["thin"] * px / 3)))
+    keep = pieces(keep, lambda s, b: s > small)
+    keep = ndimage.binary_fill_holes(ndimage.binary_closing(keep, iterations=round(4 * px / 3)) | keep)
+    out = []
+    for side in (xx < w / 2, xx >= w / 2):
+        # Bits cut off from the cluster (a ribbon end across the tube) are left out.
+        labels, n = ndimage.label(keep & side)
+        sizes = ndimage.sum(np.ones_like(a), labels, range(1, n + 1))
+        main = np.isin(labels, [i + 1 for i in range(n) if sizes[i] >= adapt["fragment"] * sizes.max()])
+        mask = np.clip(ndimage.gaussian_filter(ndimage.binary_dilation(main, iterations=round(2 * px / 3)).astype(float), px / 3), 0, 1)
+        piece = im.copy()
+        piece[..., 3] = im[..., 3] * mask
+        out.append(Image.fromarray(piece.round().astype("uint8"), "RGBA"))
+    return out
+
+
+def end_piece(clusters, which, scale):
+    """One end's cluster cropped to its paint, and its size in points."""
+    if which is None:
+        return None
+    image = clusters[0 if which.startswith("left") else 1]
+    if which.endswith("mirrored"):
+        image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    box = image.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
+    pad = scale
+    box = (max(0, box[0] - pad), max(0, box[1] - pad), min(image.width, box[2] + pad), min(image.height, box[3] + pad))
+    return image.crop(box)
+
+
 def sha256(path):
     with open(path, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
@@ -268,7 +351,7 @@ def main():
     if sorted(ids) != sorted(DAYS) or sorted(ids) != sorted(NAMES):
         stop(f"the packs' themes {ids} are not the ones DAYS and NAMES describe")
 
-    themes, images = [], {}
+    themes, images, derived = [], {}, {}
     for pack, t in sources:
         ident = t["id"]
         cat_w, cat_h = t["catLogicalSize"]
@@ -299,6 +382,20 @@ def main():
                 stop(f"{ident}: {first}, {main_day}, {last} are not in order")
         hans, ja, en = NAMES[ident]
 
+        rim_insets = rim(Image.open(images[(f"{ident}_frame", 3)]), 3)
+        adapt = {**ADAPT_DEFAULT, **ADAPT.get(ident, {})}
+        clusters = ornaments(Image.open(images[(f"{ident}_frame", 3)]), t, rim_insets, adapt)
+        ends = {}
+        for end in ("left", "right"):
+            piece = end_piece(clusters, adapt[end], 3)
+            if piece is None:
+                continue
+            name = f"{ident}_{end}"
+            derived[(name, 3)] = piece
+            for scale in (1, 2):
+                derived[(name, scale)] = piece.resize((round(piece.width * scale / 3), round(piece.height * scale / 3)), Image.LANCZOS)
+            ends[end] = {"image": name, "size": [round(piece.width / 3, 2), round(piece.height / 3, 2)]}
+
         def sprite(part):
             return {"image": f"{ident}_{part}", "size": [cat_w, cat_h], "anchor": t["catAnchorNormalized"]}
 
@@ -312,8 +409,9 @@ def main():
                 "size": [frame_w, frame_h],
                 "caps": [round(v, 2) for v in t["frameCapInsets"]],
                 "safeText": t["safeTextInsets"],
-                "rim": rim(Image.open(images[(f"{ident}_frame", 3)]), 3),
+                "rim": rim_insets,
             },
+            "ends": ends,
             "colors": colours(t["accent"]),
             "days": [list(d) for d in DAYS[ident]],
         })
@@ -321,6 +419,13 @@ def main():
     packs = list(dict.fromkeys(os.path.basename(p) for p, _ in sources))
     manifest = {"version": 2, "leadDays": LEAD_DAYS, "packs": packs, "themes": themes}
     text = json.dumps(manifest, ensure_ascii=False, indent=1) + "\n"
+
+    def write(name, scale, target):
+        # The pack's own images are copied byte for byte; the cut ones are saved.
+        if (name, scale) in images:
+            shutil.copyfile(images[(name, scale)], target)
+        else:
+            derived[(name, scale)].save(target, optimize=True)
 
     def fresh(directory):
         if os.path.isdir(directory):
@@ -336,6 +441,8 @@ def main():
         for part in PARTS:
             name = f"{t['id']}_{part}"
             shutil.copyfile(images[(name, 3)], os.path.join(record, t["id"], name + ".png"))
+        for end in t["ends"].values():
+            derived[(end["image"], 3)].save(os.path.join(record, t["id"], end["image"] + ".png"), optimize=True)
 
     # iOS: the manifest in the Festivals folder, the art in an asset catalog
     # so the App Store hands each device only its own scale.
@@ -349,13 +456,12 @@ def main():
         json.dump(info, f, indent=2)
         f.write("\n")
     for t in themes:
-        for part in PARTS:
-            name = f"{t['id']}_{part}"
+        for name in [f"{t['id']}_{part}" for part in PARTS] + [e["image"] for e in t["ends"].values()]:
             folder = os.path.join(catalog, name + ".imageset")
             os.makedirs(folder)
             entries = []
             for scale in (2, 3):
-                shutil.copyfile(images[(name, scale)], os.path.join(folder, f"{name}@{scale}x.png"))
+                write(name, scale, os.path.join(folder, f"{name}@{scale}x.png"))
                 entries.append({"filename": f"{name}@{scale}x.png", "idiom": "universal", "scale": f"{scale}x"})
             with open(os.path.join(folder, "Contents.json"), "w") as f:
                 json.dump({"images": entries, **info}, f, indent=2)
@@ -364,17 +470,17 @@ def main():
     # macOS: @1x and @2x next to the manifest.
     mac = os.path.join(ROOT, "Resources", "Festivals")
     fresh(mac)
-    for (name, scale), path in images.items():
+    for name, scale in list(images) + list(derived):
         if scale in (1, 2):
-            shutil.copyfile(path, os.path.join(mac, name + ("@2x" if scale == 2 else "") + ".png"))
+            write(name, scale, os.path.join(mac, name + ("@2x" if scale == 2 else "") + ".png"))
 
     # Android and Windows: one @3x image each, sized in code from the manifest.
     for directory in (os.path.join(ROOT, "Android", "app", "src", "main", "assets", "festivals"),
                       os.path.join(ROOT, "Windows", "UI", "Assets", "festivals")):
         fresh(directory)
-        for (name, scale), path in images.items():
+        for name, scale in list(images) + list(derived):
             if scale == 3:
-                shutil.copyfile(path, os.path.join(directory, name + ".png"))
+                write(name, scale, os.path.join(directory, name + ".png"))
 
     for t in themes:
         c = t["colors"]

@@ -60,6 +60,15 @@
      10.5
     ]
    },
+   "ends": {
+    "right": {
+     "image": "spring_festival_right",
+     "size": [
+      39.0,
+      51.67
+     ]
+    }
+   },
    "colors": {
     "accent": "#BA5147",
     "light": [
@@ -154,6 +163,15 @@
      8.5,
      10.17
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "lantern_festival_right",
+     "size": [
+      64.0,
+      63.0
+     ]
+    }
    },
    "colors": {
     "accent": "#BC803D",
@@ -250,6 +268,15 @@
      8.0
     ]
    },
+   "ends": {
+    "right": {
+     "image": "dragon_boat_right",
+     "size": [
+      64.67,
+      54.67
+     ]
+    }
+   },
    "colors": {
     "accent": "#547F6A",
     "light": [
@@ -344,6 +371,15 @@
      8.67,
      8.5
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "mid_autumn_right",
+     "size": [
+      62.0,
+      59.67
+     ]
+    }
    },
    "colors": {
     "accent": "#B58A4A",
@@ -440,6 +476,15 @@
      10.33
     ]
    },
+   "ends": {
+    "right": {
+     "image": "tanabata_right",
+     "size": [
+      50.0,
+      63.33
+     ]
+    }
+   },
    "colors": {
     "accent": "#8B7FA6",
     "light": [
@@ -534,6 +579,15 @@
      15.17,
      7.83
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "songkran_right",
+     "size": [
+      58.33,
+      63.0
+     ]
+    }
    },
    "colors": {
     "accent": "#4C9D9E",
@@ -630,6 +684,15 @@
      8.5
     ]
    },
+   "ends": {
+    "right": {
+     "image": "diwali_right",
+     "size": [
+      50.33,
+      52.0
+     ]
+    }
+   },
    "colors": {
     "accent": "#B47A42",
     "light": [
@@ -724,6 +787,15 @@
      9.33,
      10.5
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "eid_right",
+     "size": [
+      60.67,
+      57.33
+     ]
+    }
    },
    "colors": {
     "accent": "#468574",
@@ -820,6 +892,15 @@
      9.33
     ]
    },
+   "ends": {
+    "right": {
+     "image": "hanukkah_right",
+     "size": [
+      69.33,
+      56.0
+     ]
+    }
+   },
    "colors": {
     "accent": "#647FAA",
     "light": [
@@ -914,6 +995,15 @@
      9.5,
      8.0
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "easter_right",
+     "size": [
+      62.67,
+      51.67
+     ]
+    }
    },
    "colors": {
     "accent": "#A296BA",
@@ -1010,6 +1100,15 @@
      13.17
     ]
    },
+   "ends": {
+    "right": {
+     "image": "halloween_right",
+     "size": [
+      51.0,
+      70.33
+     ]
+    }
+   },
    "colors": {
     "accent": "#B87942",
     "light": [
@@ -1104,6 +1203,15 @@
      9.0,
      9.67
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "christmas_right",
+     "size": [
+      64.67,
+      61.67
+     ]
+    }
    },
    "colors": {
     "accent": "#AA5E58",
@@ -1200,6 +1308,15 @@
      14.33
     ]
    },
+   "ends": {
+    "right": {
+     "image": "new_year_right",
+     "size": [
+      40.33,
+      40.67
+     ]
+    }
+   },
    "colors": {
     "accent": "#A48B51",
     "light": [
@@ -1294,6 +1411,15 @@
      7.83,
      7.67
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "valentine_right",
+     "size": [
+      63.67,
+      57.33
+     ]
+    }
    },
    "colors": {
     "accent": "#B76E80",
@@ -1390,6 +1516,15 @@
      16.17
     ]
    },
+   "ends": {
+    "right": {
+     "image": "white_day_right",
+     "size": [
+      64.0,
+      61.33
+     ]
+    }
+   },
    "colors": {
     "accent": "#829BAA",
     "light": [
@@ -1484,6 +1619,15 @@
      8.17,
      7.83
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "hinamatsuri_right",
+     "size": [
+      52.0,
+      64.33
+     ]
+    }
    },
    "colors": {
     "accent": "#B57986",
@@ -1580,6 +1724,15 @@
      7.83
     ]
    },
+   "ends": {
+    "right": {
+     "image": "childrens_day_right",
+     "size": [
+      49.67,
+      46.0
+     ]
+    }
+   },
    "colors": {
     "accent": "#5A8C99",
     "light": [
@@ -1674,6 +1827,15 @@
      8.5,
      8.5
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "qixi_right",
+     "size": [
+      61.0,
+      63.33
+     ]
+    }
    },
    "colors": {
     "accent": "#9684AD",
@@ -1770,6 +1932,15 @@
      8.17
     ]
    },
+   "ends": {
+    "right": {
+     "image": "double_ninth_right",
+     "size": [
+      67.33,
+      61.0
+     ]
+    }
+   },
    "colors": {
     "accent": "#B58B4E",
     "light": [
@@ -1864,6 +2035,15 @@
      9.17,
      8.67
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "winter_solstice_right",
+     "size": [
+      56.0,
+      56.33
+     ]
+    }
    },
    "colors": {
     "accent": "#8B9AA7",
@@ -1960,6 +2140,15 @@
      11.67
     ]
    },
+   "ends": {
+    "right": {
+     "image": "holi_right",
+     "size": [
+      74.0,
+      71.0
+     ]
+    }
+   },
    "colors": {
     "accent": "#BD7E91",
     "light": [
@@ -2054,6 +2243,15 @@
      8.83,
      9.0
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "nowruz_right",
+     "size": [
+      68.0,
+      63.0
+     ]
+    }
    },
    "colors": {
     "accent": "#62958B",
@@ -2150,6 +2348,15 @@
      12.67
     ]
    },
+   "ends": {
+    "right": {
+     "image": "chuseok_right",
+     "size": [
+      59.67,
+      60.67
+     ]
+    }
+   },
    "colors": {
     "accent": "#BA8F6A",
     "light": [
@@ -2244,6 +2451,15 @@
      13.0,
      15.0
     ]
+   },
+   "ends": {
+    "right": {
+     "image": "midsummer_right",
+     "size": [
+      50.67,
+      65.33
+     ]
+    }
    },
    "colors": {
     "accent": "#789B70",

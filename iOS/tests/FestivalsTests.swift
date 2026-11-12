@@ -311,6 +311,20 @@ struct FestivalsTests {
     // MARK: Trim geometry
 
     static func geometry(_ loaded: Festivals.Loaded) {
+        // The ornament clusters at the ends of a 390 pt phone bar: glass, first candidate at 27.4, arrow glyph ending at 340.2.
+        let bar = CGRect(x: 15.5, y: 33.4, width: 368.6, height: 45.6)
+        for theme in loaded.themes {
+            guard let ends = theme.ends else { expect(false, "\(theme.id): ornaments cut by the importer"); continue }
+            for shape in [GlassShape.capsule, .wave, .cloud] {
+                let placed = FestivalEndsLayout.place(ends, glass: bar, shape: shape, width: 390, left: 27.4, right: 340.2)
+                expect(placed.count == 1 && placed.allSatisfy { $0.frame.minX >= 342 && $0.frame.maxX <= 389 && $0.frame.maxY <= bar.maxY + 1.01
+                                                                 && $0.frame.height >= 0.6 * 0.87 * bar.height && $0.frame.height <= bar.height + 0.01 },
+                       "\(theme.id), \(shape): one cluster, between the arrow and the screen edge, on the glass, readable: \(placed.map(\.frame))")
+            }
+        }
+        let tiny = FestivalTheme.Ends(left: .init(image: "l", size: CGSize(width: 50, height: 55)), right: nil)
+        expect(FestivalEndsLayout.place(tiny, glass: bar, shape: .capsule, width: 390, left: 27.4, right: 340.2).isEmpty,
+               "a cluster that would be too small to read at the left end is left out")
         let trim = FestivalTheme.Trim(image: "t", size: CGSize(width: 360, height: 80),
                                       caps: .init(top: 0, left: 70, bottom: 0, right: 70),
                                       safeText: .init(top: 18, left: 90, bottom: 18, right: 90),
