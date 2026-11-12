@@ -146,7 +146,10 @@ PARTS = ("mimimo", "momo", "frame")
 # cluster too small to read (the first candidate starts 12 pt into the glass),
 # so by default only the right end is dressed.
 ADAPT_DEFAULT = {"bust": 0.56, "band": 6.5, "tau": 0.12, "thin": 9, "fragment": 0.08, "left": None, "right": "right"}
-ADAPT = {}
+ADAPT = {
+    # The right cluster lost its red envelopes with the tube; the left one keeps them.
+    "spring_festival": {"right": "left-mirrored"},
+}
 
 # Capsule colours under white text (docs/DESIGN.md §4): light top 3.2:1 and
 # bottom 4:1, dark at least 3:1, Increase Contrast 5:1. Each target has a
