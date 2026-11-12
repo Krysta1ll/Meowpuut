@@ -240,6 +240,14 @@ std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s) {
         place.cat = cat;
         place.sprite = &art;
         const float x = from - art.cutLeft * width;
+        // A paw sinks into the glass by as much as the edge rises under it.
+        bool level = true;
+        for (int i = 0; i < art.pawCount; ++i) {
+            const float centre = x + art.paws[i].x * width, half = art.paws[i].halfWidth * width;
+            const TopEdge::Rise under = s.edge.rise(centre - half, centre + half);
+            level = level && rise.low - (under.low - under.most) <= hiddenFace;
+        }
+        if (!level) continue;
         place.anchor = {x + art.anchorX * width, rise.low};
         place.frame = {x, rise.low - art.anchorY * height, width, height};
         if (place.body().y < s.top) continue;

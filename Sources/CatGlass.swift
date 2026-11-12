@@ -370,7 +370,12 @@ struct GlassCandidateView: View {
             .padding(.trailing, chevron ? Desk.rowTrail : Desk.rowTrailPlain)
             .padding(.top, Desk.glassTop + band.top)
             .padding(.bottom, Desk.glass - band.bottom + Desk.glassBottom)
-            .background { glassBar(look).padding(glassInsets) }
+            .background {
+                ZStack {
+                    glassBar(look).padding(glassInsets)
+                    barTrim()
+                }
+            }
             // The cats in front: behind the bar with their paws over its edge, or standing at its end.
             .overlay {
                 GeometryReader { proxy in
@@ -380,6 +385,15 @@ struct GlassCandidateView: View {
                                picture: DesktopCatArt.picture)
                 }
             }
+    }
+
+    /// A decoration laid round the glass's ends (a festival's frame trim)
+    /// goes here: in the bar's whole frame (the glass is at Desk.glassLeft,
+    /// Desk.glassTop), over the glass, under the candidates and the cats. It
+    /// must not take clicks. Nothing is drawn for now; the iOS keyboard's
+    /// counterpart is CandidateRegionView.barTrim.
+    @ViewBuilder private func barTrim() -> some View {
+        EmptyView()
     }
 
     private func plainBar(_ look: CandidateLook) -> some View {

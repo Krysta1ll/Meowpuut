@@ -73,12 +73,15 @@
 - iPad 膠囊：九種；波浪：ends、left、right（744 沒有）、rest、momoLounge，1180 以上加 company；雲朵：前五種加 company。
 - 手機 393 上貓的縮放：探頭 0.68、搭邊 0.54、趴著 0.60、扶框 0.82（玻璃上方只有 32.5 pt）。
 
-## 給節日 agent 的三個接點（現況）
+## 給節日 agent 的三個接點（第三輪更新，請看這裡）
 
-1. 貓圖的來源：`Sources/CatSprites.swift:59` `CatArt.sprite(_:_:)`（名稱、尺寸、錨點）；圖片在 `iOS/Keyboard/CatStage.swift:14` `CatArt.image(_:)` 和 `Sources/CatGlass.swift:23` `DesktopCatArt.picture(_:)`。`CatArrangement.place(on:sprite:)` 和 `CatSchedule.arrangement(...sprite:)` 可傳入別的來源。
-   **還沒做**：沒有切口的整隻貓（節日坐姿 64×80、腳錨點 (0.5, 0.92)）坐上緣。現在 `place` 對上緣的席位用切口寬度算位置，整隻貓的切口是空的，會算錯；要改成用不透明範圍當寬度、腳放在邊緣上，並加一個用假圖的測試。另外 `smallest = 0.45` 會擋掉 375 pt 以下的手機和橫向（坐姿在 393 是 0.47、375 是 0.44、320 是 0.42、橫向 0.34），要決定放寬還是退回平常的貓。
-2. 列兩端的裝飾層：`iOS/Keyboard/CandidateRegionView.swift:475` `barTrim(_:)`，在 158 行呼叫；在玻璃之上、候選和貓之下，不接觸控。macOS 還沒有對應的位置。
-3. 選中膠囊的顏色：`iOS/Keyboard/CandidateRegionView.swift:334` 把 `ui.outfit?.pillTint` 傳給 `CandidateCell`（沿用原有的節日顏色路徑）。這一輪沒有驗證；macOS 是 `Sources/CatGlass.swift` 的 `DeskPill`。
+1. **貓圖的來源與整隻貓坐上緣（已做好，在 `e4ef811`）。**
+   - 圖的描述：`Sources/CatSprites.swift:74` `CatArt.sprite(_:_:)`；圖片：iOS `iOS/Keyboard/CatStage.swift:14` `CatArt.image(_:)`，macOS `Sources/CatGlass.swift:23` `DesktopCatArt.picture(_:)`。
+   - 座位：`Sources/CatSprites.swift:289` `CatArrangement.place(on:sprite:smallest:)`、`:420` `CatSchedule.arrangement(setting:day:on:sprite:smallest:)`。`cut` 為空（`0...0`）、`paws` 為空的 sprite 就是整隻貓：用不透明寬度找位置，錨點（腳）放在邊緣上，整隻畫在玻璃前（iOS `CatLayersView`、SwiftUI `CatFigures` 都已這樣畫）。`smallest` 由呼叫的人給，預設是平常貓的 0.45。
+   - 測試：`iOS/tests/KeyboardGeometryTests.swift` 的 `sittingCat()`（64×80、錨點 (0.5, 0.92) 的假圖，320–440 直向、iPad、橫向三種造型都坐得上，最小縮放 0.3；375 pt 在 0.45 坐不上、0.4 坐得上）。
+   - 坐姿在 393 pt 約 0.47、375 約 0.44、320 約 0.42、橫向約 0.34（照 `room / ((0.92 − 上緣) × 80)` 算）。
+2. **列兩端的裝飾層：** iOS `iOS/Keyboard/CandidateRegionView.swift:475` `barTrim(_:)`（沒動過）；macOS 新加 `Sources/CatGlass.swift` `barTrim()`（在 `catsBar` 的背景裡，玻璃之上、候選和貓之下）。
+3. **選中膠囊顏色：** iOS `CandidateRegionView.swift:334` `ui.outfit?.pillTint`（沒動過）；macOS `DeskPill(palette:festival:look:)`，傳入 `outfit?.pillColor`。
 
 ## 下一步（照順序）
 
