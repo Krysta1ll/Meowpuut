@@ -232,6 +232,7 @@ for f in re.findall(r"<File id=\"[^\"]*\">(.*?)</File>", xml, re.S):
 build_media() {
   [ -f "$MEDIA/install.iso" ] && [ -f "$MEDIA/data.dmg" ] && return
   local t="$MEDIA/iso" d="$MEDIA/data"
+  chmod -R u+w "$d" 2>/dev/null || true
   rm -rf "$t" "$d" "$MEDIA/data.dmg" && mkdir -p "$d/meow/drivers"
   wimlib-imagex apply "$MEDIA/windows.esd" 1 "$t" >/dev/null 2>&1
   rm -rf "$t/__chunk_data"
@@ -243,6 +244,7 @@ build_media() {
     -e efi/microsoft/boot/efisys_noprompt.bin -no-emul-boot -o "$MEDIA/install.iso" "$t" 2>/dev/null
   ln "$MEDIA/windows.esd" "$d/windows.esd"
   xorriso -osirrox on -indev "$MEDIA/virtio-win.iso" -extract /NetKVM/w11/ARM64 "$d/meow/drivers/netkvm" 2>/dev/null
+  chmod -R u+w "$d/meow/drivers"
   cp "$MEDIA/OpenSSH-ARM64.zip" "$REPO"/scripts/windows-vm/{deploy.cmd,unattend.xml,firstlogon.ps1} "$d/meow/"
   cp "$VM/ssh/id_ed25519.pub" "$d/meow/authorized_keys"
   hdiutil create -quiet -srcfolder "$d" -fs ExFAT -volname MEOWDATA -format UDRW -layout GPTSPUD "$MEDIA/data.dmg"
