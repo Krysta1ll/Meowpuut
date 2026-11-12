@@ -25,6 +25,7 @@ struct FestivalsTests {
         colours(loaded)
         selection(loaded)
         met(loaded)
+        worn(loaded)
         decoding()
         geometry(loaded)
         if failures > 0 { print("FAIL: \(failures) of \(checks) checks"); exit(1) }
@@ -251,6 +252,28 @@ struct FestivalsTests {
         expect(ids("2026-11-08", "2026-11-12") == ["diwali"], "one running at the first launch counts")
     }
 
+    // MARK: Every day of 2026–2030
+
+    /// The theme worn on every day of 2026–2030, with all themes on and with
+    /// four switched off. Android and Windows compare their own selection
+    /// with this file, so the three cannot drift apart. After a deliberate
+    /// change: FESTIVALS_WRITE_WORN=1 bash scripts/test-ios.sh --only Festivals
+    static let wornFile = root.appendingPathComponent("Android/app/src/test/resources/festivals/worn-2026-2030.txt")
+    static let wornSkipped: Set<String> = ["winter_solstice", "chuseok", "spring_festival", "halloween"]
+
+    static func worn(_ loaded: Festivals.Loaded) {
+        var lines = ["# day, worn with every theme on, worn with \(wornSkipped.sorted().joined(separator: " ")) switched off"]
+        for n in Festivals.number("2026-01-01")...Festivals.number("2030-12-31") {
+            let day = text(n)
+            let all = Festivals.theme(onDay: day, in: loaded, wardrobe: FestivalWardrobe())?.id ?? "-"
+            let some = Festivals.theme(onDay: day, in: loaded, wardrobe: FestivalWardrobe(skipped: wornSkipped))?.id ?? "-"
+            lines.append("\(day) \(all) \(some)")
+        }
+        let written = lines.joined(separator: "\n") + "\n"
+        if ProcessInfo.processInfo.environment["FESTIVALS_WRITE_WORN"] != nil { try? written.write(to: wornFile, atomically: true, encoding: .utf8) }
+        expect((try? String(contentsOf: wornFile, encoding: .utf8)) == written, "\(wornFile.lastPathComponent) matches the selection")
+    }
+
     // MARK: Decoding
 
     static func decoding() {
@@ -258,12 +281,28 @@ struct FestivalsTests {
                && Festivals.decode(Data(#"{"version": 1, "outfits": []}"#.utf8)).isEmpty, "unreadable or old manifests mean no themes")
         let fixture = try? Data(contentsOf: root.appendingPathComponent("Android/app/src/test/resources/festivals/fixture.json"))
         let loaded = Festivals.decode(fixture ?? Data())
-        expect(loaded.themes.map(\.id) == ["alpha", "beta"] && loaded.leadDays == 7, "the fixture: a bad theme is skipped, the rest load")
+        expect(loaded.themes.map(\.id) == ["alpha", "beta", "gamma", "delta"] && loaded.leadDays == 7,
+               "the fixture: a theme with a missing field or a path for an image name is skipped, the rest load")
         let alpha = loaded.themes.first
         expect(alpha?.trim.caps == FestivalTheme.Insets(top: 0, left: 70, bottom: 0, right: 70)
                && alpha?.trim.safeText.left == 90 && alpha?.momo.image == "alpha_momo" && alpha?.names.ja == "アルファ"
                && alpha?.days == [FestivalTheme.Days(first: "2027-02-05", main: "2027-02-06", last: "2027-02-12")]
                && alpha?.colors.dark == ["#AA0000", "#990000"], "the fixture's fields")
+        // The same cases are in Android's LogicTest and Windows' layout_test.
+        func worn(_ day: String, _ wardrobe: FestivalWardrobe = FestivalWardrobe()) -> String {
+            Festivals.theme(onDay: day, in: loaded, wardrobe: wardrobe)?.id ?? "-"
+        }
+        let days = ["2027-01-28", "2027-01-29", "2027-02-02", "2027-02-06", "2027-02-07", "2027-02-09", "2027-02-10",
+                    "2027-02-12", "2027-02-13", "2027-02-14", "2027-02-15"]
+        expect(days.map { worn($0) } == ["-", "alpha", "alpha", "alpha", "alpha", "delta", "alpha", "alpha", "beta", "gamma", "-"],
+               "the fixture's days: \(days.map { worn($0) })")
+        expect(worn("2027-02-13", FestivalWardrobe(skipped: ["beta"])) == "gamma" && worn("2027-02-14", FestivalWardrobe(skipped: ["beta"])) == "gamma"
+               && worn("2027-02-06", FestivalWardrobe(skipped: ["alpha"])) == "delta" && worn("2027-02-06", FestivalWardrobe(on: false)) == "-",
+               "the fixture with switches")
+        func met(_ since: String, _ today: String) -> [String] { Festivals.met(since: since, today: today, in: loaded).map(\.id) }
+        expect(met("2027-02-01", "2027-02-01") == ["alpha"] && met("2027-02-01", "2027-02-07") == ["alpha", "beta", "gamma", "delta"]
+               && met("2027-02-13", "2027-02-13") == ["beta", "gamma"] && met("2027-03-01", "2028-02-07") == ["beta"],
+               "the fixture's met lists")
         for bad in ["2027-2-3", "2027-02-30", "2027-13-01", "27-02-03", ""] { expect(!Festivals.isDay(bad), "\(bad) is not a day") }
         expect(Festivals.isDay("2028-02-29") && Festivals.number("1970-01-01") == 0 && Festivals.number("2027-03-01") - Festivals.number("2027-02-28") == 1
                && Festivals.number("2028-03-01") - Festivals.number("2028-02-28") == 2, "day numbers")

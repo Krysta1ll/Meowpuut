@@ -131,10 +131,15 @@ enum Festivals {
         var themes: [Entry]
     }
 
-    /// A theme that does not decode is left out; the others still load.
+    /// A theme that does not decode, or whose id or image names are not
+    /// plain names, is left out; the others still load.
     struct Entry: Decodable {
         var theme: FestivalTheme?
-        init(from decoder: Decoder) throws { theme = try? FestivalTheme(from: decoder) }
+        init(from decoder: Decoder) throws {
+            theme = (try? FestivalTheme(from: decoder)).flatMap { theme in
+                [theme.id, theme.mimimo.image, theme.momo.image, theme.trim.image].allSatisfy(Festivals.isName) ? theme : nil
+            }
+        }
     }
 
     struct Loaded: Equatable {
@@ -199,6 +204,14 @@ enum Festivals {
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
         let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
         return (1...days).contains(day)
+    }
+
+    /// An id or image name: 1 to 64 ASCII letters, digits, `_` or `-`, so
+    /// it can become a file name on every platform.
+    static func isName(_ text: String) -> Bool {
+        (1...64).contains(text.utf8.count) && text.utf8.allSatisfy { c in
+            (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A) || c == 0x5F || c == 0x2D
+        }
     }
 
     // MARK: Which theme

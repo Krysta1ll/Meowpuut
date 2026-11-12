@@ -25,6 +25,33 @@
    "trim": {"image": "beta_frame", "size": [360, 80], "caps": [0, 60, 0, 60], "safeText": [18, 90, 18, 90], "rim": [9, 9, 9, 9]},
    "colors": {"accent": "#3333BB", "light": ["#0000BB", "#0000AA"], "dark": ["#0000AA", "#000099"], "contrast": "#000088"},
    "days": [["2027-02-14", "2027-02-14", "2027-02-14"], ["2028-02-14", "2028-02-14", "2028-02-14"]]
+  },
+  {
+   "id": "escape",
+   "names": {"hant": "丙節", "hans": "丙节", "ja": "エスケープ", "en": "Escape"},
+   "mimimo": {"image": "escape_mimimo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "momo": {"image": "escape_momo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "trim": {"image": "../escape_frame", "size": [360, 80], "caps": [0, 60, 0, 60], "safeText": [18, 90, 18, 90], "rim": [9, 9, 9, 9]},
+   "colors": {"accent": "#33BB33", "light": ["#00BB00", "#00AA00"], "dark": ["#00AA00", "#009900"], "contrast": "#008800"},
+   "days": [["2027-02-14", "2027-02-14", "2027-02-14"]]
+  },
+  {
+   "id": "gamma",
+   "names": {"hant": "丁節", "hans": "丁节", "ja": "ガンマ", "en": "Gamma"},
+   "mimimo": {"image": "gamma_mimimo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "momo": {"image": "gamma_momo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "trim": {"image": "gamma_frame", "size": [360, 80], "caps": [0, 60, 0, 60], "safeText": [18, 90, 18, 90], "rim": [9, 9, 9, 9]},
+   "colors": {"accent": "#BBBB33", "light": ["#BBBB00", "#AAAA00"], "dark": ["#AAAA00", "#999900"], "contrast": "#888800"},
+   "days": [["2027-02-14", "2027-02-14", "2027-02-14"]]
+  },
+  {
+   "id": "delta",
+   "names": {"hant": "戊節", "hans": "戊节", "ja": "デルタ", "en": "Delta"},
+   "mimimo": {"image": "delta_mimimo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "momo": {"image": "delta_momo", "size": [64, 80], "anchor": [0.5, 0.92]},
+   "trim": {"image": "delta_frame", "size": [360, 80], "caps": [0, 60, 0, 60], "safeText": [18, 90, 18, 90], "rim": [9, 9, 9, 9]},
+   "colors": {"accent": "#BB33BB", "light": ["#BB00BB", "#AA00AA"], "dark": ["#AA00AA", "#990099"], "contrast": "#880088"},
+   "days": [["2027-02-09", "2027-02-09", "2027-02-09"]]
   }
  ]
 }

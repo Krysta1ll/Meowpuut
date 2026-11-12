@@ -303,7 +303,7 @@ private func checkFestivals(_ h: inout SmokeHarness) {
     // The wardrobe ships in the app; the logic itself is in iOS/tests/FestivalsTests.swift.
     let bundled = Bundle.main.url(forResource: "Festivals", withExtension: nil)?.appendingPathComponent("festivals.json")
     let loaded = bundled.flatMap { try? Data(contentsOf: $0) }.map { Festivals.decode($0) }
-    h.check(loaded?.themes.count == 12, "內建節日衣櫥有 12 套")
+    h.check(loaded?.themes.count == 24, "內建節日衣櫥有 24 套")
     h.check(Festivals.theme(onDay: "2026-12-25", in: loaded ?? .empty, wardrobe: FestivalWardrobe())?.id == "christmas" &&
             Festivals.theme(onDay: "2026-12-25", in: loaded ?? .empty, wardrobe: FestivalWardrobe(on: false)) == nil, "節日衣櫥照日期換裝，關閉後不換")
     h.check(Festivals.decode(Data(#"{"version":1,"outfits":[]}"#.utf8)).isEmpty && Festivals.decode(Data("oops".utf8)).isEmpty, "看不懂的節日清單當作沒有")
