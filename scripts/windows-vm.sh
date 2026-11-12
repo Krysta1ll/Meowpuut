@@ -77,10 +77,10 @@ wait_ssh() {
   done
 }
 
-# The desktop is up once explorer.exe runs in the console session.
+# The desktop is up once explorer.exe runs in the console session (number 2 here, not 1).
 wait_desktop() {
   local deadline=$((SECONDS + 300))
-  until "${SSH[@]}" 'tasklist /fi "imagename eq explorer.exe" /fi "session eq 1" | find "explorer.exe"' >/dev/null 2>&1; do
+  until "${SSH[@]}" 'tasklist /fi "imagename eq explorer.exe" /fi "sessionname eq Console" | find "explorer.exe"' >/dev/null 2>&1; do
     [ $SECONDS -lt $deadline ] || { echo "error: no desktop after 300 s" >&2; return 1; }
     sleep 3
   done

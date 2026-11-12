@@ -147,7 +147,22 @@ bash scripts/windows-vm.sh shots
 bash scripts/windows-vm.sh stop
 ```
 
-其他指令：`copy <資料夾> [<Windows 路徑>]`、`show <名稱> <預覽程式參數…>`、`screen <檔名.png>`、`status`、`ssh`。`run` 在 cmd.exe 執行，結束碼原樣傳回。截圖在 `.build/windows-vm-shots/`：`<比例>-<色調>-<造型>.png` 是游標附近裁下的範圍，`screens/` 是整個畫面。
+其他指令：
+
+| 指令 | 作用 |
+| --- | --- |
+| `copy <資料夾> [<Windows 路徑>]` | 複製到 Windows，預設 `C:\meow\<資料夾名>` |
+| `run <命令>` | 經 SSH 在 cmd.exe 執行，輸出和結束碼原樣傳回。SSH 登入的 `meow` 是系統管理員，命令本來就是提高權限的 |
+| `desktop '<命令列>'` | 在已登入的桌面啟動程式（以提高權限的排程工作執行），程式啟動後就返回。SSH 啟動的程式在 session 0，看不到視窗 |
+| `type '<文字>'` | 用 QMP 送出鍵盤輸入，只限 ASCII，美式配置 |
+| `keys ret ctrl-a alt-f4` | 送出按鍵，名稱是 QEMU 的 qcode，`-` 表示同時按 |
+| `click <x> <y> [left\|right]` | 滑鼠點擊，座標是截圖的像素 |
+| `shot <檔名.png>` | 整個畫面的截圖（QMP `screendump`），也可寫 `screen` |
+| `snapshot save\|restore\|list [<名稱>]` | qcow2 內部快照加一份 UEFI 變數，預設名稱 `clean`；要先 `stop` |
+| `show <名稱> <預覽程式參數…>` | 見下 |
+| `status`、`ssh` | 狀態、互動式 shell |
+
+這台是測試機：`firstlogon.ps1` 把系統管理員的 UAC 提示關掉（`ConsentPromptBehaviorAdmin=0`），安裝程式可以無人值守地提高權限；UAC 本身沒關，市集應用程式需要它。裝好後先 `stop`，再 `snapshot save clean`，之後每次測試前 `snapshot restore clean` 就回到乾淨的系統。截圖在 `.build/windows-vm-shots/`：`<比例>-<色調>-<造型>.png` 是游標附近裁下的範圍，`screens/` 是整個畫面。
 
 `show` 的做法：用排程工作在已登入的桌面啟動預覽程式（從 SSH 啟動的程式不能顯示視窗），帶 `--at` 等參數把候選窗固定在一個位置和狀態，再用 QEMU 的 `screendump` 取整個畫面。預覽程式的截圖參數寫在 `Preview/PreviewApp.cpp` 開頭，例如：
 
