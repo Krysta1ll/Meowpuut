@@ -349,14 +349,15 @@ private func checkCats(_ h: inout SmokeHarness) {
                         if place.scale > 1 || place.scale < CatArrangement.smallest { sized = false }
                     }
                 }
-                if pool == 0 || (shape == .capsule && pool != CatArrangement.all.count) { fits = false }
+                // A wave or cloud bar of one or two short candidates has no level stretch near its ends: no cats there.
+                if (pool == 0 && width >= 230) || (shape == .capsule && pool != CatArrangement.all.count) { fits = false }
             }
         }
     }
     h.check(inside, "貓不超出候選列的範圍")
     h.check(clear, "貓的爪子不蓋住候選和展開鍵")
     h.check(sized, "貓不放大，也不小到看不清")
-    h.check(fits, "膠囊造型放得下每一種位置，其他造型至少一種")
+    h.check(fits, "膠囊造型放得下每一種位置，其他造型在 230 pt 以上至少一種")
     let preferences = Preferences.shared
     let saved = preferences.catPlacement
     h.check(applyAppearance("place:lounge") && preferences.catPlacement == "lounge" && applyAppearance("place:daily") &&

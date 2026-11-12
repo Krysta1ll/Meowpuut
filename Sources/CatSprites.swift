@@ -337,8 +337,9 @@ struct CatArrangement: Equatable, Identifiable {
             }
             let radius = GlassEdge.endRadius(stage.shape, height: glass.height)
             // The group slides inward from its end until every cat has a level stretch.
+            // A pair that slides further no longer sits at its end; one cat may go a little further.
             var slide: CGFloat = 0
-            let limit = glass.width * 0.2
+            let limit = glass.width * (group.count > 1 ? 0.2 : 0.3)
             search: while true {
                 var found: [CatPlacement] = []
                 for (n, index) in group.enumerated() {
