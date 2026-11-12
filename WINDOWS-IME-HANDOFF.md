@@ -1,6 +1,6 @@
 # Windows 輸入法交接
 
-分支 worktree-agent-a790d96f777b2dfc8，已合併 lexicon-without-rime-ice（ffde96b，含節日候選窗）。
+分支 worktree-agent-a790d96f777b2dfc8，已合併 lexicon-without-rime-ice（fec01cc）。
 
 ## 進度
 
@@ -10,6 +10,7 @@
 - [x] 安裝、移除腳本與打包：`scripts/package-windows.sh` → `.build/windows-package/Meowpuut-0.8.0-alpha.1-windows-{x64,arm64}.zip`
 - [x] Windows/README.md 改寫
 - [x] `ITfTextLayoutSink`（Chromium 晚給位置時重擺候選窗）、同一版重裝不覆蓋使用中的 DLL
+- [x] 審查修正：Shift 加點按／加其他鍵不切英文（比對執行緒鍵盤狀態的翻轉位元，加一秒上限，焦點離開時取消）；Ctrl／Alt／Win 組合鍵與 Delete、Home 等先結束讀音再交給程式（在 OnTestKeyDown 同步寫入）；Shift+Enter 送出原文；沒有候選時方向鍵不動；SetText 中組字被終止時不取空指標；FFI 的 mixed_pinyin、mixed_pinyin_prefix、predict 包 catch_unwind（cargo test --workspace、build.sh --test 都通過）
 - [ ] 在 VM 上實測（13:29 時 VM 代理還在 WinPE 裡裝 Windows，沒有 `installed`）
 
 最後打包：commit ae94bb9，`.build/windows-package/`（這個 worktree 底下）
@@ -25,6 +26,7 @@ VM 用的驅動：`/private/tmp/claude-501/-Users-scarletkrimilia-Documents-Proj
 
 ## VM 上要跑的測試（Arm64 VM，用 arm64 的 zip）
 
+0. 另外要看：Shift+點滑鼠選字不會切英文；Ctrl+Enter 送出的是選好的字；Shift+Enter 送出字母原文。
 1. `windows-vm.sh copy .build/windows-package/Meowpuut-0.8.0-alpha.1-windows-arm64`，在桌面工作階段執行 `Install.cmd`（UAC 要按「是」）；截圖。
 2. 檢查：`HKLM\SOFTWARE\Classes\CLSID\{961C0ADA-…}\InprocServer32` 指到 `C:\Program Files\Meowpuut\<hash>\MeowpuutTextService.dll`；`Get-WinUserLanguageList` 的 zh-Hant-TW 有兩個 TIP。
 3. 記事本：Win+空白鍵切到喵撲拼音；打 `nihao`（截圖：有底線的讀音、候選窗、貓）；按 `1`；打 `woxihuanni` 按空白鍵；打 `ni` 按 → 再 Enter；打 `hao` 點第二個候選（滑鼠）；打 `shi` 按 ↓ 展開（截圖）、↑ 收起；Page Down 翻頁；打 `,`、`.` 看全形標點；單按 Shift 切英文打 `abc`，再按 Shift 切回（截圖工作列的中／英）。
