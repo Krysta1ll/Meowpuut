@@ -1,5 +1,15 @@
 # 引擎與詞庫
 
+## 三層
+
+中文解碼、斷詞與排序由本專案以 Rust 寫成的核心完成（`crates/`），詞表以陣列結構體（SoA，Structure-of-Arrays）排列。除了 C ABI 那一層（`meowpuut-ffi`：整個 crate 禁止 `unsafe`，只在個別項目重新允許，每個 `unsafe` 區塊只有一個操作並附 `SAFETY` 說明），其他 crate 都是 `#![forbid(unsafe_code)]`。詞庫分三層：
+
+1. **離線建置**：整合 `mimo-tc`（繁體注音／拼音，MIT）、`mimo-sc`（簡體帶調詞表，MIT）、OpenCC（繁簡一對多與港台詞彙，Apache-2.0）、jieba（繁體大詞表，MIT）與 `mimo-jp`（日語詞表，由 Mozc、UniDic、OpenCC、Unihan 經 `scripts/mimo_jp_pipeline.py` 產生，編譯為 `mimo_jp.bin`），分數統一校準為 `i16` 對數機率，編譯成本專案自訂格式的唯讀二進位檔 `mimo_base.bin`（`MIMO-BASE-1` 第 2 版：每種輸入法一份 `MIMO-BIN-1` 詞表，加一份 `MIMO-IDX-1` 查找索引）。另從本專案自寫的句子（約 20.6 萬句）和 Tatoeba、Common Voice、CrossWOZ、KdConv、MASSIVE 的句子計算哪個詞後面常接哪個詞，打包為詞對表 `mimo_pairs.bin`（見下方「詞對表」與 `scripts/mimo_pairs.py`）；含政治或貶低群體用語的句子不計入。詞庫另收 Wikidata（CC0）的作品、角色、地名等名稱，和本專案自寫的各行業用詞。
+2. **映射的唯讀底座**：iOS 鍵盤擴充、macOS 與 Android 以 `mmap` 映射 `mimo_base.bin`，經 `mpn_lexicon_create_from_base_in_place` 交給核心。核心直接讀映射的檔案頁（詞表欄位與預先建好的雜湊索引），不複製到堆積，也不在啟動時建索引；詞庫在堆積上佔 0 位元組。詞對表同樣映射後以 `mpn_lexicon_attach_pairs` 交給核心，也不佔堆積。排序時每個詞的分數是詞庫權重，加上它與後一個詞的詞對分數，輸入開頭與結尾也各算一次；長句和口語句子因此比只看詞頻準。Windows 仍讀 TSV 並複製到堆積（`mpn_lexicon_create`），尚未使用詞對表。
+3. **選詞記錄**：鍵盤以唯追加日誌 `mimo_user_wal.log` 記錄確認過的選詞，每 64 筆由鍵盤自己併入 `mimo_user.db`（`Sources/ChoiceMemory.swift`）。iOS 上這兩個檔案只放在鍵盤自己的沙盒，宿主 App 不讀也不寫。Android 與 Windows 還沒有選詞記錄。
+
+固定版本、校驗值與授權見 [THIRD_PARTY.md](../THIRD_PARTY.md)。
+
 ## 執行時
 
 crates/meowpuut-core（Rust）提供中文解碼器與日語詞表查詢，crates/meowpuut-ffi 提供 C API（include/meowpuut.h）。不可變詞表供會話共用，每個會話獨立保存組字、候選、頁碼與提交內容。拼音和注音各有讀音索引，共用詞條字形與頻率來源。
