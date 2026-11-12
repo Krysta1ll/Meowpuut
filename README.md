@@ -15,7 +15,7 @@
 
 目前是公開測試版。macOS 和 iOS 可以日常輸入中文，Android 和 Windows 有較早的測試包；選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
 
-![候選列：米米莫在左，莫莫在右；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
+![macOS 候選列，淺色和深色：米米莫和莫莫趴在玻璃上緣；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
 
 ## 米米莫、莫莫，和候選列
 
