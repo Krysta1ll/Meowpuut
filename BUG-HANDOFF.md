@@ -25,4 +25,7 @@ Owner's picture: still not reproduced. Ruled out by measurement: dark-style
 glass with light tint (227,230,234), light glass over black (149,174,200).
 Closest match: the accent tint on every key (91,120,153 vs owner 86,115,147
 in sRGB). Kaomoji "highlight" is the bar's left-end light, not a selection.
-Left: 26.2 checks, default shots + frames, test-ios.sh, typing checks.
+26.2 (iPhone 17): default shots frames 393/406 ok (.build/bug/default26),
+after26-flip and after26-reuse ok. Before/after: .build/bug/before-after-27-flip.png.
+test-ios.sh --simulator (18 Pro, 27.2): 16 passed, 105 typing checks. New check: scripts/ios-appearance-check.sh passes on 26.2 and 27.2.
+Left: owner picture unexplained (see above).
