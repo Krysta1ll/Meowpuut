@@ -27,7 +27,7 @@ ext=com.krysta1ll.meowpuut.ios.keyboard
 xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
 if [ "${SKIP_BUILD:-0}" != 1 ]; then
   xcodebuild -project iOS/Meowpuut.xcodeproj -scheme Meowpuut -sdk iphonesimulator \
-    -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$build/app" -jobs 6 "${extra[@]}" build -quiet
+    -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$build/app" -jobs 6 ${extra[@]+"${extra[@]}"} build -quiet
   xcodegen generate --quiet --spec iOS/tests/RealKeyboard/project.yml --project "$build"
 fi
 xcrun simctl install "$udid" "$build/app/Build/Products/Debug-iphonesimulator/Meowpuut.app"
