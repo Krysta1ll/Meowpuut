@@ -24,6 +24,7 @@
 # default .build/windows-vm-shots in this checkout. The guest's user is
 # "meow" with password "meow"; SSH on 127.0.0.1:2222 with a key made here.
 set -euo pipefail
+CALLER_DIR=$PWD
 cd "$(dirname "$0")/.."
 REPO=$PWD
 MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
@@ -127,8 +128,10 @@ cmd_deploy() {
 }
 
 cmd_screen() {
-  qmp "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$1\",\"format\":\"png\"}}" >/dev/null
-  echo "$1"
+  local file=$1
+  [ "${file#/}" != "$file" ] || file="$CALLER_DIR/$file"  # QEMU resolves relative paths from its own directory
+  qmp "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$file\",\"format\":\"png\"}}" >/dev/null
+  echo "$file"
 }
 
 # Width and height of the guest screen in pixels.
