@@ -42,7 +42,12 @@
 
 ## 在 Windows 上檢查過的
 
-（待填：VM 實測結果。）
+還沒有。0.8.0-alpha.1 的 DLL、安裝腳本和候選窗都還沒在 Windows 上執行過；檢查過的只有：
+
+- macOS 上：`scripts/build-windows-check.sh` 全部通過（排版測試、`session_test` 含 `mimo_base.bin` 共用詞庫、SVG 快照、MinGW GCC 交叉編譯 x64 DLL）。
+- llvm-mingw 20261020 交叉編譯 x64 和 Arm64 DLL，警告視為錯誤，沒有警告；DLL 只匯入 Windows 內建的 DLL，匯出 `DllGetClassObject`、`DllCanUnloadNow`、`DllRegisterServer`、`DllUnregisterServer`。
+
+在 Windows 上要跑的測試寫在倉庫根目錄的 `WINDOWS-IME-HANDOFF.md`。
 
 ## 會話層
 
