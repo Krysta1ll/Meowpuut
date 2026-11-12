@@ -21,7 +21,10 @@
 - [x] 截圖 assets/screenshots/ios-keyboard.png、expanded.png（954a470）
 - [x] ENGINE.md 接收三層架構（7bc8760）
 - [x] README 初稿、INSTALL.md（dad09aa）；Windows 段落還要照合併後的 Windows/README 補
-- [ ] RELEASE_NOTES.md 0.8.0
-- [ ] .build/release-0.8.0-github.md
-- [ ] 再合併一次 lexicon-without-rime-ice，改 Windows 的描述
+- [x] RELEASE_NOTES.md 0.8.0（Windows「又可以安裝」那句是照協調者說的，分支還沒合併）
+- [x] .build/release-0.8.0-github.md（.build 不進 git；Windows 段落同上）
+- [x] 已知問題實拍：huaxue 仍是滑雪、nihao 仍有逆號；wuli 已是物理、ie 是家（日文）
+- [x] Mac 的候選窗不能摸貓（只有 iPhone、Android、Windows）
+- [x] 第二次合併 lexicon（00b145a）：Windows 也有節日的貓、Android 節日在模擬器看過
+- [ ] Windows TSF 分支合併後：照 Windows/README.md 改 INSTALL.md 的 Windows 段、README、notes、GitHub body；ENGINE.md「Windows 仍讀 TSV」可能要改（那個分支讓 Session 讀 mimo_base.bin）
 - [ ] 刪掉這個檔案
