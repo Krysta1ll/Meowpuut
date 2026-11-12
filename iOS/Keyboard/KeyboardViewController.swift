@@ -116,8 +116,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     private var observers = Set<AnyCancellable>()
     private var keySetContext: KeyboardKeyContext?
     private var keySet: KeyboardKeySet?
-    private var festivalHour = -1
-    private var festivalOutfit: FestivalOutfit?
     /// The day the cats' arrangement is for. It is read when the keyboard
     /// appears, so the cats never move while someone is typing.
     private var catDay = CatSchedule.day()
@@ -407,16 +405,15 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         return built
     }
 
-    /// Today's outfit, looked up at most once an hour. The bundled manifest
-    /// is usually empty, and then there is nothing to look up.
-    private func activeOutfit() -> FestivalOutfit? {
-        guard Preferences.shared.festivalOutfits, !Festivals.bundled.isEmpty else { return nil }
-        let hour = Int(Date().timeIntervalSinceReferenceDate / 3600)
-        if hour != festivalHour {
-            festivalHour = hour
-            festivalOutfit = Festivals.active()
-        }
-        return festivalOutfit
+    /// Today's festival theme (docs/FESTIVALS.md). Until the dressed cats
+    /// are on the bar it is shown only in the lab and in festival screenshot
+    /// builds: the trim and colours with the plain cats are not shipped.
+    private func activeOutfit(dark: Bool) -> FestivalOutfit? {
+        #if KEYBOARD_LAB || FESTIVAL_SHOTS
+        return KeyboardFestival.today().map { FestivalOutfit(theme: $0, dark: dark) }
+        #else
+        return nil
+        #endif
     }
 
     private func refreshAppearance() {
@@ -427,7 +424,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         case .dark: true
         }
         if ui.dark != dark { ui.dark = dark }
-        let outfit = activeOutfit()
+        let outfit = activeOutfit(dark: dark)
         if ui.outfit != outfit { ui.outfit = outfit }
         relayout()
     }

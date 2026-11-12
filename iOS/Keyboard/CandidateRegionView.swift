@@ -473,7 +473,9 @@ struct CandidateRegionView: View {
     /// goes here: over the glass, under the candidates and the cats. It must
     /// not take touches. Nothing is drawn for now.
     @ViewBuilder private func barTrim(_ layout: CandidateRegionLayout) -> some View {
-        EmptyView()
+        if let theme = ui.outfit?.theme {
+            FestivalTrimView(trim: theme.trim, glass: layout.glass, shape: preferences.glassShape, clear: [layout.chevron])
+        }
     }
 
     private func petZone(_ cat: KeyboardCat, rect: CGRect) -> some View {

@@ -16,6 +16,20 @@ enum KeyboardFestival {
         if let id = labTheme { return Festivals.bundled.themes.first { $0.id == id } }
         if let day = labDay { return Festivals.theme(onDay: day, wardrobe: preferences.festivalWardrobe) }
         #endif
+        #if FESTIVAL_SHOTS
+        // Screenshot builds only (scripts/ios-real-keyboard-shots.sh with
+        // FESTIVAL_SHOTS=1): the plan's settings may name a day to show.
+        if let day = shotDay { return Festivals.theme(onDay: day, wardrobe: preferences.festivalWardrobe) }
+        #endif
         return Festivals.theme(on: date, wardrobe: preferences.festivalWardrobe)
     }
+
+    #if FESTIVAL_SHOTS
+    private static var shotDay: String? {
+        let file = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.krysta1ll.meowpuut.shared")?
+            .appendingPathComponent("KeyboardSettings.json")
+        let json = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        return json?["festivalShotDay"] as? String
+    }
+    #endif
 }

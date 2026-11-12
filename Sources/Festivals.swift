@@ -338,9 +338,10 @@ struct FestivalTrimLayout: Equatable {
 
 // MARK: Old overlay outfits
 
-// The cat code being replaced still reads the old per-cat overlay outfits.
-// Nothing ships in that format any more, so these find nothing; they go
-// when the new cat stage takes the themes above.
+// The cat code still passes the old per-cat overlay outfit around; the
+// worn theme rides in it (`theme`, with the appearance it was resolved for)
+// until the cats take FestivalTheme directly. No overlay layers ship, so
+// `layers` and `imageURL` find nothing.
 struct FestivalOutfit: Equatable, Identifiable {
     struct Title: Equatable { var hant: String; var hans: String }
     struct Layers: Equatable { var front: String?; var back: String?; var frames: [String: String]? }
@@ -348,7 +349,22 @@ struct FestivalOutfit: Equatable, Identifiable {
     var title: Title
     var cats: [String: Layers]
     var pill: String?
-    var pillRGB: (red: Double, green: Double, blue: Double)? { nil }
+    var theme: FestivalTheme?
+    var dark = false
+
+    init(theme: FestivalTheme, dark: Bool) {
+        (id, title, cats, pill) = (theme.id, Title(hant: theme.names.hant, hans: theme.names.hans), [:], nil)
+        (self.theme, self.dark) = (theme, dark)
+    }
+
+    /// The selected capsule's lower colour for this appearance; the pill
+    /// draws its top from it. Increase Contrast keeps the palette's own pill.
+    var pillRGB: (red: Double, green: Double, blue: Double)? {
+        guard let colors = theme?.colors, let hex = (dark ? colors.dark : colors.light).last,
+              let value = UInt32(hex.dropFirst(), radix: 16), hex.count == 7 else { return nil }
+        return (Double(value >> 16 & 0xFF) / 255, Double(value >> 8 & 0xFF) / 255, Double(value & 0xFF) / 255)
+    }
+
     func layers(for cat: String) -> Layers? { cats[cat] }
 }
 

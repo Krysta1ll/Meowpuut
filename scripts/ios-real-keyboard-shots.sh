@@ -9,17 +9,25 @@
 # and dark appearance; a plan file is taken once in the current appearance
 # (format: iOS/tests/RealKeyboard/UITests/RealKeyboardShots.swift).
 # SKIP_BUILD=1 reuses the last build. The simulator's appearance is put back.
+# FESTIVAL_SHOTS=1 builds a separate copy in which a plan's settings may set
+# "festivalShotDay":"yyyy-MM-dd" to show that day's festival theme; the code
+# for it exists only under that compilation condition, never in a release.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR="${MEOWPUUT_XCODE_DIR:-/Applications/Xcode.app/Contents/Developer}"
 udid="$1"; out="$(mkdir -p "$2" && cd "$2" && pwd)"; plan="${3:-}"
 build="${REALKB_BUILD:-$PWD/.build/iOS-real}"
+extra=()
+if [ "${FESTIVAL_SHOTS:-0}" = 1 ]; then
+  build="${REALKB_BUILD:-$PWD/.build/iOS-real-festival}"
+  extra=(SWIFT_ACTIVE_COMPILATION_CONDITIONS="DEBUG FESTIVAL_SHOTS")
+fi
 ext=com.krysta1ll.meowpuut.ios.keyboard
 
 xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
 if [ "${SKIP_BUILD:-0}" != 1 ]; then
   xcodebuild -project iOS/Meowpuut.xcodeproj -scheme Meowpuut -sdk iphonesimulator \
-    -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$build/app" -jobs 6 build -quiet
+    -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$build/app" -jobs 6 "${extra[@]}" build -quiet
   xcodegen generate --quiet --spec iOS/tests/RealKeyboard/project.yml --project "$build"
 fi
 xcrun simctl install "$udid" "$build/app/Build/Products/Debug-iphonesimulator/Meowpuut.app"
