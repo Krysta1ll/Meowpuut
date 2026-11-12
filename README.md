@@ -10,7 +10,7 @@
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a>
 </p>
 
-輸入法是我做的，貓是我養的。
+
 
 喵撲可以打注音和拼音，出繁體或簡體。中文打到一半想放一個日文詞，直接打羅馬字：打 `sushi`，候選裡帶貓爪的「寿司」就是日文。英文也直接夾在拼音裡打：`wozaiyongiphone` 是「我在用iPhone」。
 
