@@ -6,7 +6,7 @@ import UIKit
 // needed. REALKB_PAGE is light, dark or colour: what shows through the
 // keyboard's translucent backdrop. A label reports the keyboard frame.
 // REALKB_HOST=accessory gives the field a bar above the keyboard, as chat
-// apps have.
+// apps have. REALKB_APPEARANCE=dark asks for a dark keyboard, as some apps do.
 
 func env(_ name: String) -> String { ProcessInfo.processInfo.environment[name] ?? "" }
 
@@ -69,6 +69,7 @@ final class HostController: UIViewController {
         field.backgroundColor = .clear
         field.textColor = page == "dark" ? .white : .black
         field.accessibilityIdentifier = "field"
+        if env("REALKB_APPEARANCE") == "dark" { field.keyboardAppearance = .dark }
         field.autocorrectionType = .no
         field.translatesAutoresizingMaskIntoConstraints = false
         info.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
