@@ -97,13 +97,11 @@ struct KeyboardGeometryTests {
                                    "\(label): \(place.cat)'s paws are at \(place.anchor.y), the edge at \(edge)")
                             expect(place.body.maxX <= layout.glass.maxX + 0.001 && place.body.minX >= layout.glass.minX - 12 * layout.scale,
                                    "\(label): \(place.cat) is over the glass")
-                        } else {
-                            expect(place.visible.minX > stage.arrow.maxX, "\(label): \(place.cat) stands right of the expand key's arrow")
                         }
                         let touch = place.touch(on: stage)
                         expect(touch.width >= 43.99 && region.contains(touch.insetBy(dx: 0.001, dy: 0.001)), "\(label): \(place.cat)'s touch area \(touch)")
                         expect(touch.height >= (idiom == .phoneLandscape ? 24 : 28), "\(label): \(place.cat)'s touch area is \(touch.height) pt tall")
-                        expect(!touch.intersects(stage.row) || place.sprite.behindBar, "\(label): a cat in front keeps off the row")
+                        expect(touch.maxY <= place.anchor.y + 0.001, "\(label): \(place.cat)'s touch area stops at the glass's edge")
                     }
                     // Two cats share at most a cheek: each keeps most of its picture to itself.
                     let overlap = places[0].visible.intersection(places[1].visible)
@@ -120,11 +118,44 @@ struct KeyboardGeometryTests {
             }
         }
         expect(placed > 300, "\(placed) placements checked")
-        // All four poses appear in the list.
+        // The three poses on the top edge appear in the list.
         let poses = Set(CatArrangement.all.flatMap { $0.seats.map(\.pose) })
-        expect(poses == Set(CatPose.allCases) && CatArrangement.all.count == 9, "nine arrangements use the four poses")
+        expect(poses == [.peek, .rest, .lounge] && CatArrangement.all.count == 8, "eight arrangements use the three top-edge poses")
+        sittingCat()
         // Without the cats there is no light band and nothing to place.
         expect(CandidateRegionLayout(width: 393, idiom: .phone, cats: false).lightBand == 0, "no light band without the cats")
+    }
+
+    /// A whole sitting cat with no cut (a festival's: 64 × 80 pt, feet at
+    /// (0.5, 0.92)) stands on the top edge with its feet on the glass, and the
+    /// caller chooses how small it may be drawn.
+    static func sittingCat() {
+        let sitting = CatSprite(name: "stand-in", size: CGSize(width: 64, height: 80), anchor: CGPoint(x: 0.5, y: 0.92),
+                                bounds: CGRect(x: 0.14, y: 0.04, width: 0.72, height: 0.9), cut: 0...0, paws: [])
+        let art: (KeyboardCat, CatPose) -> CatSprite = { _, _ in sitting }
+        let ends = CatArrangement.named("ends")!
+        for (width, idiom) in [(320.0, KeyboardIdiom.phone), (393, .phone), (440, .phone), (820, .pad), (852, .phoneLandscape)] {
+            for shape in GlassShape.allCases {
+                let layout = CandidateRegionLayout(width: width, idiom: idiom, rim: GlassEdge.band(shape, height: 1).top)
+                let stage = layout.stage(shape: shape)
+                let label = "a sitting cat at \(width) (\(idiom), \(shape))"
+                guard let places = ends.place(on: stage, sprite: art, smallest: 0.3) else {
+                    expect(false, "\(label) has no place"); continue
+                }
+                for place in places {
+                    let edge = layout.glass.minY + GlassEdge.top(shape, size: layout.glass.size, x: place.anchor.x - layout.glass.minX)
+                    expect(place.anchor.y >= edge - 0.001 && place.anchor.y - edge <= 1.5 * layout.scale + 0.001,
+                           "\(label): feet at \(place.anchor.y), the edge at \(edge)")
+                    expect(place.inFront == [place.visible] && !place.covers(stage), "\(label): in front of the glass and off the row")
+                    expect(place.visible.minY >= 1.4, "\(label): inside the stage")
+                }
+            }
+        }
+        // The floor is the caller's: at 393 pt it is drawn at about 0.47, so the plain cats' floor keeps it off a 375 pt phone.
+        let layout = CandidateRegionLayout(width: 375, idiom: .phone, rim: 0)
+        expect(ends.place(on: layout.stage(shape: .capsule), sprite: art) == nil
+               && ends.place(on: layout.stage(shape: .capsule), sprite: art, smallest: 0.4) != nil,
+               "the floor decides whether a sitting cat shows on a 375 pt phone")
     }
 
     /// An iPad's floating keyboard is 320 pt wide: phone layout, not iPad sizes.

@@ -16,7 +16,6 @@ extension CatArrangement {
         case "mimimoLounge": return t("米米莫趴著", "米米莫趴着")
         case "momoLounge": return t("莫莫趴著", "莫莫趴着")
         case "company": return t("趴著作伴", "趴着作伴")
-        case "hold": return t("米米莫扶框", "米米莫扶框")
         default: return id
         }
     }
@@ -34,18 +33,13 @@ private struct OutsideGlass: Shape {
     }
 }
 
-/// What of a sprite is in front of the glass: the part under its anchor row,
-/// and each paw's upper half.
+/// What of a sprite is in front of the glass (CatSprite.pawOutlines).
 private struct PawsShape: Shape {
     var sprite: CatSprite
 
     func path(in rect: CGRect) -> Path {
-        let row = sprite.anchor.y * rect.height
-        var path = Path(CGRect(x: 0, y: row, width: rect.width, height: rect.height - row))
-        for paw in sprite.paws {
-            let rx = paw.halfWidth * rect.width + 0.4, ry = paw.depth * rect.height + 0.4
-            path.addEllipse(in: CGRect(x: paw.x * rect.width - rx, y: row - ry, width: 2 * rx, height: 2 * ry))
-        }
+        var path = Path()
+        sprite.pawOutlines(rect.size).forEach { path.addEllipse(in: $0.offsetBy(dx: rect.minX, dy: rect.minY)) }
         return path
     }
 }
@@ -73,6 +67,7 @@ struct CatFigures: View {
             .rotationEffect(.degrees(place.tilt), anchor: anchor)
     }
 
+    /// The body, with the paw shadows under it; the paws in front come later.
     private func figure(_ place: CatPlacement) -> some View {
         // Black on a dark background: a soft warm light round 米米莫's outline.
         let glow = dark && place.cat == .mimimo ? Color(red: 1, green: 0.93, blue: 0.84).opacity(0.6) : Color.clear
@@ -95,8 +90,6 @@ struct CatFigures: View {
                     .frame(width: size.width, height: size.height)
                     .mask(CandidateGlassShape(style: shape).path(in: glass).fill())
                 }
-                sprite(place, breathes: false).mask(PawsShape(sprite: place.sprite))
-                    .position(x: place.frame.midX, y: place.frame.midY)
             } else {
                 body
             }
@@ -106,6 +99,11 @@ struct CatFigures: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(places, id: \.cat) { figure($0) }
+            // Every cat's paws after every body, so one cat's body never cuts into the other's paws.
+            ForEach(places.filter(\.sprite.behindBar), id: \.cat) { place in
+                sprite(place, breathes: false).mask(PawsShape(sprite: place.sprite))
+                    .position(x: place.frame.midX, y: place.frame.midY)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .onChange(of: breathing, initial: true) { _, on in

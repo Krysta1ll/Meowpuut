@@ -72,6 +72,8 @@ final class CatLayersView: UIView {
         figures = []
         let glass = glassPath()
         let bounds = CGRect(x: 0, y: 0, width: 4000, height: 400)
+        // Paws go on after every body, so one cat's body never cuts into the other's paws.
+        var front: [CALayer] = []
         for place in next.places {
             guard let image = CatArt.image(place.sprite)?.cgImage else { continue }
             func sprite() -> CALayer {
@@ -133,22 +135,18 @@ final class CatLayersView: UIView {
                 }
                 layer.addSublayer(shadows)
             }
-            // The paws again, in front of the glass: what hangs under the anchor row, and each paw's upper half.
+            // The paws again, in front of the glass.
             let paws = sprite()
             let shape = CAShapeLayer()
             let outline = CGMutablePath()
-            let size = place.frame.size, row = place.sprite.anchor.y * size.height
-            outline.addRect(CGRect(x: 0, y: row, width: size.width, height: size.height - row))
-            for paw in place.sprite.paws {
-                let rx = paw.halfWidth * size.width + 0.4, ry = paw.depth * size.height + 0.4
-                outline.addEllipse(in: CGRect(x: paw.x * size.width - rx, y: row - ry, width: 2 * rx, height: 2 * ry))
-            }
-            shape.frame = CGRect(origin: .zero, size: size)
+            place.sprite.pawOutlines(place.frame.size).forEach { outline.addEllipse(in: $0) }
+            shape.frame = CGRect(origin: .zero, size: place.frame.size)
             shape.path = outline
             paws.mask = shape
-            layer.addSublayer(paws)
+            front.append(paws)
             figures.append(Figure(place: place, sprites: [body, paws]))
         }
+        front.forEach(layer.addSublayer)
         applyRest()
         if breathing { breathing = false; setBreathing(true) }
     }

@@ -8,8 +8,10 @@ import Foundation
 
 enum KeyboardCat: String, CaseIterable { case mimimo, momo }
 
-/// The poses made for the bar. In the first three the cat is behind the bar
-/// with its paws over the top edge; in `hold` it stands beside the bar's end.
+/// The pack's poses for the bar. In the first three the cat is behind the bar
+/// with its paws over the top edge. `hold` (standing beside the bar's end)
+/// needs room outside the glass that the bar does not leave, so no
+/// arrangement uses it.
 enum CatPose: String, CaseIterable {
     case rest, peek, lounge, hold
 
@@ -50,6 +52,19 @@ struct CatSprite: Equatable {
     /// Cut on its anchor row: the body belongs behind the bar and only the
     /// paws in front of it. A whole cat is drawn in front.
     var behindBar: Bool { cut.upperBound > cut.lowerBound }
+
+    /// The part drawn again in front of the glass, for a canvas of `size`:
+    /// each whole paw (a round paw is about 0.7 as tall as it is wide), so an
+    /// edge that rises under a paw does not cut into it. Nothing else of the
+    /// cut row: its soft edge would show as a line on the glass.
+    func pawOutlines(_ size: CGSize) -> [CGRect] {
+        let row = anchor.y * size.height
+        return paws.map { paw in
+            let width = 2 * paw.halfWidth * size.width + 0.8, bottom = row + paw.depth * size.height + 0.4
+            let height = max(2 * paw.depth * size.height, 0.7 * width) + 0.4
+            return CGRect(x: paw.x * size.width - width / 2, y: bottom - height, width: width, height: height)
+        }
+    }
 }
 
 enum CatArt {
@@ -146,12 +161,6 @@ enum GlassEdge {
         }
     }
 
-    /// The height at which the glass's round end is widest: where a cat
-    /// holds it.
-    static func side(_ style: GlassShape, height: CGFloat) -> CGFloat {
-        style == .cloud ? 0.58 * height : height / 2
-    }
-
     /// Radius of the glass's round ends.
     static func endRadius(_ style: GlassShape, height: CGFloat) -> CGFloat {
         switch style {
@@ -221,18 +230,13 @@ struct CatPlacement: Equatable {
         inFront.contains { $0.intersects(stage.row) || $0.intersects(stage.arrow) }
     }
 
-    /// Where a tap pets this cat: its picture, widened to 44 pt, down to the
-    /// glass's edge for a cat behind the bar and kept off the bar's content
-    /// for one in front of its end.
+    /// Where a tap pets this cat: its picture widened to 44 pt, from the top
+    /// of the stage down to the glass's edge.
     func touch(on stage: CatStage) -> CGRect {
         let box = visible
         let width = max(44, box.width)
-        if sprite.behindBar {
-            let x = min(max(0, box.midX - width / 2), max(0, stage.size.width - width))
-            return CGRect(x: x, y: 0, width: width, height: max(1, anchor.y))
-        }
-        let x = max(stage.arrow.maxX, min(box.midX - width / 2, stage.size.width - width))
-        return CGRect(x: x, y: box.minY, width: stage.size.width - x, height: stage.size.height - box.minY)
+        let x = min(max(0, box.midX - width / 2), max(0, stage.size.width - width))
+        return CGRect(x: x, y: 0, width: width, height: max(1, anchor.y))
     }
 }
 
@@ -241,10 +245,8 @@ struct CatPlacement: Equatable {
 struct CatArrangement: Equatable, Identifiable {
     struct Seat: Equatable {
         /// Seats on `left` are packed along the top edge from the glass's
-        /// left end inward in the order listed, on `right` from its right
-        /// end. `end` stands in front of the glass's right end, past the
-        /// expand key, with a paw on the end's edge.
-        enum Side: Equatable { case left, right, end }
+        /// left end inward in the order listed, on `right` from its right end.
+        enum Side: Equatable { case left, right }
         var cat: KeyboardCat
         var pose: CatPose
         var side: Side
@@ -262,16 +264,15 @@ struct CatArrangement: Equatable, Identifiable {
     static let all: [CatArrangement] = [
         CatArrangement(id: "ends", seats: [Seat(cat: .mimimo, pose: .peek, side: .left), Seat(cat: .momo, pose: .peek, side: .right)]),
         CatArrangement(id: "left", seats: [Seat(cat: .mimimo, pose: .peek, side: .left, tilt: 3),
-                                            Seat(cat: .momo, pose: .peek, side: .left, tilt: -4, overlap: -3)]),
+                                            Seat(cat: .momo, pose: .peek, side: .left, tilt: -4, overlap: -6)]),
         CatArrangement(id: "right", seats: [Seat(cat: .momo, pose: .peek, side: .right, tilt: -3),
-                                             Seat(cat: .mimimo, pose: .peek, side: .right, tilt: 4, overlap: -3)]),
+                                             Seat(cat: .mimimo, pose: .peek, side: .right, tilt: 4, overlap: -6)]),
         CatArrangement(id: "lounge", seats: [Seat(cat: .mimimo, pose: .lounge, side: .left), Seat(cat: .momo, pose: .lounge, side: .right)]),
         CatArrangement(id: "rest", seats: [Seat(cat: .mimimo, pose: .rest, side: .left), Seat(cat: .momo, pose: .rest, side: .right)]),
         CatArrangement(id: "mimimoLounge", seats: [Seat(cat: .mimimo, pose: .lounge, side: .left), Seat(cat: .momo, pose: .peek, side: .right)]),
         CatArrangement(id: "momoLounge", seats: [Seat(cat: .mimimo, pose: .peek, side: .left), Seat(cat: .momo, pose: .lounge, side: .right)]),
         CatArrangement(id: "company", seats: [Seat(cat: .momo, pose: .lounge, side: .right),
                                                Seat(cat: .mimimo, pose: .peek, side: .right, overlap: 2)]),
-        CatArrangement(id: "hold", seats: [Seat(cat: .momo, pose: .lounge, side: .left), Seat(cat: .mimimo, pose: .hold, side: .end)]),
     ]
 
     static func named(_ id: String) -> CatArrangement? { all.first { $0.id == id } }
@@ -280,23 +281,36 @@ struct CatArrangement: Equatable, Identifiable {
     static let smallest: CGFloat = 0.45
 
     /// Each cat's place on a stage, or nil when this arrangement does not
-    /// fit it: a cat would be too small, would not find a level stretch of
-    /// edge, would cover the candidates or would leave the stage.
-    func place(on stage: CatStage, sprite: (KeyboardCat, CatPose) -> CatSprite = CatArt.sprite) -> [CatPlacement]? {
+    /// fit it: a cat would be smaller than `smallest`, would not find a level
+    /// stretch of edge, would cover the candidates or would leave the stage.
+    /// A sprite with a cut sits behind the edge with its paws over it; a
+    /// whole cat (empty cut, such as a festival's sitting cat) stands on the
+    /// edge with its anchor at its feet.
+    func place(on stage: CatStage, sprite: (KeyboardCat, CatPose) -> CatSprite = CatArt.sprite,
+               smallest: CGFloat = Self.smallest) -> [CatPlacement]? {
         let unit = stage.unit, glass = stage.glass
         // How far into the round end a cat's cut may start, and how much of a
         // cat the edge may hide: at its sides, and under its face.
         let cornerReach = 4 * unit, hiddenSide = 4 * unit, hiddenFace = 1.5 * unit
         var placed: [CatPlacement?] = Array(repeating: nil, count: seats.count)
 
-        func span(_ sprite: CatSprite, _ scale: CGFloat) -> CGFloat { (sprite.cut.upperBound - sprite.cut.lowerBound) * sprite.size.width * scale }
+        /// What of a cat meets the edge, in fractions of its width: the cut, or a whole cat's opaque width.
+        func footing(_ sprite: CatSprite) -> ClosedRange<CGFloat> { sprite.behindBar ? sprite.cut : sprite.bounds.minX...sprite.bounds.maxX }
+        func span(_ sprite: CatSprite, _ scale: CGFloat) -> CGFloat { (footing(sprite).upperBound - footing(sprite).lowerBound) * sprite.size.width * scale }
 
-        /// A cat on the top edge whose cut starts at `left` (in glass coordinates).
+        /// A cat on the top edge whose footing starts at `left` (in glass coordinates).
         func top(_ seat: Seat, _ art: CatSprite, _ scale: CGFloat, left: CGFloat) -> CatPlacement? {
             let width = art.size.width * scale, height = art.size.height * scale
             let edge = GlassEdge.rise(stage.shape, size: glass.size, from: left, to: left + span(art, scale))
-            guard edge.most <= hiddenSide, edge.middle <= hiddenFace else { return nil }
-            let x = glass.minX + left - art.cut.lowerBound * width
+            // A whole cat is in front of the glass, so a rise under it shows as feet sunk into the edge.
+            guard edge.most <= (art.behindBar ? hiddenSide : hiddenFace), edge.middle <= hiddenFace else { return nil }
+            let x = glass.minX + left - footing(art).lowerBound * width
+            // A paw sinks into the glass by as much as the edge rises under it.
+            for paw in art.paws {
+                let centre = x - glass.minX + paw.x * width, half = paw.halfWidth * width
+                let under = GlassEdge.rise(stage.shape, size: glass.size, from: centre - half, to: centre + half)
+                guard edge.low - (under.low - under.most) <= hiddenFace else { return nil }
+            }
             let anchor = CGPoint(x: x + art.anchor.x * width, y: glass.minY + edge.low)
             let place = CatPlacement(cat: seat.cat, pose: seat.pose, sprite: art,
                                      frame: CGRect(x: x, y: anchor.y - art.anchor.y * height, width: width, height: height),
@@ -313,7 +327,7 @@ struct CatArrangement: Equatable, Identifiable {
                 let rise = abs(sin(seats[index].tilt * .pi / 180)) * art.bounds.width * art.size.width / 2
                 return min(1, stage.room / ((art.anchor.y - art.bounds.minY) * art.size.height + rise))
             }
-            guard scales.allSatisfy({ $0 >= Self.smallest }) else { return nil }
+            guard scales.allSatisfy({ $0 >= smallest }) else { return nil }
             // Offsets of each cat's cut from the start of the group, in the order listed.
             var offsets: [CGFloat] = [], length: CGFloat = 0
             for (n, index) in group.enumerated() {
@@ -324,7 +338,7 @@ struct CatArrangement: Equatable, Identifiable {
             let radius = GlassEdge.endRadius(stage.shape, height: glass.height)
             // The group slides inward from its end until every cat has a level stretch.
             var slide: CGFloat = 0
-            let limit = glass.width * 0.3
+            let limit = glass.width * 0.2
             search: while true {
                 var found: [CatPlacement] = []
                 for (n, index) in group.enumerated() {
@@ -344,21 +358,6 @@ struct CatArrangement: Equatable, Identifiable {
                 slide += 2 * unit
                 if slide > limit { return nil }
             }
-        }
-
-        for index in seats.indices where seats[index].side == .end {
-            // Right of the expand key's arrow, with the paw's tip on the end's edge.
-            let seat = seats[index], art = sprite(seat.cat, seat.pose)
-            let hold = glass.minY + GlassEdge.side(stage.shape, height: glass.height)
-            let edge = glass.maxX - 1
-            let scale = min(1, (edge - stage.arrow.maxX - 3 * unit) / ((art.anchor.x - art.bounds.minX) * art.size.width),
-                            (hold - 1) / ((art.anchor.y - art.bounds.minY) * art.size.height),
-                            (stage.size.height - hold) / ((art.bounds.maxY - art.anchor.y) * art.size.height))
-            guard scale >= Self.smallest else { return nil }
-            let width = art.size.width * scale, height = art.size.height * scale
-            placed[index] = CatPlacement(cat: seat.cat, pose: seat.pose, sprite: art,
-                                         frame: CGRect(x: edge - art.anchor.x * width, y: hold - art.anchor.y * height, width: width, height: height),
-                                         anchor: CGPoint(x: edge, y: hold), tilt: seat.tilt)
         }
 
         let places = placed.compactMap { $0 }
@@ -418,9 +417,10 @@ enum CatSchedule {
     /// an arrangement's id; one that does not fit this stage gives way to
     /// the first that does.
     static func arrangement(setting: String, day: Int, on stage: CatStage,
-                            sprite: (KeyboardCat, CatPose) -> CatSprite = CatArt.sprite) -> (arrangement: CatArrangement, places: [CatPlacement])? {
+                            sprite: (KeyboardCat, CatPose) -> CatSprite = CatArt.sprite,
+                            smallest: CGFloat = CatArrangement.smallest) -> (arrangement: CatArrangement, places: [CatPlacement])? {
         let pool = CatArrangement.all.compactMap { arrangement in
-            arrangement.place(on: stage, sprite: sprite).map { (arrangement: arrangement, places: $0) }
+            arrangement.place(on: stage, sprite: sprite, smallest: smallest).map { (arrangement: arrangement, places: $0) }
         }
         guard !pool.isEmpty else { return nil }
         if setting == daily { return pool[index(day: day, count: pool.count)] }

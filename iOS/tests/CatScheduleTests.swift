@@ -65,15 +65,15 @@ struct CatScheduleTests {
         expect(CatSchedule.index(day: 5, count: 0) == 0, "an empty pool does not crash")
         // Over a year no arrangement is left out or shown much more than the others.
         var shown = [Int: Int]()
-        for day in today..<(today + 365) { shown[CatSchedule.index(day: day, count: 9), default: 0] += 1 }
-        expect(shown.count == 9 && shown.values.min()! >= 20 && shown.values.max()! <= 70, "a year uses all nine: \(shown.values.sorted())")
+        for day in today..<(today + 365) { shown[CatSchedule.index(day: day, count: 8), default: 0] += 1 }
+        expect(shown.count == 8 && shown.values.min()! >= 22 && shown.values.max()! <= 80, "a year uses all eight: \(shown.values.sorted())")
 
-        // The pool is the arrangements that fit the bar: all nine on a phone's
+        // The pool is the arrangements that fit the bar: all eight on a phone's
         // capsule, the peeking ones on a landscape phone, fewer on the cloud.
         func pool(_ stage: CatStage) -> [String] { CatArrangement.all.filter { $0.place(on: stage) != nil }.map(\.id) }
         let phone = stage(402, .phone, .capsule), landscape = stage(750, .phoneLandscape, .capsule), cloud = stage(402, .phone, .cloud)
-        expect(pool(phone).count == 9 && pool(landscape) == ["ends", "left", "right"], "phone \(pool(phone)), landscape \(pool(landscape))")
-        expect(pool(cloud).count < 9 && pool(cloud).contains("ends") && !pool(cloud).contains("lounge"), "cloud \(pool(cloud))")
+        expect(pool(phone).count == 8 && pool(landscape) == ["ends", "left", "right"], "phone \(pool(phone)), landscape \(pool(landscape))")
+        expect(pool(cloud).count < 8 && pool(cloud).contains("ends") && !pool(cloud).contains("lounge"), "cloud \(pool(cloud))")
 
         // Every day's choice comes from the pool of the bar it is shown on, and changes from one day to the next there.
         for bar in [phone, landscape, cloud, stage(320, .phone, .wave), stage(1024, .pad, .cloud)] {

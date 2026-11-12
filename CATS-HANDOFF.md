@@ -10,6 +10,17 @@
 - 重新跑 `bash scripts/prepare-ios.sh`（成功，Xcode 專案已含 `PrivacyView.swift`）。
 - 文案：設定頁和 Android 字串裡「連續輕摸右邊的莫莫五下」去掉「右邊的」（繁簡都改）。貓每天換位置，她不一定在右邊。
 
+## 第三輪（Opus）進度
+
+1. 已修：爪子在波浪、雲朵上被切缺口。前景爪子的遮罩改成整隻爪子（`CatSprite.pawOutlines`，iOS 鍵盤和 SwiftUI 共用），不再畫錨點列以下的整條（那條會在玻璃上留一條淡灰線，莫莫趴著時看得到）；所有身體先畫、所有爪子後畫，所以左邊作伴裡莫莫不再咬到米米莫的爪子。`place` 多一條：每隻爪子下面的邊緣高出錨點列不超過 1.5 pt。
+2. 已修：左邊、右邊作伴的間距 −3 改 −6，米米莫的眼睛露出來。往內滑的上限 30 % 改 20 %。
+3. 拿掉「米米莫扶框」（hold）：手機和 iPad 的玻璃外側沒有空間，他只能站在玻璃圓端前面，爪子抓不到東西，和素材包的樣子不同。`side_hold` 圖片和資料留著（素材包的一部分），沒有任何位置用它。
+4. 傾斜和摸貓的旋轉：切口兩端都在爪子底下，爪子在前景，放大看不到縫，不改。
+5. 接點 1 做好：`place(on:sprite:smallest:)` 和 `CatSchedule.arrangement(...smallest:)` 接受沒有切口的整隻貓（腳放在邊緣上，用不透明寬度），最小縮放由呼叫的人決定；`KeyboardGeometryTests.sittingCat` 用假圖測。
+6. `bash scripts/test-ios.sh`：All 15 passed。截圖：`.build/cat06-shots/lab3/`（八種位置，膠囊淺深、波浪和雲朵淺深）。
+
+各寬度放得下的位置（修完後）：手機膠囊八種全部；手機波浪 ends、rest、momoLounge（320 只有 ends、rest）；手機雲朵 ends、left、rest、momoLounge（375 多 right，320 沒有 momoLounge 以外的 right）；橫向三種造型 ends、left、right；iPad 膠囊八種，波浪、雲朵五到六種。
+
 ## 各平台狀態
 
 ### iOS
