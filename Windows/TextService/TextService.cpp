@@ -1496,6 +1496,11 @@ HRESULT registerProfiles(bool install, const std::wstring &dll) {
                          : categories->UnregisterCategory(kServiceId, *category, kServiceId);
         if (install && FAILED(result)) return result;
     }
+    // Without this an empty TIP key stays under HKLM\SOFTWARE\Microsoft\CTF\TIP.
+    Ref<ITfInputProcessorProfiles> old;
+    if (!install && SUCCEEDED(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
+                                               IID_ITfInputProcessorProfiles, old.putVoid())))
+        old->Unregister(kServiceId);
     return S_OK;
 }
 

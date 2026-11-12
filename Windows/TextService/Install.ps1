@@ -14,6 +14,9 @@ $tips = @(
 $root = Join-Path $env:ProgramFiles 'Meowpuut'
 $serverKey = "HKLM:\SOFTWARE\Classes\CLSID\$clsid\InprocServer32"
 $regsvr32 = Join-Path $env:WINDIR 'System32\regsvr32.exe'
+# The elevated part runs in a hidden window; what it has to say goes here and
+# the user's window prints it.
+$messages = Join-Path $env:TEMP 'meowpuut-setup.txt'
 
 function Get-RegisteredDll {
     $key = Get-Item -LiteralPath $serverKey -ErrorAction SilentlyContinue
@@ -33,12 +36,13 @@ function Remove-OldFolders([string]$keep) {
     foreach ($folder in Get-ChildItem -LiteralPath $root -Directory) {
         if ($folder.FullName -eq $keep) { continue }
         try { Remove-Item -LiteralPath $folder.FullName -Recurse -Force }
-        catch { Write-Host "仍有程式在使用 $($folder.FullName)，關閉那些程式或重新開機後可以手動刪除。" }
+        catch { Add-Content -LiteralPath $messages -Encoding UTF8 "仍有程式在使用 $($folder.FullName)，關閉那些程式或重新開機後可以手動刪除。" }
     }
 }
 
 # --- the part that needs administrator rights ---------------------------------
 if ($Elevated) {
+  try {
     if ($Uninstall) {
         $dll = Get-RegisteredDll
         if ($dll -and (Test-Path -LiteralPath $dll)) {
@@ -52,16 +56,6 @@ if ($Elevated) {
 
     $source = $PSScriptRoot
     $dll = Join-Path $source 'MeowpuutTextService.dll'
-    # The DLL must match Windows: an x64 DLL does not load in Arm64 programs, nor the other way round.
-    $bytes = [IO.File]::ReadAllBytes($dll)
-    $machine = [BitConverter]::ToUInt16($bytes, [BitConverter]::ToInt32($bytes, 0x3c) + 4)
-    $packageArch = @{ 0x8664 = 'AMD64'; 0xAA64 = 'ARM64' }[[int]$machine]
-    $windowsArch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
-    if ($packageArch -ne $windowsArch) {
-        $wanted = if ($windowsArch -eq 'ARM64') { 'windows-arm64' } else { 'windows-x64' }
-        throw "這個套件是給 $packageArch 的 Windows，這台電腦是 $windowsArch。請下載檔名有 $wanted 的套件。"
-    }
-
     # Each build gets its own folder: programs that are running keep the DLL
     # they loaded, and the next install removes the folder once it is free.
     $hash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
@@ -77,14 +71,22 @@ if ($Elevated) {
     if ($code -ne 0) { throw "註冊失敗（regsvr32 結束代碼 $code）。" }
     Remove-OldFolders $target
     exit 0
+  } catch {
+    Add-Content -LiteralPath $messages -Encoding UTF8 $_.Exception.Message
+    exit 1
+  }
 }
 
 # --- run as the user: elevate for the machine part, then set up this user ----
 function Invoke-Elevated {
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Elevated')
     if ($Uninstall) { $arguments += '-Uninstall' }
+    Remove-Item -LiteralPath $messages -ErrorAction SilentlyContinue
     $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -Verb RunAs -Wait -PassThru -WindowStyle Hidden
-    if ($process.ExitCode -ne 0) { throw "需要系統管理員權限的步驟失敗（結束代碼 $($process.ExitCode)）。" }
+    $said = if (Test-Path -LiteralPath $messages) { (Get-Content -LiteralPath $messages -Encoding UTF8) -join "`n" } else { '' }
+    Remove-Item -LiteralPath $messages -ErrorAction SilentlyContinue
+    if ($process.ExitCode -ne 0) { throw "需要系統管理員權限的步驟失敗（結束代碼 $($process.ExitCode)）。$said" }
+    if ($said) { Write-Host $said }
 }
 
 Add-Type -Namespace Meowpuut -Name Input -MemberDefinition @'
@@ -103,6 +105,16 @@ if ($Uninstall) {
     Remove-Item -LiteralPath 'HKCU:\Software\Meowpuut' -Recurse -ErrorAction SilentlyContinue
     Write-Host '喵撲輸入法已移除。'
     exit 0
+}
+
+# The DLL must match Windows: an x64 DLL does not load in Arm64 programs, nor the other way round.
+$bytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'MeowpuutTextService.dll'))
+$machine = [BitConverter]::ToUInt16($bytes, [BitConverter]::ToInt32($bytes, 0x3c) + 4)
+$packageArch = @{ 0x8664 = 'AMD64'; 0xAA64 = 'ARM64' }[[int]$machine]
+$windowsArch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
+if ($packageArch -ne $windowsArch) {
+    $wanted = if ($windowsArch -eq 'ARM64') { 'windows-arm64' } else { 'windows-x64' }
+    throw "這個套件是給 $packageArch 的 Windows，這台電腦是 $windowsArch。請下載檔名有 $wanted 的套件。"
 }
 
 Invoke-Elevated
