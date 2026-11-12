@@ -119,7 +119,7 @@ MINGW_BIN=/path/to/llvm-mingw/bin RUST_WINDOWS_TARGET=x86_64-pc-windows-gnullvm 
 
 `scripts/windows-vm.sh` 在 Apple 晶片的 Mac 上跑一台 Windows 11 Arm64 虛擬機，用來實際執行交叉編譯出來的預覽程式和測試。虛擬機是 Homebrew 的 QEMU 加上 macOS 的 Hypervisor（hvf），沒有視窗，全部經由 SSH 和 QEMU 的 QMP 控制。x64 的 exe 在 Windows 內建的 x64 模擬下執行。
 
-檔案在主 checkout 的 `.build/windows-vm/`（不進 git，可用 `WINDOWS_VM_DIR` 改）：`disk.qcow2` 是系統碟，`vars.fd` 是 UEFI 變數，`media/` 是下載的安裝檔和做好的 `install.iso`，`ssh/` 是登入用的金鑰。Windows 的帳號是 `meow`，密碼 `meow`，開機自動登入；SSH 只收這把金鑰，埠是本機的 127.0.0.1:2222。Windows 沒有啟用，也不需要產品金鑰。
+檔案在主 checkout 的 `.build/windows-vm/`（不進 git，可用 `WINDOWS_VM_DIR` 改）：`disk.qcow2` 是系統碟，`vars.fd` 是 UEFI 變數，`media/` 是下載的安裝檔和做好的 `install.iso`、`data.dmg`（建好之後可以刪掉 `media/`，約 12 GB），`ssh/` 是登入用的金鑰。Windows 的帳號是 `meow`，密碼 `meow`，開機自動登入；SSH 只收這把金鑰，埠是本機的 127.0.0.1:2222。Windows 沒有啟用，也不需要產品金鑰。
 
 從零建立：
 
@@ -131,7 +131,7 @@ bash scripts/windows-vm.sh create
 `create` 依序做這些事，中斷後重跑會從缺的那一步接著做：
 
 1. 從 Microsoft 的 Media Creation Tool 目錄（`products.cab`）找出繁體中文 Arm64 的 ESD，從 `dl.delivery.mp.microsoft.com` 下載並核對 SHA-1（約 4.7 GB）。另外下載 virtio 網路卡驅動（Fedora 的 `virtio-win.iso`，Windows 沒有 QEMU 網路卡的驅動）和 Microsoft 的 OpenSSH（GitHub `PowerShell/Win32-OpenSSH`）。
-2. 用 wimlib 從 ESD 取出開機檔、Windows PE 和專業版映像，加上 `scripts/windows-vm/` 的檔案，做成 `install.iso`。不跑 Windows 安裝程式：Windows PE 執行 `deploy.cmd`，分割磁碟、套用映像、加入網路卡驅動、寫入 `unattend.xml`，然後關機。
+2. 用 wimlib 從 ESD 取出開機檔和 Windows PE，做成 `install.iso`；ESD 本身超過 4 GB，放不進 ISO 9660，所以和網路卡驅動、OpenSSH、`scripts/windows-vm/` 的檔案一起放進 exFAT 的 `data.dmg`。不跑 Windows 安裝程式（因此沒有產品金鑰和版本選擇的畫面）：Windows PE 執行 `deploy.cmd`，分割磁碟、套用專業版映像、加入網路卡驅動、寫入 `unattend.xml`，然後關機。
 3. 第一次開機時 Windows 依 `unattend.xml` 完成設定，建立本機帳號並登入，`firstlogon.ps1` 安裝 OpenSSH 伺服器、關掉睡眠和自動更新。等到 SSH 能連、桌面出現就完成。
 
 日常使用：
