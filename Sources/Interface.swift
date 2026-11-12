@@ -40,7 +40,7 @@ extension CandidatePalette {
 }
 
 /// Applies one appearance choice from a menu: "shape:wave", "tone:dark",
-/// "palette:sage", "glass:soft", "cats:off", "festival:on".
+/// "palette:sage", "glass:soft", "cats:off", "place:daily", "festival:on".
 @discardableResult
 func applyAppearance(_ command: String, to preferences: Preferences = .shared) -> Bool {
     let parts = command.split(separator: ":", maxSplits: 1).map(String.init)
@@ -62,6 +62,9 @@ func applyAppearance(_ command: String, to preferences: Preferences = .shared) -
     case "cats":
         guard value == "on" || value == "off" else { return false }
         preferences.catGlassSkin = value == "on"
+    case "place":
+        guard value == CatSchedule.daily || CatArrangement.named(value) != nil else { return false }
+        preferences.catPlacement = value
     case "festival":
         guard value == "on" || value == "off" else { return false }
         preferences.festivalOutfits = value == "on"
@@ -345,6 +348,11 @@ struct Studio: View {
     @ViewBuilder private var appearance: some View {
         AppearancePreview(t: t)
         Toggle(t("米米莫與莫莫", "米米莫与莫莫"), isOn: $preferences.catGlassSkin)
+        Picker("位置", selection: $preferences.catPlacement) {
+            Text(t("每天換", "每天换")).tag(CatSchedule.daily)
+            ForEach(CatArrangement.all) { Text($0.name(t)).tag($0.id) }
+        }
+        .disabled(!preferences.catGlassSkin)
         Picker(t("造型", "造型"), selection: $preferences.glassShape) {
             ForEach(GlassShape.allCases) { Text($0.name(t)).tag($0) }
         }.pickerStyle(.segmented)

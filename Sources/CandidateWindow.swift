@@ -7,8 +7,10 @@ import SwiftUI
 
 // MARK: Sizes
 
-/// Desktop sizes in points. The cat fractions are the anchors in
-/// assets/brand/cats/cats.json.
+/// Desktop sizes in points. The bar was laid out around the earlier cats (one
+/// behind the glass's left end, one resting on its right end); its design is
+/// kept as it was, so the numbers that came from their sizes are written out
+/// here. The cats drawn now are placed on this bar by CatSprites.swift.
 enum Desk {
     static let glass: CGFloat = 38
     static let font: CGFloat = 15
@@ -20,35 +22,37 @@ enum Desk {
     static let pawGap: CGFloat = 3
     static let pawWidth: CGFloat = 9
     static let chevronWidth: CGFloat = 22
-    /// How far the expand key reaches under 莫莫's cheek.
-    static let chevronTuck: CGFloat = 15
     /// Width of the number in the expanded panel: a digit, or the shift mark and a digit.
     static func gridHint(shifted: Bool) -> CGFloat { shifted ? 18 : 9 }
 
-    static let mimimoHeight: CGFloat = 56
-    static let mimimoWidth = (mimimoHeight * 0.9135).rounded()
-    static let momoHeight: CGFloat = 48
-    static let momoWidth = (momoHeight * 1.0543).rounded()
-    static let tailHeight: CGFloat = 21
-    static let tailWidth = (tailHeight * 4.02).rounded()
-    /// The tail starts this far right of 米米莫's left edge, with its root inside
-    /// his body, and hangs this far below the glass.
-    static let tailLeft: CGFloat = 7
-    static let tailDrop: CGFloat = 1
-
-    /// The glass's upper edge below the top of 米米莫: his eyes clear the rim by a point.
-    static let glassTop = (mimimoHeight * 0.538).rounded(.up) + 1
-    /// The glass starts this far right of 米米莫's left edge.
-    static let glassLeft = (mimimoWidth * 0.24).rounded()
-    /// 莫莫's eye line sits a point above the glass; she overhangs its right end.
-    static let momoTop = glassTop - 1 - (momoHeight * 0.50).rounded()
+    /// The glass's upper edge below the top of the bar: the room the cats have.
+    static let glassTop: CGFloat = 32
+    /// The glass starts this far from the bar's left edge and ends this far before its right edge.
+    static let glassLeft: CGFloat = 12
     static let momoOverhang: CGFloat = 2
     /// The first candidate starts this far inside the glass.
     static let rowLead: CGFloat = 12
-    /// Room under the glass for the tail.
+    /// From the end of the row to the bar's right edge, with the expand key and without it.
+    static let rowTrail: CGFloat = 36
+    static let rowTrailPlain: CGFloat = 43
     static let glassBottom: CGFloat = 2
-    /// Height of the bar with the cats: their heads, the glass and the room under it.
+    /// Height of the bar with the cats: the room above the glass, the glass and the room under it.
     static let catsBarHeight = glassTop + glass + glassBottom
+    /// chevron.down at 10 pt bold, the expand key's glyph.
+    static let chevronGlyph = CGSize(width: 12, height: 7)
+
+    /// The bar as the cats see it (CatSprites.swift), for a bar this wide.
+    static func stage(width: CGFloat, shape: GlassShape, chevron: Bool) -> CatStage {
+        let glassRect = CGRect(x: glassLeft, y: glassTop, width: width - glassLeft - momoOverhang, height: glass)
+        let band = GlassEdge.band(shape, height: glass)
+        let middle = glassTop + (band.top + band.bottom) / 2
+        let rowEnd = width - (chevron ? rowTrail + chevronWidth : rowTrailPlain)
+        let arrowX = chevron ? rowEnd + (chevronWidth - chevronGlyph.width) / 2 : rowEnd
+        return CatStage(size: CGSize(width: width, height: catsBarHeight), glass: glassRect, shape: shape, unit: glass / 46,
+                        room: glassTop - 1.5,
+                        row: CGRect(x: glassLeft + rowLead, y: middle - pill / 2, width: max(1, rowEnd - glassLeft - rowLead), height: pill),
+                        arrow: CGRect(x: arrowX, y: middle - chevronGlyph.height / 2, width: chevron ? chevronGlyph.width : 0, height: chevronGlyph.height))
+    }
 
     /// Clear space around the visible window; the shadows fall into it.
     static let margin = NSEdgeInsets(top: 2, left: 8, bottom: 14, right: 8)
@@ -509,6 +513,7 @@ final class CandidatePanelController {
               let panel, let hosting else { return }
         hosting.rootView.visible = true
         if !panel.isVisible {
+            hosting.rootView.catDay = CatSchedule.day()
             panel.alphaValue = 0
             panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in

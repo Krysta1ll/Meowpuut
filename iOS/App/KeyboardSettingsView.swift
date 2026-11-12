@@ -22,11 +22,12 @@ struct KeyboardSettingsView: View {
             Form {
                 Section {
                     CandidateBarPreview(shape: shape, dark: previewDark, palette: palette, strength: strength,
-                                        cats: settings.catGlassSkin ?? true, simplified: settings.simplified ?? false)
+                                        cats: settings.catGlassSkin ?? true, placement: settings.catPlacement ?? CatSchedule.daily,
+                                        simplified: settings.simplified ?? false)
                         .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                         .animation(.easeInOut(duration: 0.25), value: shape)
                 }
-                Section(t("外觀", "外观")) {
+                Section {
                     shapePicker
                     Picker(t("色調", "色调"), selection: binding(\.candidateTone, default: CandidateTone.system.rawValue)) {
                         Text(t("跟隨系統", "跟随系统")).tag("system")
@@ -46,7 +47,18 @@ struct KeyboardSettingsView: View {
                     }
                     .padding(.vertical, 4)
                     Toggle(t("顯示米米莫和莫莫", "显示米米莫和莫莫"), isOn: binding(\.catGlassSkin, default: true))
+                    if settings.catGlassSkin ?? true {
+                        Picker("位置", selection: binding(\.catPlacement, default: CatSchedule.daily)) {
+                            Text(t("每天換", "每天换")).tag(CatSchedule.daily)
+                            ForEach(CatArrangement.all) { Text($0.name(t)).tag($0.id) }
+                        }
+                    }
                     Toggle(t("節日裝扮", "节日装扮"), isOn: binding(\.festivals, default: true))
+                } header: {
+                    Text(t("外觀", "外观"))
+                } footer: {
+                    Text(t("「每天換」每天換一種位置，當天不變。橫向、小鍵盤和部分造型放不下的位置，會改用放得下的一種。",
+                           "“每天换”每天换一种位置，当天不变。横向、小键盘和部分造型放不下的位置，会改用放得下的一种。"))
                 }
                 Section {
                     Picker(t("輸入方式", "输入方式"), selection: setting(\.inputMode)) {
@@ -63,8 +75,8 @@ struct KeyboardSettingsView: View {
                 } header: {
                     Text(t("輸入", "输入"))
                 } footer: {
-                    Text(t("在鍵盤上連續輕摸右邊的莫莫五下，也能切換簡體／繁體。按鍵聲音跟隨系統的「鍵盤回饋」設定。",
-                           "在键盘上连续轻摸右边的莫莫五下，也能切换简体／繁体。按键声音跟随系统的“键盘反馈”设置。"))
+                    Text(t("在鍵盤上連續輕摸莫莫五下，也能切換簡體／繁體。按鍵聲音跟隨系統的「鍵盤回饋」設定。",
+                           "在键盘上连续轻摸莫莫五下，也能切换简体／繁体。按键声音跟随系统的“键盘反馈”设置。"))
                 }
                 Section {
                     Toggle(t("記住選詞", "记住选词"), isOn: binding(\.rememberChoices, default: true))

@@ -1,0 +1,186 @@
+[
+  {
+    "anchorNormalized" : [
+      0.5,
+      0.83999999999999997
+    ],
+    "anchorPurpose" : "candidate top edge; paws overlap below rim",
+    "id" : "mimimo_edge_rest",
+    "logicalSize" : [
+      72,
+      80
+    ],
+    "nativeTrimmedPixels" : [
+      348,
+      388
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.5,
+      0.83999999999999997
+    ],
+    "anchorPurpose" : "candidate top edge; paws overlap below rim",
+    "id" : "mimimo_edge_lounge",
+    "logicalSize" : [
+      112,
+      72
+    ],
+    "nativeTrimmedPixels" : [
+      571,
+      356
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.5,
+      0.83999999999999997
+    ],
+    "anchorPurpose" : "candidate top edge; paws overlap below rim",
+    "id" : "mimimo_edge_peek",
+    "logicalSize" : [
+      64,
+      64
+    ],
+    "nativeTrimmedPixels" : [
+      318,
+      308
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.5,
+      0.83999999999999997
+    ],
+    "anchorPurpose" : "candidate top edge; paws overlap below rim",
+    "id" : "momo_edge_rest",
+    "logicalSize" : [
+      72,
+      80
+    ],
+    "nativeTrimmedPixels" : [
+      343,
+      400
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.5,
+      0.83999999999999997
+    ],
+    "anchorPurpose" : "candidate top edge; paws overlap below rim",
+    "id" : "momo_edge_lounge",
+    "logicalSize" : [
+      112,
+      72
+    ],
+    "nativeTrimmedPixels" : [
+      558,
+      347
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.5,
+      0.83999999999999997
+    ],
+    "anchorPurpose" : "candidate top edge; paws overlap below rim",
+    "id" : "momo_edge_peek",
+    "logicalSize" : [
+      64,
+      64
+    ],
+    "nativeTrimmedPixels" : [
+      303,
+      304
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.85164928486293201,
+      0.58301549463647195
+    ],
+    "anchorPurpose" : "vertical side edge; y is center of paw grip",
+    "id" : "mimimo_side_hold",
+    "logicalSize" : [
+      64,
+      88
+    ],
+    "nativeTrimmedPixels" : [
+      597,
+      839
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  },
+  {
+    "anchorNormalized" : [
+      0.12630632040050066,
+      0.56664580725907387
+    ],
+    "anchorPurpose" : "vertical side edge; y is center of paw grip",
+    "id" : "momo_side_hold",
+    "logicalSize" : [
+      64,
+      88
+    ],
+    "nativeTrimmedPixels" : [
+      557,
+      799
+    ],
+    "origin" : "top-left",
+    "rotation" : 0,
+    "scales" : [
+      1,
+      2,
+      3
+    ]
+  }
+]

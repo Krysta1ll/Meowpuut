@@ -54,17 +54,12 @@ std::string polyline(const std::vector<PointF> &pts) {
     return d.str();
 }
 
-const std::string &spriteHref(const SvgAssets &assets, const Scene &scene, Sprite sprite) {
-    switch (sprite) {
-    case Sprite::MimimoBack: return assets.mimimoBack;
-    case Sprite::Mimimo: return assets.mimimo[static_cast<int>(scene.mimimoFace)];
-    case Sprite::MimimoFront: return assets.mimimoFront;
-    case Sprite::MomoBack: return assets.momoBack;
-    case Sprite::Momo: return assets.momo[static_cast<int>(scene.momoFace)];
-    case Sprite::MomoFront: return assets.momoFront;
-    case Sprite::Tail: break;
-    }
-    return assets.tail;
+const std::string &spriteHref(const SvgAssets &assets, Sprite sprite) {
+    return sprite == Sprite::Mimimo ? assets.mimimo : assets.momo;
+}
+
+std::string matrix(const Affine &m) {
+    return "matrix(" + num(m.a) + " " + num(m.b) + " " + num(m.c) + " " + num(m.d) + " " + num(m.e) + " " + num(m.f) + ")";
 }
 
 class Writer {
@@ -129,6 +124,18 @@ private:
         return id;
     }
 
+    // Blurs an image; with a tint, only its shape is kept, in the tint's colour.
+    std::string imageFilter(const DrawCommand &c) {
+        const std::string id = "f" + std::to_string(nextId_++);
+        defs_ << "<filter id=\"" << id << "\" filterUnits=\"userSpaceOnUse\" x=\"-40\" y=\"-40\" width=\""
+              << num(scene_.size.width + 80) << "\" height=\"" << num(scene_.size.height + 80) << "\">";
+        if (c.tint.a > 0)
+            defs_ << "<feFlood flood-color=\"" << rgb(c.tint) << "\"/><feComposite in2=\"SourceAlpha\" operator=\"in\"/>";
+        if (c.blur > 0) defs_ << "<feGaussianBlur stdDeviation=\"" << num(c.blur) << "\"/>";
+        defs_ << "</filter>\n";
+        return id;
+    }
+
     void command(const DrawCommand &c) {
         using Kind = DrawCommand::Kind;
         switch (c.kind) {
@@ -146,6 +153,24 @@ private:
         case Kind::PushClip: {
             const std::string id = "c" + std::to_string(nextId_++);
             defs_ << "<clipPath id=\"" << id << "\"><use href=\"#o" << c.path << "\"/></clipPath>\n";
+            body_ << "<g clip-path=\"url(#" << id << ")\">\n";
+            break;
+        }
+        case Kind::PushClipOut: {
+            const std::string id = "c" + std::to_string(nextId_++);
+            const float w = scene_.size.width, h = scene_.size.height;
+            defs_ << "<clipPath id=\"" << id << "\"><path clip-rule=\"evenodd\" d=\"M-40 -40H" << num(w + 40) << "V"
+                  << num(h + 40) << "H-40Z" << pathData(scene_.outlines[c.path].path) << "\"/></clipPath>\n";
+            body_ << "<g clip-path=\"url(#" << id << ")\">\n";
+            break;
+        }
+        case Kind::PushClipOvals: {
+            const std::string id = "c" + std::to_string(nextId_++);
+            defs_ << "<clipPath id=\"" << id << "\">";
+            for (const RectF &o : c.ovals)
+                defs_ << "<ellipse cx=\"" << num(o.midX()) << "\" cy=\"" << num(o.midY()) << "\" rx=\"" << num(o.width / 2)
+                      << "\" ry=\"" << num(o.height / 2) << "\" transform=\"" << matrix(c.transform) << "\"/>";
+            defs_ << "</clipPath>\n";
             body_ << "<g clip-path=\"url(#" << id << ")\">\n";
             break;
         }
@@ -170,14 +195,15 @@ private:
             body_ << paint("fill", c.paint) << "/>\n";
             break;
         case Kind::Image: {
-            const std::string &href = spriteHref(assets_, scene_, c.sprite);
+            const std::string &href = spriteHref(assets_, c.sprite);
             if (href.empty()) break;
-            if (c.blur > 0) body_ << "<g filter=\"url(#" << blurFilter(c.blur) << ")\">";
+            body_ << "<g transform=\"" << matrix(c.transform) << "\">";
+            if (c.blur > 0 || c.tint.a > 0) body_ << "<g filter=\"url(#" << imageFilter(c) << ")\">";
             body_ << "<image href=\"" << href << "\" x=\"" << num(c.rect.x) << "\" y=\"" << num(c.rect.y)
                   << "\" width=\"" << num(c.rect.width) << "\" height=\"" << num(c.rect.height)
                   << "\" preserveAspectRatio=\"none\" opacity=\"" << num(c.opacity) << "\"/>";
-            if (c.blur > 0) body_ << "</g>";
-            body_ << "\n";
+            if (c.blur > 0 || c.tint.a > 0) body_ << "</g>";
+            body_ << "</g>\n";
             break;
         }
         case Kind::Text: {

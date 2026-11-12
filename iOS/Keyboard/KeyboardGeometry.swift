@@ -18,20 +18,21 @@ enum KeyboardIdiom: Equatable {
     }
 }
 
-/// The candidate region above the keys: glass bar, 米米莫 behind it on the
-/// left, 莫莫 resting on it on the right, the candidate row and the expand key.
+/// The bar's frame was laid out around the earlier cats: one behind the
+/// glass's left end, one with her chin on its right end. The bar's design is
+/// kept exactly as it was, so their sizes stay here as layout constants. The
+/// cats drawn now are placed on this frame by CatSprites.swift.
+private enum BarFrame {
+    static let leftAspect: CGFloat = 0.9135
+    static let rightAspect: CGFloat = 1.0543
+    static let rightEyeLine: CGFloat = 0.50
+    /// The right figure's outline below the cheek, which the expand key was tucked under.
+    static func rightChinEdge(_ y: CGFloat) -> CGFloat { max(0, y - 0.66) }
+}
+
+/// The candidate region above the keys: the glass bar, the candidate row and
+/// the expand key. 米米莫 and 莫莫 sit on the glass's edge (`stage(shape:)`).
 struct CandidateRegionLayout: Equatable {
-    // Sprite anchors from assets/brand/cats/cats.json.
-    static let mimimoAspect: CGFloat = 0.9135
-    static let mimimoEyeBottom: CGFloat = 0.538
-    static let momoAspect: CGFloat = 1.0543
-    static let momoEyeLine: CGFloat = 0.50
-    static let tailAspect: CGFloat = 4.02
-    /// 莫莫's left outline below her cheek, as a fraction of the sprite width,
-    /// at a height `y` (fraction of the sprite height). Read off momo_open,
-    /// a little inside the real outline; measure it again when the art changes
-    /// (CatArtTests checks it on the pixels).
-    static func momoChinEdge(_ y: CGFloat) -> CGFloat { max(0, y - 0.66) }
     /// chevron.down at 15 pt semibold, the expand key's glyph.
     static let chevronGlyph = CGSize(width: 17.5, height: 10.5)
 
@@ -41,11 +42,10 @@ struct CandidateRegionLayout: Equatable {
     var idiom: KeyboardIdiom
     var cats: Bool
     var glass: CGRect
-    var mimimo: CGRect
-    var momo: CGRect
-    var tail: CGRect
     var row: CGRect
     var chevron: CGRect
+    /// Width of the light band at the start of the row (light appearance); 0 without the cats.
+    var lightBand: CGFloat
     var fontSize: CGFloat
     var pillHeight: CGFloat
     /// Size of the small fixed texts in the bar (status, toast, panel header).
@@ -54,27 +54,27 @@ struct CandidateRegionLayout: Equatable {
 
     /// `rim` is where the glass's upper rim sits below the top of its rect,
     /// as a fraction of the glass height: 0 for the capsule, the wave's
-    /// amplitude, the height of the cloud's bumps. The cats line up with the
-    /// rim, and the expand key with the band the candidates sit in.
+    /// amplitude, the height of the cloud's bumps. The expand key lines up
+    /// with the band the candidates sit in.
     init(width rawWidth: CGFloat, idiom: KeyboardIdiom, cats: Bool = true, rim: CGFloat = 0) {
         let width = max(1, rawWidth.isFinite ? rawWidth : 320)
         let s: CGFloat
-        let regionHeight, glassHeight, mimimoHeight, momoHeight, tailHeight, font: CGFloat
+        let regionHeight, glassHeight, leftHeight, rightHeight, font: CGFloat
         switch idiom {
         case .phone:
             s = min(1.15, max(0.9, width / 393))
             regionHeight = 82 * s; glassHeight = 46 * s
-            mimimoHeight = 62 * s; momoHeight = 54 * s; tailHeight = 28 * s
+            leftHeight = 62 * s; rightHeight = 54 * s
             font = min(21, max(19, 20 * s))
         case .phoneLandscape:
             s = 1
             regionHeight = 63; glassHeight = 36
-            mimimoHeight = 46; momoHeight = 40; tailHeight = 22
+            leftHeight = 46; rightHeight = 40
             font = 18
         case .pad:
             s = 1.15
             regionHeight = 94; glassHeight = 53
-            mimimoHeight = 71; momoHeight = 62; tailHeight = 32
+            leftHeight = 71; rightHeight = 62
             font = 21
         }
         self.width = width
@@ -90,48 +90,50 @@ struct CandidateRegionLayout: Equatable {
             height = regionHeight.rounded()
             let glassBottom = height - 2 * s
             let top = glassBottom - glassHeight
-            let mimimoWidth = mimimoHeight * Self.mimimoAspect
-            // His eyes peek just over the glass's upper rim.
-            mimimo = CGRect(x: 2 * s, y: top + rimY - mimimoHeight * Self.mimimoEyeBottom,
-                            width: mimimoWidth, height: mimimoHeight)
-            let momoWidth = momoHeight * Self.momoAspect
-            // Her chin rests on the glass, eyes just above its rim.
-            momo = CGRect(x: width - 4 * s - momoWidth, y: top + rimY - 1 * s - momoHeight * Self.momoEyeLine,
-                          width: momoWidth, height: momoHeight)
-            let glassLeft = mimimo.minX + 0.24 * mimimoWidth
+            let leftWidth = leftHeight * BarFrame.leftAspect
+            let rightWidth = rightHeight * BarFrame.rightAspect
+            let right = CGRect(x: width - 4 * s - rightWidth, y: top + rimY - 1 * s - rightHeight * BarFrame.rightEyeLine,
+                               width: rightWidth, height: rightHeight)
+            let glassLeft = 2 * s + 0.24 * leftWidth
             glass = CGRect(x: glassLeft, y: top, width: max(1, width - 6 * s - glassLeft), height: glassHeight)
-            // The tail leaves his body at the lower left and runs along the
-            // glass's bottom rim, in front of it.
-            let tailWidth = tailHeight * Self.tailAspect
-            tail = CGRect(x: mimimo.minX + 3 * s, y: glassBottom + 1 * s - tailHeight, width: tailWidth, height: tailHeight)
             // Centred on the band the candidates sit in, a little low to
             // match the text's optical centre; its touch area ends at the keys.
             let chevronY = glass.midY + rimY / 2 + 2 * s
             let chevronSize = CGSize(width: 34 * s, height: min(44, glassHeight, 2 * (height - chevronY)))
-            // Tucked under 莫莫's chin: the glyph's top corner stays 2 pt left
-            // of her outline at that height.
-            let glyphTop = (chevronY - Self.chevronGlyph.height / 2 - momo.minY) / momo.height
-            let chin = momo.minX + momo.width * Self.momoChinEdge(glyphTop)
+            let glyphTop = (chevronY - Self.chevronGlyph.height / 2 - right.minY) / right.height
+            let chin = right.minX + right.width * BarFrame.rightChinEdge(glyphTop)
             chevron = CGRect(x: chin - 2 * s - Self.chevronGlyph.width / 2 - chevronSize.width / 2, y: chevronY - chevronSize.height / 2,
                              width: chevronSize.width, height: chevronSize.height)
-            // Candidates use the glass's inner width, starting over the part
-            // of 米米莫 that is behind it.
             let rowLeft = glass.minX + 12 * s
             row = CGRect(x: rowLeft, y: glass.minY, width: max(1, chevron.minX - rowLeft), height: glassHeight)
+            lightBand = 2 * s + leftWidth + 10 * s - rowLeft
         } else {
             height = (glassHeight + 12 * s).rounded()
             glass = CGRect(x: 4 * s, y: (height - glassHeight) / 2, width: max(1, width - 8 * s), height: glassHeight)
-            mimimo = .zero; momo = .zero; tail = .zero
             let chevronSize = CGSize(width: 40 * s, height: min(44, glassHeight))
             chevron = CGRect(x: glass.maxX - 6 * s - chevronSize.width, y: min(glass.midY + rimY / 2, height - chevronSize.height / 2) - chevronSize.height / 2,
                              width: chevronSize.width, height: chevronSize.height)
             row = CGRect(x: glass.minX + glassHeight * 0.3, y: glass.minY,
                          width: max(1, chevron.minX - glass.minX - glassHeight * 0.3), height: glassHeight)
+            lightBand = 0
         }
     }
 
     /// Longest a single candidate may be before it is shortened in the middle.
     var maximumCandidateWidth: CGFloat { max(60, row.width * 0.70) }
+
+    /// The bar as the cats see it (CatSprites.swift). They take the height
+    /// above the glass less 1.5 pt: a keyboard cannot draw above its own top
+    /// edge, and a cat breathes.
+    func stage(shape: GlassShape) -> CatStage {
+        let band = GlassEdge.band(shape, height: glass.height)
+        let middle = glass.minY + (band.top + band.bottom) / 2
+        return CatStage(size: CGSize(width: width, height: height), glass: glass, shape: shape, unit: scale,
+                        room: glass.minY - 1.5,
+                        row: CGRect(x: row.minX, y: middle - pillHeight / 2, width: row.width, height: pillHeight),
+                        arrow: CGRect(x: chevron.midX - Self.chevronGlyph.width / 2, y: chevron.midY - Self.chevronGlyph.height / 2,
+                                      width: Self.chevronGlyph.width, height: Self.chevronGlyph.height))
+    }
 }
 
 /// Key metrics in the proportions of Apple's keyboard (DESIGN.md §5).

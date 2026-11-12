@@ -27,7 +27,8 @@ struct Paint {
     std::vector<GradientStop> stops;  // Linear and Radial
 };
 
-enum class Sprite { MimimoBack, Mimimo, MimimoFront, MomoBack, Momo, MomoFront, Tail };
+// A cat's picture (catArt in CandidateLayout.h).
+enum class Sprite { Mimimo, Momo };
 enum class TextAlign { Leading, Center, Trailing };
 
 struct DrawCommand {
@@ -36,11 +37,14 @@ struct DrawCommand {
         FillPath,       // outline `path`
         StrokePath,     // outline `path`, `width`
         PushClip,       // clip to outline `path` until the matching PopClip
+        PushClipOut,    // clip to everything outside outline `path`
+        PushClipOvals,  // clip to the ellipses inscribed in `ovals`, moved by `transform`
         PopClip,
         StrokeLine,     // open polyline `points`, `width`, round caps and joins
         FillRoundRect,  // `rect` with corner `radius`
         FillEllipse,    // inscribed in `rect`, turned `rotation` degrees about its centre
-        Image,          // `sprite` stretched to `rect` at `opacity`, blurred by `blur`
+        Image,          // `sprite` stretched to `rect` at `opacity`, blurred by `blur`, moved by `transform`;
+                        // with a `tint` (alpha > 0) only its shape is drawn, in that colour
         Text            // one line of `text`; `x` is its leading edge, centre or trailing edge
     };
     Kind kind = Kind::FillPath;
@@ -52,6 +56,9 @@ struct DrawCommand {
     float blur = 0, offsetY = 0;      // Gaussian sigma, in DIPs
     Sprite sprite = Sprite::Mimimo;
     float opacity = 1;
+    Affine transform;
+    Color tint{0, 0, 0, 0};
+    std::vector<RectF> ovals;
     std::string text;
     float x = 0, baseline = 0, size = 0;
     bool medium = false;              // font weight 500 instead of 400
@@ -62,7 +69,6 @@ struct Scene {
     SizeF size;                          // window size in DIPs
     std::vector<GlassOutline> outlines;
     std::vector<DrawCommand> commands;   // back to front
-    CatFace mimimoFace = CatFace::Open, momoFace = CatFace::Open;
 };
 
 Scene buildScene(const CandidateLayout &layout, const CandidateViewModel &model, const Theme &theme);
@@ -71,7 +77,9 @@ Scene buildScene(const CandidateLayout &layout, const CandidateViewModel &model,
 constexpr float kIdeographCenterToBaseline = 0.37f;
 constexpr float kDigitCenterToBaseline = 0.36f;
 
-// Gaussian sigma, in DIPs, of the copy of 米米莫 that shows on the glass body.
-constexpr float kFrostBlur = 3.0f;
+// The warm light round 米米莫 in dark appearance: Gaussian sigma in DIPs (the
+// iOS keyboard's 2.2 pt shadow radius), colour.
+constexpr float kGlowBlur = 1.1f;
+constexpr Color kGlow{1.0f, 0.93f, 0.84f, 0.6f};
 
 } // namespace meowpuut::ui

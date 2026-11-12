@@ -24,7 +24,7 @@
     <string name="script">中文</string>
     <string name="script_traditional">繁體</string>
     <string name="script_simplified">简体</string>
-    <string name="script_note">在鍵盤上連續輕摸右邊的莫莫五下，也能切換簡體／繁體。</string>
+    <string name="script_note">在鍵盤上連續輕摸莫莫五下，也能切換簡體／繁體。</string>
 
     <string name="look_title">外觀</string>
     <string name="shape">造型</string>

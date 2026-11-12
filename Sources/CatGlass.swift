@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 // What the macOS candidate window draws (docs/DESIGN.md): the Liquid Glass
-// bar with 米米莫 behind its left end and 莫莫 resting on its right end, and
-// the panel that opens under it, or over it when the window is above the caret. The candidates in the row, their order and
+// bar with 米米莫 and 莫莫 on its edge, and the panel that opens under it, or
+// over it when the window is above the caret. The candidates in the row, their order and
 // their number keys come from CollapsedCandidateLayout (CandidateWindow.swift),
 // which key handling uses too.
 
@@ -16,6 +16,16 @@ enum DesktopCatArt {
         let image = Bundle.main.image(forResource: NSImage.Name(name))
         if let image { cache[name] = image }
         return image
+    }
+
+    /// Pictures that stand in for the bundle's, by sprite name (as
+    /// CatArt.pictures on iOS).
+    static var pictures: [String: NSImage] = [:]
+
+    /// The picture for a sprite. With `CatArt.sprite` this is where a cat's
+    /// look comes from.
+    static func picture(_ sprite: CatSprite) -> Image {
+        (pictures[sprite.name] ?? image(sprite.name)).map { Image(nsImage: $0) } ?? Image(systemName: "cat")
     }
 
     /// Holiday outfit layers (exported at 2x by scripts/render_cats.py).
@@ -37,7 +47,7 @@ struct CandidateLook: Equatable {
     var opaque = false
     /// Increase Contrast: darker outlines and full-strength secondary text.
     var contrast = false
-    /// Reduce Motion: only blinks and fades.
+    /// Reduce Motion: the cats do not breathe; only fades remain.
     var still = false
 
     var text: Color {
@@ -71,53 +81,6 @@ struct CandidateLookOverride: Equatable {
     var opaque: Bool?
     var contrast: Bool?
     var still: Bool?
-}
-
-private struct DeskCat: View {
-    let name: String
-    var blinking = false
-    var outfit: FestivalOutfit?
-
-    var body: some View {
-        let layers = outfit?.layers(for: name)
-        ZStack {
-            if let outfit, let back = layers?.back, let art = DesktopCatArt.festival(outfit, back) {
-                Image(nsImage: art).resizable().interpolation(.high)
-            }
-            ForEach(["open", "blink"], id: \.self) { frame in
-                Group {
-                    if let outfit, let file = layers?.frames?[frame], let art = DesktopCatArt.festival(outfit, file) {
-                        Image(nsImage: art).resizable().interpolation(.high)
-                    } else if let art = DesktopCatArt.image("\(name)_\(frame)") {
-                        Image(nsImage: art).resizable().interpolation(.high)
-                    }
-                }
-                .opacity((frame == "blink") == blinking ? 1 : 0)
-            }
-            if let outfit, let front = layers?.front, let art = DesktopCatArt.festival(outfit, front) {
-                Image(nsImage: art).resizable().interpolation(.high)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Everything except the glass. 米米莫 is behind the glass; drawing him only
-/// outside its outline keeps the left end clear instead of a grey blur.
-private struct OutsideGlass: Shape {
-    var style: GlassShape
-    var insets: EdgeInsets
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path(rect)
-        let glass = CGRect(x: rect.minX + insets.leading, y: rect.minY + insets.top,
-                           width: rect.width - insets.leading - insets.trailing,
-                           height: rect.height - insets.top - insets.bottom)
-        // Half a point under the rim, so no gap shows between him and the edge.
-        path.addPath(CandidateGlassShape(style: style, insetAmount: 0.5).path(in: glass))
-        return path
-    }
 }
 
 /// The selected candidate's capsule. A holiday outfit may bring its own colour.
@@ -194,15 +157,16 @@ struct GlassCandidateView: View {
     /// Height and width the whole window may take, clear margin included.
     var maxHeight: CGFloat
     var maxWidth: CGFloat
-    /// False while the panel is hidden, so the cats stop blinking.
+    /// False while the panel is hidden, so the cats stop breathing.
     var visible: Bool
+    /// The day the cats' arrangement is for; set when the panel comes up, so
+    /// they never move while something is being typed.
+    var catDay = CatSchedule.day()
     var forced: CandidateLookOverride
     var onChoose: (Int) -> Void
     var onPage: (Int32) -> Void
     var onToggle: () -> Void
     var onAppearanceChange: () -> Void
-    @State private var mimimoBlink = false
-    @State private var momoBlink = false
 
     init(engine: Engine, cats: Bool = true, expanded: Bool, canExpand: Bool, panelAbove: Bool = false,
          maxHeight: CGFloat = .greatestFiniteMagnitude, maxWidth: CGFloat = .greatestFiniteMagnitude,
@@ -269,8 +233,6 @@ struct GlassCandidateView: View {
         .fixedSize()
         .environment(\.colorScheme, look.dark ? .dark : .light)
         .contextMenu { menu }
-        .task(id: visible && cats) { if visible && cats { await blink(mimimo: true) } }
-        .task(id: visible && cats) { if visible && cats { await blink(mimimo: false) } }
     }
 
     // MARK: Bar
@@ -390,6 +352,17 @@ struct GlassCandidateView: View {
         .accessibilityHidden(true)
     }
 
+    /// The cats on a bar this wide. The day's arrangement is chosen among
+    /// those that fit a bar of ordinary width, so it stays the same while the
+    /// bar grows and shrinks with the candidates; on a bar too short for it,
+    /// the first arrangement that fits is shown.
+    private func catPlaces(width: CGFloat, chevron: Bool) -> [CatPlacement] {
+        let stage = Desk.stage(width: width, shape: style, chevron: chevron)
+        let usual = Desk.stage(width: 360, shape: style, chevron: true)
+        let today = CatSchedule.arrangement(setting: preferences.catPlacement, day: catDay, on: usual)?.arrangement
+        return today?.place(on: stage) ?? CatArrangement.all.lazy.compactMap { $0.place(on: stage) }.first ?? []
+    }
+
     private func catsBar(_ look: CandidateLook) -> some View {
         let band = CandidateGlassShape.contentBand(style, height: Desk.glass)
         let glassInsets = EdgeInsets(top: Desk.glassTop, leading: Desk.glassLeft, bottom: Desk.glassBottom, trailing: Desk.momoOverhang)
@@ -398,51 +371,33 @@ struct GlassCandidateView: View {
             .frame(height: band.bottom - band.top)
             .frame(maxWidth: expanded ? .infinity : nil, alignment: .leading)
             .padding(.leading, Desk.glassLeft + Desk.rowLead)
-            // The expand key tucks under 莫莫's cheek.
-            .padding(.trailing, Desk.momoWidth - (chevron ? Desk.chevronTuck : 8))
+            .padding(.trailing, chevron ? Desk.rowTrail : Desk.rowTrailPlain)
             .padding(.top, Desk.glassTop + band.top)
             .padding(.bottom, Desk.glass - band.bottom + Desk.glassBottom)
-            // Back to front: 米米莫, the glass, his tail and 莫莫's shadow on it, the candidates, 莫莫.
-            .background(alignment: .bottomLeading) {
-                // The tail leaves his rump at the glass's left end and lies along the lower rim.
-                // The selected capsule sits over its tip.
-                if style == .capsule, let tail = DesktopCatArt.image("mimimo_tail") {
-                    Image(nsImage: tail).resizable().interpolation(.high)
-                        .frame(width: Desk.tailWidth, height: Desk.tailHeight)
-                        .padding(.leading, Desk.tailLeft)
-                        .padding(.bottom, Desk.glassBottom - Desk.tailDrop)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
-            .background(alignment: .topTrailing) {
-                // Where 莫莫 rests on the glass she leaves a soft shadow.
-                if !look.opaque, let art = DesktopCatArt.image("momo_open") {
-                    Image(nsImage: art).resizable().renderingMode(.template)
-                        .foregroundStyle(Color(red: 0.20, green: 0.12, blue: 0.10))
-                        .frame(width: Desk.momoWidth, height: Desk.momoHeight)
-                        .opacity(look.dark ? 0.5 : 0.3)
-                        .blur(radius: 2.5)
-                        .offset(x: -1, y: 3)
-                        .padding(.top, Desk.momoTop)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                        .mask { CandidateGlassShape(style: style).padding(glassInsets) }
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
-            .background { glassBar(look).padding(glassInsets) }
             .background {
-                DeskCat(name: "mimimo", blinking: mimimoBlink, outfit: outfit)
-                    .frame(width: Desk.mimimoWidth, height: Desk.mimimoHeight)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .mask { OutsideGlass(style: style, insets: glassInsets).fill(style: FillStyle(eoFill: true)) }
+                ZStack {
+                    glassBar(look).padding(glassInsets)
+                    barTrim()
+                }
             }
-            .overlay(alignment: .topTrailing) {
-                DeskCat(name: "momo", blinking: momoBlink, outfit: outfit)
-                    .frame(width: Desk.momoWidth, height: Desk.momoHeight)
-                    .padding(.top, Desk.momoTop)
+            // The cats in front: behind the bar with their paws over its edge, or standing at its end.
+            .overlay {
+                GeometryReader { proxy in
+                    CatFigures(places: catPlaces(width: proxy.size.width, chevron: chevron), size: proxy.size,
+                               glass: CGRect(x: Desk.glassLeft, y: Desk.glassTop, width: proxy.size.width - Desk.glassLeft - Desk.momoOverhang, height: Desk.glass),
+                               shape: style, dark: look.dark, shadows: !look.opaque, breathing: visible && !look.still,
+                               picture: DesktopCatArt.picture)
+                }
             }
+    }
+
+    /// A decoration laid round the glass's ends (a festival's frame trim)
+    /// goes here: in the bar's whole frame (the glass is at Desk.glassLeft,
+    /// Desk.glassTop), over the glass, under the candidates and the cats. It
+    /// must not take clicks. Nothing is drawn for now; the iOS keyboard's
+    /// counterpart is CandidateRegionView.barTrim.
+    @ViewBuilder private func barTrim() -> some View {
+        EmptyView()
     }
 
     private func plainBar(_ look: CandidateLook) -> some View {
@@ -500,21 +455,6 @@ struct GlassCandidateView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    // Irregular blinks while the window is up; 莫莫 sometimes blinks twice.
-    private func blink(mimimo: Bool) async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(Double.random(in: 2.8...6.4)))
-            let twice = !mimimo && Int.random(in: 0..<5) == 0
-            for _ in 0..<(twice ? 2 : 1) {
-                guard !Task.isCancelled else { return }
-                if mimimo { mimimoBlink = true } else { momoBlink = true }
-                try? await Task.sleep(for: .milliseconds(120))
-                if mimimo { mimimoBlink = false } else { momoBlink = false }
-                if twice { try? await Task.sleep(for: .milliseconds(140)) }
-            }
-        }
-    }
-
     // MARK: Menu
 
     private func check<Value: Equatable>(_ title: String, _ value: Value, _ current: Value, _ choose: @escaping () -> Void) -> some View {
@@ -530,6 +470,12 @@ struct GlassCandidateView: View {
         Divider()
         Toggle(t("米米莫與莫莫", "米米莫与莫莫"), isOn: Binding(get: { preferences.catGlassSkin },
                                                          set: { preferences.catGlassSkin = $0; onAppearanceChange() }))
+        Menu("位置") {
+            check(t("每天換", "每天换"), CatSchedule.daily, preferences.catPlacement) { preferences.catPlacement = CatSchedule.daily }
+            ForEach(CatArrangement.all) { arrangement in
+                check(arrangement.name(t), arrangement.id, preferences.catPlacement) { preferences.catPlacement = arrangement.id }
+            }
+        }
         Toggle(t("節日裝扮", "节日装扮"), isOn: Binding(get: { preferences.festivalOutfits },
                                                    set: { preferences.festivalOutfits = $0; onAppearanceChange() }))
         Menu(t("造型", "造型")) {

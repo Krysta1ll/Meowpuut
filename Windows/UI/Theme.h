@@ -45,7 +45,6 @@ struct Theme {
     int causticCount = 6;
     float causticOpacity = 0.8f;
     float spillOpacity = 0;      // the caustic's colours on the lower half of the body
-    float frostOpacity = 0;      // the blurred copy of 米米莫 on the body
     Color separator;             // header rule in the expanded panel
 
     Color text, secondaryText, number, disabledText;
@@ -56,7 +55,7 @@ struct Theme {
     Color hover, pressed;        // pointer-over and mouse-down washes
     Color chevron;
     Color paw;
-    Color contactShadow;         // under 莫莫's chin on the glass
+    Color contactShadow;         // under the cats' paws on the glass
 };
 
 Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled, bool highContrast,

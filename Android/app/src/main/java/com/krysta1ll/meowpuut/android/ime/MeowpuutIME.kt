@@ -69,9 +69,7 @@ class MeowpuutIME : InputMethodService(),
         prefs = Prefs(this)
         prefs.store.registerOnSharedPreferenceChangeListener(this)
         lexicons = Lexicons(this)
-        sprites = CatSprites(resources, assets)
-        // The first time the keyboard shows it should not wait for the cats to decode.
-        Thread({ sprites.preload() }, "meowpuut-cats").start()
+        sprites = CatSprites(resources)
         composer.simplified = prefs.simplified
         outfits = try {
             assets.open(Festivals.MANIFEST).use { Festivals.parse(it.readBytes().decodeToString()) }
@@ -647,13 +645,12 @@ class MeowpuutIME : InputMethodService(),
             Tone.LIGHT -> false
             Tone.DARK -> true
         }
+        // A festival gives the selected capsule its colour; its pictures are not drawn on the cats.
         val outfit = if (prefs.festivals && outfits.isNotEmpty()) Festivals.active(outfits, LocalDate.now()) else null
-        val dressed = sprites.dress(outfit)
         look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, outfit?.pill, wantsMoreContrast(this))
         keyboard?.let {
             it.look = look
             it.cats = prefs.cats
-            if (dressed) it.bar.invalidate()
         }
         configureWindow()
     }
