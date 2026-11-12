@@ -66,9 +66,12 @@ if ($Elevated) {
     # they loaded, and the next install removes the folder once it is free.
     $hash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.Substring(0, 12).ToLowerInvariant()
     $target = Join-Path $root $hash
-    New-Item -ItemType Directory -Force $target | Out-Null
-    foreach ($item in 'MeowpuutTextService.dll', 'Assets', 'lexicon', 'Licenses', 'THIRD_PARTY.md', 'BUILD-INFO.md') {
-        Copy-Item -LiteralPath (Join-Path $source $item) -Destination $target -Recurse -Force
+    # The same build installed again: its DLL may be in use, and the files are the same.
+    if (-not (Test-Path -LiteralPath (Join-Path $target 'MeowpuutTextService.dll'))) {
+        New-Item -ItemType Directory -Force $target | Out-Null
+        foreach ($item in 'MeowpuutTextService.dll', 'Assets', 'lexicon', 'Licenses', 'THIRD_PARTY.md', 'BUILD-INFO.md') {
+            Copy-Item -LiteralPath (Join-Path $source $item) -Destination $target -Recurse -Force
+        }
     }
     $code = Invoke-Regsvr32 @('/s', "`"$(Join-Path $target 'MeowpuutTextService.dll')`"")
     if ($code -ne 0) { throw "註冊失敗（regsvr32 結束代碼 $code）。" }
