@@ -121,19 +121,30 @@ final class JapaneseBackend: InputBackend {
     static var mixedWords: [(reading: String, text: String, weight: Int)] { JapaneseLexicon.mixedWords }
     // Set by ChineseWithJapaneseBackend: the side engine of pinyin mode asks for gated words only.
     var pinyinSide = false
+    /// iOS: an emoji cell after the first candidate and a kaomoji cell after the third,
+    /// as in Chinese typing. Without it the symbols only end the list.
+    var symbolCells = false
+    private var symbols: Symbols.Found?
     private var raw = ""
     private var state = Snapshot()
     private var choices: [String] = []
     // A bundle without mimo_jp.bin fails here, as a bundle without the old JSON did.
     init() throws { guard JapaneseLexicon.shared != nil else { throw CocoaError(.fileReadCorruptFile) } }
     func snapshot() -> Snapshot { defer { state.commit = "" }; return state }
-    func candidates(limit: Int) -> [IndexedCandidate] { choices.prefix(limit).enumerated().map { IndexedCandidate(index: $0.offset, text: $0.element) } }
+    func candidates(limit: Int) -> [IndexedCandidate] {
+        let marks = Set(symbols?.all ?? [])
+        return choices.prefix(limit).enumerated().map {
+            IndexedCandidate(index: $0.offset, text: $0.element, source: $0.offset > 0 && marks.contains($0.element) ? -1 : nil)
+        }
+    }
     func setSimplified(_ simplified: Bool) {} // Japanese spelling does not follow Chinese script settings.
-    func clear() { raw = ""; state = Snapshot(); choices = [] }
+    func clear() { raw = ""; state = Snapshot(); choices = []; symbols = nil }
     func commit() { if !choices.isEmpty { _ = choose(state.page * 7) } else { let text = raw; clear(); state.commit = text } }
     func choose(_ index: Int) -> Bool {
         guard choices.indices.contains(index) else { return false }
-        let text = choices[index]; clear(); state.commit = text; return true
+        let text = choices[index]
+        if index > 0, let symbols, symbols.all.contains(text) { Symbols.remember(text, for: symbols.word) }
+        clear(); state.commit = text; return true
     }
     private func page(_ requested: Int) {
         state.page = max(0, min(requested, max(0, (choices.count - 1) / 7)))
@@ -149,6 +160,22 @@ final class JapaneseBackend: InputBackend {
         let katakana = reading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? reading
         for text in [reading, katakana] where !choices.contains(text) { choices.append(text) }
         if raw == raw.uppercased(), raw != raw.lowercased() { choices.removeAll(where: { $0 == katakana }); choices.insert(katakana, at: 0) }
+        // Emoji and kaomoji of the first word end the list (すし 🍣). Never first: space and
+        // Return keep the word. The cells follow the rules of Chinese typing, and wait for
+        // the third letter: one or two letters (me 目, te 手) are mostly the start of a
+        // longer word, and a cell coming and going there would move the candidates.
+        symbols = pinyinSide ? nil : choices.first.flatMap { Symbols.of($0, japanese: true) }
+        if let symbols {
+            let cells = symbolCells && raw.count >= 3
+            var rest = symbols.all.filter { !choices.contains($0) }
+            if cells, symbols.word.count > 1, let kaomoji = symbols.kaomoji.first, let at = rest.firstIndex(of: kaomoji) {
+                rest.remove(at: at); choices.insert(kaomoji, at: min(choices.count, 3))
+            }
+            if cells, let emoji = symbols.emoji.first, let at = rest.firstIndex(of: emoji) {
+                rest.remove(at: at); choices.insert(emoji, at: 1)
+            }
+            choices += rest
+        }
         // Japanese mode: nothing is flagged, so the collapsed row shows every word, not one.
         state = Snapshot(preedit: reading, input: raw, japaneseCandidates: pinyinSide ? choices : [])
         page(0)

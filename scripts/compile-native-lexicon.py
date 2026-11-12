@@ -15,7 +15,9 @@ from japanese_readings import pinyin_kana
 from mimo_binary import write_mimo_binaries
 from mimo_jp_compile import write_mimo_jp
 from mimo_latin import latin_rows
-from mimo_pairs import default_text, spoken_counts, write_pair_table
+from mimo_pairs import counted_words, default_text, spoken_counts, write_pair_table
+from mimo_phrases import phrases
+from mimo_names import names
 from mimo_pipeline import clamp_i16_weight, load_mimo_sc_dataset, load_mimo_tc_dataset, numbered_pinyin
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -79,7 +81,11 @@ def imported_words(converter=None):
     return entries, tc_data.get("st_map", {})
 
 
-def merge_simplified(tc_bundle, converter):
+NAME_BASE, NAME_STEP = 2400, 450  # weight of a name: base + step x ln(Wikipedia editions that have it)
+TERM_WEIGHT = 3200               # weight of a working word of Resources/Lexicon/terms.tsv
+
+
+def merge_simplified(tc_bundle, converter, with_phrases):
     words, st_map = tc_bundle
     sc_data = load_mimo_sc_dataset()
     canonical = {}
@@ -90,10 +96,7 @@ def merge_simplified(tc_bundle, converter):
     native_keys = set(merged)
     valid = [(hans, reading, float(freq)) for hans, reading, freq in sc_data["entries"]]
     skipped = int(sc_data.get("excluded_invalid_rows", 0))
-    rime_additions = [(hans, reading, int(w)) for hans, reading, w in sc_data.get("rime_ice_additions", [])]
-    particle_phrases = [(hans, reading) for hans, reading, _ in sc_data.get("rime_ice_particle_phrases", [])]
-    missing = sorted({hans for hans, reading, _ in valid if (hans, reading) not in canonical} | {hans for hans, _, _ in rime_additions}
-                     | {hans for hans, _ in particle_phrases})
+    missing = sorted({hans for hans, reading, _ in valid if (hans, reading) not in canonical})
     converted = subprocess.run([converter, "--traditional"], input="\n".join(missing) + "\n", text=True, capture_output=True, check=True).stdout.splitlines()
     if len(converted) != len(missing): raise ValueError("Traditional conversion mismatch")
     traditional = {h: st_map.get(h, t) for h, t in zip(missing, converted)}
@@ -113,32 +116,45 @@ def merge_simplified(tc_bundle, converter):
         if existing or frequency >= 1e-11: native_keys.add(key)
         duplicates += existing is not None
         added += existing is None
-    for hans, reading, rime_w in rime_additions:
-        key = (traditional[hans], hans, reading)
-        merged[key] = rime_w
+    # Phrases (scripts/mimo_phrases.py): written and read as their words are; main() weights them by count.
+    best = {}
+    for key, weight in merged.items():
+        if key[1] not in best or merged[best[key[1]]] < weight: best[key[1]] = key
+    phrase_counts = {}
+    for parts, written, spoken in phrases() if with_phrases else []:
+        found = [best.get(part) for part in parts]
+        if None in found or "".join(parts) in best: continue
+        key = ("".join(k[0] for k in found), "".join(parts), " ".join(k[2] for k in found))
+        merged[key] = 1
         native_keys.add(key)
-    # Everyday phrases with particles: indexed; main() gives them their rime-ice weight. A phrase
-    # mimo-sc already lists (with its own tones) is indexed under that reading.
-    by_letters = {(hans, toneless(reading)): key for key in merged for hans, reading in [key[1:]]}
-    particle_keys = set()
-    for hans, reading in particle_phrases:
-        key = by_letters.get((hans, toneless(reading)))
-        if key is None:
-            key = (traditional[hans], hans, reading)
-            merged[key] = 1
+        phrase_counts[key] = (written, spoken)
+    # Names (scripts/mimo_names.py, from Wikidata) and the project's own lists of working words of many
+    # fields (Resources/Lexicon/terms.tsv), read character by character. They are typed in full or not
+    # at all, so they sit below everyday words; a name sits higher the better known it is.
+    name_keys = set()
+    def add_fixed(hant, hans, weight):
+        found = [best.get(character) for character in hans]
+        if hans in best or None in found or len(hant) != len(hans): return
+        key = (hant, hans, " ".join(k[2] for k in found))
+        merged[key] = max(merged.get(key, 0), weight)
         native_keys.add(key)
-        particle_keys.add(key)
-    report = {"name": "mimo", "version": "1.0", "license": "GPL-3.0-or-later",
+        name_keys.add(key)
+    for hant, hans, editions in names():
+        add_fixed(hant, hans, clamp_i16_weight(NAME_BASE + NAME_STEP * math.log(editions)))
+    for line in (ROOT / "Resources/Lexicon/terms.tsv").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            hant, hans = line.split("\t")[:2]
+            add_fixed(hant, hans, TERM_WEIGHT)
+    report = {"name": "mimo", "version": "1.0", "license": "see LICENSE and THIRD_PARTY.md",
               "lexicons": ["mimo-tc", "mimo-sc", "mimo-jp"],
               "simplified_rows": len(valid), "duplicate_readings_merged": duplicates,
               "new_readings": added, "excluded_invalid_rows": skipped,
-              "rime_ice_phrases_loaded": int(sc_data.get("rime_ice_phrases_loaded", 0)),
-              "rime_ice_added_readings": len(rime_additions), "rime_ice_particle_phrases": len(particle_keys), "opencc_st_phrases_loaded": len(st_map),
+              "phrases": len(phrase_counts), "names": len(name_keys), "opencc_st_phrases_loaded": len(st_map),
               "merged_readings": len(merged), "native_hot_readings": len(native_keys),
               "traditional_only_scale_offset": offset, "traditional_only_preference_discount": 350,
               "note": "All valid new readings remain in indexed SQLite; frequent words also enter native segmentation."}
     print("mimo-sc merge:", json.dumps(report, ensure_ascii=False))
-    return merged, native_keys, report, particle_keys
+    return merged, native_keys, report, phrase_counts, name_keys
 
 
 # Zhuyin is typed in Taiwan, so its index takes McBopomofo (mimo-tc) evidence over the
@@ -183,48 +199,66 @@ def toneless(code):
     return re.sub("[1-5]", "", code)
 
 
-def rime_scale(words, skip, report):
-    """rime-ice count on the weight scale: 700 ln(1 + count) plus the median difference to the
-    merged weight, taken separately for words and single characters. Returns key -> weight or None."""
-    rime = {(word, py): count for word, py, count in load_mimo_sc_dataset().get("rime_ice_counts", [])}
-    def count(key):
-        return rime.get((key[1], " ".join(toneless(key[2]).split())), 0)
-    differences = {True: [], False: []}
+COUNT_SPOKEN = 30         # a spoken occurrence counts as this many written ones in the word counts (dev: 10 and 100 no better)
+ZHUYIN_COUNT_SHARE = 0.5  # how far a zhuyin weight moves towards the count (dev: 0.25 and 0.75 worse)
+
+
+def count_scale(words, skip, phrase_counts, report):
+    """A count of the pair sources on the weight scale: 700 ln(1 + count) plus the median difference
+    to the merged weight, taken separately for words and single characters. The count of a word is
+    that of its text (DataSources/mimo-pairs, U rows), the count of a phrase its own.
+    A text the sources never have counts as zero: in this much text that says it is rare.
+    Returns key -> weight."""
+    counted = {text: written + COUNT_SPOKEN * spoken for text, (written, spoken) in counted_words().items()}
+    top = {}
     for key, weight in words.items():
-        if key not in skip and (f := count(key)) > 0: differences[len(key[1]) > 1].append(weight - 700 * math.log1p(f))
+        if key not in skip: top[key[1]] = max(top.get(key[1], 0), weight)
+    differences = {True: [], False: []}
+    for text, weight in top.items():
+        if (n := counted.get(text, 0)) > 0: differences[len(text) > 1].append(weight - 700 * math.log1p(n))
     offsets = {multi: round(statistics.median(values)) if values else 0 for multi, values in differences.items()}
-    report["rime_ice_word_offset"], report["rime_ice_character_offset"] = offsets[True], offsets[False]
-    def rime_weight(key):
-        f = count(key)
-        return clamp_i16_weight(700 * math.log1p(f) + offsets[len(key[1]) > 1]) if f > 0 else None
-    return rime_weight
+    report["count_word_offset"], report["count_character_offset"] = offsets[True], offsets[False]
+    def count_weight(key):
+        n = counted.get(key[1], 0)
+        if key in phrase_counts: n = phrase_counts[key][0] + COUNT_SPOKEN * phrase_counts[key][1]
+        return clamp_i16_weight(700 * math.log1p(n) + offsets[len(key[1]) > 1])
+    return count_weight
 
 
-def pinyin_weights(words, native, reviewed, tc_raw, offset, rime_weight, report):
+def pinyin_weights(words, native, reviewed, fixed, tc_raw, offset, count_weight, report):
     """Weight of each (hant, hans, reading) in the pinyin index: a blend of the sources.
 
     Multi-character words: mean of the merged weight, mimo-tc weight + offset (words both
-    mimo-sc and mimo-tc have) and the rime-ice count on the same scale (words rime-ice lists).
-    Single characters: mean of the merged weight and the rime-ice 8105 count on the same scale.
+    mimo-sc and mimo-tc have) and the count of the word in the pair sources on the same scale
+    (see count_scale). Single characters: mean of the merged weight and the count on the same scale.
+    The count is of the text, whatever its reading: the most likely reading of a text is blended
+    and its other readings move by the same amount, so their order stays.
     Taiwan and Hong Kong words from OpenCC (regional_tw_hk): at least mimo-tc weight + offset - 350.
-    The rime-ice scale is 700 ln(1 + count) plus the median difference to the merged weight,
-    (see rime_scale). Reviewed overlay rows keep their weight."""
+    Reviewed overlay rows and the names (`fixed`) keep their weight."""
     sc_keys = {(hans, code) for hans, code, _ in load_mimo_sc_dataset()["entries"]}
     regional = load_mimo_tc_dataset().get("regional_tw_hk", {})
+    def listed(key):
+        """Mean of the word lists' weights for a reading, and how many there are."""
+        tc_weight = clamp_i16_weight(tc_raw[key] + offset) if key in tc_raw else None
+        values = [words[key]]
+        if len(key[1]) > 1 and tc_weight is not None and (key[1], key[2]) in sc_keys: values.append(tc_weight)
+        return sum(values) / len(values), len(values), tc_weight
+    top = {}
+    for key, weight in words.items():
+        if key not in reviewed and key not in fixed and (key[1] not in top or words[top[key[1]]] < weight): top[key[1]] = key
+    shift = {}
+    for text, key in top.items():
+        counted = count_weight(key)
+        if counted is not None:
+            mean, n, _ = listed(key)
+            shift[text] = (mean * n + counted) / (n + 1) - mean
     result = {}
     for key, weight in words.items():
         hant, hans, code = key
         if key not in reviewed:
-            rime = rime_weight(key)
-            tc_weight = clamp_i16_weight(tc_raw[key] + offset) if key in tc_raw else None
-            if len(hans) > 1:
-                values = [weight]
-                if tc_weight is not None and (hans, code) in sc_keys: values.append(tc_weight)
-                if rime is not None: values.append(rime)
-                weight = clamp_i16_weight(sum(values) / len(values))
-                if hant in regional and tc_weight is not None: weight = max(weight, clamp_i16_weight(tc_weight - 350))
-            elif rime is not None:
-                weight = clamp_i16_weight((weight + rime) / 2)
+            mean, _, tc_weight = listed(key)
+            weight = clamp_i16_weight(mean + shift.get(hans, 0))
+            if len(hans) > 1 and hant in regional and tc_weight is not None: weight = max(weight, clamp_i16_weight(tc_weight - 350))
         result[key] = weight
     # Reviewed rows were weighted against the merged weights, so each stays below the indexed words
     # with the same letters that it was below before the blend.
@@ -241,6 +275,26 @@ def pinyin_weights(words, native, reviewed, tc_raw, offset, rime_weight, report)
     return result
 
 
+def counted_shift(weights, fixed, count_weight, share):
+    """Moves every reading of a text towards the count of the text by `share` of the gap between
+    the count and the weight of its most likely reading. Reviewed rows and names (`fixed`) are not
+    moved, but each stays below the words with the same reading that it was below before."""
+    top = {}
+    for key, weight in weights.items():
+        if key not in fixed and (key[1] not in top or weights[top[key[1]]] < weight): top[key[1]] = key
+    shift = {text: share * (count_weight(key) - weights[key]) for text, key in top.items()}
+    result = {key: clamp_i16_weight(weight + shift[key[1]]) if key[1] in shift and key not in fixed else weight for key, weight in weights.items()}
+    letters = lambda key: toneless(key[2]).replace(" ", "")  # a first tone is typed without a mark, so it meets every tone
+    above = collections.defaultdict(list)
+    for key, weight in weights.items():
+        if key not in fixed: above[letters(key)].append((weight, result[key]))
+    for key in fixed:
+        if key not in weights: continue
+        limit = min((new - 1 for old, new in above[letters(key)] if old > weights[key]), default=weights[key])
+        if limit < result[key]: result[key] = max(1, limit)
+    return result
+
+
 # Spoken text (Tatoeba, Common Voice, the project's everyday sentences) as evidence for word weights.
 SPOKEN_MIN_COUNT = 2   # spoken occurrences needed before a word is raised
 SPOKEN_SHARE = 1.5     # a word below its spoken weight is raised by this times the gap (dev: 1.0 and 2.0 worse)
@@ -250,7 +304,7 @@ def spoken_weights(weights, reviewed, report, label):
     """Raises words people say more often than written text suggests.
 
     A word's spoken weight is 700 ln(1 + spoken count) plus the median difference to the
-    weights of the words with spoken counts (as rime_scale does). A word of two or more
+    weights of the words with spoken counts (as count_scale does). A word of two or more
     characters seen SPOKEN_MIN_COUNT+ times below its spoken weight is raised by SPOKEN_SHARE
     times the gap; every reading of the word by the same amount, so their order stays. Its
     initials keys follow, being derived from the full weight. Reviewed rows are left alone. A variant
@@ -276,12 +330,12 @@ def spoken_weights(weights, reviewed, report, label):
     return result
 
 
-def main(destination, converter):
+def main(destination, converter, *options):
     output = pathlib.Path(destination)
     output.mkdir(parents=True, exist_ok=True)
     associations = json.loads((ROOT / "Resources/Lexicon/associations.json").read_text())
     (output / "associations.json").write_text(json.dumps(associations, ensure_ascii=False))
-    words, native_keys, merge_report, particle_keys = merge_simplified(imported_words(converter), converter)
+    words, native_keys, merge_report, phrase_counts, name_keys = merge_simplified(imported_words(converter), converter, "--no-phrases" not in options)
     (output / "lexicon-merge-report.json").write_text(json.dumps(merge_report, indent=2))
     authored_count = 0
     reviewed_groups = {}
@@ -325,13 +379,18 @@ def main(destination, converter):
         rows[mode][key] = max(rows[mode].get(key, 0), weight)
     context = {}
     reviewed_keys = {key for key, _ in reviewed_groups.values()}
-    rime_weight = rime_scale(words, reviewed_keys | particle_keys, merge_report)
-    for key in particle_keys:
-        if key in words and key not in reviewed_keys: words[key] = rime_weight(key) or words[key]
+    # --no-counts: weights from the word lists alone. The pair and phrase counts are made with such a
+    # lexicon, so that how the text is split into words does not depend on earlier counts.
+    counts = "--no-counts" not in options
+    count_weight = count_scale(words, reviewed_keys | set(phrase_counts), phrase_counts, merge_report) if counts else lambda key: None
+    for key in phrase_counts:
+        if key in words and key not in reviewed_keys: words[key] = count_weight(key)
     zhuyin_weight, tc_raw = zhuyin_weights(words, reviewed_keys, merge_report["traditional_only_scale_offset"])
-    pinyin_weight = pinyin_weights(words, native_keys, reviewed_keys, tc_raw, merge_report["traditional_only_scale_offset"], rime_weight, merge_report)
-    zhuyin_weight = spoken_weights(zhuyin_weight, reviewed_keys, merge_report, "zhuyin")
-    pinyin_weight = spoken_weights(pinyin_weight, reviewed_keys, merge_report, "pinyin")
+    pinyin_weight = pinyin_weights(words, native_keys, reviewed_keys, name_keys, tc_raw, merge_report["traditional_only_scale_offset"], count_weight, merge_report)
+    if counts:
+        zhuyin_weight = counted_shift(zhuyin_weight, reviewed_keys | name_keys, count_weight, ZHUYIN_COUNT_SHARE)
+        zhuyin_weight = spoken_weights(zhuyin_weight, reviewed_keys, merge_report, "zhuyin")
+        pinyin_weight = spoken_weights(pinyin_weight, reviewed_keys, merge_report, "pinyin")
     for (hant, hans, code), merged_weight in words.items():
         if (hant, hans, code) not in native_keys: continue
         sounds = code.split()
@@ -389,7 +448,7 @@ def main(destination, converter):
             for word, weight in sorted_context: dest.write(f"{word}\t{weight}\n")
     bin_stats = write_mimo_binaries(output, sorted_rows["pinyin"], sorted_rows["zhuyin"], sorted_context)
     merge_report.update(bin_stats)
-    merge_report.update(write_pair_table(output, sorted_rows["pinyin"], sorted_rows["zhuyin"]))
+    if counts: merge_report.update(write_pair_table(output, sorted_rows["pinyin"], sorted_rows["zhuyin"]))
     japanese = {}
     def add_japanese(reading, word, weight):
         if not re.fullmatch("[a-z'-]+", reading) or not word or not 0 < weight <= 10000:
@@ -440,15 +499,15 @@ def main(destination, converter):
     merge_report["japanese_readings_legacy"] = len(japanese)
     (output / "lexicon-merge-report.json").write_text(json.dumps(merge_report, indent=2))
     (output / "mimo-manifest.json").write_text(json.dumps({
-        "name": "mimo", "version": "1.0", "license": "GPL-3.0-or-later",
+        "name": "mimo", "version": "1.0", "license": "see LICENSE and THIRD_PARTY.md",
         "readings": len(words), "lexicons": ["mimo-tc", "mimo-sc", "mimo-jp"],
         "binary_format": "MIMO-BASE-1 / MIMO-BIN-1 (i16 Log-Probability SoA); MIMO-JP-1",
         "binary_files": ["mimo_base.bin", "mimo_jp.bin", "mimo_pairs.bin"],
         "mimo_base_sha256": base_sha256,
         "japanese_words": jp_stats["japanese_words"], "japanese_keys": jp_stats["japanese_keys"],
         "key": "simplified spelling + tone-qualified reading",
-        "frequency_preference": "mimo-sc + mimo-tc + rime-ice calibrated fusion + OpenCC STPhrases; reviewed overlays last",
-        "sources": ["mimo-tc (MIT)", "mimo-sc (MIT)", "rime-ice (GPL-3.0)", "OpenCC (Apache-2.0)", "jieba (MIT)"],
+        "frequency_preference": "mimo-sc + mimo-tc + counted text, calibrated; OpenCC STPhrases; reviewed overlays last",
+        "sources": ["mimo-tc (MIT)", "mimo-sc (MIT)", "OpenCC (Apache-2.0)", "jieba (MIT)"],
         "japanese_sources": ["Mozc dictionary_oss (BSD-3-Clause AND NAIST-2003)", "UniDic unidic-cwj 2025.12 (BSD-3-Clause)",
                              "OpenCC JPShinjitaiCharacters (Apache-2.0)", "Unihan 18.0.0 (Unicode-3.0)",
                              "mimo-sc and mimo-tc readings (MIT)", "Meowpuut authored"]

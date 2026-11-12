@@ -20,7 +20,6 @@ lookup reaches; the decoder looks them up on purpose
       DataSources/mimo-latin/latin.tsv and the counts in SOURCE.json.
 """
 import argparse
-import bz2
 import json
 import math
 import re
@@ -29,7 +28,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from mimo_pairs import CACHE, ROOT as PAIRS_ROOT, lines as text_lines, sources
+from mimo_pairs import CACHE, source_texts, sources
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "DataSources/mimo-latin"
@@ -38,6 +37,7 @@ MIN_COUNT = 5       # weighted count a word needs to be kept
 # Short keys meet pinyin letters often (zh, len): two letters need 100, three need 30.
 MIN_SHORT = {2: 100, 3: 30}
 LIMIT = 12000       # words kept, most frequent first
+HAND_COUNT = 150    # weighted count given to a word of the hand list
 LOWER_COMMON = 0.2  # lower-case uses per capitalised use, anywhere in lines with Han
 LOWER_MIN = 20      # and at least this many lower-case uses (Eason, Plurk keep their capital)
 HAN = re.compile(r"[㐀-䶿一-鿿]")
@@ -97,24 +97,20 @@ def wiki_lines(path: Path):
 
 
 def count_file(job):
-    name, kind, path = job
+    name, src = job
     counts = Counter()
-    if kind == "wiki":
-        lines = wiki_lines(Path(path))
-    elif kind == "tatoeba":
-        lines = (p[2] for p in (l.rstrip("\n").split("\t") for l in bz2.open(path, "rt", encoding="utf-8")) if len(p) >= 3 and p[1] == "cmn")
-    else:
-        lines = text_lines(Path(path))
-    for line in lines:
+    for line in wiki_lines(CACHE / "dl" / src["cache"]) if src["kind"] == "wiki" else source_texts(src):
         words_in(line, counts)
-    return name, kind, counts
+    return name, src["kind"], counts
 
 
 def count(text_dirs, jobs):
-    work = [(name, src["kind"] if src["group"] == "written" else "spoken" if src["kind"] != "tatoeba" else "tatoeba",
-             str(PAIRS_ROOT / src["path"] if "path" in src else CACHE / "dl" / src["cache"])) for name, src in sources().items()]
+    # Only sentences people wrote as text: the project's own, Tatoeba and Common Voice. The task
+    # dialogues are left out: MASSIVE is voice commands in lower case (alexa, iphone, google), and
+    # the English in CrossWOZ and KdConv is mostly names of hotels, songs and awards.
+    work = [(name, src) for name, src in sources().items() if src["kind"] in ("lines", "tatoeba")]
     for d in text_dirs:
-        work += [(f"text:{p.name}", "spoken", str(p)) for p in sorted(Path(d).glob("*.txt"))]
+        work += [(f"text:{p.name}", {"path": str(p.resolve()), "kind": "lines"}) for p in sorted(Path(d).glob("*.txt"))]
     forms = defaultdict(Counter)
     anywhere = Counter()
     per_source = Counter()
@@ -140,6 +136,14 @@ def count(text_dirs, jobs):
         elif best[1:].islower() and anywhere[key] >= max(LOWER_MIN, LOWER_COMMON * anywhere[best.replace("-", "")]):
             best = best.lower()
         rows.append((total, key, best))
+    # The hand list (Resources/Lexicon/latin.tsv): names and abbreviations in their usual spelling,
+    # present even when the counted text lacks them, at HAND_COUNT or their own count if higher.
+    listed = {key: (total, best) for total, key, best in rows}
+    for line in (ROOT / "Resources/Lexicon/latin.tsv").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            key = line.replace("-", "").lower()
+            listed[key] = (max(listed.get(key, (0, ""))[0], HAND_COUNT), line)
+    rows = [(total, key, best) for key, (total, best) in listed.items()]
     rows.sort(key=lambda r: (-r[0], r[1]))
     rows = rows[:LIMIT]
     DATA.mkdir(parents=True, exist_ok=True)

@@ -736,7 +736,7 @@ final class KeyboardKeysView: UIView {
         case .shift:
             track.phase = .shift
             delegate?.keysView(self, keyDown: track.key)
-        case .returnKey, .toggleEnglish, .dismiss:
+        case .returnKey, .toggleEnglish, .dismiss, .kaomoji:
             cap(at: track.position)?.pressed = true
         case .page:
             track.phase = .pageSlide(origin: currentPage)
@@ -858,15 +858,18 @@ final class KeyboardKeysView: UIView {
     func labPoint(finger: Int) -> CGPoint? { tracks[.script(finger)]?.point }
 
     /// The centre of a key, by its label or by a name for keys without one
-    /// (shift, delete, space, return, symbols, toggle, globe).
+    /// (shift, delete, space, return, symbols, letters, toggle, globe, kaomoji).
+    /// `symbols` is the first page key in reading order, `letters` the key back to the letters.
     func labCenter(of name: String) -> CGPoint? {
         guard let rows = keySet?.rows else { return nil }
         for (r, row) in rows.enumerated() {
             for (c, key) in row.enumerated() {
                 let matches: Bool
                 switch (name, key.action) {
+                case ("letters", .page(let page)):
+                    matches = page == 0
                 case ("shift", .shift), ("delete", .delete), ("space", .space), ("return", .returnKey),
-                     ("symbols", .page), ("toggle", .toggleEnglish), ("globe", .globe):
+                     ("symbols", .page), ("toggle", .toggleEnglish), ("globe", .globe), ("kaomoji", .kaomoji):
                     matches = true
                 default:
                     // Letters match in either case: Shift changes the label.

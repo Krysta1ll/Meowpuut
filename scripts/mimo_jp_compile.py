@@ -411,7 +411,7 @@ def entries_only_rows(pinyin_rows, root=ROOT):
     """Rows of the merged pinyin table whose Simplified text is an entry of mimo-tc or mimo-sc.
 
     Used only for the report of design question 9 (how many gate bits change when the gate
-    ignores words that come only from rime-ice or the project overlays).
+    ignores words that come only from the phrases or the project overlays).
     """
     from mimo_pipeline import load_mimo_sc_dataset, load_mimo_tc_dataset
     texts = {hans for _hant, hans, _code, _w in load_mimo_tc_dataset()["entries"]}

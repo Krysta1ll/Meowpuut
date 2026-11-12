@@ -8,6 +8,7 @@ struct KeyboardKey: Equatable {
         case engine(Int32)      // a raw ASCII key for the engine (letters, Zhuyin)
         case text(String)       // inserted as is (symbol pages)
         case shift, delete, space, returnKey, globe, toggleEnglish
+        case kaomoji            // ^_^: opens or closes the kaomoji list
         case dismiss            // iPad: hides the keyboard
         case page(Int)          // 0 letters, 1 symbols, 2 more symbols
     }
@@ -31,7 +32,7 @@ struct KeyboardKey: Equatable {
     }
     /// Keys typed when the finger lifts; a second finger landing commits them early.
     var commitsOnRelease: Bool {
-        switch action { case .engine, .text, .space, .returnKey, .toggleEnglish: return true; default: return false }
+        switch action { case .engine, .text, .space, .returnKey, .toggleEnglish, .kaomoji: return true; default: return false }
     }
 }
 
@@ -60,6 +61,8 @@ struct KeyboardKeyContext: Equatable {
     var returnEnabled: Bool
     /// Full-width iPad keyboard: a key to hide it, as Apple's has.
     var pad = false
+    /// The kaomoji list is open: the ^_^ key is lit.
+    var kaomoji = false
 }
 
 enum KeyboardKeyBuilder {
@@ -216,7 +219,7 @@ enum KeyboardKeyBuilder {
         if japanese {
             return page == 1
                 ? [Array("1234567890").map(String.init), ["ー", "/", "：", "；", "（", "）", "¥", "@", "「", "」"], ["。", "、", "？", "！", "・", "."]]
-                : [["【", "】", "｛", "｝", "#", "%", "^", "*", "+", "="], ["_", "—", "＼", "｜", "～", "『", "』", "€", "&", "♪"], ["…", "、", "^_^", "？", "！", "'"]]
+                : [["【", "】", "｛", "｝", "#", "%", "^", "*", "+", "="], ["_", "—", "＼", "｜", "～", "『", "』", "€", "&", "♪"], ["…", "、", "。", "？", "！", "'"]]
         }
         if page == 1, chinese, !simplified {
             return [Array("1234567890").map(String.init), ["-", "/", "：", "；", "（", "）", "$", "@", "「", "」"], ["。", "，", "、", "？", "！", "."]]
@@ -225,7 +228,7 @@ enum KeyboardKeyBuilder {
         case (1, false): return [Array("1234567890").map(String.init), ["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""], [".", ",", "?", "!", "'"]]
         case (_, false): return [["[", "]", "{", "}", "#", "%", "^", "*", "+", "="], ["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"], [".", ",", "?", "!", "'"]]
         case (1, true): return [Array("1234567890").map(String.init), ["-", "/", "：", "；", "（", "）", "¥", "@", "“", "”"], ["。", "，", "、", "？", "！", "."]]
-        default: return [["【", "】", "｛", "｝", "#", "%", "^", "*", "+", "="], ["_", "—", "＼", "｜", "～", "《", "》", "€", "&", "·"], ["…", "，", "^_^", "？", "！", "'"]]
+        default: return [["【", "】", "｛", "｝", "#", "%", "^", "*", "+", "="], ["_", "—", "＼", "｜", "～", "《", "》", "€", "&", "·"], ["…", "，", "。", "？", "！", "'"]]
         }
     }
 
@@ -246,7 +249,12 @@ enum KeyboardKeyBuilder {
         let spokenLetters = context.english ? "字母" : context.mode == .japanese ? "假名" : lettersLabel
         let back = KeyboardKey(action: .page(0), label: lettersLabel, style: .utility, preview: false, fontSize: 16,
                                accessibilityLabel: spokenLetters)
-        let bottom = bottomRow(context, t: t, first: back, second: nil)
+        // Chinese and Japanese: the ^_^ key sits where the letters pages have the
+        // language key, on both symbol pages. It lists kaomoji in the candidate row.
+        let kaomoji = context.english ? nil : KeyboardKey(
+            action: .kaomoji, label: "^_^", style: context.kaomoji ? .accent : .utility, preview: false, fontSize: 16,
+            accessibilityLabel: t("顏文字", "颜文字"), accessibilityValue: context.kaomoji ? t("開", "开") : t("關", "关"))
+        let bottom = bottomRow(context, t: t, first: back, second: kaomoji)
         let third = [other] + source[2].map(key) + [delete]
         let middleUnits = (CGFloat(10) - 2 * 1.32) / CGFloat(source[2].count)
         return KeyboardKeySet(kind: .symbols(page),

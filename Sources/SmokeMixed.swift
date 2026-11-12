@@ -61,6 +61,12 @@ func runSmokeMixedAndLayout(_ h: inout SmokeHarness) {
     engine.clear(); h.type("miaomiaokaixin")
     h.check(engine.snapshot.candidates.contains("喵喵開心"), "自動收集跨次選詞組合")
     h.check(ChoiceMemory.shared.records["ctx|喵喵|py:t:kaixin"]?.first?.uses == 2, "上下文選詞記憶")
+    // Emoji and kaomoji: first in the row after a commit; a picked one leads next time.
+    engine.clear(); h.type("shengrikuaile"); engine.key(32); _ = engine.takeCommit()
+    h.check(engine.predictions.first == "🎂" && engine.predictions.firstIndex(of: "🎉").map { $0 <= 4 } == true, "選詞後第一格是表情，第二個表情在第三個聯想詞後")
+    h.check(engine.choosePrediction(engine.predictions.firstIndex(of: "🎉") ?? 0) == "🎉" && engine.predictions.first == "🎂" && Symbols.of("生日快樂")?.emoji.first == "🎉", "點過的表情下次排第一，聯想列不變")
+    h.check(Symbols.after("我不想睡", japanese: false) == nil && Symbols.after("我想睡", japanese: false)?.word == "想睡" && Symbols.after("今天好累，", japanese: false)?.word == "好累", "句尾的詞有表情，否定句沒有")
+    h.check(Symbols.of("手紙") == nil && Symbols.of("手紙", japanese: true)?.emoji.first == "✉️", "中文和日語的表情分開查")
     Preferences.shared.rememberChoices = false
     Preferences.shared.simplified = true
     h.expect(.pinyin, "zhongguo", "中国")
@@ -76,11 +82,11 @@ func runSmokeMixedAndLayout(_ h: inout SmokeHarness) {
         engine.clear(); engine.selectMode(.zhuyin); engine.modeChanged()
         h.type("ji3ap7rup wu0 fm4d042u04u/3")
         let full = simplified ? "我们今天去看电影" : "我們今天去看電影"
-        let prefix = simplified ? "我们今天" : "我們今天"
-        let film = simplified ? "去看电影" : "去看電影"
+        let prefix = simplified ? "我们今天去" : "我們今天去"
+        let film = simplified ? "看电影" : "看電影"
         h.check(engine.snapshot.candidates.first == full, "注音完整句保留首選")
         if let index = engine.snapshot.candidates.firstIndex(of: prefix) { engine.choose(index) }
-        h.check(engine.takeCommit() == prefix && engine.snapshot.input == "fm4d042u04u/3", "注音分段選詞保留完整後綴")
+        h.check(engine.takeCommit() == prefix && engine.snapshot.input == "d042u04u/3", "注音分段選詞保留完整後綴")
         if let index = engine.snapshot.candidates.firstIndex(of: film) { engine.choose(index) }
         h.check(engine.takeCommit() == film && engine.snapshot.input.isEmpty, "注音後續分段完整上屏")
         engine.clear(); h.type("su3cl3v")

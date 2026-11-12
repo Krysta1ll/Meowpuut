@@ -13,13 +13,15 @@ import UIKit
 ///   w300        wait 300 ms
 ///   pick:0      choose the first candidate in the collapsed row
 ///   suggest:0   tap the first next word, or in English the first suggestion
+///   kaomoji:0   tap the first kaomoji of the ^_^ list in the candidate row
 ///   expand      open the expanded candidates; collapse closes them
 ///   caret:-5    the user taps elsewhere in the field: the marked text
 ///               becomes plain text and the caret moves 5 UTF-16 units left
 ///   clear       the host empties the field (a chat app after Send)
 ///
 /// Keys without a label are named shift, delete, space, return, symbols
-/// (the page key), toggle (ABC / 拼) and globe. When the script ends, the
+/// (the page key), letters (the key back from a symbol page), toggle
+/// (ABC / 拼), kaomoji (^_^) and globe. When the script ends, the
 /// document and the keyboard's state are written to tmp/<resultFile>.
 final class LabScript {
     private let keyboard: KeyboardViewController
@@ -70,6 +72,8 @@ final class LabScript {
             keyboard.labChoose(index)
         } else if step.hasPrefix("suggest:"), let index = Int(step.dropFirst(8)) {
             keyboard.labPrediction(index)
+        } else if step.hasPrefix("kaomoji:"), let index = Int(step.dropFirst(8)) {
+            keyboard.labKaomoji(index)
         } else if step == "expand" {
             keyboard.labExpand(true)
         } else if step == "collapse" {
@@ -171,6 +175,7 @@ final class LabScript {
             "highlighted": engine.snapshot.highlighted,
             "predictions": engine.predictions,
             "suggestions": keyboard.labSuggestions,
+            "kaomoji": keyboard.labKaomojiRow,
             "english": engine.english,
             "mode": engine.inputMode.rawValue,
             "shift": keyboard.labShift,

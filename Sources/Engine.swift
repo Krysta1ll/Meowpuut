@@ -125,6 +125,7 @@ final class Preferences: ObservableObject {
         if let value = settings.festivals, festivalOutfits != value { festivalOutfits = value }
         if let request = settings.clearMemoryRequest, request != defaults.string(forKey: "lastClearMemoryRequest") {
             ChoiceMemory.shared.clear()
+            Kaomoji.forgetRecent()
             if ChoiceMemory.shared.flush() { defaults.set(request, forKey: "lastClearMemoryRequest") }
         }
     }
@@ -183,6 +184,8 @@ final class Engine: ObservableObject {
     @Published var snapshot = Snapshot()
     @Published var predictions: [String] = []
     private(set) var predictionContext = ""
+    /// The emoji and kaomoji that lead `predictions`, and the word they are for.
+    private(set) var predictionSymbols: Symbols.Found?
     @Published var english = false
     @Published var error = ""
     var moduleBuffer: String?
@@ -296,7 +299,13 @@ final class Engine: ObservableObject {
         #if os(macOS)
         next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: false, emojiCell: false)
         #else
-        next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode)
+        if mode == .japanese {
+            let japanese = try JapaneseBackend()
+            japanese.symbolCells = true
+            next = japanese
+        } else {
+            next = try ChineseWithJapaneseBackend(mode: mode)
+        }
         #endif
         if warm {
             for scalar in (mode == .zhuyin ? "su3" : "ni").unicodeScalars { _ = next.key(Int32(scalar.value), modifiers: 0) }
@@ -372,26 +381,35 @@ final class Engine: ObservableObject {
         }
     }
     func updatePredictions(context: String) {
-        guard !english, inputMode != .japanese, snapshot.preedit.isEmpty, let backend else {
-            if !predictions.isEmpty { predictions = [] }
-            predictionContext = ""
-            return
-        }
         let clean = String(context.suffix(8)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, clean.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) || (0x20000...0x323af).contains($0.value) }) else {
+        guard !english, snapshot.preedit.isEmpty, let backend, !clean.isEmpty else {
             if !predictions.isEmpty { predictions = [] }
-            predictionContext = ""
+            predictionContext = ""; predictionSymbols = nil
             return
         }
-        predictionContext = clean
-        var merged = ChoiceMemory.shared.contextualPredictions(after: clean, limit: 3)
-        for item in backend.predict(context: clean, limit: 8) where !merged.contains(item) {
-            merged.append(item)
+        // One emoji of the word just typed comes first (生日快樂 🎂); a second emoji and one
+        // kaomoji come after the third word that may follow, so the next words stay in reach.
+        // After a single character (有, 上, typed one by one) nothing leads: 🈶 or 👆 in the
+        // first cell would only push the next words away.
+        predictionSymbols = Symbols.after(clean, japanese: inputMode == .japanese)
+        let leading = clean.count > 1 ? 1 : 0
+        var merged = predictionSymbols.map { Array($0.emoji.prefix(leading)) } ?? []
+        let later = predictionSymbols.map { Array($0.emoji.dropFirst(leading).prefix(2 - leading) + $0.kaomoji.prefix(1)) } ?? []
+        let lead = merged.count
+        let limit = 8 + lead + later.count
+        if inputMode != .japanese,
+           clean.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) || (0x20000...0x323af).contains($0.value) }) {
+            for item in ChoiceMemory.shared.contextualPredictions(after: clean, limit: 3) + backend.predict(context: clean, limit: 8)
+            where !merged.contains(item) {
+                merged.append(item)
+            }
+            for mark in ["，", "。", "？", "！"] where merged.count < limit && !merged.contains(mark) {
+                merged.append(mark)
+            }
         }
-        for mark in ["，", "。", "？", "！"] where merged.count < 8 && !merged.contains(mark) {
-            merged.append(mark)
-        }
-        let next = Array(merged.prefix(8))
+        merged.insert(contentsOf: later.filter { !merged.contains($0) }, at: min(merged.count, lead + 3))
+        predictionContext = merged.isEmpty ? "" : clean
+        let next = Array(merged.prefix(limit))
         if predictions != next { predictions = next }
     }
     func takeCommit() -> String { let text = snapshot.commit; snapshot.commit = ""; return text }
@@ -401,7 +419,7 @@ final class Engine: ObservableObject {
         backend?.clear()
         if snapshot != Snapshot() { snapshot = Snapshot() }
         if !predictions.isEmpty { predictions = [] }
-        predictionContext = ""
+        predictionContext = ""; predictionSymbols = nil
         candidateOrder = []
         pendingChoices = []
         browsing = false; pool = []

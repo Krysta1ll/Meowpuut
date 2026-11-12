@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Engine, appearance and candidate window. iOS/InterfaceText.swift is the
 # Traditional/Simplified text helper both Apple clients use.
-SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/Festivals.swift Sources/FestivalTrim.swift iOS/InterfaceText.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
+SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/Festivals.swift Sources/FestivalTrim.swift iOS/InterfaceText.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
 if [ "${1:-}" = "--sources" ]; then
   echo "$SOURCES"
   exit 0
@@ -25,13 +25,12 @@ mkdir -p .build "$APP/Contents/MacOS" "$APP/Contents/Resources/Modules"
 swiftc scripts/ConvertScript.swift -o .build/convert-script
 python3 scripts/compile-native-lexicon.py "$APP/Contents/Resources" "$PWD/.build/convert-script"
 mkdir -p "$APP/Contents/Resources/Licenses"
-cp LICENSE "$APP/Contents/Resources/Licenses/Meowpuut-GPL-3.0.txt"
+cp LICENSE "$APP/Contents/Resources/Licenses/Meowpuut-MIT.txt"
 cp DataSources/mimo-tc/LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-tc-MIT.txt"
 cp DataSources/mimo-tc/OPENCC-LICENSE.txt "$APP/Contents/Resources/Licenses/OpenCC-Apache-2.0.txt"
 cp DataSources/mimo-tc/JIEBA-LICENSE.txt "$APP/Contents/Resources/Licenses/jieba-MIT.txt"
 cp DataSources/mimo-tc/SOURCE.json "$APP/Contents/Resources/Licenses/mimo-tc-SOURCE.json"
 cp DataSources/mimo-sc/LICENSE "$APP/Contents/Resources/Licenses/mimo-sc-MIT.txt"
-cp DataSources/mimo-sc/RIME-ICE-LICENSE.txt "$APP/Contents/Resources/Licenses/rime-ice-GPL-3.0.txt"
 cp DataSources/mimo-sc/SOURCE.json "$APP/Contents/Resources/Licenses/mimo-sc-SOURCE.json"
 cp DataSources/mimo-jp/LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-jp-derived-BSD.txt"
 cp DataSources/mimo-jp/BSD.txt "$APP/Contents/Resources/Licenses/mimo-jp-BSD.txt"
@@ -42,7 +41,10 @@ cp DataSources/cldr-emoji/SOURCE.json "$APP/Contents/Resources/Licenses/cldr-emo
 cp DataSources/mimo-jp/MOZC-LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-jp-Mozc-BSD.txt"
 cp DataSources/mimo-jp/UNICODE-LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-jp-Unicode-3.0.txt"
 cp DataSources/mimo-pairs/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-pairs-SOURCE.json
-cp DataSources/mimo-pairs/CC-BY-SA-4.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-CC-BY-SA-4.0.txt
+cp DataSources/mimo-pairs/Apache-2.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-Apache-2.0.txt
+cp DataSources/mimo-pairs/CC-BY-4.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-CC-BY-4.0.txt
+cp DataSources/mimo-names/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-names-SOURCE.json
+cp DataSources/mimo-phrases/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-phrases-SOURCE.json
 cp DataSources/mimo-pairs/CC-BY-2.0-FR.html "$APP/Contents/Resources/Licenses"/mimo-pairs-Tatoeba-CC-BY-2.0-FR.html
 cp DataSources/mimo-pairs/CC0-1.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-CommonVoice-CC0-1.0.txt
 cp DataSources/mimo-latin/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-latin-SOURCE.json

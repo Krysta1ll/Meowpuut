@@ -15,6 +15,8 @@ import UIKit
 //   -english YES          start in English
 //   -page <1|2>           open a symbol page
 //   -expand YES           open the expanded candidates
+//   -kaomoji YES          open the ^_^ list (with -expand YES, its panel)
+//   -commit YES           after -type, commit the first candidate (the row of next words)
 //   -press <label>        hold a key (balloon); with -alternates YES, its long-press row
 //   -document <a|b>       text before and after the cursor
 //   -returnKey <name>     search, send, go, done, next
@@ -196,6 +198,8 @@ final class LabViewController: UIViewController {
             if args.bool(forKey: "english") { keyboard.labToggleEnglish() }
             keyboard.labRefresh()
             if let text = args.string(forKey: "type"), !text.isEmpty { keyboard.labType(text) }
+            if args.bool(forKey: "commit") { keyboard.labChoose(0) }
+            if args.bool(forKey: "kaomoji") { keyboard.labOpenKaomoji() }
             let page = args.integer(forKey: "page")
             if page > 0 { keyboard.labPage(page) }
             if args.bool(forKey: "expand") { keyboard.labExpand() }

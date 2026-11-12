@@ -157,7 +157,7 @@ preferred_sentences = [
     ('yi1 sheng1 jian3 cha2 xin1 bao1', '醫生檢查心包', '医生检查心包'),
 ]
 # 我聽到一聲巨響 is no longer required first, only in the first 3 (list `sentences`): the pinyin
-# index blends its sources, and both mimo-tc and rime-ice count 醫生 well above 一聲, so 醫生 now
+# index blends its sources, and both mimo-tc and the counted text have 醫生 well above 一聲, so 醫生 now
 # outweighs 一聲 as a word. Choosing 一聲 before 巨響 needs word-pair context, which the decoder
 # does not have yet.
 
