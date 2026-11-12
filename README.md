@@ -3,106 +3,129 @@
 </p>
 
 <h1 align="center">喵撲 Meowpuut</h1>
-<p align="center">mimimo。</p>
+<p align="center">注音和拼音輸入法。中文裡要打日文詞，不用切換。</p>
 <p align="center">
-  <a href="https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.dmg">下載 macOS 測試版</a> ·
+  <a href="#下載">下載</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
-  <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a> ·
-  <a href="THIRD_PARTY.md">MIT / 資料來源</a>
+  <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a>
 </p>
 
-喵撲是一款從日常中文輸入出發的開源輸入法。拼音和注音各有自己的按鍵規則，繁簡共用一份詞庫；偶爾想打日文單字，可以直接輸入羅馬音，不必為幾個字來回切換輸入法。
+輸入法是我做的，貓是我養的。
 
-目前是公開測試版。macOS 和 iOS 可以日常輸入中文，Android 和 Windows 有較早的測試包；選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
+喵撲可以打注音和拼音，出繁體或簡體。中文打到一半想放一個日文詞，直接打羅馬字：打 `sushi`，候選裡帶貓爪的「寿司」就是日文。英文也直接夾在拼音裡打：`wozaiyongiphone` 是「我在用iPhone」。
 
-![macOS 候選列，淺色和深色：米米莫和莫莫趴在玻璃上緣；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
+候選列是一條玻璃。黑色的米米莫和奶油色的莫莫把前爪搭在上面。
 
-## 米米莫、莫莫，和候選列
+主要做的是 iPhone 和 iPad 的鍵盤，Mac、Android、Windows 也有。0.8.0 是四個平台第一次一起發布，都還是測試版。
 
-候選列是一條玻璃。米米莫和莫莫趴在玻璃上緣，前爪搭在玻璃上，不蓋到候選字。牠們每天換一種位置：兩端各一隻探頭、擠在同一邊、一隻趴著一隻探頭等八種，設定裡也可以固定一種。候選多了玻璃跟著變長；文字仍是中間最重要的部分。摸米米莫他會縮一下搖頭，摸莫莫她會蹭一下，連摸五下切換繁簡。
+![iPhone 上的喵撲鍵盤。左邊是淺色、玫瑰奶茶、膠囊玻璃，打 sushi，帶貓爪的寿司在第四格；右邊是深色、海鹽藍、波浪玻璃，打 kaixin，開心後面是 😊，再來是顏文字](assets/screenshots/ios-keyboard.png)
 
-玻璃有膠囊、波浪、雲朵三種造型，深色、淺色或跟隨系統，內建玫瑰奶茶、海鹽藍、鼠尾草綠、霧紫、琥珀蜜、石墨六組配色，玻璃強度可調。深色外觀下，玻璃的邊框和下緣那道光跟著配色走。不想要貓也可以關掉，只留玻璃。候選依實際字寬排成一行，長句在中間省略，展開後閱讀全部。縮放與展開有輕柔過渡，也會遵守系統的減少動態效果設定。
+## 下載
 
-![iOS 鍵盤：淺色玫瑰奶茶與深色海鹽藍](assets/screenshots/ios-keyboard.png)
-
-iOS 鍵盤的按鍵也是玻璃，同樣跟著配色。iOS 26 起用系統的液態玻璃；iOS 17 到 18 沒有液態玻璃，候選列是霧面玻璃，按鍵是帶配色的實色鍵面。四個平台的介面照同一份規格，見 [docs/DESIGN.md](docs/DESIGN.md)。
-
-## 選字，先照顧中文
-
-- **拼音與注音分開。** 拼音用數字直接選詞；注音保留數字聲調，用 Shift＋數字選詞，不讓兩套規則互相搶按鍵。
-- **日語留在旁邊。** 拼音輸入時，完整羅馬音可產生假名或日語詞彙候選；有日語詞彙候選時（sushi 的寿司），收合列保留一個，以傾斜的小貓爪標示；只是假名拼寫的（haluo 的はぅお）排在所有中文候選之後。展開後可按候選排序繼續瀏覽。
-- **英文留得住。** 拼音組字時，空格或 Enter 選取目前高亮的候選，數字可直接選詞；Shift＋Enter 輸出原始字母。單個字母仍可選英文，但中文優先。打的是英文單字時，首選就是原文，按空格直接輸入。拼音裡也可以夾英文：`wozaiyongiphone` 是「我在用iPhone」。
-- **越用越熟悉你的用詞。** 記住確認過的選詞、使用次數，以及短時間相鄰選詞的關係。反覆使用的短語可進入本機個人詞庫，無須逐個收藏。
-- **表情跟著詞義走。** 「開心」「謝謝」「晚安」等詞可以帶出 emoji 和顏文字，作為文字之外的選擇。
-
-日語是羅馬音轉假名加約 46,000 詞的日語詞表（`mimo-jp` 2.0，`mimo_jp.bin`），一個讀音給出那個讀音的詞，不是日語整句漢字轉換器，也不做前綴補全。拼音模式只在不打擾中文時給日語詞：詞表裡一般的詞排在所有中文候選之後；不知道日語讀音時，可用漢字的拼音加假名的羅馬字打（`shiberu` 食べる、`dushu` 読書）。能轉成假名，也不代表那串字一定是有意義的日語。
-
-## 先試幾個字
-
-| 模式 | 輸入 | 可以選到 |
+| 平台 | 版本 | 下載 |
 | --- | --- | --- |
-| 注音 | `su3cl3` | 你好 |
-| 注音 | `aul `（末尾空格） | 喵 |
+| iPhone、iPad（iOS 17 以上） | 0.8.0（9） | [TestFlight](https://testflight.apple.com/join/kfMVXAC6) |
+| Mac（macOS 27 以上，Apple 晶片） | 0.8.0 Alpha 1 | [安裝盤 .dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-macos-arm64.dmg) · [安裝套件 .pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-macos-arm64.pkg) |
+| Android（8.0 以上） | 0.8.0 Alpha 1 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-android.apk) |
+| Windows 10、11（x64） | 0.8.0 Alpha 1 | [zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-x64.zip) |
+
+下載的檔案可以用 [SHA256SUMS.txt](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/SHA256SUMS.txt) 核對。舊版本在 [Releases](https://github.com/Krysta1ll/Meowpuut/releases)。
+
+- **iPhone、iPad**：先從 App Store 安裝 Apple 的 TestFlight，再用手機打開 [TestFlight 連結](https://testflight.apple.com/join/kfMVXAC6)，安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
+- **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好要登出再登入，再到系統設定加入輸入法。
+- **Android**：這一版換了簽署用的金鑰。裝過 0.1.0 的話，要先移除舊的，新的才裝得上。
+- **Windows**：沒有簽署的測試版，Windows 可能會先跳出警告。安裝步驟見[安裝說明](docs/INSTALL.md#windows)。
+
+各平台的安裝、更新和移除見[安裝說明](docs/INSTALL.md)。
+
+## 打字
+
+### 注音和拼音
+
+注音和拼音是兩個模式，各有自己的按鍵規則，不互相搶鍵。兩個模式都能出繁體或簡體，共用同一份詞庫。
+
+| 模式 | 打 | 得到 |
+| --- | --- | --- |
+| 注音 | ㄋㄧˇㄏㄠˇ（Mac 鍵盤上是 `su3cl3`） | 你好 |
+| 注音 | ㄋㄏ（只打聲母） | 你好 |
 | 拼音 | `nihao` | 你好 |
-| 拼音 | `miao` | 喵 |
-| 拼音 | `youhua` | 優化／优化 |
-| 拼音 | `d` | 的、到、都等中文，亦保留原字母 |
-| 拼音 | `sushi` | 中文同音詞，以及日語備選 |
-| 拼音 | `emoji` | 英文原文 |
+| 拼音 | `d` | 「的」排在前面，字母 d 也留著 |
+| 拼音 | `xkl`（只打首字母） | 辛苦了 |
+| 拼音 | `zenmb`（全拼和首字母混著打） | 怎麼辦 |
+| 拼音 | `sushi` | 蘇軾，和帶貓爪的「寿司」 |
 | 拼音 | `wozaiyongiphone` | 我在用iPhone |
 
-| 操作 | 快捷鍵 |
+整句打下去時，選字除了看一個詞常不常用，也看前後兩個詞常不常接在一起。選了前面的詞，後面的讀音留著繼續選。
+
+### 日文不用切換
+
+- 拼音模式打完整的羅馬字，候選裡會有日文詞，後面帶一個小貓爪。收合的候選列最多放一個日文詞，不會擠掉中文。
+- 不會唸的日文漢字，漢字照中文讀音打，假名照羅馬字打：`shiberu` 是「食べる」，`sanbu` 是「散歩」。
+- 中日可以混在一起打：`momokawaii` 有「莫莫可愛い」。
+- 整段都是日文時，切到日語模式（iPhone 在喵撲 App 的鍵盤設定，Mac 按 Control＋Option＋3），候選全是日文。
+- 日文是羅馬字轉假名，再查日文詞表：iPhone 和 Mac 約 4.6 萬個詞，Android 和 Windows 目前只有幾百個審過的詞。它給出你打的那個讀音的詞，不會把整句日文轉成漢字，也不會從開頭幾個字母猜整個詞。注音模式不出日文。
+
+### 拼音裡的英文
+
+`wozaiyongiphone` 是「我在用iPhone」。整串都是英文字時，英文排在最前面：在 iPhone 上，`iphone` 的前兩個候選是 iphone 和 iPhone，`ok` 是 OK 和 ok。只想送出打的字母，iPhone 按「確認」，Mac 按 Shift＋Enter。
+
+### 表情符號和顏文字（iPhone、Mac）
+
+- iPhone 打「開心」（`kaixin`），候選列第二格是 😊，第三個詞後面是 (\*´▽&#96;\*)。要點了才輸入，空白鍵仍然送出詞。送出「生日快樂」之後，候選列第一格是 🎂。
+- 符號頁的 `^_^` 鍵打開顏文字，20 組、377 個，最近用過的排在前面。
+- Mac 的候選列也有同一份表情符號和顏文字，排在所有詞的後面。
+
+![左：打 shi 之後展開的候選面板；右：顏文字面板，上面一排是分組](assets/screenshots/expanded.png)
+
+### 記住你的用詞（iPhone、Mac）
+
+你選過的詞、用過幾次、常接在一起的詞，下次排在前面。只記在這台裝置上，設定裡可以關掉，也可以一次清除。Android 和 Windows 還沒有這個功能。
+
+### Mac 的按鍵
+
+| 做什麼 | 按 |
 | --- | --- |
-| 注音／拼音／日語模式 | Control＋Option＋1／2／3 |
+| 切換注音、拼音、日語 | Control＋Option＋1、2、3 |
 | 拼音選詞 | 1–7 |
-| 注音選詞 | Shift＋1–7 |
-| 確認候選 | Enter；拼音也可按空格 |
-| 保留原始字母 | Shift＋Enter |
-| 展開／收合或取消 | ↓／Esc |
-| 翻頁 | Option＋←／→，或 Page Up／Page Down |
-| 拼音聲調（可選） | Shift＋空格／6／3／4／7 → 一／二／三／四／輕聲 |
-| 中英切換 | 拼音單按 Shift；注音保留 Shift＋Space |
-| 標點選單 | 反引號 |
-| 中文模式輸入英文斜線 `/` | Option＋斜線 |
-| 本地短語模組 | Option＋Space |
+| 注音選詞（數字留給聲調） | Shift＋1–7 |
+| 送出選中的候選 | Enter；拼音也可以按空白鍵 |
+| 送出打的字母 | Shift＋Enter |
+| 展開候選、收合 | ↓、Esc |
+| 翻頁 | Option＋←、→，或 Page Up、Page Down |
+| 拼音聲調（可以不打） | Shift＋空白鍵、6、3、4、7 是一、二、三、四聲和輕聲 |
+| 中英切換 | 拼音單按 Shift；注音按 Shift＋空白鍵 |
+| 標點選單 | 反引號 `` ` `` |
+| 中文模式打英文斜線 / | Option＋/ |
+| 自訂短語（`~/Library/Application Support/Meowpuut/Modules/` 裡的 JSON，例子是 [Modules/hello.json](Modules/hello.json)） | Option＋空白鍵 |
 
-拼音直接按標點鍵輸入中文標點；Shift＋逗號、句號、斜線可輸入英文標點。注音的聲韻鍵保留原功能。繁簡與皮膚可在輸入法選單切換。
+拼音直接按標點鍵是中文標點；按住 Shift 再按逗號、句號、問號鍵是英文的 `,` `.` `?`。繁簡、貓的位置、玻璃的形狀和配色，在選單列的輸入法選單裡切換。
 
-## 下載與平台
+## 米米莫和莫莫
 
-[**下載 macOS 0.6.0 Alpha 1 安裝盤**](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.dmg) · [安裝套件](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/Meowpuut-0.6.0-alpha.1-macos-arm64.pkg) · [SHA-256](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.6.0-alpha.1/SHA256SUMS.txt)
+米米莫是黑色的公貓，莫莫是奶油色的暹羅母貓，兩隻都是我家的貓。鍵盤上的牠們是照著照片做的黏土公仔造型。
 
-| 平台 | 目前提供 |
-| --- | --- |
-| macOS 27+，Apple silicon | **0.6.0 Alpha 1** 安裝盤與安裝套件 |
-| iOS／iPadOS 17+ | 0.7.0（8）TestFlight 測試版（宿主 App 與鍵盤擴充），原始碼見 `iOS/`。iOS 17、18 上的樣式還沒有在實機上跑過 |
-| Android 7.0+ | [0.1.0 Alpha APK](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-v0.1.0-alpha) |
-| Windows 10／11 x64 | [0.1.1 Alpha](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-v0.1.1-alpha)，拼音；尚未在 Windows 上實際驗證 |
-| Intel Mac、較舊 macOS | 未驗證，不在本次測試包支援範圍 |
+- 牠們把前爪搭在候選玻璃的上緣，不擋到字。iPhone 和 Mac 上每天換一個地方待：兩端各一隻、擠在同一邊、整隻趴在上面，一共八種；設定裡也可以固定一種。Android 和 Windows 是兩端各一隻。
+- 在 iPhone、Android 和 Windows 上可以摸牠們：摸米米莫，他會縮一下、搖搖頭；摸莫莫，她會蹭一下。連摸莫莫五下，切換繁體和簡體。
+- 到了一些節日，牠們會換上節日的衣服。
+- iPhone 的喵撲 App 裡有牠們的生活照，喜歡的可以存下來。
 
-macOS、Android、Windows 的安裝檔比原始碼舊：2026 年 11 月 12 日調整過的候選列玻璃目前只在原始碼和 iOS 測試版裡。
+![Mac 的候選列，淺色和深色：米米莫和莫莫趴在玻璃上緣；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
 
-macOS 測試包尚未取得 Developer ID 簽署與 Apple 公證。下載前請讀[安裝與移除說明](docs/INSTALL.md)，Release 同時提供 SHA-256。不需要帳號，也不需要雲端服務。
+玻璃有膠囊、波浪、雲朵三種形狀，淺色、深色或跟著系統，配色有玫瑰奶茶、海鹽藍、鼠尾草綠、霧紫、琥珀蜜、石墨六組，玻璃的濃淡分柔和、標準、通透三段。不想看到貓，也可以只留玻璃。
 
-## mimo 1.0：三層分離架構與一份繁簡詞庫
+iPhone 鍵盤的按鍵也是玻璃，跟著配色走。iOS 26 起用系統的液態玻璃；iOS 17、18 是霧面玻璃和實色按鍵。開了「減少動態效果」，貓不再跟著呼吸，摸牠們也只淡一下；開了「降低透明度」或「增加對比」，玻璃改成不透明。四個平台的介面照同一份規格：[docs/DESIGN.md](docs/DESIGN.md)。
 
-中文解碼、斷詞與排序由本專案以 Rust 寫成的 SoA（Structure-of-Arrays）核心完成，全工作區強制啟用 `#![forbid(unsafe_code)]`。詞庫系統採用三層分離設計：
+## 隱私
 
-1. **第一層（離線構建管線）**：整合 `mimo-tc`（繁體注音／拼音，MIT）、`mimo-sc`（簡體帶調詞表，MIT）、`OpenCC`（繁簡一對多消歧與港台詞彙，Apache-2.0）、`jieba`（繁體大詞表，MIT）與 `mimo-jp`（日語詞表，由 Mozc、UniDic、OpenCC、Unihan 經 `scripts/mimo_jp_pipeline.py` 產生，編譯為 `mimo_jp.bin`），統一校準為 `i16` 對數機率分數（Log-Probability），編譯為本專案自訂格式的唯讀二進位檔 **`mimo_base.bin`**（`MIMO-BASE-1` 第 2 版：每種輸入法一份 `MIMO-BIN-1` 詞表，加一份 `MIMO-IDX-1` 查找索引）。另從本專案自寫的句子（約 20.6 萬句）和 Tatoeba、Common Voice、CrossWOZ、KdConv、MASSIVE 的句子計算哪個詞後面常接哪個詞，打包為詞對表 **`mimo_pairs.bin`**（見 `scripts/mimo_pairs.py`）；含政治或貶低群體用語的句子不計入。詞庫另收 Wikidata（CC0）的作品、角色、地名等名稱，和本專案自寫的各行業用詞。
-2. **第二層（映射的唯讀底座）**：iOS 鍵盤擴充、macOS 與 Android 客戶端以 `mmap` 映射 `mimo_base.bin`，經 `mpn_lexicon_create_from_base_in_place` 交給 Rust 核心。核心直接讀取映射的檔案頁（詞表欄位與預先建好的雜湊索引），不複製到堆積，也不在啟動時建索引；詞庫在堆積上佔 0 位元組。詞對表 `mimo_pairs.bin` 同樣映射後以 `mpn_lexicon_attach_pairs` 交給核心，也不佔堆積。排序時每個詞的分數是詞庫權重，加上它與後一個詞的詞對分數，輸入開頭與結尾也各算一次；長句和口語句子因此比只看詞頻準。Windows 仍讀 TSV 並複製到堆積（`mpn_lexicon_create`），尚未使用詞對表。
-3. **第三層（選詞記錄）**：鍵盤以唯追加日誌 `mimo_user_wal.log` 記錄確認過的選詞，每 64 筆由鍵盤自己併入 `mimo_user.db`。iOS 上這兩個檔案只放在鍵盤自己的沙盒，宿主 App 不讀也不寫。
+- iPhone 鍵盤不需要「允許完整取用」。四個平台的程式都沒有連網的功能，Android 版也沒有要網路權限。
+- 不收集任何資料，沒有帳號、廣告和分析工具。
+- 選過的詞和設定只存在這台裝置上：iPhone 在鍵盤自己的空間，Mac 在 `~/Library/Application Support/Meowpuut/`。不跨裝置同步。
 
-固定版本、校驗值與開源致謝見 [THIRD_PARTY.md](THIRD_PARTY.md)。合併策略與引擎架構見[引擎說明](docs/ENGINE.md)。
-
-## 資料留在本機
-
-輸入、排序和個人詞庫不需要網路。學習的是你確認過的候選，不讀取其他應用的聊天記錄或整份文件。記憶可在設定中停用或清除。
-
-macOS 資料位於 `~/Library/Application Support/Meowpuut/`。iOS 鍵盤使用自己的沙盒；目前沒有跨裝置同步。
+完整的說明在[隱私政策](docs/PRIVACY.md)。
 
 ## 從原始碼建置
 
-macOS 需要 macOS 27 SDK 的完整 Xcode、Python 3 和命令列工具。建置腳本預設使用 `/Applications/Xcode.app`；其他位置可設定 `MEOWPUUT_XCODE_DIR`。
+Mac 版需要含 macOS 27 SDK 的完整 Xcode、Python 3 和 Rust。建置腳本預設用 `/Applications/Xcode.app`，其他位置可以設 `MEOWPUUT_XCODE_DIR`。
 
 ```sh
 git clone https://github.com/Krysta1ll/Meowpuut.git
@@ -112,14 +135,24 @@ bash scripts/build.sh
 bash scripts/package-macos.sh
 ```
 
-詞庫快照隨原始碼保存，正常建置不用下載外部引擎或詞庫。測試使用獨立偏好設定，不修改日常選詞記憶。安裝包輸出至 `.build/releases/`。
+詞庫的快照跟原始碼放在一起，建置時不用另外下載。`--smoke` 的測試用獨立的偏好設定，不會動到你平常的選詞記錄。安裝檔輸出在 `.build/releases/`。
 
-iOS 另需 XcodeGen，見 [iOS/README.md](iOS/README.md)。
+- iPhone、iPad：另外需要 XcodeGen，見 [iOS/README.md](iOS/README.md)。
+- Android：見 [Android/README.md](Android/README.md)。
+- Windows：見 [Windows/README.md](Windows/README.md)。
 
-## 一起把選詞做好
+選字和詞庫怎麼做的，見[引擎與詞庫](docs/ENGINE.md)。
 
-最有用的回報往往只有幾行：使用哪個模式、按了哪些鍵、想打什麼、目前出現什麼。請刪掉截圖中的私人內容，再附上系統與應用版本。
+## 授權
 
-詞庫修訂放在 `Resources/Lexicon/`，不要直接修改上游快照。歡迎修讀音、調排序、補日常詞彙和改善跨應用相容性。提交方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 程式碼和資料：[MIT](LICENSE)。
+- 米米莫和莫莫的圖、App 圖示、標誌和節日的圖：保留所有權利。可以從這個倉庫建置喵撲自己用；其他用途要先取得同意，見 [ASSETS-LICENSE.md](ASSETS-LICENSE.md)。
+- 詞庫用到的公開詞表和句子，都是只要註明出處的授權（MIT、BSD、Apache-2.0、Unicode、CC0、CC BY），來源和聲明見 [THIRD_PARTY.md](THIRD_PARTY.md)。GPL 和 CC BY-SA 的資料不收。
 
-喵撲的程式碼和資料以 [MIT](LICENSE) 授權發佈；米米莫和莫莫的圖像、App 圖示和節日素材保留所有權利，可以隨喵撲一起建置使用，其他用途見 [ASSETS-LICENSE.md](ASSETS-LICENSE.md)。詞庫的語料是我們自己收集和撰寫的，用到的公開詞表與句子都保留來源與授權聲明，見 [THIRD_PARTY.md](THIRD_PARTY.md)。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語詞表的審讀（不收的詞目前由自動審讀判定，尚未經母語者審讀）和不同應用中的候選定位，都還有需要打磨的地方。
+## 回報問題
+
+到 [Issues](https://github.com/Krysta1ll/Meowpuut/issues) 留言。最有用的回報只要幾行：哪個平台和版本、哪個模式、按了哪些鍵、想打什麼、實際出現什麼。附截圖前先遮掉私人內容。
+
+還在改進的地方：長句斷詞、一個簡體字對應幾個繁體字的情況、在不同 App 裡候選列的位置。日文詞表裡不收的詞是程式自動判定的，還沒有給日語母語者看過。
+
+想直接修詞庫，修訂放在 `Resources/Lexicon/`，不要改上游的快照；做法見 [CONTRIBUTING.md](CONTRIBUTING.md)。
