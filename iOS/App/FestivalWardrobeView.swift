@@ -70,3 +70,10 @@ struct FestivalWardrobeView: View {
         do { try next.save(); settings = next } catch { saveFailed = true }
     }
 }
+
+extension SharedKeyboardSettings {
+    /// The theme the keyboard wears today with these settings, for the previews.
+    var festivalToday: FestivalTheme? {
+        Festivals.theme(wardrobe: FestivalWardrobe(on: festivals ?? true, skipped: Set(festivalsSkipped ?? [])))
+    }
+}

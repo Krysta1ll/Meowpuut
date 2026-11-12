@@ -23,6 +23,9 @@ struct CandidateBarPreview: View {
     /// "daily" or an arrangement's id, as in the keyboard's settings.
     var placement: String
     var simplified: Bool
+    /// The festival theme the keyboard wears today, if any. Only the theme
+    /// actually worn today is ever shown here (docs/FESTIVALS.md).
+    var festival: FestivalTheme? = nil
 
     private var candidates: [String] { simplified ? ["你好", "你好呀", "您好"] : ["你好", "妳好", "你好呀"] }
     /// The width the card was given.
@@ -41,12 +44,22 @@ struct CandidateBarPreview: View {
         let band = CandidateGlassShape.contentBand(shape, height: layout.glass.height)
         let accessible = reduceTransparency || contrast == .increased
         // The arrangement the keyboard shows today on a bar of this width.
-        let today = cats ? CatSchedule.arrangement(setting: placement, day: CatSchedule.day(), on: layout.stage(shape: shape)) : nil
+        // On a festival day the dressed pair at the ends, as the keyboard does.
+        let stage = layout.stage(shape: shape)
+        let dressed = festival.flatMap { theme in
+            CatSchedule.arrangement(setting: "ends", day: CatSchedule.day(), on: stage) { cat, pose in theme.catSprite(cat) ?? CatArt.sprite(cat, pose) }
+        }.flatMap { $0.arrangement.id == "ends" ? $0 : nil }
+        let today = cats ? dressed ?? CatSchedule.arrangement(setting: placement, day: CatSchedule.day(), on: stage) : nil
+        let tint = festival.flatMap { FestivalOutfit(theme: $0, dark: dark).pillRGB }.map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
         return ZStack(alignment: .topLeading) {
             LiquidGlassBar(style: shape, dark: dark, accessible: accessible, strength: strength,
                            tint: palette.color(dark: dark))
                 .frame(width: layout.glass.width, height: layout.glass.height)
                 .position(x: layout.glass.midX, y: layout.glass.midY)
+            if let ends = festival?.ends {
+                FestivalEndsView(placed: FestivalEndsLayout.place(ends, glass: layout.glass, shape: shape, width: layout.width, left: layout.row.minX,
+                                                                  right: layout.chevron.midX + CandidateRegionLayout.chevronGlyph.width / 2))
+            }
             if cats && !accessible && !dark {
                 // The keyboard's light band at the start of the row (CandidateRegionView).
                 let span = layout.lightBand
@@ -66,7 +79,7 @@ struct CandidateBarPreview: View {
                         .foregroundStyle(index == 0 ? Color.white : CandidateInk.text(dark: dark))
                         .lineLimit(1)
                         .frame(width: cell, height: layout.pillHeight)
-                        .background { if index == 0 { CandidatePill(palette: palette, dark: dark, highContrast: contrast == .increased) } }
+                        .background { if index == 0 { CandidatePill(palette: palette, dark: dark, highContrast: contrast == .increased, festival: tint) } }
                 }
                 Spacer(minLength: 0)
             }
@@ -83,7 +96,10 @@ struct CandidateBarPreview: View {
                 .position(x: layout.chevron.midX, y: layout.chevron.midY)
             if let today {
                 CatFigures(places: today.places, size: CGSize(width: layout.width, height: layout.height), glass: layout.glass,
-                           shape: shape, dark: dark, shadows: !accessible) { Image($0.name) }
+                           shape: shape, dark: dark, shadows: !accessible) { sprite in
+                    // A festival's cats ship in the keyboard extension, like the rest of its art.
+                    festival.map { sprite.name.hasPrefix($0.id + "_") } == true ? Image(sprite.name, bundle: FestivalImages.bundle) : Image(sprite.name)
+                }
             }
             // One row of keys under the glass.
             HStack(spacing: 6) {

@@ -23,7 +23,7 @@ struct KeyboardSettingsView: View {
                 Section {
                     CandidateBarPreview(shape: shape, dark: previewDark, palette: palette, strength: strength,
                                         cats: settings.catGlassSkin ?? true, placement: settings.catPlacement ?? CatSchedule.daily,
-                                        simplified: settings.simplified ?? false)
+                                        simplified: settings.simplified ?? false, festival: settings.festivalToday)
                         .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                         .animation(.easeInOut(duration: 0.25), value: shape)
                 }
