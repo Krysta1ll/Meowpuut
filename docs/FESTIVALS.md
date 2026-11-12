@@ -119,7 +119,7 @@ macOS、Android 和 Windows 目前只有「節日裝扮」總開關。
 - 選中候選的膠囊用主題顏色；增加對比時用原本的顏色。
 - 每套可調的參數在 `scripts/import_festivals.py` 的 `ADAPT`：用哪一側的裝飾、玻璃管的寬度和顏色容許值、去掉小碎片的門檻、切胸口的位置。改了重新匯入即可，不手改 PNG。
 
-各平台：iOS 鍵盤與 App 的預覽、macOS 候選窗都有貓、右端裝飾和膠囊顏色。Android 和 Windows 目前只有膠囊顏色，貓和裝飾還沒畫。
+各平台：iOS 鍵盤與 App 的預覽、macOS 候選窗、Android 鍵盤都有貓、右端裝飾和膠囊顏色。Windows 目前只有膠囊顏色，貓和裝飾還沒畫。
 
 ## 匯入新的素材包
 

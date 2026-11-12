@@ -31,6 +31,7 @@ Branch: worktree-agent-a490ea3ecee5b1e5f. Phase 1 done; Phase 2 under way. docs/
 
 ## Open
 
-- Android and Windows: dressed cats and the right-end ornament.
+- Android: dressed cats in the `ends` seat and the right-end cluster are in (1baaa1f; LogicTest checks all 24 themes fit on the three shapes at 393 dp). Not seen on screen: no emulator was run, and Android has no lab hook to force a date (it would need `adb root` and a changed clock).
+- Windows: only the capsule colour. Cats and cluster need a festival field in CandidateViewModel (catArt is global), a third Sprite kind for the cluster in Scene/SvgSnapshot/CandidateWindow, and SVG snapshots to look at.
 - Cut quality: halloween and songkran keep a short piece of tube, mid_autumn's moon loses an edge; raising `tau` for them cut the ornaments instead. new_year, white_day, midsummer lose ribbon ends. Narrow clusters (tanabata, midsummer, lantern_festival) come out about 30 pt tall.
 - iPad seen only as geometry (no iPad simulator): at 820 and 1024 pt the cluster is 42–52 pt tall and the dressed cats seat at 0.83.
