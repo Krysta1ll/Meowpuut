@@ -44,12 +44,20 @@
 
 ## 在 Windows 上檢查過的
 
-還沒有。0.8.0-alpha.1 的 DLL、安裝腳本和候選窗都還沒在 Windows 上執行過；檢查過的只有：
+2026-11-12 在 Mac 上的 Windows 11 Arm64 虛擬機（zh-TW，`scripts/windows-vm.sh`，見下面）從乾淨的快照開始，用 Arm64 的 zip 跑過：
 
-- macOS 上：`scripts/build-windows-check.sh` 全部通過（排版測試、`session_test` 含 `mimo_base.bin` 共用詞庫、SVG 快照、MinGW GCC 交叉編譯 x64 DLL）。
-- llvm-mingw 20261020 交叉編譯 x64 和 Arm64 DLL，警告視為錯誤，沒有警告；DLL 只匯入 Windows 內建的 DLL，匯出 `DllGetClassObject`、`DllCanUnloadNow`、`DllRegisterServer`、`DllUnregisterServer`。
+- `Install.cmd`：註冊、兩個鍵盤加進「中文（台灣）」；Windows 鍵 + 空白鍵切到喵撲拼音、喵撲注音。
+- 記事本（Arm64 原生）：`nihao` 有底線的讀音和候選窗（兩隻貓在玻璃上）；按 `1`、空白鍵、→ 加 Enter、滑鼠點第二個候選都送出對的字；↓ 展開面板、↑ 收起；Page Down 翻頁；`,` 打出「，」；Shift + Enter 送出字母原文；組字中按 Ctrl + End 先送出候選再移動游標。
+- 單按 Shift 切到英文（工作列顯示「英」），再按一次回中文；按住 Shift 用滑鼠選字不會切換。
+- 喵撲注音：`su3cl3` 顯示 ㄋㄧˇㄏㄠˇ，Shift + 1 送出「你好」；`ji3` 加空白鍵送出「我」。
+- 連點莫莫五下：拼音 `lanse` 的候選從「藍色 藍 爛…」變成「蓝色 蓝 烂…」，再五下變回來。
+- Edge 的網址列：拼音組字、空白鍵和數字選字都正常，候選窗在文字下方。「執行」對話框（檔案總管）裡也能打字。
+- `Uninstall.cmd`：兩個鍵盤從清單拿掉，CLSID 和 TIP 的登錄機碼都刪掉；檔案總管還載著 DLL，所以資料夾留下，腳本印出路徑。
+- x64 的 zip 在這台 Arm64 上安裝時停下來，說要下載 `windows-arm64`。
 
-在 Windows 上要跑的測試寫在倉庫根目錄的 `WINDOWS-IME-HANDOFF.md`。
+沒有在 Windows 上跑過的：x64 的 DLL（沒有 x64 的 Windows 可測）、Windows 10、高 DPI 和多螢幕、UWP 程式與開始功能表搜尋、Word 等其他程式、長時間使用。
+
+在 macOS 上：`scripts/build-windows-check.sh` 全部通過（排版測試、`session_test` 含 `mimo_base.bin` 共用詞庫、SVG 快照、MinGW GCC 交叉編譯 x64 DLL）；llvm-mingw 20261020 交叉編譯 x64 和 Arm64 DLL，沒有警告，只匯入 Windows 內建的 DLL。
 
 ## 會話層
 
@@ -273,5 +281,9 @@ MOUSE=420,330 bash scripts/windows-vm.sh show hover --candidates '喵,貓,毛'  
 - 造型、色系、色調沒有設定的地方。
 - 日語混打只用小型的 `native-japanese.tsv`，還沒改讀 macOS、iOS 用的 `mimo_jp.bin`；也沒有個人詞庫、macOS 的 Swift 排序和 `/` 片語模組。
 - `CMakeLists.txt` 的 MSVC 建置（含 `MeowpuutTextService`）沒有實際跑過。
+- 虛擬機上看到：切到喵撲注音後，工作列的「中／英」指示有時不見，只剩鍵盤圖示；拼音時正常。
+- 點到候選窗玻璃和貓以外的地方（透明的陰影區）時，點擊落到下面的文件，程式會結束組字，讀音照原樣（字母或注音符號）留在文件裡。
+- 有程式還載著 DLL 時，移除後 `C:\Program Files\Meowpuut` 的資料夾要等那些程式關掉或重新開機才能刪。
+- 安裝和移除時 `Set-WinUserLanguageList` 會印一行英文警告（顯示語言改變要重新登入），可以忽略。
 
 可參閱 Microsoft 的 [TSF 文件](https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework)、[composition](https://learn.microsoft.com/en-us/windows/win32/tsf/compositions) 和 [文字服務註冊](https://learn.microsoft.com/en-us/windows/win32/tsf/text-service-registration)。
