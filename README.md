@@ -66,7 +66,7 @@
 
 ### 拼音裡的英文
 
-`wozaiyongiphone` 是「我在用iPhone」。整串都是英文字時（`iphone`、`ok`），第一個候選就是原文，按空白鍵直接送出。只想送出打的字母，iPhone 按「確認」，Mac 按 Shift＋Enter。
+`wozaiyongiphone` 是「我在用iPhone」。整串都是英文字時，英文排在最前面：在 iPhone 上，`iphone` 的前兩個候選是 iphone 和 iPhone，`ok` 是 OK 和 ok。只想送出打的字母，iPhone 按「確認」，Mac 按 Shift＋Enter。
 
 ### 表情符號和顏文字（iPhone、Mac）
 
