@@ -21,16 +21,12 @@ class GeometryTest {
         KeyContext(mode, english, page, ShiftState.OFF, false, globe, "空格", "換行", false, true)
 
     @Test
-    fun catsSitWhereTheDesignSays() {
+    fun barFitsTheKeyboard() {
         for (width in listOf(360f, 393f, 430f, 480f)) {
             val r = CandidateRegionLayout(width, Idiom.PHONE)
-            val eyeBottom = r.mimimo.top + r.mimimo.height * CandidateRegionLayout.MIMIMO_EYE_BOTTOM
-            assertEquals("米米莫's eyes rest on the rim at $width", r.glass.top, eyeBottom, 0.01f)
-            assertTrue("ears inside the keyboard at $width", r.mimimo.top >= -0.5f && r.momo.top >= -0.5f)
-            assertTrue("莫莫 inside the right edge", r.momo.right <= width)
-            assertTrue("row starts after 米米莫", r.row.left >= r.mimimo.right)
-            assertTrue("expand key left of 莫莫's face", r.chevron.right <= r.momo.left + r.momo.width * 0.25f)
-            assertTrue("glass ends inside the keyboard", r.glass.right <= width)
+            assertTrue("row starts inside the glass at $width", r.row.left > r.glass.left)
+            assertTrue("expand key inside the glass", r.chevron.right <= r.glass.right)
+            assertTrue("glass ends inside the keyboard at $width", r.glass.right <= width)
             assertTrue("pill fits the glass", r.pillHeight < r.glass.height)
         }
     }
@@ -169,13 +165,11 @@ class GeometryTest {
     }
 
     @Test
-    fun catsFollowTheRimOfTheShape() {
+    fun theExpandKeyFollowsTheRimOfTheShape() {
         val capsule = CandidateRegionLayout(393f, Idiom.PHONE)
         val cloud = CandidateRegionLayout(393f, Idiom.PHONE, rim = 0.16f)
         val drop = 0.16f * cloud.glass.height
         assertEquals(capsule.glass, cloud.glass)
-        assertEquals(capsule.mimimo.top + drop, cloud.mimimo.top, 0.001f)
-        assertEquals(capsule.momo.top + drop, cloud.momo.top, 0.001f)
         assertEquals(capsule.chevron.centerY + drop / 2, cloud.chevron.centerY, 0.001f)
         // The expand key stays inside the region.
         assertTrue(cloud.chevron.bottom <= cloud.height)

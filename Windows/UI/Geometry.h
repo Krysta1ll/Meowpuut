@@ -27,6 +27,9 @@ struct RectF {
     float midY() const { return y + height / 2; }
     bool empty() const { return width <= 0 || height <= 0; }
     bool contains(PointF p) const { return p.x >= x && p.x < right() && p.y >= y && p.y < bottom(); }
+    bool intersects(const RectF &o) const {
+        return !empty() && !o.empty() && x < o.right() && o.x < right() && y < o.bottom() && o.y < bottom();
+    }
     RectF inset(float dx, float dy) const { return {x + dx, y + dy, width - 2 * dx, height - 2 * dy}; }
     RectF offset(float dx, float dy) const { return {x + dx, y + dy, width, height}; }
 };
@@ -49,6 +52,13 @@ struct BezierPath {
 
 struct Circle {
     float cx = 0, cy = 0, r = 0;
+};
+
+// x' = a·x + c·y + e, y' = b·x + d·y + f: the order of an SVG matrix() and
+// of a Direct2D 3×2 matrix.
+struct Affine {
+    float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
+    bool identity() const { return a == 1 && b == 0 && c == 0 && d == 1 && e == 0 && f == 0; }
 };
 
 inline float clampf(float v, float lo, float hi) { return std::max(lo, std::min(hi, v)); }

@@ -58,6 +58,12 @@ public:
         c.paint = std::move(paint);
     }
     void pushClip(std::size_t path) { add(DrawCommand::Kind::PushClip).path = path; }
+    void pushClipOut(std::size_t path) { add(DrawCommand::Kind::PushClipOut).path = path; }
+    void pushClipOvals(std::vector<RectF> ovals, const Affine &transform) {
+        auto &c = add(DrawCommand::Kind::PushClipOvals);
+        c.ovals = std::move(ovals);
+        c.transform = transform;
+    }
     void popClip() { add(DrawCommand::Kind::PopClip); }
     void line(std::vector<PointF> points, float width, Paint paint) {
         if (points.size() < 2) return;
@@ -78,11 +84,13 @@ public:
         c.rotation = rotation;
         c.paint = std::move(paint);
     }
-    void image(Sprite sprite, const RectF &rect, float opacity = 1, float blur = 0) {
+    void image(Sprite sprite, const RectF &rect, const Affine &transform, Color tint = {0, 0, 0, 0}, float blur = 0) {
         auto &c = add(DrawCommand::Kind::Image);
         c.sprite = sprite;
         c.rect = rect;
-        c.opacity = opacity;
+        c.transform = transform;
+        c.tint = tint;
+        c.opacity = tint.a > 0 ? tint.a : 1;
         c.blur = blur;
     }
     void text(const std::string &s, float x, float baseline, float size, bool medium, Color color,
@@ -106,32 +114,21 @@ private:
     }
 };
 
-// Outfit layer behind, the cat, outfit layer in front: all on one canvas.
-void mimimo(Builder &b, const RectF &box, float opacity = 1, float blur = 0) {
-    b.image(Sprite::MimimoBack, box, opacity, blur);
-    b.image(Sprite::Mimimo, box, opacity, blur);
-    b.image(Sprite::MimimoFront, box, opacity, blur);
-}
-
 void glass(Builder &b, const CandidateLayout &L, const Theme &t) {
     const RectF box = L.glass.bounds;
     const std::size_t outer = b.outline(L.glass);
     if (t.shadow.a > 0) b.shadow(outer, t.shadow, t.shadowBlur / 2, t.shadowOffsetY);
     if (t.keyShadow.a > 0) b.shadow(outer, t.keyShadow, t.keyShadowBlur / 2, t.keyShadowOffsetY);
-    // 米米莫 is behind the glass.
-    if (L.decorations) mimimo(b, L.mimimo);
 
     Paint body = linear({0, box.y}, {0, box.bottom()}, {{0, t.glassTop}, {1, t.glassBottom}});
     if (t.opaque) {
         b.fill(outer, std::move(body));
     } else {
-        // The rim is clear, so the page and the cat show through it. The body
-        // inside is milky; only a soft copy of the cat shows on it.
+        // The rim is clear, so the page shows through it. The body inside is milky.
         const std::size_t inner = b.outline(insetOutline(L.glass, t.rimWidth));
         b.fill(outer, solid(t.rimTint));
         b.fill(inner, std::move(body));
         b.pushClip(inner);
-        if (L.decorations && t.frostOpacity > 0) mimimo(b, L.mimimo, t.frostOpacity, kFrostBlur);
         // Light that has passed through the glass: the caustic's colours on
         // the lower half of the body, strongest at the bottom edge. One soft
         // patch per colour, evenly spaced, each fading out where its
@@ -180,6 +177,68 @@ void glass(Builder &b, const CandidateLayout &L, const Theme &t) {
         b.line(outlineRun(L.glass, OutlineEdge::Top, t.opaque ? 2.0f : t.rimWidth / 2, 0.015f, 0.30f), 1.3f,
                linear({box.x, 0}, {box.x + 0.30f * box.width, 0},
                       {{0, t.highlight.withAlpha(0)}, {0.35f, t.highlight}, {1, t.highlight.withAlpha(0)}}));
+}
+
+// The reaction to a click, about the cat's paws: x' = anchor + shift + R·S·(x − anchor).
+Affine reactionTransform(const CatPlacement &cat, const CatReaction &r) {
+    const float a = r.tilt * 3.14159265f / 180.0f, cs = std::cos(a), sn = std::sin(a);
+    Affine m;
+    m.a = cs * r.scaleX;
+    m.b = sn * r.scaleX;
+    m.c = -sn * r.scaleY;
+    m.d = cs * r.scaleY;
+    m.e = cat.anchor.x + r.shift - (m.a * cat.anchor.x + m.c * cat.anchor.y);
+    m.f = cat.anchor.y - (m.b * cat.anchor.x + m.d * cat.anchor.y);
+    return m;
+}
+
+// Each whole paw, which is drawn again in front of the glass (a round paw is
+// about 0.7 as tall as it is wide; CatSprite.pawOutlines on iOS).
+std::vector<RectF> pawOvals(const CatPlacement &cat) {
+    std::vector<RectF> ovals;
+    const RectF &f = cat.frame;
+    for (int i = 0; i < cat.sprite->pawCount; ++i) {
+        const CatPaw &p = cat.sprite->paws[i];
+        const float width = 2 * p.halfWidth * f.width + 0.8f, bottom = cat.anchor.y + p.depth * f.height + 0.4f;
+        const float height = std::max(2 * p.depth * f.height, 0.7f * width) + 0.4f;
+        ovals.push_back({f.x + p.x * f.width - width / 2, bottom - height, width, height});
+    }
+    return ovals;
+}
+
+// The cats sit behind the glass's top edge: each body shows only outside the
+// glass, so its flat cut hides behind the edge, and its paws are drawn again
+// over the glass. Every body goes on before any paws, so one cat never cuts
+// into the other's paws. In dark appearance 米米莫 (black) gets a warm light
+// round his outline.
+void cats(Builder &b, const CandidateLayout &L, const CandidateViewModel &model, const Theme &t) {
+    if (!L.decorations || L.cats.empty()) return;
+    const std::size_t glassPath = b.outline(L.glass);
+    const bool dark = t.appearance == Appearance::Dark;
+    const auto sprite = [](const CatPlacement &c) { return c.cat == Cat::Mimimo ? Sprite::Mimimo : Sprite::Momo; };
+    const auto turn = [&](const CatPlacement &c) { return reactionTransform(c, model.reactions[static_cast<int>(c.cat)]); };
+    b.pushClipOut(glassPath);
+    for (const auto &c : L.cats) {
+        if (dark && c.cat == Cat::Mimimo) b.image(sprite(c), c.frame, turn(c), kGlow, kGlowBlur);
+        b.image(sprite(c), c.frame, turn(c));
+    }
+    b.popClip();
+    if (t.contactShadow.a > 0) {
+        // Where a paw rests on the glass.
+        b.pushClip(glassPath);
+        for (const auto &c : L.cats)
+            for (const RectF &paw : pawOvals(c)) {
+                const RectF shade{paw.x - 0.1f * paw.width, paw.bottom() - 2.4f, 1.2f * paw.width, 4.4f};
+                b.ellipse(shade, radial({shade.midX(), shade.midY()}, shade.width / 2, shade.height / 2,
+                                        {{0, t.contactShadow}, {1, t.contactShadow.withAlpha(0)}}));
+            }
+        b.popClip();
+    }
+    for (const auto &c : L.cats) {
+        b.pushClipOvals(pawOvals(c), turn(c));
+        b.image(sprite(c), c.frame, turn(c));
+        b.popClip();
+    }
 }
 
 // A paw print tilted 20° to the left, inside `box`.
@@ -274,26 +333,13 @@ void panelChrome(Builder &b, const CandidateLayout &L, const Theme &t) {
 Scene buildScene(const CandidateLayout &L, const CandidateViewModel &model, const Theme &t) {
     Builder b;
     b.scene.size = L.size;
-    b.scene.mimimoFace = model.mimimoFace;
-    b.scene.momoFace = model.momoFace;
 
     glass(b, L, t);
-    // The tail lies in front of the glass (capsule only).
-    if (L.decorations && L.showTail) b.image(Sprite::Tail, L.tail);
+    // The cats are in front of the glass and under the candidates; no paw reaches the candidates.
+    cats(b, L, model, t);
     candidates(b, L, model, t);
     if (L.expanded) panelChrome(b, L, t);
     chevron(b, L.chevron, L.chevronUp, t.chevron);
-    // 莫莫 rests her chin on the glass, in front of it.
-    if (L.decorations) {
-        if (t.contactShadow.a > 0) {
-            const RectF &cs = L.momoContactShadow;
-            b.ellipse(cs, radial({cs.midX(), cs.midY()}, cs.width / 2, cs.height / 2,
-                                 {{0, t.contactShadow}, {1, t.contactShadow.withAlpha(0)}}));
-        }
-        b.image(Sprite::MomoBack, L.momo);
-        b.image(Sprite::Momo, L.momo);
-        b.image(Sprite::MomoFront, L.momo);
-    }
     return std::move(b.scene);
 }
 

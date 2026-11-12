@@ -16,6 +16,7 @@ data class Box(val left: Float, val top: Float, val width: Float, val height: Fl
     val centerX get() = left + width / 2
     val centerY get() = top + height / 2
     fun contains(x: Float, y: Float) = x >= left && x < right && y >= top && y < bottom
+    fun intersects(other: Box) = left < other.right && other.left < right && top < other.bottom && other.top < bottom
     fun offset(dx: Float, dy: Float) = Box(left + dx, top + dy, width, height)
 
     companion object {
@@ -37,21 +38,29 @@ enum class Idiom {
 }
 
 /**
- * The candidate region above the keys: the glass bar, 米米莫 behind it on the
- * left, 莫莫 resting on it on the right, the candidate row and the expand key.
+ * The bar's frame was laid out around the earlier cats: one behind the
+ * glass's left end, one with her chin on its right end. The bar's design is
+ * kept exactly as it was, so their proportions stay here as layout constants.
+ * The cats drawn now are seated on this frame by CatStage.kt.
+ */
+private object BarFrame {
+    const val LEFT_ASPECT = 0.9135f
+    const val RIGHT_ASPECT = 1.0543f
+}
+
+/**
+ * The candidate region above the keys: the glass bar, the candidate row and
+ * the expand key. 米米莫 and 莫莫 sit on the glass's top edge ([stage]).
  * [rim] is where the shape's upper rim sits below the top of the glass
  * rectangle, as a fraction of the glass height (0 for the capsule, the wave's
- * amplitude, the cloud's base). The cats line up with that rim, and the
- * expand key with the band the candidates sit in.
+ * amplitude, the cloud's base). The expand key lines up with the band the
+ * candidates sit in.
  */
 class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean = true, val rim: Float = 0f) {
     val width: Float = if (rawWidth.isFinite() && rawWidth > 1f) rawWidth else 320f
     val scale: Float
     val height: Float
     val glass: Box
-    val mimimo: Box
-    val momo: Box
-    val tail: Box
     val row: Box
     val chevron: Box
     val fontSize: Float
@@ -62,27 +71,27 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
         val s: Float
         val regionHeight: Float
         val glassHeight: Float
-        val mimimoHeight: Float
-        val momoHeight: Float
-        val tailHeight: Float
+        // Heights of the earlier cats (see BarFrame).
+        val leftHeight: Float
+        val rightHeight: Float
         val font: Float
         when (idiom) {
             Idiom.PHONE -> {
                 s = min(1.15f, max(0.9f, width / 393f))
                 regionHeight = 82 * s; glassHeight = 46 * s
-                mimimoHeight = 62 * s; momoHeight = 54 * s; tailHeight = 28 * s
+                leftHeight = 62 * s; rightHeight = 54 * s
                 font = min(21f, max(19f, 20 * s))
             }
             Idiom.PHONE_LANDSCAPE -> {
                 s = 1f
                 regionHeight = 63f; glassHeight = 36f
-                mimimoHeight = 46f; momoHeight = 40f; tailHeight = 22f
+                leftHeight = 46f; rightHeight = 40f
                 font = 18f
             }
             Idiom.TABLET -> {
                 s = 1.15f
                 regionHeight = 94f; glassHeight = 53f
-                mimimoHeight = 71f; momoHeight = 62f; tailHeight = 32f
+                leftHeight = 71f; rightHeight = 62f
                 font = 21f
             }
         }
@@ -100,28 +109,21 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
             height = regionHeight.roundToInt().toFloat()
             val glassBottom = height - 2 * s
             val top = glassBottom - glassHeight
-            val mimimoWidth = mimimoHeight * MIMIMO_ASPECT
-            // His eyes peek just over the glass's upper rim.
-            mimimo = Box(2 * s, top + rimY - mimimoHeight * MIMIMO_EYE_BOTTOM, mimimoWidth, mimimoHeight)
-            val momoWidth = momoHeight * MOMO_ASPECT
-            // Her chin rests on the glass, eyes just above its rim.
-            momo = Box(width - 4 * s - momoWidth, top + rimY - 1 * s - momoHeight * MOMO_EYE_LINE, momoWidth, momoHeight)
-            val glassLeft = mimimo.left + 0.24f * mimimoWidth
+            // Where the left figure began and ended, and where the right one began.
+            val leftStart = 2 * s
+            val leftWidth = leftHeight * BarFrame.LEFT_ASPECT
+            val rightStart = width - 4 * s - rightHeight * BarFrame.RIGHT_ASPECT
+            val glassLeft = leftStart + 0.24f * leftWidth
             glass = Box(glassLeft, top, max(1f, width - 6 * s - glassLeft), glassHeight)
-            // The tail leaves his body at the lower left and runs along the
-            // glass's bottom rim, in front of it.
-            val tailWidth = tailHeight * TAIL_ASPECT
-            tail = Box(mimimo.left + 3 * s, glassBottom + 1 * s - tailHeight, tailWidth, tailHeight)
             val chevronWidth = 34 * s
             val chevronY = glass.centerY + rimY / 2 + 2 * s
             val chevronHeight = min(min(44f, glassHeight), 2 * (height - chevronY))
-            chevron = Box(momo.left - 6 * s - chevronWidth / 2, chevronY - chevronHeight / 2, chevronWidth, chevronHeight)
-            val rowLeft = mimimo.right + 2 * s
+            chevron = Box(rightStart - 6 * s - chevronWidth / 2, chevronY - chevronHeight / 2, chevronWidth, chevronHeight)
+            val rowLeft = leftStart + leftWidth + 2 * s
             row = Box(rowLeft, glass.top, max(1f, chevron.left - rowLeft), glassHeight)
         } else {
             height = (glassHeight + 12 * s).roundToInt().toFloat()
             glass = Box(4 * s, (height - glassHeight) / 2, max(1f, width - 8 * s), glassHeight)
-            mimimo = Box.ZERO; momo = Box.ZERO; tail = Box.ZERO
             val chevronWidth = 40 * s
             val chevronHeight = min(44f, glassHeight)
             val chevronY = min(glass.centerY + rimY / 2, height - chevronHeight / 2)
@@ -134,13 +136,26 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
     /** Longest a single candidate may be before it is shortened in the middle. */
     val maximumCandidateWidth: Float get() = max(60f, row.width * 0.70f)
 
+    /**
+     * The bar as the cats see it (CatStage.kt). They take the height above
+     * the glass less 1.5 dp: a keyboard cannot draw above its own top edge.
+     */
+    fun stage(shape: GlassShape): CatStage {
+        val band = GlassOutline.contentBand(shape, glass.height)
+        val middle = glass.top + (band.first + band.second) / 2
+        // The arrow's stroke is 2 dp wide with round ends.
+        val arrowWidth = ARROW_WIDTH + 2
+        val arrowHeight = ARROW_WIDTH / 2 + 2
+        return CatStage(
+            width, height, glass, shape, unit = scale, room = glass.top - 1.5f,
+            row = Box(row.left, middle - pillHeight / 2, row.width, pillHeight),
+            arrow = Box(chevron.centerX - arrowWidth / 2, middle - arrowHeight / 2, arrowWidth, arrowHeight),
+        )
+    }
+
     companion object {
-        // Sprite anchors from assets/brand/cats/cats.json.
-        const val MIMIMO_ASPECT = 0.9135f
-        const val MIMIMO_EYE_BOTTOM = 0.538f
-        const val MOMO_ASPECT = 1.0543f
-        const val MOMO_EYE_LINE = 0.50f
-        const val TAIL_ASPECT = 4.02f
+        /** Width of the expand key's arrow; it is half as tall. */
+        const val ARROW_WIDTH = 11f
     }
 }
 

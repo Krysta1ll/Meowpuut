@@ -10,6 +10,8 @@ struct SharedKeyboardSettings: Codable {
     // have since switched inside the keyboard).
     var simplifiedRevision: String?
     var catGlassSkin: Bool?
+    /// "daily", or the id of the arrangement the user pinned (CatArrangement).
+    var catPlacement: String?
     var candidateTone: String?
     var glassStrength: String?
     var candidatePalette: String?

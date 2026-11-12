@@ -143,26 +143,28 @@ void testCollapsed() {
         CHECK(L.chevron.x >= L.cells.back().frame.right());
         // The body band is the same height for every shape.
         CHECK(std::fabs(L.glass.body.height - m.barHeight) < 0.05f);
-        // The bottom of 米米莫's eyes is one DIP above the glass; 莫莫's eye line too.
-        const float eyeBottom = L.mimimo.y + L.mimimo.height * CatAnchors::mimimoEyeBottom;
-        CHECK(std::fabs(eyeBottom - (L.glass.body.y - 1)) < 0.01f);
-        CHECK(std::fabs(L.momo.y + L.momo.height * CatAnchors::momoEyeLine - (L.glass.body.y - 1)) < 0.01f);
-        CHECK(L.mimimo.y >= 0 && L.momo.y >= 0);
-        CHECK(L.momo.right() <= L.size.width);
         CHECK(L.glass.bounds.bottom() <= L.size.height);
-        CHECK(L.showTail == (shape == GlassShape::Capsule));
-        if (L.showTail) CHECK(L.tail.bottom() <= L.size.height);
-        // The first candidate starts right of 米米莫's body.
-        CHECK(L.cells.front().frame.x >= L.mimimo.x + L.mimimo.width * CatAnchors::mimimoBodyRight);
-        // The chevron sits left of 莫莫's face centre, and its arrow is not under her.
-        CHECK(L.chevron.midX() < L.momo.midX());
-        CHECK(L.chevron.midX() + 5 < L.momo.x + 0.27f * L.momo.width);
+        // Both cats, 米米莫 at the left end and 莫莫 at the right.
+        CHECK(L.cats.size() == 2 && L.cats[0].cat == Cat::Mimimo && L.cats[1].cat == Cat::Momo);
+        CHECK(L.cats[0].anchor.x < L.glass.bounds.midX() && L.cats[1].anchor.x > L.glass.bounds.midX());
     }
 }
 
-void testEyesStayClear() {
-    // No shape may rise over 米米莫's eyes, on a short bar or a long one,
-    // collapsed or expanded.
+// The edge's height at x, from the drawn outline.
+float edgeAt(const CandidateLayout &L, float x) {
+    const auto run = outlineRun(L.glass, OutlineEdge::Top, 0, 0, 1);
+    for (std::size_t i = 1; i < run.size(); ++i)
+        if (run[i].x >= x) {
+            const PointF a = run[i - 1], b = run[i];
+            return a.y + (b.y - a.y) * clampf((x - a.x) / std::max(0.001f, b.x - a.x), 0, 1);
+        }
+    return run.back().y;
+}
+
+void testCatsSeat() {
+    // On a short bar or a long one, collapsed or expanded, every cat shown sits
+    // on the glass's top edge inside the window, and no paw reaches a
+    // candidate or the expand arrow.
     FixedMeasurer measurer;
     const auto all = sample().candidates;
     for (auto shape : {GlassShape::Capsule, GlassShape::Wave, GlassShape::Cloud}) {
@@ -174,16 +176,22 @@ void testEyesStayClear() {
                 model.shape = shape;
                 model.expanded = expanded;
                 const auto L = layoutCandidates(model, measurer);
-                const float eyeBottom = L.mimimo.y + L.mimimo.height * CatAnchors::mimimoEyeBottom;
-                const float from = L.mimimo.x + L.mimimo.width * CatAnchors::mimimoEyesLeft;
-                const float to = L.mimimo.x + L.mimimo.width * CatAnchors::mimimoEyesRight;
-                std::size_t seen = 0;
-                for (const auto &p : outlineRun(L.glass, OutlineEdge::Top, 0, 0, 1)) {
-                    if (p.x < from || p.x > to) continue;
-                    ++seen;
-                    CHECK(p.y >= eyeBottom - 0.5f);
+                // 莫莫 is always there: five clicks on her switch the script.
+                CHECK(!L.cats.empty() && L.cats.back().cat == Cat::Momo);
+                if (n >= 3) CHECK(L.cats.size() == 2);
+                for (const auto &cat : L.cats) {
+                    const RectF body = cat.body();
+                    CHECK(body.x >= 0 && body.y >= 0 && body.right() <= L.size.width && body.bottom() <= L.size.height);
+                    CHECK(std::fabs(cat.frame.width / cat.frame.height - cat.sprite->width / cat.sprite->height) < 1e-4f);
+                    // The anchor is on the lowest point of the edge under the cut: never above the edge.
+                    CHECK(cat.anchor.y >= edgeAt(L, cat.anchor.x) - 0.3f);
+                    CHECK(cat.anchor.y - edgeAt(L, cat.anchor.x) <= 4.5f);
+                    for (int i = 0; i < cat.sprite->pawCount; ++i) {
+                        for (const auto &c : L.cells) CHECK(!cat.paw(i).intersects(c.pill));
+                        CHECK(!cat.paw(i).intersects(L.chevron.inset(5, 8)));
+                    }
                 }
-                CHECK(seen > 3);
+                if (L.cats.size() == 2) CHECK(L.cats[0].body().right() < L.cats[1].body().x);
                 if (shape == GlassShape::Cloud) {
                     // The bumps are still there, right of his eyes.
                     float top = L.glass.body.y;
@@ -345,7 +353,9 @@ void testExpandedAndPaging() {
         CHECK(std::fabs(panel.glass.bounds.x - bar.glass.bounds.x) < 0.01f);
         CHECK(std::fabs(panel.glass.bounds.y - bar.glass.bounds.y) < 0.01f);
         CHECK(std::fabs(panel.glass.body.y - bar.glass.body.y) < 0.01f);
-        CHECK(std::fabs(panel.mimimo.x - bar.mimimo.x) < 0.01f && std::fabs(panel.mimimo.y - bar.mimimo.y) < 0.01f);
+        if (shape == GlassShape::Capsule)
+            CHECK(std::fabs(panel.cats[0].frame.x - bar.cats[0].frame.x) < 0.01f &&
+                  std::fabs(panel.cats[0].frame.y - bar.cats[0].frame.y) < 0.3f);
     }
 
     // A sentence the collapsed bar shows whole is whole in the panel too.
@@ -375,8 +385,10 @@ void testHitTesting() {
         CHECK(hit.kind == HitKind::Candidate && hit.index == c.index);
     }
     CHECK(hitTest(L, {L.chevron.midX(), L.chevron.midY()}).kind == HitKind::Expand);
-    CHECK(hitTest(L, {L.mimimo.midX(), L.mimimo.y + L.mimimo.height * 0.3f}).kind == HitKind::Mimimo);
-    CHECK(hitTest(L, {L.momo.midX(), L.momo.y + 4}).kind == HitKind::Momo);
+    CHECK(hitTest(L, {L.cats[0].touch().midX(), L.cats[0].touch().midY()}).kind == HitKind::Mimimo);
+    CHECK(hitTest(L, {L.cats[1].touch().midX(), L.cats[1].touch().midY()}).kind == HitKind::Momo);
+    // A paw over the glass is not a cat to click.
+    CHECK(hitTest(L, {L.cats[0].paw(0).midX(), L.cats[0].anchor.y + 0.5f}).kind != HitKind::Mimimo);
     CHECK(hitTest(L, {1, 1}).kind == HitKind::None);
 }
 
@@ -387,8 +399,7 @@ void testZhuyinNumbersAndContrast() {
     model.decorations = false;
     const auto L = layoutCandidates(model, measurer);
     CHECK(L.cells[0].number == "\xE2\x87\xA7" "1");
-    CHECK(!L.showTail);
-    CHECK(L.mimimo.empty() && L.momo.empty());
+    CHECK(L.cats.empty());
     const auto first = hitTest(L, {L.cells[0].frame.midX(), L.cells[0].frame.midY()});
     CHECK(first.kind == HitKind::Candidate && first.index == 0);
     const auto third = hitTest(L, {L.cells[2].frame.midX(), L.cells[2].frame.midY()});
@@ -416,7 +427,7 @@ void testZhuyinNumbersAndContrast() {
                               Color::rgb(0xFFFFFF), Color::rgb(0x1AEBFF), Color::rgb(0x000000));
     CHECK(hc.opaque && hc.causticCount == 0 && hc.shadow.a == 0);
     const auto plain = makeTheme(Appearance::Dark, Palette::Sage, false, false);
-    CHECK(plain.opaque && plain.causticCount == 0 && plain.glassTop.a == 1 && plain.frostOpacity == 0);
+    CHECK(plain.opaque && plain.causticCount == 0 && plain.glassTop.a == 1);
     // Without live blur the body must hide the text behind it.
     for (auto appearance : {Appearance::Light, Appearance::Dark}) {
         const auto glassy = makeTheme(appearance, Palette::Rose, true, false);
@@ -450,21 +461,27 @@ void testScene() {
                 const auto L = layoutCandidates(model, measurer);
                 const auto scene = buildScene(L, model, makeTheme(appearance, Palette::Rose, true, false));
                 CHECK(!scene.commands.empty() && scene.commands.front().kind == DrawCommand::Kind::Shadow);
-                CHECK(scene.commands.back().kind == DrawCommand::Kind::Image &&
-                      scene.commands.back().sprite == Sprite::MomoFront);
                 int depth = 0;
-                bool glassSeen = false;
+                bool glassSeen = false, textSeen = false;
+                std::size_t cats = 0;
                 for (const auto &c : scene.commands) {
                     using Kind = DrawCommand::Kind;
-                    if (c.kind == Kind::PushClip) ++depth;
+                    if (c.kind == Kind::PushClip || c.kind == Kind::PushClipOut || c.kind == Kind::PushClipOvals) ++depth;
                     if (c.kind == Kind::PopClip) --depth;
                     CHECK(depth >= 0 && depth <= 1);
-                    if (c.kind == Kind::Shadow || c.kind == Kind::FillPath || c.kind == Kind::StrokePath || c.kind == Kind::PushClip)
+                    if (c.kind == Kind::Shadow || c.kind == Kind::FillPath || c.kind == Kind::StrokePath ||
+                        c.kind == Kind::PushClip || c.kind == Kind::PushClipOut)
                         CHECK(c.path < scene.outlines.size());
                     if (c.kind == Kind::FillPath) glassSeen = true;
-                    // 米米莫 is drawn before the glass, 莫莫 and the tail after it.
-                    if (c.kind == Kind::Image && c.sprite == Sprite::Mimimo && c.blur == 0) CHECK(!glassSeen);
-                    if (c.kind == Kind::Image && (c.sprite == Sprite::Momo || c.sprite == Sprite::Tail)) CHECK(glassSeen);
+                    if (c.kind == Kind::Text) textSeen = true;
+                    // The cats are in front of the glass and under the candidates, always inside a clip.
+                    if (c.kind == Kind::Image) {
+                        CHECK(glassSeen && !textSeen && depth == 1);
+                        cats += c.tint.a == 0;
+                        // Only 米米莫, only in dark, gets the warm light.
+                        if (c.tint.a > 0) CHECK(c.sprite == Sprite::Mimimo && appearance == Appearance::Dark);
+                    }
+                    if (c.kind == Kind::PushClipOvals) CHECK(!c.ovals.empty());
                     if (c.kind == Kind::StrokeLine) CHECK(c.points.size() >= 2);
                     // Stops that differ in alpha keep one RGB (see Paint).
                     for (std::size_t i = 1; i < c.paint.stops.size(); ++i) {
@@ -476,8 +493,13 @@ void testScene() {
                 CHECK(depth == 0);
                 // The body is laid inside the rim; the cat shows on it blurred.
                 // Outlines: glass, body, lip and the selected pill.
-                CHECK(scene.outlines.size() == 4);
-                CHECK(count(scene, DrawCommand::Kind::PushClip) == 1);
+                // Each cat's body once outside the glass and its paws once over it.
+                CHECK(cats == 4);
+                // The glass, its inner body, its lip, the selected pill and the glass again for the cats.
+                CHECK(scene.outlines.size() == 5);
+                // The inner body, and the paw shadows on the glass.
+                CHECK(count(scene, DrawCommand::Kind::PushClip) == 2);
+                CHECK(count(scene, DrawCommand::Kind::PushClipOut) == 1 && count(scene, DrawCommand::Kind::PushClipOvals) == 2);
                 // Two under the glass, one under the selected pill.
                 CHECK(count(scene, DrawCommand::Kind::Shadow) == 3);
                 // One selected pill and one hover wash.
@@ -493,10 +515,10 @@ void testScene() {
     }
     model.expanded = false;
     model.shape = GlassShape::Capsule;
-    // Transparency off: one flat fill, no rim, no clip, nothing blurred but the shadow.
+    // Transparency off: one flat fill, no rim, nothing blurred but the shadow; the only clip is the paw shadows'.
     const auto L = layoutCandidates(model, measurer);
     const auto flat = buildScene(L, model, makeTheme(Appearance::Light, Palette::Rose, false, false));
-    CHECK(count(flat, DrawCommand::Kind::PushClip) == 0);
+    CHECK(count(flat, DrawCommand::Kind::PushClip) == 1);
     for (const auto &c : flat.commands) CHECK(c.kind != DrawCommand::Kind::Image || c.blur == 0);
     // High contrast: no shadow, no cats.
     model.decorations = false;
@@ -577,12 +599,12 @@ void testPlacement() {
         at = placeNearCaret(L, scale, {600, 20, 602, 50}, tiny);
         CHECK(at.y + px(L.content.y) >= tiny.top && at.y + px(L.content.bottom()) <= tiny.bottom);
     }
-    // The shadow margins are not part of the content; the cats and the tail are.
+    // The shadow margins are not part of the content; the cats are.
     CHECK(L.content.x > 0 && L.content.right() < L.size.width && L.content.bottom() < L.size.height);
-    CHECK(L.content.y <= L.mimimo.y && L.content.bottom() >= L.tail.bottom());
+    for (const auto &cat : L.cats) CHECK(L.content.y <= cat.body().y);
     // Clicks land on the glass and the cats, not on the shadow around them.
     CHECK(coversPoint(L, {L.glass.bounds.midX(), L.glass.body.midY()}));
-    CHECK(coversPoint(L, {L.momo.midX(), L.momo.y + 3}));
+    CHECK(coversPoint(L, {L.cats[1].touch().midX(), L.cats[1].touch().y + 3}));
     CHECK(!coversPoint(L, {L.glass.bounds.midX(), L.size.height - 2}));
     CHECK(!coversPoint(L, {L.glass.bounds.midX(), 1}));
 }
@@ -652,8 +674,8 @@ void testFestivals() {
     const auto &ny = manifest.outfits[0];
     CHECK(ny.titleHant == "春節" && ny.titleHans == "春节");
     CHECK(ny.mimimo.front == "mimimo_front.png" && ny.mimimo.back.empty());
-    CHECK(ny.momo.back == "momo_back.png" && ny.momo.frames[static_cast<int>(CatFace::Happy)] == "momo_happy.png");
-    CHECK(ny.momo.frames[static_cast<int>(CatFace::Open)].empty());
+    CHECK(ny.momo.back == "momo_back.png" && ny.momo.frames[1] == "momo_happy.png");
+    CHECK(ny.momo.frames[0].empty());
     CHECK(ny.pill.has_value());
     CHECK(activeOutfit(manifest, {2027, 2, 2}) == nullptr);
     CHECK(activeOutfit(manifest, {2027, 2, 3}) == &manifest.outfits[0]);
@@ -686,25 +708,22 @@ void testFestivals() {
     applyOutfitPill(dark, *ny.pill);
     CHECK(dark.pillBottom.r < ny.pill->r);
 
-    // Overlays are drawn in the sprite's own box, behind and in front.
+    // The cats' pictures reach the snapshot by name.
     FixedMeasurer measurer;
     const auto model = sample();
     const auto L = layoutCandidates(model, measurer);
     SvgAssets assets;
-    assets.momo[0] = "momo.png";
-    assets.momoBack = "back.png";
-    assets.momoFront = "front.png";
+    assets.mimimo = "mimimo.png";
+    assets.momo = "momo.png";
     const auto svg = renderSvg(buildScene(L, model, theme), assets);
-    const auto back = svg.find("back.png"), cat = svg.find("momo.png"), front = svg.find("front.png");
-    CHECK(back != std::string::npos && cat != std::string::npos && front != std::string::npos);
-    CHECK(back < cat && cat < front);
+    CHECK(svg.find("mimimo.png") != std::string::npos && svg.find("momo.png") != std::string::npos);
 }
 } // namespace
 
 int main() {
     testShapes();
     testCollapsed();
-    testEyesStayClear();
+    testCatsSeat();
     testJapaneseNeverWraps();
     testEllipsis();
     testNarrowScreen();
