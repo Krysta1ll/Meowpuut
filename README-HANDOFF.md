@@ -6,18 +6,22 @@
 
 - TestFlight 公開連結（主人給的）：https://testflight.apple.com/join/kfMVXAC6 。README 下載段、平台表、INSTALL.md、GitHub release 都用它：裝 Apple 的 TestFlight → 開連結 → 安裝喵撲 → 到設定加入鍵盤。
 - 今天 2026-11-12 沒有節日裝扮（已查 festivals.json）。
-- expanded.png 是舊的貓耳視窗，沒有任何地方引用。
-- 模擬器只用 iPhone 17 Pro 304573EE-34DE-47BE-AE89-145EB106ED9C。
+- Android minSdk 26 = Android 8.0（任務說 7.0，照程式寫 8.0，回報）。只有 arm64-v8a、x86_64。
+- Android、Windows 的日文只有 native-japanese.tsv（388 列）；iOS、macOS 是 mimo_jp.bin 約 4.6 萬詞。Android、Windows 沒有選詞記憶、沒有表情。
+- 跑過的例子（iOS 系統鍵盤實拍，在 scratchpad/shots）：sushi 第四格寿司帶爪、xkl 辛苦了、wozaiyongiphone、momokawaii 莫莫可愛い、shiberu 食べる、kaixin 開心 😊 開 凱 (*´▽`*)、zenmb 怎麼辦、ㄋㄧˇㄏㄠˇ 與 ㄋㄏ 你好。
+- 評測數字（830／922／918 等）是 da60ad6 之前量的，da60ad6 重錄了 golden，所以 README 不放數字。
+- forbid(unsafe_code) 不是全工作區：meowpuut-ffi 允許逐項 unsafe。ENGINE.md 已寫正確。
+- scripts/ios-real-keyboard-shots.sh 在 macOS bash 3.2 下 `extra[@]` 空陣列會 unbound；先自己 xcodebuild 再 SKIP_BUILD=1。
+- 版號還沒改：Resources/Info.plist 0.6.0、Android versionName 0.6.0、iOS project.yml 0.7.0 (8)。
+- Windows TSF 在 worktree-agent-a790d96f777b2dfc8 做，還沒合進 lexicon-without-rime-ice。
 
 ## 進度
 
 - [x] 合併 lexicon-without-rime-ice（91ecf5d）
-- [ ] 讀文件與 git log
-- [ ] 驗證例子
-- [ ] iOS 截圖
-- [ ] README
-- [ ] ENGINE.md 接收移出的內容
-- [ ] INSTALL.md
+- [x] 截圖 assets/screenshots/ios-keyboard.png、expanded.png（954a470）
+- [x] ENGINE.md 接收三層架構（7bc8760）
+- [x] README 初稿、INSTALL.md（dad09aa）；Windows 段落還要照合併後的 Windows/README 補
 - [ ] RELEASE_NOTES.md 0.8.0
 - [ ] .build/release-0.8.0-github.md
-- [ ] 再合併一次 lexicon-without-rime-ice
+- [ ] 再合併一次 lexicon-without-rime-ice，改 Windows 的描述
+- [ ] 刪掉這個檔案
