@@ -20,6 +20,7 @@
 #include <windows.h>
 #include <msctf.h>
 #include <olectl.h>
+#include <wchar.h>
 
 #include "../Keyboard.h"
 #include "../Session.h"
@@ -433,6 +434,132 @@ private:
 
 class Service;
 
+// The taskbar's input mode indicator (GUID_LBI_INPUTMODE): 中 or 英. A click
+// switches, as a Shift tap does; its menu switches Traditional and Simplified.
+class ModeButton final : public ITfLangBarItemButton, public ITfSource, public Object {
+public:
+    explicit ModeButton(Service *owner) : owner_(owner) {}
+    void detach() {
+        owner_ = nullptr;
+        sink_.reset();
+    }
+    void changed() {
+        if (sink_) sink_->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override {
+        if (!out) return E_POINTER;
+        *out = nullptr;
+        if (iid == IID_IUnknown || iid == IID_ITfLangBarItem || iid == kIidLangBarItemButton)
+            *out = static_cast<ITfLangBarItemButton *>(this);
+        else if (iid == IID_ITfSource)
+            *out = static_cast<ITfSource *>(this);
+        else
+            return E_NOINTERFACE;
+        AddRef();
+        return S_OK;
+    }
+    MEOWPUUT_REFCOUNT
+
+    HRESULT STDMETHODCALLTYPE GetInfo(TF_LANGBARITEMINFO *info) override {
+        if (!info) return E_INVALIDARG;
+        info->clsidService = kServiceId;
+        info->guidItem = kInputModeItem;
+        info->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
+        info->ulSort = 0;
+        wcsncpy(info->szDescription, L"喵撲中英切換", TF_LBI_DESC_MAXLEN - 1);
+        info->szDescription[TF_LBI_DESC_MAXLEN - 1] = 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetStatus(DWORD *status) override {
+        if (!status) return E_INVALIDARG;
+        *status = 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Show(BOOL) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetTooltipString(BSTR *text) override {
+        return bstr(english() ? L"英文（按 Shift 換中文）" : L"中文（按 Shift 換英文）", text);
+    }
+    HRESULT STDMETHODCALLTYPE OnClick(TfLBIClick click, POINT, const RECT *) override;
+    HRESULT STDMETHODCALLTYPE InitMenu(ITfMenu *menu) override;
+    HRESULT STDMETHODCALLTYPE OnMenuSelect(UINT id) override;
+    HRESULT STDMETHODCALLTYPE GetIcon(HICON *icon) override;
+    HRESULT STDMETHODCALLTYPE GetText(BSTR *text) override { return bstr(english() ? L"英" : L"中", text); }
+
+    HRESULT STDMETHODCALLTYPE AdviseSink(REFIID iid, IUnknown *unknown, DWORD *cookie) override {
+        if (!cookie || !unknown) return E_INVALIDARG;
+        if (iid != IID_ITfLangBarItemSink) return CONNECT_E_CANNOTCONNECT;
+        if (sink_) return CONNECT_E_ADVISELIMIT;
+        sink_ = query<ITfLangBarItemSink>(unknown, IID_ITfLangBarItemSink);
+        if (!sink_) return E_NOINTERFACE;
+        *cookie = kCookie;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE UnadviseSink(DWORD cookie) override {
+        if (cookie != kCookie || !sink_) return CONNECT_E_NOCONNECTION;
+        sink_.reset();
+        return S_OK;
+    }
+
+private:
+    static HRESULT bstr(const wchar_t *value, BSTR *out) {
+        if (!out) return E_INVALIDARG;
+        *out = SysAllocString(value);
+        return *out ? S_OK : E_OUTOFMEMORY;
+    }
+    bool english() const;
+    static constexpr DWORD kCookie = 0x4d505554; // one sink at a time
+    Service *owner_;
+    Ref<ITfLangBarItemSink> sink_;
+};
+
+// 中 or 英 for the taskbar, in the taskbar's text colour. GDI draws the glyph
+// white on black; its brightness becomes the icon's alpha.
+HICON modeIcon(bool english) {
+    const int size = GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem());
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof info.bmiHeader;
+    info.bmiHeader.biWidth = size;
+    info.bmiHeader.biHeight = -size;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP color = CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HBITMAP mask = CreateBitmap(size, size, 1, 1, nullptr);
+    HDC dc = CreateCompatibleDC(nullptr);
+    HICON icon = nullptr;
+    if (color && mask && dc && bits) {
+        HGDIOBJ oldBitmap = SelectObject(dc, color);
+        HFONT font = CreateFontW(-size * 7 / 8, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                 CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Microsoft JhengHei UI");
+        HGDIOBJ oldFont = SelectObject(dc, font);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(255, 255, 255));
+        RECT box{0, 0, size, size};
+        DrawTextW(dc, english ? L"英" : L"中", 1, &box, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        GdiFlush();
+        DWORD light = 0, length = sizeof light;
+        RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &length);
+        const std::uint32_t ink = light ? 0x000000u : 0xffffffu;
+        auto *pixel = static_cast<std::uint32_t *>(bits);
+        for (int i = 0; i < size * size; ++i) {
+            const std::uint32_t alpha = std::max({pixel[i] & 0xffu, (pixel[i] >> 8) & 0xffu, (pixel[i] >> 16) & 0xffu});
+            pixel[i] = (alpha << 24) | ink;
+        }
+        SelectObject(dc, oldFont);
+        SelectObject(dc, oldBitmap);
+        DeleteObject(font);
+        ICONINFO parts{TRUE, 0, 0, mask, color};
+        icon = CreateIconIndirect(&parts);
+    }
+    if (dc) DeleteDC(dc);
+    if (mask) DeleteObject(mask);
+    if (color) DeleteObject(color);
+    return icon;
+}
+
 class EditSession final : public ITfEditSession, public Object {
 public:
     EditSession(Service *service, std::shared_ptr<ContextState> state);
@@ -522,6 +649,9 @@ public:
                 IsEqualCLSID(profile.clsid, kServiceId))
                 mode_ = IsEqualGUID(profile.guidProfile, kZhuyinProfile) ? InputMode::Zhuyin : InputMode::Pinyin;
             simplified_ = storedSimplified();
+            langBar_ = query<ITfLangBarItemMgr>(threadMgr, IID_ITfLangBarItemMgr);
+            button_ = Ref<ModeButton>::adopt(new ModeButton(this));
+            if (langBar_) langBar_->AddItem(static_cast<ITfLangBarItemButton *>(button_.get()));
             activated_ = true;
             return S_OK;
         } catch (...) {
@@ -543,6 +673,12 @@ public:
         } catch (...) {
         }
         window_.reset(); // before the DLL can unload: the window class belongs to it
+        if (button_) {
+            if (langBar_) langBar_->RemoveItem(static_cast<ITfLangBarItemButton *>(button_.get()));
+            button_->detach();
+            button_.reset();
+        }
+        langBar_.reset();
         if (keystrokes_) {
             keystrokes_->UnadviseKeyEventSink(clientId_);
             keystrokes_.reset();
@@ -748,6 +884,14 @@ public:
         if (s == active_) showWindow(*s);
     }
 
+    // From the taskbar's mode button.
+    bool english() const { return english_; }
+    bool simplified() const { return simplified_; }
+    void switchEnglish() { toggleEnglish(active_ ? active_->context.get() : nullptr); }
+    void chooseScript(bool simplified) {
+        if (simplified != simplified_) toggleSimplified();
+    }
+
 private:
     // --- key planning -------------------------------------------------------
     // plan() has no visible effect, so OnTestKeyDown and OnKeyDown agree.
@@ -921,10 +1065,15 @@ private:
             deliver(found->second);
         }
         english_ = !english_;
+        if (button_) button_->changed();
     }
 
     void setMode(InputMode next) {
         if (next == mode_) return;
+        if (english_ && button_) {
+            english_ = false;
+            button_->changed();
+        }
         for (auto &entry : states_) {
             if (entry.second->session && entry.second->session->hasComposition()) {
                 finish(*entry.second);
@@ -1100,11 +1249,41 @@ private:
     bool activated_ = false;
     InputMode mode_ = InputMode::Pinyin;
     bool english_ = false, simplified_ = false;
+    Ref<ITfLangBarItemMgr> langBar_;
+    Ref<ModeButton> button_;
     bool shiftDown_ = false, shiftTap_ = false;
     std::unordered_map<ITfContext *, std::shared_ptr<ContextState>> states_;
     std::shared_ptr<ContextState> active_; // the context whose candidates are on screen
     std::unique_ptr<ui::CandidateWindow> window_;
 };
+
+bool ModeButton::english() const { return owner_ && owner_->english(); }
+HRESULT ModeButton::OnClick(TfLBIClick click, POINT, const RECT *) {
+    try {
+        if (click == TF_LBI_CLK_LEFT && owner_) owner_->switchEnglish();
+    } catch (...) {
+    }
+    return S_OK;
+}
+HRESULT ModeButton::InitMenu(ITfMenu *menu) {
+    if (!menu || !owner_) return S_OK;
+    const bool simplified = owner_->simplified();
+    menu->AddMenuItem(1, simplified ? 0 : TF_LBMENUF_RADIOCHECKED, nullptr, nullptr, L"繁體中文", 4, nullptr);
+    menu->AddMenuItem(2, simplified ? TF_LBMENUF_RADIOCHECKED : 0, nullptr, nullptr, L"简体中文", 4, nullptr);
+    return S_OK;
+}
+HRESULT ModeButton::OnMenuSelect(UINT id) {
+    try {
+        if (owner_ && (id == 1 || id == 2)) owner_->chooseScript(id == 2);
+    } catch (...) {
+    }
+    return S_OK;
+}
+HRESULT ModeButton::GetIcon(HICON *icon) {
+    if (!icon) return E_INVALIDARG;
+    *icon = modeIcon(english());
+    return *icon ? S_OK : E_FAIL;
+}
 
 EditSession::EditSession(Service *service, std::shared_ptr<ContextState> state)
     : service_(service), state_(std::move(state)) {

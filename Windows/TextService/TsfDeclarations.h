@@ -3,6 +3,7 @@
 // Homebrew mingw-w64 14) leaves out. The Windows SDK has them; the guards are
 // the SDK's own, so an SDK or a later MinGW header wins.
 #include <msctf.h>
+#include <ctfutb.h>
 
 #ifndef TF_CLIENTID_NULL
 #define TF_CLIENTID_NULL 0
@@ -26,6 +27,41 @@ struct ITfDisplayAttributeProvider : public IUnknown {
 };
 #endif
 
+#ifndef __ITfMenu_INTERFACE_DEFINED__
+#define __ITfMenu_INTERFACE_DEFINED__
+struct ITfMenu : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE AddMenuItem(UINT id, DWORD flags, HBITMAP bitmap, HBITMAP mask, const WCHAR *text,
+                                                  ULONG length, ITfMenu **submenu) = 0;
+};
+#endif
+
+#ifndef __ITfLangBarItemButton_INTERFACE_DEFINED__
+#define __ITfLangBarItemButton_INTERFACE_DEFINED__
+enum TfLBIClick { TF_LBI_CLK_RIGHT = 1, TF_LBI_CLK_LEFT = 2 };
+struct ITfLangBarItemButton : public ITfLangBarItem {
+    virtual HRESULT STDMETHODCALLTYPE OnClick(TfLBIClick click, POINT point, const RECT *area) = 0;
+    virtual HRESULT STDMETHODCALLTYPE InitMenu(ITfMenu *menu) = 0;
+    virtual HRESULT STDMETHODCALLTYPE OnMenuSelect(UINT id) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetIcon(HICON *icon) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetText(BSTR *text) = 0;
+};
+#endif
+
+#ifndef TF_LBI_STYLE_SHOWNINTRAY
+#define TF_LBI_STYLE_SHOWNINTRAY 0x00000002
+#define TF_LBI_STYLE_BTN_BUTTON 0x00010000
+#define TF_LBI_STYLE_BTN_MENU 0x00020000
+#endif
+#ifndef TF_LBI_ICON
+#define TF_LBI_ICON 0x00000001
+#define TF_LBI_TEXT 0x00000002
+#define TF_LBI_TOOLTIP 0x00000004
+#endif
+#ifndef TF_LBMENUF_CHECKED
+#define TF_LBMENUF_CHECKED 0x1
+#define TF_LBMENUF_RADIOCHECKED 0x8
+#endif
+
 namespace meowpuut::tsf {
 // Interface and category identifiers, spelled out because libuuid lacks some.
 const IID kIidTextInputProcessorEx = {0x6e4e2102, 0xf9cd, 0x433d, {0xb4, 0x96, 0x30, 0x3c, 0xe0, 0x3a, 0x65, 0x07}};
@@ -34,4 +70,7 @@ const IID kIidDisplayAttributeProvider = {0xfee47777, 0x163c, 0x4769, {0x99, 0x6
 const GUID kCategoryImmersive = {0x13a016df, 0x560b, 0x46cd, {0x94, 0x7a, 0x4c, 0x3a, 0xf1, 0xe0, 0xe3, 0x5d}};
 // GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT: listed in the taskbar's input switcher.
 const GUID kCategorySystray = {0x25504fb4, 0x7bab, 0x4bc1, {0x9c, 0x69, 0xcf, 0x81, 0x89, 0x0f, 0x0e, 0xf5}};
+const IID kIidLangBarItemButton = {0x28c7f1d0, 0xde25, 0x11d2, {0xaf, 0xdd, 0x00, 0x10, 0x5a, 0x27, 0x99, 0xb5}};
+// GUID_LBI_INPUTMODE: the item Windows shows as the input mode in the taskbar.
+const GUID kInputModeItem = {0x2c77a81e, 0x41cc, 0x4178, {0xa3, 0xa7, 0x5f, 0x8a, 0x98, 0x75, 0x68, 0xe6}};
 }
