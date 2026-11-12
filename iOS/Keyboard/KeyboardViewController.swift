@@ -387,7 +387,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     /// the shape, the setting or the day changes.
     private func placeCats(_ region: CandidateRegionLayout) {
         let prefs = Preferences.shared
-        let theme = ui.outfit?.theme
+        let theme = ui.festival
         let inputs = CatInputs(region: region, shape: prefs.glassShape, setting: prefs.catPlacement, day: catDay, festival: theme?.id)
         guard inputs != catInputs else { return }
         catInputs = inputs
@@ -415,11 +415,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         return built
     }
 
-    /// Today's festival theme (docs/FESTIVALS.md), if one is worn.
-    private func activeOutfit(dark: Bool) -> FestivalOutfit? {
-        KeyboardFestival.today().map { FestivalOutfit(theme: $0, dark: dark) }
-    }
-
     private func refreshAppearance() {
         let prefs = Preferences.shared
         let dark: Bool = switch prefs.candidateTone {
@@ -428,8 +423,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         case .dark: true
         }
         if ui.dark != dark { ui.dark = dark }
-        let outfit = activeOutfit(dark: dark)
-        if ui.outfit != outfit { ui.outfit = outfit }
+        let festival = KeyboardFestival.today()
+        if ui.festival != festival { ui.festival = festival }
         relayout()
     }
 

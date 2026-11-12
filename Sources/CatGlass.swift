@@ -27,16 +27,6 @@ enum DesktopCatArt {
     static func picture(_ sprite: CatSprite) -> Image {
         (pictures[sprite.name] ?? image(sprite.name)).map { Image(nsImage: $0) } ?? Image(systemName: "cat")
     }
-
-    /// Holiday outfit layers (exported at 2x by scripts/render_cats.py).
-    static func festival(_ outfit: FestivalOutfit, _ file: String) -> NSImage? {
-        let key = outfit.id + "/" + file
-        if let hit = cache[key] { return hit }
-        guard let url = Festivals.imageURL(outfit: outfit, file: file), let image = NSImage(contentsOf: url) else { return nil }
-        if let rep = image.representations.first { image.size = NSSize(width: CGFloat(rep.pixelsWide) / 2, height: CGFloat(rep.pixelsHigh) / 2) }
-        cache[key] = image
-        return image
-    }
 }
 
 /// How the window is drawn. The installed input method follows the system
@@ -209,7 +199,7 @@ struct GlassCandidateView: View {
     /// Labels and menus follow the system language, like the settings window; only candidates follow the output script.
     private var t: InterfaceText { .system }
     private var palette: CandidatePalette { preferences.candidatePalette }
-    private var outfit: FestivalOutfit? { preferences.festivalOutfits ? Festivals.active() : nil }
+    private var festival: FestivalTheme? { Festivals.theme(wardrobe: preferences.festivalWardrobe) }
     private var style: GlassShape { preferences.glassShape }
 
     var body: some View {
@@ -218,7 +208,7 @@ struct GlassCandidateView: View {
             if !panelAbove { bar(look) }
             if expanded && !engine.snapshot.candidates.isEmpty {
                 let chrome = Desk.margin.top + Desk.margin.bottom + Self.collapsedHeight(cats: cats) + Self.panelGap
-                DeskExpandedPanel(engine: engine, look: look, palette: palette, festivalPill: outfit?.pillColor,
+                DeskExpandedPanel(engine: engine, look: look, palette: palette, festivalPill: festival?.pill(dark: look.dark),
                                   strength: preferences.glassStrength, t: t,
                                   maximumHeight: max(60, maxHeight - chrome),
                                   maximumWidth: maxWidth - Desk.margin.left - Desk.margin.right - (cats ? Desk.glassLeft + Desk.momoOverhang : 0),
@@ -358,6 +348,16 @@ struct GlassCandidateView: View {
     /// the first arrangement that fits is shown.
     private func catPlaces(width: CGFloat, chevron: Bool) -> [CatPlacement] {
         let stage = Desk.stage(width: width, shape: style, chevron: chevron)
+        // On a festival day the dressed pair sits at the two ends, as on iOS.
+        if let theme = festival, let places = CatArrangement.named("ends")?.place(on: stage, sprite: { cat, pose in
+            theme.catSprite(cat) ?? CatArt.sprite(cat, pose)
+        }) {
+            for sprite in [theme.mimimo, theme.momo] where DesktopCatArt.pictures[sprite.image] == nil {
+                guard let picture = FestivalImages.image(sprite.image) else { continue }
+                DesktopCatArt.pictures[sprite.image] = NSImage(cgImage: picture, size: sprite.size)
+            }
+            return places
+        }
         let usual = Desk.stage(width: 360, shape: style, chevron: true)
         let today = CatSchedule.arrangement(setting: preferences.catPlacement, day: catDay, on: usual)?.arrangement
         return today?.place(on: stage) ?? CatArrangement.all.lazy.compactMap { $0.place(on: stage) }.first ?? []
@@ -391,13 +391,17 @@ struct GlassCandidateView: View {
             }
     }
 
-    /// A decoration laid round the glass's ends (a festival's frame trim)
-    /// goes here: in the bar's whole frame (the glass is at Desk.glassLeft,
-    /// Desk.glassTop), over the glass, under the candidates and the cats. It
-    /// must not take clicks. Nothing is drawn for now; the iOS keyboard's
-    /// counterpart is CandidateRegionView.barTrim.
+    /// A festival's ornaments at the bar's right end (FestivalEndsLayout):
+    /// over the glass, under the candidates and the cats; takes no clicks.
+    /// The iOS keyboard's counterpart is CandidateRegionView.barTrim.
     @ViewBuilder private func barTrim() -> some View {
-        EmptyView()
+        if let ends = festival?.ends {
+            GeometryReader { proxy in
+                let stage = Desk.stage(width: proxy.size.width, shape: style, chevron: canExpand || expanded)
+                FestivalEndsView(placed: FestivalEndsLayout.place(ends, glass: stage.glass, shape: style, width: proxy.size.width,
+                                                                  left: stage.row.minX, right: stage.arrow.maxX))
+            }
+        }
     }
 
     private func plainBar(_ look: CandidateLook) -> some View {
@@ -445,7 +449,7 @@ struct GlassCandidateView: View {
             }
             .padding(.horizontal, Desk.cellPadding)
             .frame(height: Desk.pill)
-            .background { if selected { DeskPill(palette: palette, festival: outfit?.pillColor, look: look) } }
+            .background { if selected { DeskPill(palette: palette, festival: festival?.pill(dark: look.dark), look: look) } }
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(DeskCellStyle(tint: palette.color(dark: look.dark), look: look, selected: selected))
@@ -498,14 +502,6 @@ struct GlassCandidateView: View {
                 check(strength.name(t), strength, preferences.glassStrength) { preferences.glassStrength = strength }
             }
         }
-    }
-}
-
-extension FestivalOutfit {
-    /// The outfit's colour for the selected candidate ("#RRGGBB"), when it has one.
-    var pillColor: Color? {
-        guard let pill, pill.hasPrefix("#"), pill.count == 7, let value = UInt32(pill.dropFirst(), radix: 16) else { return nil }
-        return Color(red: Double((value >> 16) & 0xff) / 255, green: Double((value >> 8) & 0xff) / 255, blue: Double(value & 0xff) / 255)
     }
 }
 

@@ -384,18 +384,14 @@ std::vector<const FestivalTheme *> metThemes(const FestivalManifest &manifest, L
     return out;
 }
 
-void applyOutfitPill(Theme &theme, Color pill) {
+void applyFestivalPill(Theme &theme, const FestivalTheme &festival) {
     if (theme.highContrast) return;
-    const auto mix = [](Color c, Color toward, float t) {
-        return Color{c.r + (toward.r - c.r) * t, c.g + (toward.g - c.g) * t, c.b + (toward.b - c.b) * t, 1};
-    };
-    if (theme.appearance == Appearance::Dark) {
-        theme.pillTop = mix(pill, Color{0, 0, 0, 1}, 0.12f);
-        theme.pillBottom = mix(pill, Color{0, 0, 0, 1}, 0.28f);
-    } else {
-        theme.pillTop = mix(pill, Color{1, 1, 1, 1}, 0.14f);
-        theme.pillBottom = pill;
-    }
+    const auto &pair = theme.appearance == Appearance::Dark ? festival.colors.dark : festival.colors.light;
+    if (pair.size() != 2) return;
+    const auto top = parseHexColor(pair[0]), bottom = parseHexColor(pair[1]);
+    if (!top || !bottom) return;
+    theme.pillTop = *top;
+    theme.pillBottom = *bottom;
 }
 
 } // namespace meowpuut::ui

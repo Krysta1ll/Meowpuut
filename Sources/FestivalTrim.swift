@@ -121,3 +121,12 @@ extension FestivalTheme {
                          bounds: CGRect(x: b[0], y: b[1], width: b[2], height: b[3]), cut: bust.cut[0]...bust.cut[1], paws: [])
     }
 }
+
+extension FestivalTheme {
+    /// The selected capsule's lower colour in this appearance; CandidatePill
+    /// draws its top from it. Increase Contrast keeps the palette's own pill.
+    func pill(dark: Bool) -> Color? {
+        guard let hex = (dark ? colors.dark : colors.light).last, hex.count == 7, let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+}

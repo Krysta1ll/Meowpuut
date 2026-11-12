@@ -86,22 +86,8 @@ const FestivalTheme *wornTheme(const FestivalManifest &manifest, LocalDate today
 // Themes whose worn range has begun at least once between `since` and `today`, in manifest order.
 std::vector<const FestivalTheme *> metThemes(const FestivalManifest &manifest, LocalDate since, LocalDate today);
 
-// Selection pill in a festival colour, adjusted for the appearance.
-void applyOutfitPill(Theme &theme, Color pill);
-
-// The cat drawing still takes the old per-cat overlay outfits. Nothing ships
-// in that format any more, so activeOutfit finds nothing; these go when the
-// cats wear the themes above.
-struct CatOutfit {
-    std::string front, back, frames[3];
-};
-
-struct Outfit {
-    std::string id, titleHant, titleHans;
-    CatOutfit mimimo, momo;
-    std::optional<Color> pill;
-};
-
-inline const Outfit *activeOutfit(const FestivalManifest &, LocalDate) { return nullptr; }
+// The selected capsule in the theme's colours for the appearance (the
+// manifest's light or dark pair). High contrast keeps the system's.
+void applyFestivalPill(Theme &theme, const FestivalTheme &festival);
 
 } // namespace meowpuut::ui

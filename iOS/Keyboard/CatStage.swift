@@ -18,20 +18,6 @@ extension CatArt {
     static func image(_ sprite: CatSprite) -> UIImage? { pictures[sprite.name] ?? UIImage(named: sprite.name) }
 }
 
-/// Outfit images exported by scripts/render_cats.py (@3x), cached.
-enum FestivalArt {
-    private static var cache: [String: UIImage] = [:]
-
-    static func image(_ outfit: FestivalOutfit, _ file: String) -> UIImage? {
-        let key = outfit.id + "/" + file
-        if let hit = cache[key] { return hit }
-        guard let url = Festivals.imageURL(outfit: outfit, file: file),
-              let data = try? Data(contentsOf: url), let image = UIImage(data: data, scale: 3) else { return nil }
-        cache[key] = image
-        return image
-    }
-}
-
 /// The layers of the cats on one stage.
 final class CatLayersView: UIView {
     struct Scene: Equatable {

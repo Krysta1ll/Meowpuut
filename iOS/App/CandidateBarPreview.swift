@@ -50,7 +50,7 @@ struct CandidateBarPreview: View {
             CatSchedule.arrangement(setting: "ends", day: CatSchedule.day(), on: stage) { cat, pose in theme.catSprite(cat) ?? CatArt.sprite(cat, pose) }
         }.flatMap { $0.arrangement.id == "ends" ? $0 : nil }
         let today = cats ? dressed ?? CatSchedule.arrangement(setting: placement, day: CatSchedule.day(), on: stage) : nil
-        let tint = festival.flatMap { FestivalOutfit(theme: $0, dark: dark).pillRGB }.map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
+        let tint = festival?.pill(dark: dark)
         return ZStack(alignment: .topLeading) {
             LiquidGlassBar(style: shape, dark: dark, accessible: accessible, strength: strength,
                            tint: palette.color(dark: dark))

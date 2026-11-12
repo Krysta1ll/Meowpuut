@@ -727,13 +727,17 @@ void testFestivals() {
     CHECK(dayNumber(date("1970-01-01")) == 0 && dayNumber(date("2028-03-01")) - dayNumber(date("2028-02-28")) == 2);
     CHECK(!parseHexColor("C8463C") && parseHexColor("#c8463c"));
 
-    const Color pill = *parseHexColor("#C8463C");
+    // The capsule takes the theme's light or dark pair.
     auto theme = makeTheme(Appearance::Light, Palette::Rose, true, false);
-    applyOutfitPill(theme, pill);
-    CHECK(std::fabs(theme.pillBottom.r - pill.r) < 1e-4f);
+    applyFestivalPill(theme, alpha);
+    CHECK(std::fabs(theme.pillTop.r - 0xBB / 255.0f) < 1e-3f && std::fabs(theme.pillBottom.r - 0xAA / 255.0f) < 1e-3f);
     auto dark = makeTheme(Appearance::Dark, Palette::Rose, true, false);
-    applyOutfitPill(dark, pill);
-    CHECK(dark.pillBottom.r < pill.r);
+    applyFestivalPill(dark, alpha);
+    CHECK(std::fabs(dark.pillBottom.r - 0x99 / 255.0f) < 1e-3f);
+    auto contrast = makeTheme(Appearance::Light, Palette::Rose, true, true);
+    const auto before = contrast.pillBottom.r;
+    applyFestivalPill(contrast, alpha);
+    CHECK(contrast.pillBottom.r == before);
 
     // The cats' pictures reach the snapshot by name.
     FixedMeasurer measurer;

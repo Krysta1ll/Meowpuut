@@ -366,8 +366,8 @@ struct Studio: View {
             ForEach(GlassStrength.allCases) { Text($0.name(t)).tag($0) }
         }.pickerStyle(.segmented)
         Toggle(t("節日裝扮", "节日装扮"), isOn: $preferences.festivalOutfits)
-        if preferences.festivalOutfits, let outfit = Festivals.active() {
-            Text(t("現在是「\(outfit.title.hant)」的裝扮。", "现在是“\(outfit.title.hans)”的装扮。"))
+        if let theme = Festivals.theme(wardrobe: preferences.festivalWardrobe) {
+            Text(t("現在是「\(theme.names.hant)」的裝扮。", "现在是“\(theme.names.hans)”的装扮。"))
                 .font(.caption).foregroundStyle(.secondary)
         }
         Text(t("色調選「跟隨系統」時，候選窗跟著 macOS 的深淺色外觀。節日裝扮只在節日期間出現。",
