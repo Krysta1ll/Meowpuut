@@ -72,15 +72,15 @@ class CatTest {
                 val from = place.frame.left + sprite.cutLeft * place.frame.width
                 val to = place.frame.left + sprite.cutRight * place.frame.width
                 var lowest = 0f
-                var x = from
-                while (x <= to) {
+                val steps = ((to - from) * 4).toInt() + 1
+                for (i in 0..steps) {
+                    val x = from + (to - from) * i / steps
                     val edge = glass.top + GlassOutline.top(bar.stage.shape, x - glass.left, glass.width, glass.height)
                     // The body ends on the anchor row: the edge is never below it, so no gap shows.
                     assertTrue("${place.cat} on ${bar.name}: edge $edge under the cut ${place.anchorY} at $x", edge <= place.anchorY + 0.001f)
                     // And the edge hides little of the cat.
                     assertTrue("${place.cat} on ${bar.name}", place.anchorY - edge <= 4 * bar.stage.unit + 0.001f)
                     lowest = maxOf(lowest, edge)
-                    x += 0.25f
                 }
                 assertEquals("${place.cat} sits on the edge of ${bar.name}", lowest, place.anchorY, 0.05f)
                 assertEquals(place.frame.left + sprite.anchorX * place.frame.width, place.anchorX, 0.001f)

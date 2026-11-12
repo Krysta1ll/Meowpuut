@@ -281,14 +281,16 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         return places.map { place ->
             val art = if (place.cat == Cat.MIMIMO) mimimo else momo
             val frame = place.frame
-            // In front of the glass: what is at and below the paw row, and the top of each paw.
+            // In front of the glass: each whole paw (a round paw is about 0.7 as tall as it is wide),
+            // so an edge that rises under a paw does not cut into it. Nothing else of the cut row: its
+            // soft edge would show as a line on the glass. Same outline as CatSprite.pawOutlines on iOS.
             val paws = Path()
-            paws.addRect(frame.left, place.anchorY, frame.right, frame.bottom, Path.Direction.CW)
             for ((x, halfWidth, depth) in art.sprite.paws) {
                 val cx = frame.left + x * frame.width
-                val rx = halfWidth * frame.width + 0.4f
-                val ry = depth * frame.height + 0.4f
-                paws.addOval(cx - rx, place.anchorY - ry, cx + rx, place.anchorY + ry, Path.Direction.CW)
+                val w = 2 * halfWidth * frame.width + 0.8f
+                val bottom = place.anchorY + depth * frame.height + 0.4f
+                val h = max(2 * depth * frame.height, 0.7f * w) + 0.4f
+                paws.addOval(cx - w / 2, bottom - h, cx + w / 2, bottom, Path.Direction.CW)
             }
             val glow = if (look.dark && place.cat == Cat.MIMIMO) glow(place, art.bitmap, paws) else null
             Seat(place, place.touch(stage), art.bitmap, paws, glow)

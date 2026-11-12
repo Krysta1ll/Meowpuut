@@ -104,8 +104,14 @@ object CatSeats {
             val start = if (fromLeft) radius - 4 * unit + slide else glass.width - radius + 4 * unit - slide - span
             val edge = rise(stage.shape, glass, start, start + span)
             // How much of a cat the edge may hide: at its sides, and under its face.
-            if (edge.most <= 4 * unit && edge.middle <= 1.5f * unit) {
-                val x = glass.left + start - art.cutLeft * width
+            val x = glass.left + start - art.cutLeft * width
+            // A paw sinks into the glass by as much as the edge rises under it.
+            val pawsLevel = art.paws.all { (px, halfWidth, _) ->
+                val centre = x - glass.left + px * width
+                val under = rise(stage.shape, glass, centre - halfWidth * width, centre + halfWidth * width)
+                edge.low - (under.low - under.most) <= 1.5f * unit
+            }
+            if (edge.most <= 4 * unit && edge.middle <= 1.5f * unit && pawsLevel) {
                 val anchorY = glass.top + edge.low
                 val place = CatPlacement(cat, art, Box(x, anchorY - art.anchorY * height, width, height), x + art.anchorX * width, anchorY)
                 if (!place.covers(stage)) return place
