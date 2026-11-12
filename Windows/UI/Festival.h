@@ -6,6 +6,7 @@
 #include "CandidateLayout.h"
 #include "Theme.h"
 
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -31,6 +32,11 @@ struct FestivalInsets {
 struct FestivalSprite {
     std::string image; // Assets\festivals\<image>.png
     float width = 0, height = 0, anchorX = 0, anchorY = 0;
+    // Seated behind the glass (the manifest's `bust`), as fractions of the
+    // picture: opaque bounds (x, y, width, height), the row the edge runs
+    // along and the opaque span on it.
+    bool bust = false;
+    float bounds[4] = {}, row = 0, cutLeft = 0, cutRight = 0;
 };
 
 // The decoration around the glass; only the middle between the caps stretches.
@@ -57,6 +63,8 @@ struct FestivalTheme {
     std::string hant, hans, ja, en;
     FestivalSprite mimimo, momo;
     FestivalTrim trim;
+    std::string rightImage;                 // the right end's ornament cluster, or empty
+    float rightWidth = 0, rightHeight = 0;  // its size in DIPs
     FestivalColors colors;
     std::vector<FestivalDays> days;
 };
@@ -85,6 +93,11 @@ const FestivalTheme *wornTheme(const FestivalManifest &manifest, LocalDate today
 
 // Themes whose worn range has begun at least once between `since` and `today`, in manifest order.
 std::vector<const FestivalTheme *> metThemes(const FestivalManifest &manifest, LocalDate since, LocalDate today);
+
+// What the candidate window draws for a theme: the dressed cats as the bar
+// seats them and the size of the right end's cluster. Null when a cat has no
+// bust in the manifest.
+std::shared_ptr<const FestivalArt> festivalArt(const FestivalTheme &festival);
 
 // The selected capsule in the theme's colours for the appearance (the
 // manifest's light or dark pair). High contrast keeps the system's.

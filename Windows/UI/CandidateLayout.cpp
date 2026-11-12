@@ -224,8 +224,7 @@ struct CatStage {
 // and slides inward until the edge under it is level enough and its paws are
 // clear of what is drawn on the glass. `at`, when given, is tried first: where
 // the cut started on the collapsed bar.
-std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s, std::optional<float> at = std::nullopt) {
-    const CatSprite &art = *catArt(cat).sprite;
+std::optional<CatPlacement> seatCat(Cat cat, const CatSprite &art, bool left, const CatStage &s, std::optional<float> at = std::nullopt) {
     const float scale = std::min(1.0f, s.room / ((art.anchorY - art.top) * art.height));
     const float width = art.width * scale, height = art.height * scale;
     const float span = (art.cutRight - art.cutLeft) * width;
@@ -281,7 +280,18 @@ void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &ro
         const CatPlacement &was = bar->cats.front();
         at = was.frame.x + was.sprite->cutLeft * was.frame.width;
     }
-    const auto mimimo = seatCat(Cat::Mimimo, true, stage, at), momo = seatCat(Cat::Momo, false, stage);
+    // On a festival day the dressed pair, when both fit; otherwise the everyday cats.
+    if (L.festival) {
+        const auto mimimo = seatCat(Cat::Mimimo, L.festival->mimimo, true, stage, at);
+        const auto momo = seatCat(Cat::Momo, L.festival->momo, false, stage);
+        if (mimimo && momo && !mimimo->body().inset(-4 * unit, 0).intersects(momo->body())) {
+            L.cats = {*mimimo, *momo};
+            L.dressed = true;
+            return;
+        }
+    }
+    const auto mimimo = seatCat(Cat::Mimimo, *catArt(Cat::Mimimo).sprite, true, stage, at);
+    const auto momo = seatCat(Cat::Momo, *catArt(Cat::Momo).sprite, false, stage);
     // Should the two ever meet, 莫莫 stays: five clicks on her switch the script.
     const bool apart = !mimimo || !momo || !mimimo->body().inset(-4 * unit, 0).intersects(momo->body());
     if (mimimo && apart) L.cats.push_back(*mimimo);
@@ -289,6 +299,21 @@ void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &ro
 }
 
 } // namespace
+
+// The festival's cluster at the bar's right end (FestivalEndsLayout in
+// Sources/Festivals.swift): between the arrow and the window's edge, on the
+// glass's lower edge, no taller than the glass's body; none when it would come
+// out under 60 % of that.
+static std::optional<RectF> festivalOrnament(const CandidateLayout &L, float windowRight) {
+    if (!L.festival || L.festival->rightWidth <= 0) return std::nullopt;
+    const RectF &body = L.glass.body;
+    const float w = L.festival->rightWidth, h = L.festival->rightHeight;
+    const float end = std::min(windowRight - 1, L.glass.bounds.right() + 4);
+    const float arrowRight = L.chevron.midX() + 5.5f;
+    const float k = std::min(body.height / h, (end - arrowRight - 2) / w);
+    if (h * k < 0.6f * body.height) return std::nullopt;
+    return RectF{end - w * k, body.bottom() + 1 - h * k, w * k, h * k};
+}
 
 CatArt catArt(Cat cat) {
     const std::string_view name = cat == Cat::Mimimo ? "mimimo_edge_peek" : "momo_edge_peek";
@@ -412,6 +437,7 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
     L.shape = model.shape;
     L.expanded = model.expanded;
     L.decorations = model.decorations;
+    L.festival = model.decorations ? model.festival : nullptr;
     L.chevronUp = model.expanded;
     const bool deco = model.decorations;
     // Every position below that names BarFrame is frozen (see CandidateLayout.h).
@@ -465,6 +491,7 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
             }
             bottom = std::max(bottom, frame.right.bottom());
             seatCats(L, bodyTop, frame.left.y, {rowStart, bodyTop + (G - pillHeight) / 2, rowEnd - rowStart, pillHeight});
+            L.ornament = festivalOrnament(L, glassRight + m.padRight);
         }
         L.size = {glassRight + m.padRight, std::ceil(bottom + m.padBottom)};
         L.anchorX = L.cells.empty() ? rowStart : L.cells.front().frame.x;

@@ -27,8 +27,9 @@ struct Paint {
     std::vector<GradientStop> stops;  // Linear and Radial
 };
 
-// A cat's picture (catArt in CandidateLayout.h).
-enum class Sprite { Mimimo, Momo };
+// A cat's picture (catArt in CandidateLayout.h, or the festival's when the
+// scene is `dressed`), or the festival's ornament cluster.
+enum class Sprite { Mimimo, Momo, Ornament };
 enum class TextAlign { Leading, Center, Trailing };
 
 struct DrawCommand {
@@ -69,6 +70,7 @@ struct Scene {
     SizeF size;                          // window size in DIPs
     std::vector<GlassOutline> outlines;
     std::vector<DrawCommand> commands;   // back to front
+    bool dressed = false;                // the cats wear the festival's outfits
 };
 
 Scene buildScene(const CandidateLayout &layout, const CandidateViewModel &model, const Theme &theme);

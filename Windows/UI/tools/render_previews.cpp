@@ -134,14 +134,13 @@ std::string onPage(const std::string &window, SizeF size, bool dark, float scale
 
 int main(int argc, char **argv) {
     if (argc != 3 && argc != 5) {
-        std::fprintf(stderr, "usage: render_previews <Windows/UI/Assets> <output dir> [<festivals dir> <YYYY-MM-DD>]\n");
+        std::fprintf(stderr, "usage: render_previews <Windows/UI/Assets> <output dir> [<festivals dir> <YYYY-MM-DD or theme id>]\n");
         return 2;
     }
     const std::string assets = argv[1], out = argv[2];
     SvgAssets svgAssets;
     svgAssets.mimimo = dataUri(assets + "/" + catArt(Cat::Mimimo).image);
     svgAssets.momo = dataUri(assets + "/" + catArt(Cat::Momo).image);
-    std::string festivalName;
 
     std::vector<Scenario> scenarios;
     const GlassShape shapes[] = {GlassShape::Capsule, GlassShape::Wave, GlassShape::Cloud};
@@ -237,23 +236,40 @@ int main(int argc, char **argv) {
     contrastPanel.model.modeLabel = "拼音 · 繁";
     scenarios.push_back(contrastPanel);
 
-    // Optional festival check: the theme worn on the given date, with its
-    // capsule colours. Its cats and ornaments are not drawn on Windows yet.
+    // Optional festival check: the theme worn on a date, or one theme by id,
+    // with its dressed cats, its ornament cluster and its capsule colours.
     std::optional<FestivalTheme> festivalTheme;
+    SvgAssets festivalAssets;
     if (argc == 5) {
         const std::string dir = argv[3];
         std::ifstream in(dir + "/festivals.json", std::ios::binary);
         const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         std::string error;
         const auto manifest = parseFestivalManifest(json, &error);
+        const FestivalTheme *worn = nullptr;
+        for (const auto &theme : manifest.themes)
+            if (theme.id == argv[4]) worn = &theme;
         LocalDate day;
-        if (!parseLocalDate(argv[4], day)) { std::fprintf(stderr, "bad date %s\n", argv[4]); return 2; }
-        const FestivalTheme *worn = wornTheme(manifest, day, FestivalWardrobe{});
-        if (!worn) { std::fprintf(stderr, "no festival on %s (%s)\n", argv[4], error.c_str()); return 1; }
-        Scenario festival{"festival-" + worn->id, sushi(), Appearance::Light};
-        scenarios.push_back(festival);
+        if (!worn && parseLocalDate(argv[4], day)) worn = wornTheme(manifest, day, FestivalWardrobe{});
+        if (!worn) { std::fprintf(stderr, "no festival for %s (%s)\n", argv[4], error.c_str()); return 1; }
         festivalTheme = *worn;
-        festivalName = festival.name;
+        festivalAssets.mimimo = dataUri(dir + "/" + worn->mimimo.image + ".png");
+        festivalAssets.momo = dataUri(dir + "/" + worn->momo.image + ".png");
+        festivalAssets.ornament = dataUri(dir + "/" + worn->rightImage + ".png");
+        const auto art = festivalArt(*worn);
+        scenarios.clear();
+        for (auto [appearance, shape] : {std::pair{Appearance::Light, GlassShape::Capsule}, {Appearance::Dark, GlassShape::Capsule},
+                                         {Appearance::Light, GlassShape::Wave}, {Appearance::Dark, GlassShape::Cloud}}) {
+            Scenario festival{"festival-" + worn->id + "-" + (appearance == Appearance::Light ? "light-" : "dark-") + glassShapeName(shape),
+                              sushi(), appearance};
+            festival.model.shape = shape;
+            festival.model.festival = art;
+            scenarios.push_back(festival);
+        }
+        Scenario panel{"festival-" + worn->id + "-light-expanded", sushi(), Appearance::Light};
+        panel.model.expanded = true;
+        panel.model.festival = art;
+        scenarios.push_back(panel);
     }
 
     CoreTextMeasurer measurer;
@@ -267,12 +283,14 @@ int main(int argc, char **argv) {
                           ? makeTheme(s.appearance, Palette::Rose, true, true, Color::rgb(0x000000), Color::rgb(0xFFFFFF),
                                       Color::rgb(0xD6B4FD), Color::rgb(0x2B2B2B), Color::rgb(0xA6A6A6))
                           : makeTheme(s.appearance, s.palette, s.transparency, false);
-        const bool festive = s.name == festivalName;
-        if (festive && festivalTheme) applyFestivalPill(theme, *festivalTheme);
+        if (festivalTheme) applyFestivalPill(theme, *festivalTheme);
         const Scene scene = buildScene(layout, s.model, theme);
-        std::ofstream(out + "/" + s.name + ".svg", std::ios::binary) << renderSvg(scene, svgAssets, font, 2.0f);
+        // A dressed scene takes the festival's cats; the cluster is the festival's either way.
+        SvgAssets pictures = scene.dressed ? festivalAssets : svgAssets;
+        pictures.ornament = festivalAssets.ornament;
+        std::ofstream(out + "/" + s.name + ".svg", std::ios::binary) << renderSvg(scene, pictures, font, 2.0f);
         std::ofstream(out + "/" + s.name + "-on-page.svg", std::ios::binary)
-            << onPage(renderSvg(scene, svgAssets, font, 1.0f), layout.size, s.appearance == Appearance::Dark, 2.0f);
+            << onPage(renderSvg(scene, pictures, font, 1.0f), layout.size, s.appearance == Appearance::Dark, 2.0f);
         std::printf("%s %.0fx%.0f\n", s.name.c_str(), static_cast<double>(layout.size.width),
                     static_cast<double>(layout.size.height));
     }
