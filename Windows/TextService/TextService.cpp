@@ -582,7 +582,8 @@ public:
             const Plan next = plan(context, vk, lp);
             if (next.act == Act::Pass) return S_OK;
             *eaten = TRUE;
-            perform(states_.at(context), next);
+            const auto state = states_.at(context);
+            perform(state, next);
         } catch (...) {
             // Keep the reading; the key is not passed on twice.
             hideWindow();

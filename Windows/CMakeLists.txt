@@ -49,6 +49,16 @@ if(WIN32)
         target_compile_options(MeowpuutCandidateWindow PRIVATE /utf-8 /W4)
     endif()
 
+    # The TSF text service. Its icon, Meowpuut.ico, is made from
+    # assets/brand/AppIcon.png by scripts/build-windows-ime.sh; put one in the
+    # build directory before building this target.
+    add_library(MeowpuutTextService SHARED TextService/TextService.cpp TextService/TextService.def TextService/TextService.rc)
+    target_link_libraries(MeowpuutTextService PRIVATE MeowpuutWindowsSession MeowpuutCandidateWindow oleaut32)
+    target_compile_definitions(MeowpuutTextService PRIVATE
+        MEOWPUUT_VERSION="0.8.0-alpha.1" MEOWPUUT_VERSION_NUMBERS=0,8,0,1)
+    target_include_directories(MeowpuutTextService PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_compile_options(MeowpuutTextService PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/utf-8 /W4>)
+
     add_executable(MeowpuutCandidatePreview WIN32 Preview/PreviewApp.cpp Preview/Preview.rc)
     target_link_libraries(MeowpuutCandidatePreview PRIVATE MeowpuutWindowsSession MeowpuutCandidateWindow shell32 imm32)
     target_compile_options(MeowpuutCandidatePreview PRIVATE /utf-8 /W4)
