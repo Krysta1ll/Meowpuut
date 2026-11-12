@@ -27,14 +27,14 @@
 | iPhone、iPad（iOS 17 以上） | 0.8.0（9） | [TestFlight](https://testflight.apple.com/join/kfMVXAC6) |
 | Mac（macOS 27 以上，Apple 晶片） | 0.8.0 Alpha 1 | [安裝盤 .dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-macos-arm64.dmg) · [安裝套件 .pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-macos-arm64.pkg) |
 | Android（8.0 以上） | 0.8.0 Alpha 1 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-android.apk) |
-| Windows 10、11（x64） | 0.8.0 Alpha 1 | [zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-x64.zip) |
+| Windows 10、11 | 0.8.0 Alpha 1 | [x64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-x64.zip) · [Arm64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-arm64.zip) |
 
 下載的檔案可以用 [SHA256SUMS.txt](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/SHA256SUMS.txt) 核對。舊版本在 [Releases](https://github.com/Krysta1ll/Meowpuut/releases)。
 
 - **iPhone、iPad**：先從 App Store 安裝 Apple 的 TestFlight，再用手機打開 [TestFlight 連結](https://testflight.apple.com/join/kfMVXAC6)，安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
 - **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好要登出再登入，再到系統設定加入輸入法。
 - **Android**：這一版換了簽署用的金鑰。裝過 0.1.0 的話，要先移除舊的，新的才裝得上。
-- **Windows**：沒有簽署的測試版，Windows 可能會先跳出警告。安裝步驟見[安裝說明](docs/INSTALL.md#windows)。
+- **Windows**：沒有簽署的測試版，Windows 可能會先跳出警告。一般電腦用 x64；Arm 處理器的電腦（例如 Snapdragon 筆電）用 Arm64，它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機，在模擬執行的 x64 程式裡打不出中文。安裝步驟見[安裝說明](docs/INSTALL.md#windows)。
 
 各平台的安裝、更新和移除見[安裝說明](docs/INSTALL.md)。
 

@@ -75,9 +75,14 @@
 
 ## Windows
 
-需要 Windows 10 或 11，x64。
+需要 Windows 10 或 11。
 
-下載 [Meowpuut-0.8.0-alpha.1-windows-x64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-x64.zip)，整個解壓縮後照裡面的說明安裝。這個測試版沒有簽署，Windows 可能會先跳出警告。
+- 一般的電腦（Intel、AMD）：下載 [Meowpuut-0.8.0-alpha.1-windows-x64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-x64.zip)。
+- Arm 處理器的電腦（例如 Snapdragon 筆電）：下載 [Meowpuut-0.8.0-alpha.1-windows-arm64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-windows-arm64.zip)。它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機；在模擬執行的 x64 程式裡打不出中文。
+
+整個解壓縮後執行 `Install.cmd`，同意系統要的管理員權限。裝好後按 Windows 鍵＋空白鍵切到「喵撲拼音」或「喵撲注音」。移除用同一個資料夾裡的 `Uninstall.cmd`。這個測試版沒有簽署，Windows 可能會先跳出警告。
+
+裝錯版本時，安裝程式會先停下來告訴你該下載哪一個。
 
 ## 核對下載的檔案
 
