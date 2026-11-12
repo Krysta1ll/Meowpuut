@@ -1,20 +1,97 @@
-# Windows 開發基礎
+# Windows 輸入法
 
-目前有 C++ 會話層、候選窗和一個預覽程式，**還不是可安裝或註冊的 Windows 輸入法**。每個輸入上下文應獨立持有一個 `meowpuut::Session`，並只在所屬執行緒使用。字典以 `std::filesystem::path` 讀取；Windows 呼叫端可以傳 UTF-16 路徑。快照複製 UTF-8 組字、候選與上屏字串；`takeSnapshot()` 讀取後清除待提交文字，避免重複上屏。
+從 0.8.0-alpha.1 起，Windows 又有可以安裝的喵撲。`TextService/` 是 TSF 文字服務 `MeowpuutTextService.dll`，在「中文（台灣）」底下提供「喵撲拼音」和「喵撲注音」兩個鍵盤。它用這個資料夾的會話層（`Session`、`Keyboard`）、Rust 核心（`meowpuut-ffi`）和 `UI/` 的候選窗。發佈包在 macOS 上交叉編譯，分 x64 和 Arm64 兩份，沒有數位簽章。
 
-`Keyboard.h` 提供鍵盤事件轉換：拼音數字選詞、Shift 加大千聲調鍵輸入拼音聲調，拼音組字時空格保留原文並加入空格；注音的數字留給聲調而 Shift 加數字選詞。翻頁與編輯鍵在組字時交給會話。呼叫端需傳入當次事件的虛擬鍵、鍵盤配置產生的 ASCII 字元及修飾鍵狀態，忽略 key-up 和死鍵，並自行處理單按 Shift 切換中英。Ctrl、Alt、Windows 組合鍵保留給系統或應用程式。這個轉換層不會安裝鍵盤攔截器或註冊 TSF。
+## 安裝與移除
+
+1. 下載 `Meowpuut-0.8.0-alpha.1-windows-x64.zip`（Arm64 的電腦下載 `-windows-arm64.zip`），整個解壓。
+2. 雙擊 `Install.cmd`。Windows 會要求系統管理員權限。檔案複製到 `C:\Program Files\Meowpuut\<DLL 雜湊的前 12 碼>`，用 `regsvr32` 註冊，再把兩個鍵盤加進目前使用者的「中文（台灣）」。
+3. 按 Windows 鍵 + 空白鍵切到「喵撲拼音」或「喵撲注音」。已經開著的程式要重新開啟才會載入。
+
+移除：雙擊同一個資料夾裡的 `Uninstall.cmd`。它把兩個鍵盤從使用者的語言清單拿掉、取消註冊、刪除 `C:\Program Files\Meowpuut` 和 `HKCU\Software\Meowpuut`。還有程式載著 DLL 時那個資料夾刪不掉，腳本會印出路徑；關掉那些程式或重新開機後再手動刪。
+
+裝新版會放進新的資料夾，正在執行的程式繼續用舊的 DLL，舊資料夾在下次安裝時刪掉。0.1.x 的類別和拼音設定檔用同一組 GUID，裝 0.8.0 會直接取代，也會刪掉 0.1.x 登入時啟動玻璃預覽程式的捷徑。
+
+套件的 DLL 必須和 Windows 相同架構，不同時 `Install.cmd` 會停下來，說該下載哪一份。Arm64 版是原生 Arm64 DLL，只會載入 Arm64 程式（記事本、Edge、檔案總管、Windows 終端機等內建程式都是）。用 x64 模擬執行的程式載入不了，在那些程式裡切到喵撲，按鍵會直接出英文字母。要兩種程式都能用得做 Arm64X DLL；Rust 核心目前沒有能交叉編譯的 Arm64EC 目標，所以還沒做。x64 版沒有 32 位元 DLL，32 位元程式也用不了。
+
+## 打字
+
+按鍵和 macOS 相同，不同的地方是單按 Shift 和方向鍵：
+
+| 按鍵 | 作用 |
+| --- | --- |
+| 數字（拼音 `1`–`8`；注音 Shift + `1`–`7`） | 選這一頁的候選 |
+| 空白鍵 | 拼音：選反白的候選。注音：第一聲；已經打了聲調時選反白的候選，並送出整段 |
+| Enter | 選反白的候選 |
+| ← →、Tab、Shift + Tab | 移動反白 |
+| ↓ ／ ↑ | 展開／收起候選面板（展開時 ↓ 移動反白） |
+| Page Up ／ Page Down | 翻頁 |
+| Esc | 面板展開時收起；否則取消這段讀音 |
+| 標點 | 拼音的 `, . ; / \ [ ]`、注音的 Shift + `, . / ; 1 9 0 [ ] \` 打出全形標點；組字中先送出反白的候選 |
+| 其他字元 | 組字中先送出反白的候選，再打出這個字元 |
+| 單按 Shift | 中文、英文切換（macOS 的注音是 Shift + 空白鍵） |
+| Caps Lock | 開著時不開始組字，直接打大寫 |
+
+滑鼠：點候選選取，滾輪翻頁，右端箭頭展開成格狀面板，連點莫莫五下切換繁體、簡體。
+
+工作列的輸入指示顯示「中」或「英」，點一下切換；右鍵選單可選繁體或簡體。繁簡存在 `HKCU\Software\Meowpuut` 的 `Simplified`，每個程式開始新的一段讀音時讀一次，所以在一個程式切換，其他程式的下一段也會跟著換。造型、色系和色調在 Windows 上還沒有設定的地方，固定是膠囊、玫瑰、跟隨系統的淺深色；節日裝扮照日曆自動換（規則同其他平台，見 `UI/Festival.h`）。
+
+讀音是 TSF 組字，也就是文件裡有底線的文字，候選窗在它下方。焦點換到別的欄位時，讀音留在原來的欄位，回去再打字會接著用；程式自己結束組字（例如點到別處）時，讀音照原樣留在文件裡。切換鍵盤、切到英文、拼音注音互換時，先送出反白的候選。
+
+上屏的文字先放在那個欄位自己的佇列裡，再由編輯工作階段寫入文件。程式拒絕寫入時，文字留在同一個欄位的佇列，下一次寫入時一起送出，不會跑到別的欄位。
+
+## 在 Windows 上檢查過的
+
+（待填：VM 實測結果。）
+
+## 會話層
+
+每個輸入上下文應獨立持有一個 `meowpuut::Session`，並只在所屬執行緒使用。字典以 `std::filesystem::path` 讀取；Windows 呼叫端可以傳 UTF-16 路徑。文字服務用 `Session(SharedLexicon, bool pinyin)`：`mimo_base.bin` 和 `mimo_pairs.bin` 以檔案映射直接讀取，每個行程只載入一次，所有會話共用，各個程式也共用同一份檔案分頁。快照複製 UTF-8 組字、候選與上屏字串；`takeSnapshot()` 讀取後清除待提交文字，避免重複上屏。`commit()` 送出第一個候選，沒有候選時送出原本的讀音；文字服務用它把整段讀音送完。
+
+`Keyboard.h` 提供鍵盤事件轉換：拼音數字選詞、Shift 加大千聲調鍵輸入拼音聲調，拼音組字時空格保留原文並加入空格；注音的數字留給聲調而 Shift 加數字選詞。翻頁與編輯鍵在組字時交給會話。呼叫端需傳入當次事件的虛擬鍵、鍵盤配置產生的 ASCII 字元及修飾鍵狀態，忽略 key-up 和死鍵，並自行處理單按 Shift 切換中英。文字服務在這層之前先處理空白鍵、Enter、方向鍵和標點（見上面的「打字」）。Ctrl、Alt、Windows 組合鍵保留給系統或應用程式。這個轉換層不會安裝鍵盤攔截器或註冊 TSF。
 
 拼音會話可在輸入前呼叫 `registerJapaneseWords(path)`，從生成的 mimo 詞庫目錄載入 `native-japanese.tsv`；它是審過的小型日語詞表（`Resources/Lexicon/japanese.tsv` 與 `japanese-reviewed.tsv`），格式為 `讀音|詞|權重`；macOS、iOS 改讀約 46,000 詞的 `mimo_jp.bin`，Windows 尚未改。未呼叫時保持純中文核心行為。混合中文與日語的完整句和前半段透過跨平台 C 核心產生，選取前半段後會保留未轉換的輸入。快照的 `japaneseCandidates` 與候選一一對應：每頁最多一個中日混合候選，排在該頁中文之後；額外候選放下一頁。第一頁可能有七個中文及一個額外的中日候選，拼音可用數字 1–8 選取。候選窗按快照的實際數量顯示，日語候選後面加貓爪記號。
 
-生成詞庫後，可執行 `python3 scripts/export-windows-lexicon.py <生成詞庫目錄> <新的輸出目錄>` 匯出 Windows 使用的三份資料表與 `Licenses` 聲明目錄。日後發佈 Windows 二進位時須一併附上該目錄；目前這裡仍是可攜式會話層，尚未提供 Windows 安裝包。
+生成詞庫後，可執行 `python3 scripts/export-windows-lexicon.py <生成詞庫目錄> <新的輸出目錄>` 匯出 Windows 使用的三份資料表與 `Licenses` 聲明目錄。發佈 Windows 二進位時須一併附上該目錄；`scripts/package-windows.sh` 從匯出結果取文字服務需要的三個檔案和 `Licenses`。
 
 同一次組字中，選擇中文前段後，會話會暫存短期上下文以協助後段排序；整句完成、取消、刪除至空或清除時會移除。選中含日語的混合前段會作為語境邊界，清除之前的中文上下文，並保留尚未轉換的讀音。上下文只存在於各自的會話，不寫入個人詞庫。
 
 單次組字達到核心容量時，下一個有效按鍵會先將原始讀音加入待提交文字，再開始新的組字；注音保留顯示的注音符號，拼音保留原文。待提交內容必須由呼叫端透過 `takeSnapshot()` 依序上屏；連續按鍵之間未取快照也不會覆蓋前一次結果。
 
-TSF 的 [`OnTestKeyDown`](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeyeventsink-ontestkeydown) 是按鍵意向查詢；`canHandleKey` 不改變組字、候選或待提交文字，可用於此查詢。實際處理另調用 `handleKey`。兩者之間應使用同一輸入上下文的會話與模式；模式必須與會話載入的詞庫一致。核心按鍵接受規則有變動時，要同步更新查詢並執行回歸：測試逐一比對拼音、注音在空輸入和組字狀態下所有 ASCII 可列印鍵的查詢結果與核心行為。這是 TSF 接入準備，並非已實作 TSF 文字服務。
+TSF 的 [`OnTestKeyDown`](https://learn.microsoft.com/en-us/windows/win32/api/msctf/nf-msctf-itfkeyeventsink-ontestkeydown) 是按鍵意向查詢；`canHandleKey` 不改變組字、候選或待提交文字，可用於此查詢。實際處理另調用 `handleKey`。兩者之間應使用同一輸入上下文的會話與模式；模式必須與會話載入的詞庫一致。核心按鍵接受規則有變動時，要同步更新查詢並執行回歸：測試逐一比對拼音、注音在空輸入和組字狀態下所有 ASCII 可列印鍵的查詢結果與核心行為。`TextService/` 照這個規則接 TSF。
 
-## 在 Windows 上建置
+## 文字服務
+
+`TextService/`：
+
+- `TextService.cpp`：COM 伺服器（`DllGetClassObject`、`DllRegisterServer` 等）和 TSF 文字服務。TSF 為每個有鍵盤輸入的執行緒建立一個 `Service`；每個收到按鍵的 `ITfContext` 有自己的 `ContextState`（會話、組字、待上屏佇列、反白、面板展開）。`OnTestKeyDown` 和 `OnKeyDown` 用同一個沒有副作用的 `plan()` 決定要不要吃下按鍵，再由 `perform()` 執行。文字一律在 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE` 的編輯工作階段裡寫入，寫入時讀當下的狀態，所以排隊中的工作階段不會寫進舊內容。候選窗的位置來自 `ITfContextView::GetTextExt`，用 `LogicalToPhysicalPointForPerMonitorDPI` 換成實體像素；拿不到時用系統游標。
+- 註冊：`ITfInputProcessorProfileMgr::RegisterProfile` 在 zh-TW（0x0404）下註冊兩個設定檔，`ITfCategoryMgr` 註冊鍵盤、顯示屬性、immersive 和 systray 類別。類別 GUID `{961C0ADA-4DC6-488F-9563-4FC144EFAE27}`、拼音設定檔 `{8FDE097D-3513-486A-9AB5-2D1B2C67C359}` 沿用 0.1.x；注音設定檔是 `{1F5D9D62-F4AF-4AAF-82A6-A482D7EC3AE2}`。
+- `TsfDeclarations.h`：MinGW 的 `msctf.h` 缺的介面（`ITfTextInputProcessorEx`、`ITfDisplayAttributeProvider`、`ITfLangBarItemButton`、`ITfMenu`）和幾個 GUID。
+- `Install.ps1`、`Install.cmd`、`Uninstall.cmd`：安裝與移除，見上面。
+- `TextService.def`、`TextService.rc`：匯出表、版本資訊和圖示（建置時由 `assets/brand/AppIcon.png` 產生 `Meowpuut.ico`）。
+
+0.1.1 的文字服務（commit 5e33638）沒有用 TSF 組字，讀音只顯示在另外啟動的 C# 玻璃預覽程式裡。這次留下的是：上屏佇列跟著欄位走、程式拒絕時保留不丟（0.1.1 的 `PendingDelivery`）、每個欄位各自保留讀音、密碼框和唯讀欄位不接手、`OnTestKeyDown` 不改變狀態。其餘改寫：組字、顯示屬性、`UI/` 的候選窗、注音、工作列的中／英指示、詞庫改用 `mimo_base.bin`。
+
+## 建置
+
+### 在 macOS 上交叉編譯
+
+```sh
+# 一個架構的 DLL，輸出到 .build/windows-ime/<x64|arm64>/
+MINGW_BIN=/path/to/llvm-mingw/bin bash scripts/build-windows-ime.sh x64
+MINGW_BIN=/path/to/llvm-mingw/bin bash scripts/build-windows-ime.sh arm64
+
+# 發佈包：兩個架構的 zip 和 SHA256SUMS.txt，輸出到 .build/windows-package/
+MINGW_BIN=/path/to/llvm-mingw/bin MEOWPUUT_LEXICON_DIR=/path/to/generated/lexicon \
+  bash scripts/package-windows.sh
+```
+
+需要 [llvm-mingw](https://github.com/mstorsjo/llvm-mingw)（0.8.0-alpha.1 用 20261020 的 UCRT macOS 版）、Rust 的 `x86_64-pc-windows-gnullvm` 和 `aarch64-pc-windows-gnullvm` 目標（缺少時腳本執行 `rustup target add`），以及 Python 的 Pillow（做圖示）。x64 也可以用 Homebrew 的 mingw-w64 GCC，這時 Rust 目標是 `x86_64-pc-windows-gnu`。DLL 靜態連結 C++ 執行庫和 Rust 核心，只依賴 Windows 內建的 DLL（UCRT、d2d1、DWrite、ole32 等）。
+
+發佈包的內容：`MeowpuutTextService.dll`、`Assets/`（貓和節日的圖，保留所有權利）、`lexicon/`（`mimo_base.bin`、`mimo_pairs.bin`、`native-japanese.tsv`）、`Licenses/`（`export-windows-lexicon.py` 寫的聲明，含 `Meowpuut-MIT.txt` 和 `Meowpuut-Artwork.txt`，加上 LLVM、MinGW-w64 和 Rust 標準庫的授權）、`THIRD_PARTY.md`、安裝腳本，以及 `BUILD-INFO.md`（commit、編譯器版本、每個檔案的 SHA-256）。
+
+### 在 Windows 上用 MSVC
+
 
 需要 CMake 3.16 以上、Visual Studio 的 C++ 工具（MSVC）、Windows 10 SDK 和 Rust（`cargo` 在 PATH 中，MSVC 目標）。CMake 會先呼叫 `cargo build --release -p meowpuut-ffi`。這份 CMake 只支援 MSVC，用其他編譯器設定時會直接報錯；MinGW 請用下面的 `scripts/build-windows-check.sh`。
 
@@ -33,6 +110,7 @@ ctest -C Release --output-on-failure
 | `MeowpuutCandidateLayout` | `UI/` 中不含 Windows 標頭的部分 |
 | `MeowpuutCandidateWindow` | `UI/CandidateWindow.cpp`，連結 d2d1、dwrite、windowscodecs |
 | `MeowpuutCandidatePreview` | 預覽程式，連結 imm32 |
+| `MeowpuutTextService` | 文字服務 DLL；建置前要在建置目錄放一個 `Meowpuut.ico`（還沒用 MSVC 建置過） |
 | `MeowpuutPreviewAssets` | 每次建置都把 `UI/Assets` 重新複製到執行檔旁，貓圖或節日清單更新後不必重新連結 |
 | `meowpuut_session_test`、`meowpuut_layout_test` | 測試 |
 
@@ -99,7 +177,9 @@ bash scripts/build-windows-check.sh
 1. 排版測試：標準庫邊界檢查版和 UndefinedBehaviorSanitizer 版。設 `MEOWPUUT_ASAN=1` 另跑 AddressSanitizer。
 2. `session_test`：用本機的 Rust 函式庫和 `iOS/Generated` 的詞庫（可用 `MEOWPUUT_LEXICON_DIR` 改）。沒有詞庫時跳過。
 3. 快照：用 Core Text 量字，輸出各造型、色調和狀態的 SVG，再用 `rsvg-convert` 轉成 PNG，放在 `previews/`。檔名帶 `-on-page` 的是疊在一頁文字上的樣子。
-4. 交叉編譯：Rust 核心、候選窗、預覽程式和排版測試，警告視為錯誤。結果在 `mingw/`。
+4. 交叉編譯：Rust 核心、候選窗、預覽程式、排版測試和 x64 的文字服務 DLL，警告視為錯誤。結果在 `mingw/` 和 `mingw-ime/`。
+
+第 2 段在詞庫目錄有 `mimo_base.bin` 時，也檢查文字服務的讀法：原地讀取、兩個會話共用一個詞庫、`commit()` 把讀音送完。
 
 第 4 段需要 MinGW-w64。兩種做法：
 
@@ -117,19 +197,13 @@ MINGW_BIN=/path/to/llvm-mingw/bin RUST_WINDOWS_TARGET=x86_64-pc-windows-gnullvm 
 
 ## 尚未完成
 
-這裡還沒有 TSF 文字服務，也沒有安裝包。接 TSF 還需要：
+- 沒有數位簽章。SmartScreen 會先擋，公司管理的電腦可能不允許安裝。
+- Arm64 版只支援 Arm64 程式，x64 版沒有 32 位元 DLL（見「安裝與移除」）。
+- 沒有 `ITfTextLayoutSink`：程式在編輯工作階段裡還給不出文字位置（`TS_E_NOLAYOUT`）時，候選窗用系統游標的位置，或等下一個按鍵才出現。
+- 沒有 `ITfCandidateListUIElement` 和 `ITfUIElementMgr`：螢幕閱讀程式讀不到候選，全螢幕遊戲等不顯示輸入法介面的程式看不到候選窗。
+- 開始功能表搜尋、設定等 UWP 程式裡，候選窗是普通的最上層視窗，可能被蓋住。
+- 造型、色系、色調沒有設定的地方。
+- 日語混打只用小型的 `native-japanese.tsv`，還沒改讀 macOS、iOS 用的 `mimo_jp.bin`；也沒有個人詞庫、macOS 的 Swift 排序和 `/` 片語模組。
+- `CMakeLists.txt` 的 MSVC 建置（含 `MeowpuutTextService`）沒有實際跑過。
 
-- COM 伺服器 DLL：`DllGetClassObject`、`DllCanUnloadNow`、`DllRegisterServer`／`DllUnregisterServer`，以及類別工廠。
-- 註冊：用 `ITfInputProcessorProfileMgr` 註冊語言設定檔（zh-TW、zh-CN），用 `ITfCategoryMgr` 註冊鍵盤類別；要在 UWP 和開始功能表中使用，還要註冊 immersive 和 systray 支援的類別。
-- `ITfTextInputProcessorEx`：`ActivateEx`／`Deactivate`，每個執行緒一個實例，在這裡建立和銷毀候選窗。
-- `ITfKeyEventSink`：`OnTestKeyDown` 用 `canHandleKey`，`OnKeyDown` 用 `handleKey`。
-- 組字：在 `ITfEditSession` 內用 `ITfContextComposition::StartComposition` 開始，寫入 preedit，上屏時結束；實作 `ITfCompositionSink` 處理應用程式中止組字。UTF-8 與 UTF-16 的轉換在這一層做。
-- 顯示屬性：`ITfDisplayAttributeProvider`，讓組字有底線。
-- 候選窗位置：`ITfContextView::GetTextExt` 取得組字範圍的螢幕矩形，傳給 `showNear`。
-- `ITfCandidateListUIElement` 和 `ITfUIElementMgr`：讓螢幕閱讀程式取得候選，並支援遊戲等不顯示輸入法介面的程式。
-- 輸入模式（中／英）、拼音／注音、繁簡、造型和色調的切換與儲存：compartment、語言列或系統匣圖示，以及設定的存放位置。
-- 每個輸入上下文一個 `Session`；焦點切換（`ITfThreadMgrEventSink`）時結束組字並隱藏候選窗。
-
-會話層還沒有接入 macOS 的 Swift 排序、個人詞庫、完整日語候選、中文標點和全部快捷鍵邏輯。可參閱 Microsoft 的 [TSF 文件](https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework)、[composition](https://learn.microsoft.com/en-us/windows/win32/tsf/compositions) 和 [文字服務註冊](https://learn.microsoft.com/en-us/windows/win32/tsf/text-service-registration)。
-
-驗證狀況：會話層和候選窗排版在 macOS 的 Clang 上編譯並測試；候選窗和預覽程式以 llvm-mingw 交叉編譯通過，沒有警告。候選窗和預覽程式還沒有在 Windows 上執行過，也沒有用 MSVC 編譯過。
+可參閱 Microsoft 的 [TSF 文件](https://learn.microsoft.com/en-us/windows/win32/tsf/text-services-framework)、[composition](https://learn.microsoft.com/en-us/windows/win32/tsf/compositions) 和 [文字服務註冊](https://learn.microsoft.com/en-us/windows/win32/tsf/text-service-registration)。
