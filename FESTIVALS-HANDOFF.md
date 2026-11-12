@@ -21,7 +21,9 @@ Branch: worktree-agent-a490ea3ecee5b1e5f. Phase 1 is finished apart from what "O
 - `bash scripts/test-ios.sh`: 14/14 (13 unit suites + photos). FestivalsTests 504 checks.
 - Android `./gradlew --offline testDebugUnitTest`: 48 tests, 0 failures (Kotlin main and test compile).
 - `bash scripts/build-windows-check.sh`: layout_test (with -Werror -Wconversion), session_test, SVG snapshots pass; MinGW cross build skipped (no compiler here). CandidateWindow.cpp (Win32) not compiled.
-- Simulator and macOS results: see the last commit message.
+- `bash scripts/build.sh --test` (macOS): exit 0, every check passes, including the rewritten checkFestivals (24 themes).
+- iOS app scheme builds for the simulator without any LabFestivals folder; so does the lab.
+- `bash scripts/test-ios.sh --simulator <iPhone 16e>`: 109 of 110 typing checks passed; the failure was the lab reading last run's saved switch. Fixed (arguments of this launch only); the festival cases were then rerun by hand on the simulator, 8 of 8 pass. The whole simulator suite was not rerun after the fix.
 
 ## Open
 
