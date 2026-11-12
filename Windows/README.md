@@ -64,7 +64,7 @@ TSF 的 [`OnTestKeyDown`](https://learn.microsoft.com/en-us/windows/win32/api/ms
 
 `TextService/`：
 
-- `TextService.cpp`：COM 伺服器（`DllGetClassObject`、`DllRegisterServer` 等）和 TSF 文字服務。TSF 為每個有鍵盤輸入的執行緒建立一個 `Service`；每個收到按鍵的 `ITfContext` 有自己的 `ContextState`（會話、組字、待上屏佇列、反白、面板展開）。`OnTestKeyDown` 和 `OnKeyDown` 用同一個沒有副作用的 `plan()` 決定要不要吃下按鍵，再由 `perform()` 執行。文字一律在 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE` 的編輯工作階段裡寫入，寫入時讀當下的狀態，所以排隊中的工作階段不會寫進舊內容。候選窗的位置來自 `ITfContextView::GetTextExt`，用 `LogicalToPhysicalPointForPerMonitorDPI` 換成實體像素；拿不到時用系統游標。
+- `TextService.cpp`：COM 伺服器（`DllGetClassObject`、`DllRegisterServer` 等）和 TSF 文字服務。TSF 為每個有鍵盤輸入的執行緒建立一個 `Service`；每個收到按鍵的 `ITfContext` 有自己的 `ContextState`（會話、組字、待上屏佇列、反白、面板展開）。`OnTestKeyDown` 和 `OnKeyDown` 用同一個沒有副作用的 `plan()` 決定要不要吃下按鍵，再由 `perform()` 執行。文字一律在 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE` 的編輯工作階段裡寫入，寫入時讀當下的狀態，所以排隊中的工作階段不會寫進舊內容。候選窗的位置來自 `ITfContextView::GetTextExt`，用 `LogicalToPhysicalPointForPerMonitorDPI` 換成實體像素；拿不到時（`TS_E_NOLAYOUT`）先用系統游標，等程式透過 `ITfTextLayoutSink` 通知版面變了再重讀一次。
 - 註冊：`ITfInputProcessorProfileMgr::RegisterProfile` 在 zh-TW（0x0404）下註冊兩個設定檔，`ITfCategoryMgr` 註冊鍵盤、顯示屬性、immersive 和 systray 類別。類別 GUID `{961C0ADA-4DC6-488F-9563-4FC144EFAE27}`、拼音設定檔 `{8FDE097D-3513-486A-9AB5-2D1B2C67C359}` 沿用 0.1.x；注音設定檔是 `{1F5D9D62-F4AF-4AAF-82A6-A482D7EC3AE2}`。
 - `TsfDeclarations.h`：MinGW 的 `msctf.h` 缺的介面（`ITfTextInputProcessorEx`、`ITfDisplayAttributeProvider`、`ITfLangBarItemButton`、`ITfMenu`）和幾個 GUID。
 - `Install.ps1`、`Install.cmd`、`Uninstall.cmd`：安裝與移除，見上面。
@@ -198,7 +198,6 @@ MINGW_BIN=/path/to/llvm-mingw/bin RUST_WINDOWS_TARGET=x86_64-pc-windows-gnullvm 
 
 - 沒有數位簽章。SmartScreen 會先擋，公司管理的電腦可能不允許安裝。
 - Arm64 版只支援 Arm64 程式，x64 版沒有 32 位元 DLL（見「安裝與移除」）。
-- 沒有 `ITfTextLayoutSink`：程式在編輯工作階段裡還給不出文字位置（`TS_E_NOLAYOUT`）時，候選窗用系統游標的位置，或等下一個按鍵才出現。
 - 沒有 `ITfCandidateListUIElement` 和 `ITfUIElementMgr`：螢幕閱讀程式讀不到候選，全螢幕遊戲等不顯示輸入法介面的程式看不到候選窗。
 - 開始功能表搜尋、設定等 UWP 程式裡，候選窗是普通的最上層視窗，可能被蓋住。
 - 造型、色系、色調沒有設定的地方。

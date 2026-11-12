@@ -331,6 +331,7 @@ struct ContextState {
     bool expanded = false;
     RECT caret{};
     bool haveCaret = false;
+    DWORD layoutCookie = TF_INVALID_COOKIE; // ITfTextLayoutSink on this context
 };
 
 enum class Act { Pass, Engine, Move, Expand, Collapse, Choose, Finish, Insert };
@@ -562,7 +563,8 @@ HICON modeIcon(bool english) {
 
 class EditSession final : public ITfEditSession, public Object {
 public:
-    EditSession(Service *service, std::shared_ptr<ContextState> state);
+    // caretOnly: read where the reading is and place the window, change nothing.
+    EditSession(Service *service, std::shared_ptr<ContextState> state, bool caretOnly = false);
     ~EditSession() override;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override {
         if (!out) return E_POINTER;
@@ -578,6 +580,7 @@ public:
 private:
     Service *service_;
     std::shared_ptr<ContextState> state_;
+    bool caretOnly_;
 };
 
 class Service final : public ITfTextInputProcessorEx,
@@ -587,6 +590,7 @@ class Service final : public ITfTextInputProcessorEx,
                       public ITfCompositionSink,
                       public ITfDisplayAttributeProvider,
                       public ITfInputProcessorProfileActivationSink,
+                      public ITfTextLayoutSink,
                       public Object {
 public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override {
@@ -606,6 +610,8 @@ public:
             *out = static_cast<ITfDisplayAttributeProvider *>(this);
         else if (iid == IID_ITfInputProcessorProfileActivationSink)
             *out = static_cast<ITfInputProcessorProfileActivationSink *>(this);
+        else if (iid == kIidTextLayoutSink)
+            *out = static_cast<ITfTextLayoutSink *>(this);
         else
             return E_NOINTERFACE;
         AddRef();
@@ -689,6 +695,7 @@ public:
                 *cookie = TF_INVALID_COOKIE;
             }
         }
+        for (auto &entry : states_) unadviseLayout(*entry.second);
         states_.clear();
         active_.reset();
         threadMgr_.reset();
@@ -763,6 +770,7 @@ public:
                     hideWindow();
                     active_.reset();
                 }
+                unadviseLayout(*found->second);
                 states_.erase(found);
             }
         } catch (...) {
@@ -833,6 +841,22 @@ public:
         return S_OK;
     }
 
+    // ITfTextLayoutSink: the host moved or laid out the text. Hosts such as
+    // Chromium give no position inside the edit session that wrote the reading
+    // and report it here once they have one.
+    HRESULT STDMETHODCALLTYPE OnLayoutChange(ITfContext *context, TfLayoutCode code, ITfContextView *) override {
+        try {
+            if (code != TF_LC_CHANGE || !active_ || active_->context.get() != context || !active_->composition)
+                return S_OK;
+            auto *edit = new EditSession(this, active_, true);
+            HRESULT inner = S_OK;
+            context->RequestEditSession(clientId_, edit, TF_ES_ASYNCDONTCARE | TF_ES_READ, &inner);
+            edit->Release();
+        } catch (...) {
+        }
+        return S_OK;
+    }
+
     // Runs inside an edit session: brings the document in line with the state.
     HRESULT write(TfEditCookie cookie, ContextState &s) {
         ITfContext *context = s.context.get();
@@ -880,6 +904,7 @@ public:
         return S_OK;
     }
 
+    static void locate(TfEditCookie cookie, ContextState &s) { readCaret(cookie, s); }
     void edited(const std::shared_ptr<ContextState> &s) {
         if (s == active_) showWindow(*s);
     }
@@ -909,7 +934,11 @@ private:
 
     ContextState *stateFor(ITfContext *context) {
         auto found = states_.find(context);
-        if (found == states_.end()) found = states_.emplace(context, std::make_shared<ContextState>(context)).first;
+        if (found == states_.end()) {
+            found = states_.emplace(context, std::make_shared<ContextState>(context)).first;
+            if (auto source = query<ITfSource>(context, IID_ITfSource))
+                source->AdviseSink(kIidTextLayoutSink, static_cast<ITfTextLayoutSink *>(this), &found->second->layoutCookie);
+        }
         ContextState &s = *found->second;
         if (!s.session || s.mode != mode_) {
             s.session = makeSession(mode_, simplified_);
@@ -1160,6 +1189,12 @@ private:
         if (s.haveCaret) window_->showNear(s.caret);
     }
 
+    static void unadviseLayout(ContextState &s) {
+        if (s.layoutCookie == TF_INVALID_COOKIE) return;
+        if (auto source = query<ITfSource>(s.context.get(), IID_ITfSource)) source->UnadviseSink(s.layoutCookie);
+        s.layoutCookie = TF_INVALID_COOKIE;
+    }
+
     void hideWindow() noexcept {
         if (window_) window_->hide();
     }
@@ -1285,14 +1320,16 @@ HRESULT ModeButton::GetIcon(HICON *icon) {
     return *icon ? S_OK : E_FAIL;
 }
 
-EditSession::EditSession(Service *service, std::shared_ptr<ContextState> state)
-    : service_(service), state_(std::move(state)) {
+EditSession::EditSession(Service *service, std::shared_ptr<ContextState> state, bool caretOnly)
+    : service_(service), state_(std::move(state)), caretOnly_(caretOnly) {
     service_->AddRef();
 }
 EditSession::~EditSession() { service_->Release(); }
 HRESULT EditSession::DoEditSession(TfEditCookie cookie) {
     try {
-        const HRESULT result = service_->write(cookie, *state_);
+        HRESULT result = S_OK;
+        if (caretOnly_) Service::locate(cookie, *state_);
+        else result = service_->write(cookie, *state_);
         service_->edited(state_);
         return result;
     } catch (...) {
