@@ -3,6 +3,7 @@
 // The Direct2D window, the SVG snapshot and the unit tests all use this one
 // result, so they agree on shapes and positions. Text widths come from the
 // measurer and differ with the font.
+#include "CatSpriteData.h"
 #include "GlassShape.h"
 
 #include <cstddef>
@@ -13,20 +14,39 @@
 
 namespace meowpuut::ui {
 
-// Anchors from assets/brand/cats/cats.json (fractions of the sprite box).
-struct CatAnchors {
-    static constexpr float mimimoAspect = 0.9135f;
-    static constexpr float mimimoEyeBottom = 0.5378f;
-    // Measured on mimimo_open.png: the span of his two eyes, and how far right
-    // his body reaches below the eyes.
-    static constexpr float mimimoEyesLeft = 0.33f, mimimoEyesRight = 0.79f;
-    static constexpr float mimimoBodyRight = 0.92f;
-    static constexpr float momoAspect = 1.0543f;
-    static constexpr float momoEyeLine = 0.5003f;
-    static constexpr float tailAspect = 4.0205f;
+// The bar's frame was laid out around the earlier cat art: a 56 DIP picture
+// of 米米莫 behind the glass's left end, a 48 DIP picture of 莫莫 on its right
+// end and a tail under the capsule. The design is frozen, so that art's
+// measurements stay as the constants they have become. They place the glass,
+// the first candidate, the expand arrow and the window's edges. The cats
+// drawn now (CatSpriteData.h) feed into none of them.
+struct BarFrame {
+    // The two boxes the frame was measured from, one at each end of the glass.
+    static constexpr float leftHeight = 56, leftWidth = leftHeight * 0.9135f;
+    static constexpr float rightHeight = 48, rightWidth = rightHeight * 1.0543f;
+    // How far down each box the line one DIP above the glass body crosses it.
+    static constexpr float leftSeat = 0.5378f, rightSeat = 0.5003f;
+    // Fractions of the left box's width: where the glass starts, where the
+    // first candidate starts, and up to where the cloud has no bump.
+    static constexpr float glassStart = 0.24f, rowStart = 0.92f, cloudClear = 0.79f;
+    // This much of the expand arrow's box lies inside the right box.
+    static constexpr float arrowInset = 14;
+    // The strip under the capsule's left end; it ends one DIP below the glass.
+    static constexpr float stripHeight = 21, stripAspect = 4.0205f;
 };
 
-enum class CatFace { Open, Happy, Blink };
+enum class Cat { Mimimo, Momo };
+
+// A cat's answer to a click: a transform of its picture about the paw anchor.
+struct CatReaction {
+    float tilt = 0;                // degrees, positive leans right
+    float scaleX = 1, scaleY = 1;
+    float shift = 0;               // DIPs sideways
+};
+
+// The reaction `t` of the way through (0…1): 米米莫 squashes and shakes his
+// head, 莫莫 tilts hers.
+CatReaction catReaction(Cat cat, float t);
 
 struct CandidateViewModel {
     std::vector<std::string> candidates;  // the current page, in engine order
@@ -39,11 +59,10 @@ struct CandidateViewModel {
     std::string preedit;                  // shown in the expanded header
     std::string modeLabel;                // e.g. "拼 · 繁"
     GlassShape shape = GlassShape::Capsule;
-    bool decorations = true;              // false in high contrast: no cats, no tail
+    bool decorations = true;              // false in high contrast: no cats
     std::optional<std::size_t> hovered;   // candidate under the pointer
     std::optional<std::size_t> pressed;   // candidate under a held mouse button
-    CatFace mimimoFace = CatFace::Open;
-    CatFace momoFace = CatFace::Open;
+    CatReaction reactions[2];             // indexed by Cat; the window sets them after a click
 };
 
 class TextMeasurer {
@@ -61,11 +80,10 @@ struct LayoutLimits {
 struct Metrics {
     float font = 15, numberFont = 11, headerFont = 12;
     float barHeight = 38;                         // the body band candidates sit in
-    float mimimoHeight = 56, momoHeight = 48, tailHeight = 21;
     float cellPad = 9, numberGap = 5, pawGap = 3, cellGap = 2;
     float pawRatio = 0.45f;                       // paw mark size, in font sizes
     float pillRatio = 0.70f;
-    float chevronWidth = 22, chevronUnderMomo = 14; // this much of the chevron box is under 莫莫's cheek
+    float chevronWidth = 22;
     float padLeft = 14, padTop = 4, padRight = 14, padBottom = 18; // room for the drop shadow
     float minRow = 120;                           // a short page still reads as a bar
     // One candidate is cut in the middle past this width or past this share
@@ -91,17 +109,36 @@ struct CandidateCell {
     bool truncated = false;
 };
 
+// Where a cat's picture and its measurements come from.
+struct CatArt {
+    const CatSprite *sprite = nullptr;
+    std::string image;             // file name in Assets
+};
+
+// The picture each cat is drawn with. A festival that brings its own sprite substitutes it here.
+CatArt catArt(Cat cat);
+
+// One cat behind the glass with its paws over the top edge
+// (CatArrangement.place in Sources/CatSprites.swift).
+struct CatPlacement {
+    Cat cat = Cat::Mimimo;
+    const CatSprite *sprite = nullptr;
+    RectF frame;                   // the picture's whole canvas, one scale both ways
+    PointF anchor;                 // between the paws, on the glass's edge
+    RectF body() const;            // the opaque part
+    RectF touch() const;           // the opaque part above the glass: what a click lands on
+    RectF paw(int index) const;    // a paw's box in front of the glass, from the anchor row down
+};
+
 struct CandidateLayout {
     Metrics metrics;
     SizeF size;                    // window size in DIPs, shadow margins included
-    RectF content;                 // glass, cats and tail: what must stay on screen
+    RectF content;                 // the glass and the room kept for the cats: what must stay on screen
     GlassShape shape = GlassShape::Capsule;
     bool expanded = false;
     bool decorations = true;
     GlassOutline glass;            // the bar, or the expanded panel
-    RectF mimimo, momo, tail;
-    bool showTail = false;
-    RectF momoContactShadow;
+    std::vector<CatPlacement> cats; // in drawing order; a cat with no level seat is left out
     std::vector<CandidateCell> cells;
     RectF chevron;                 // expand / collapse
     bool chevronUp = false;
@@ -127,8 +164,8 @@ struct Hit {
 CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &measurer,
                                  const LayoutLimits &limits = {}, const Metrics &metrics = {});
 Hit hitTest(const CandidateLayout &layout, PointF point);
-// True where the window shows something a click can land on: the glass, a cat
-// or the tail. The shadow around them lets clicks through.
+// True where the window shows something a click can land on: the glass or a
+// cat. The shadow around them lets clicks through.
 bool coversPoint(const CandidateLayout &layout, PointF point);
 
 // Screen coordinates in physical pixels.
@@ -141,8 +178,8 @@ struct PixelPoint {
 
 // Top-left corner for a window showing `layout` at `scale` pixels per DIP.
 // `anchorX` lines up with the caret's left edge and the window sits
-// under the caret; it goes above when there is no room below. The glass and
-// the cats stay inside `work` (the monitor work area); the shadow may hang out.
+// under the caret; it goes above when there is no room below. `content` stays
+// inside `work` (the monitor work area); the shadow may hang out.
 PixelPoint placeNearCaret(const CandidateLayout &layout, float scale, PixelRect caret, PixelRect work);
 
 // Keeps the head and tail of `text` around "…" so it fits `maxWidth`.

@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -11,7 +12,6 @@ import android.graphics.LinearGradient
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
@@ -27,15 +27,18 @@ import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeProvider
 import android.widget.OverScroller
 import com.krysta1ll.meowpuut.android.engine.Candidate
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
- * The candidate region (DESIGN.md §1–4): glass bar, 米米莫 behind it, 莫莫
- * resting on it, one scrolling row of candidates and the expand key. When
- * nothing is being composed, the row shows predictions or quick punctuation.
+ * The candidate region (DESIGN.md §1–4): glass bar, 米米莫 and 莫莫 with their
+ * paws on its top edge, one scrolling row of candidates and the expand key.
+ * When nothing is being composed, the row shows predictions or quick
+ * punctuation.
  */
 @SuppressLint("ViewConstructor")
 class CandidateBarView(context: Context, private val sprites: CatSprites) : View(context) {
@@ -65,9 +68,9 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
 
     var listener: Listener? = null
     var region: CandidateRegionLayout = CandidateRegionLayout(393f, Idiom.PHONE)
-        set(value) { field = value; caches = null; layoutRow(); invalidate() }
+        set(value) { field = value; caches = null; seats = null; layoutRow(); invalidate() }
     var look: Look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
-        set(value) { if (field != value) { field = value; caches = null; invalidate() } }
+        set(value) { if (field != value) { field = value; caches = null; seats = null; invalidate() } }
     var content = Content()
         private set
 
@@ -75,7 +78,6 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
     private val fontScale = min(1.15f, resources.configuration.fontScale.coerceAtLeast(0.85f))
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
     private val selectedPaint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
-    private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val glyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -83,8 +85,6 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
     private val glassPath = Path()
     private val rect = RectF()
     private val dst = RectF()
-    private var contactShader: Shader? = null
-    private var contactKey = 0f
     private val fadePaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) }
     private var fadeLeft: Shader? = null
     private var fadeRight: Shader? = null
@@ -112,16 +112,17 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
     private var pressedItem = -1
 
     // Cats.
-    private val faces = HashMap<Cat, Face>().apply { put(Cat.MIMIMO, Face.OPEN); put(Cat.MOMO, Face.OPEN) }
+    /** The light around 米米莫 in dark appearance: around his body, and around his paws on the glass. */
+    private class Glow(val body: Bitmap, val bodyBox: RectF, val paws: Bitmap, val pawsBox: RectF)
+    /** A cat in its place. [paws] outlines what of the sprite is in front of the glass. */
+    private class Seat(val place: CatPlacement, val touch: Box, val bitmap: Bitmap, val paws: Path, val glow: Glow?)
+    private var seats: List<Seat>? = null
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { color = Look.withAlpha(0xFFEDD6, 0.6f) }
     private val motions = HashMap<Cat, CatMotion>()
     private val pressedCats = HashSet<Cat>()
     private var lean = 0f
     private var leanAnimator: ValueAnimator? = null
-    private var blush = 0f
-    private var blushUntil = 0L
     private val affection = CatAffection()
-    private val blinkHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var happyUntil = HashMap<Cat, Long>()
 
     private class Particle(val cat: Cat, val kind: Int, val start: Long, val span: Float, val size: Float, val drift: Float, val color: Int)
     private val particles = ArrayList<Particle>()
@@ -231,8 +232,9 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         val glassCanvas = Canvas(glass)
         glassCanvas.scale(density, density)
         GlassPainter.body(glassCanvas, look.shape, region.glass, look)
-        caches = Caches(shadow, glass)
         glassPath.outline(look.shape, region.glass)
+        pawShadows(glassCanvas)
+        caches = Caches(shadow, glass)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -247,38 +249,15 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         dst.set(0f, 0f, width.toFloat(), cache.shadow.height.toFloat())
         canvas.drawBitmap(cache.shadow, null, dst, bitmapPaint)
         dst.bottom = height.toFloat()
-        canvas.save()
-        canvas.scale(density, density)
-        val cats = region.cats && look.cats
-        if (cats) {
-            // 米米莫 sits behind the glass: crisp outside it, frosted inside it.
-            canvas.save()
-            canvas.clipOutPath(glassPath)
-            drawCat(canvas, Cat.MIMIMO, now, frost = false)
-            canvas.restore()
-            if (!look.opaque) {
-                canvas.save()
-                canvas.clipPath(glassPath)
-                drawCat(canvas, Cat.MIMIMO, now, frost = true)
-                canvas.restore()
-            }
-        }
-        canvas.restore()
         canvas.drawBitmap(cache.glass, null, dst, bitmapPaint)
         canvas.save()
         canvas.scale(density, density)
-        if (cats && look.shape == GlassShape.CAPSULE) {
-            val tail = sprites.tail()
-            canvas.drawBitmap(tail, null, rectOf(region.tail), bitmapPaint)
-        }
+        // The cats are in front of the glass and under the candidates.
+        for (seat in seats()) drawCat(canvas, seat, now)
         // A note from the cats takes the row's place while it shows.
         drawRow(canvas, 1f - toastAlpha(now))
         drawChevron(canvas)
-        if (cats) {
-            drawMomoContact(canvas)
-            drawCat(canvas, Cat.MOMO, now, frost = false)
-            drawParticles(canvas, now)
-        }
+        drawParticles(canvas, now)
         drawToast(canvas, now)
         canvas.restore()
         if (scroller.computeScrollOffset()) {
@@ -291,80 +270,126 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
 
     private fun rectOf(box: Box): RectF = rect.apply { set(box.left, box.top, box.right, box.bottom) }
 
-    private fun drawCat(canvas: Canvas, cat: Cat, now: Long, frost: Boolean) {
-        val box = if (cat == Cat.MIMIMO) region.mimimo else region.momo
-        if (box.width <= 0) return
+    private fun seats(): List<Seat> = seats ?: seatCats().also { seats = it }
+
+    private fun seatCats(): List<Seat> {
+        if (!(region.cats && look.cats)) return emptyList()
+        val stage = region.stage(look.shape)
+        val mimimo = sprites.art(Cat.MIMIMO)
+        val momo = sprites.art(Cat.MOMO)
+        val places = CatSeats.ends(stage, mimimo.sprite, momo.sprite) ?: return emptyList()
+        return places.map { place ->
+            val art = if (place.cat == Cat.MIMIMO) mimimo else momo
+            val frame = place.frame
+            // In front of the glass: what is at and below the paw row, and the top of each paw.
+            val paws = Path()
+            paws.addRect(frame.left, place.anchorY, frame.right, frame.bottom, Path.Direction.CW)
+            for ((x, halfWidth, depth) in art.sprite.paws) {
+                val cx = frame.left + x * frame.width
+                val rx = halfWidth * frame.width + 0.4f
+                val ry = depth * frame.height + 0.4f
+                paws.addOval(cx - rx, place.anchorY - ry, cx + rx, place.anchorY + ry, Path.Direction.CW)
+            }
+            val glow = if (look.dark && place.cat == Cat.MIMIMO) glow(place, art.bitmap, paws) else null
+            Seat(place, place.touch(stage), art.bitmap, paws, glow)
+        }
+    }
+
+    /**
+     * 米米莫 is black: in dark appearance a warm light around his outline
+     * keeps him readable. The sprite's alpha, blurred: once whole, for the
+     * body above the glass, and once for the paws alone.
+     */
+    private fun glow(place: CatPlacement, bitmap: Bitmap, paws: Path): Glow {
+        val frame = place.frame
+        val dpPerPixel = frame.width / bitmap.width
+        val blur = Paint().apply { maskFilter = BlurMaskFilter(GLOW_BLUR / dpPerPixel, BlurMaskFilter.Blur.NORMAL) }
+        val offset = IntArray(2)
+        fun box(blurred: Bitmap) = RectF(
+            frame.left + offset[0] * dpPerPixel, frame.top + offset[1] * dpPerPixel,
+            frame.left + (offset[0] + blurred.width) * dpPerPixel, frame.top + (offset[1] + blurred.height) * dpPerPixel,
+        )
+        val body = bitmap.extractAlpha(blur, offset)
+        val bodyBox = box(body)
+        val alone = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(alone)
+        canvas.scale(1 / dpPerPixel, 1 / dpPerPixel)
+        canvas.translate(-frame.left, -frame.top)
+        canvas.clipPath(paws)
+        canvas.drawBitmap(bitmap, null, RectF(frame.left, frame.top, frame.right, frame.bottom), bitmapPaint)
+        val pawGlow = alone.extractAlpha(blur, offset)
+        alone.recycle()
+        return Glow(body, bodyBox, pawGlow, box(pawGlow))
+    }
+
+    /** A soft shadow on the glass under each paw, painted into the cached glass. */
+    private fun pawShadows(canvas: Canvas) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = Look.withAlpha(Color.BLACK, if (look.dark) 0.35f else 0.20f)
+        paint.maskFilter = BlurMaskFilter(1.5f, BlurMaskFilter.Blur.NORMAL)
         canvas.save()
-        // Pose: lean toward the candidates while composing, plus pet motions.
-        val pivotX = box.centerX
-        val pivotY = box.bottom
-        val leanDegrees = lean * (if (cat == Cat.MIMIMO) 2.5f else -2.5f)
-        canvas.rotate(leanDegrees, pivotX, pivotY)
+        canvas.clipPath(glassPath)
+        for (seat in seats()) {
+            for (paw in seat.place.paws) {
+                rect.set(paw.left + 1f, paw.bottom - 1.5f, paw.right - 1f, paw.bottom + 1.5f)
+                canvas.drawOval(rect, paint)
+            }
+        }
+        canvas.restore()
+    }
+
+    /**
+     * A cat is in front of the glass with its paws on the top edge. Its
+     * sprite is cut flat on the paw row, so the body is drawn only outside
+     * the glass's outline, where a curved edge hides the cut, and the paws
+     * are drawn again over the glass.
+     */
+    private fun drawCat(canvas: Canvas, seat: Seat, now: Long) {
+        val place = seat.place
+        val cat = place.cat
         val motion = motions[cat]
         val pose = motion?.pose(now)
         if (motion != null && pose == null) motions.remove(cat)
-        if (pose != null) {
-            canvas.translate(0f, pose.lift)
-            canvas.rotate(pose.tilt, pivotX, pivotY)
-            canvas.scale(pose.scale / pose.squash, pose.scale * pose.squash, pivotX, pivotY)
-        }
-        if (cat in pressedCats && motionEnabled) canvas.scale(1.06f, 0.93f, pivotX, pivotY)
-        val face = currentFace(cat, now)
-        if (frost) {
-            // Seen through the glass he is a soft grey shape that goes on
-            // down to the glass's lower rim.
-            bitmapPaint.alpha = if (look.dark) 255 else 150
-            rect.set(box.left, box.top, box.right, box.top + box.height * CatSprites.FROST_EXTENT)
-            canvas.drawBitmap(sprites.frost(cat), null, rect, bitmapPaint)
-            bitmapPaint.alpha = 255
-        } else {
-            sprites.back(cat)?.let { canvas.drawBitmap(it, null, rectOf(box), bitmapPaint) }
-            canvas.drawBitmap(sprites.face(cat, face), null, rectOf(box), bitmapPaint)
-            sprites.front(cat)?.let { canvas.drawBitmap(it, null, rectOf(box), bitmapPaint) }
-            if (cat == Cat.MOMO) drawBlush(canvas, box, now)
-        }
-        canvas.restore()
-    }
+        // A lean toward the candidates while composing, plus the answer to a pet.
+        val tilt = lean * (if (cat == Cat.MIMIMO) 2.5f else -2.5f) + (pose?.tilt ?: 0f)
+        var wide = pose?.wide ?: 1f
+        var tall = pose?.tall ?: 1f
+        if (cat in pressedCats && motionEnabled) { wide *= 1.06f; tall *= 0.93f }
+        val frame = rectOf(place.frame)
+        val glow = seat.glow
 
-    private fun currentFace(cat: Cat, now: Long): Face {
-        if ((happyUntil[cat] ?: 0L) > now) return Face.HAPPY
-        return faces[cat] ?: Face.OPEN
-    }
-
-    private fun drawMomoContact(canvas: Canvas) {
-        // A soft shadow where her chin rests on the glass.
-        val box = region.momo
-        val cx = box.left + box.width * 0.45f
-        val cy = box.bottom - box.height * 0.06f
-        val rx = box.width * 0.42f
-        markPaint.style = Paint.Style.FILL
-        val key = cx + cy * 31 + rx * 961 + if (look.dark) 0.5f else 0f
-        if (contactShader == null || key != contactKey) {
-            contactKey = key
-            contactShader = RadialGradient(cx, cy, rx, Look.withAlpha(Color.BLACK, if (look.dark) 0.30f else 0.12f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        }
-        markPaint.shader = contactShader
         canvas.save()
-        canvas.scale(1f, 0.28f, cx, cy)
-        canvas.drawCircle(cx, cy, rx, markPaint)
+        canvas.clipOutPath(glassPath)
+        turn(canvas, place, tilt, wide, tall)
+        if (glow != null) canvas.drawBitmap(glow.body, null, glow.bodyBox, glowPaint)
+        canvas.drawBitmap(seat.bitmap, null, frame, bitmapPaint)
         canvas.restore()
-        markPaint.shader = null
+
+        if (glow != null) {
+            canvas.save()
+            canvas.clipPath(glassPath)
+            turn(canvas, place, tilt, wide, tall)
+            canvas.drawBitmap(glow.paws, null, glow.pawsBox, glowPaint)
+            canvas.restore()
+        }
+        canvas.save()
+        turn(canvas, place, tilt, wide, tall)
+        canvas.clipPath(seat.paws)
+        canvas.drawBitmap(seat.bitmap, null, frame, bitmapPaint)
+        canvas.restore()
     }
 
-    private fun drawBlush(canvas: Canvas, box: Box, now: Long) {
-        val amount = if (now < blushUntil) blush else 0f
-        if (amount <= 0f) return
-        markPaint.style = Paint.Style.FILL
-        markPaint.color = Look.withAlpha(Color.rgb(245, 133, 153), amount * 0.45f)
-        // Cheek centres as fractions of the sprite (iOS CatStage.swift); her head is tilted.
-        val halfWidth = box.width * 0.075f
-        val halfHeight = box.width * 0.0425f
-        for (i in 0 until MOMO_CHEEKS.size step 2) {
-            val cx = box.left + box.width * MOMO_CHEEKS[i]
-            val cy = box.top + box.height * MOMO_CHEEKS[i + 1]
-            rect.set(cx - halfWidth, cy - halfHeight, cx + halfWidth, cy + halfHeight)
-            canvas.drawOval(rect, markPaint)
+    /**
+     * Turns and scales a cat about its paw anchor. Turned, one end of the
+     * flat cut would rise above the glass's edge, so the cat sinks by that
+     * much.
+     */
+    private fun turn(canvas: Canvas, place: CatPlacement, tilt: Float, wide: Float, tall: Float) {
+        if (tilt != 0f) {
+            canvas.translate(0f, place.reach * abs(sin(tilt * PI / 180)).toFloat())
+            canvas.rotate(tilt, place.anchorX, place.anchorY)
         }
+        if (wide != 1f || tall != 1f) canvas.scale(wide, tall, place.anchorX, place.anchorY)
     }
 
     /**
@@ -463,7 +488,7 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         glyphPaint.color = look.candidateText
         glyphPaint.strokeWidth = 2f
         val box = region.chevron
-        Glyphs.chevron(canvas, box.centerX, rowCenterY(), 11f, up = c.expanded, paint = glyphPaint)
+        Glyphs.chevron(canvas, box.centerX, rowCenterY(), CandidateRegionLayout.ARROW_WIDTH, up = c.expanded, paint = glyphPaint)
     }
 
     private fun drawParticles(canvas: Canvas, now: Long) {
@@ -471,8 +496,9 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         while (iterator.hasNext()) {
             val p = iterator.next()
             val t = (now - p.start) / p.span
-            if (t >= 1f) { iterator.remove(); continue }
-            val box = if (p.cat == Cat.MIMIMO) region.mimimo else region.momo
+            val box = seats().firstOrNull { it.place.cat == p.cat }?.place?.visible
+            if (t >= 1f || box == null) { iterator.remove(); continue }
+            // They leave from the side of the head that faces the candidates.
             val cx = if (p.cat == Cat.MIMIMO) box.left + box.width * 0.78f else box.left + box.width * 0.22f
             val ease = 1 - (1 - t) * (1 - t)
             val x = cx + (if (motionEnabled) p.drift * ease else 0f)
@@ -572,13 +598,18 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
                 downScroll = scroll
                 dragging = false
                 pressedItem = -1
-                val cats = region.cats && look.cats
                 val chevron = region.chevron
+                val onArrow = (content.canExpand || content.expanded) && x >= chevron.left - 6 && x <= chevron.right + 6
+                val onRow = x >= region.row.left && x <= region.row.right
+                // A cat answers on its picture above the glass; the expand
+                // key and the candidates keep what is theirs.
+                val candidatesTop = rowCenterY() - region.pillHeight / 2
+                val pet = seats().firstOrNull { it.touch.contains(x, y) }
+                    ?.takeUnless { (onArrow && y >= chevron.top) || (onRow && y >= candidatesTop) }
                 target = when {
-                    cats && x < region.row.left - 1 -> TARGET_MIMIMO
-                    cats && x > chevron.right + 1 -> TARGET_MOMO
-                    (content.canExpand || content.expanded) && x >= chevron.left - 6 && x <= chevron.right + 6 -> TARGET_CHEVRON
-                    x >= region.row.left && x <= region.row.right -> TARGET_ROW
+                    pet != null -> if (pet.place.cat == Cat.MIMIMO) TARGET_MIMIMO else TARGET_MOMO
+                    onArrow -> TARGET_CHEVRON
+                    onRow -> TARGET_ROW
                     else -> TARGET_NONE
                 }
                 when (target) {
@@ -650,7 +681,7 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
 
     // ---------------------------------------------------------------- cats
 
-    /** Text was committed from a composition: 米米莫 gives a small hop. */
+    /** Text was committed from a composition: 米米莫 ducks and shakes his head. */
     fun committed() = motion(Cat.MIMIMO)
 
     /** A pet from the keyboard; returns the outcome for 莫莫's script switch. */
@@ -658,18 +689,12 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         val now = SystemClock.uptimeMillis()
         motion(cat)
         if (cat == Cat.MIMIMO) {
-            if ((0..1).random() == 1) happyUntil[Cat.MIMIMO] = now + 700
             emit(Cat.MIMIMO, listOf(1, 2, 3).random(), 10f, (4..10).random().toFloat(), Color.rgb(219, 168, 61))
             return null
         }
-        happyUntil[Cat.MOMO] = now + 900
         val outcome = affection.pet(now)
-        blushUntil = now + 2200
-        // The blush does not move: one redraw when it ends is enough.
-        postInvalidateDelayed(2220)
         when (outcome) {
             is CatAffection.Outcome.Pleased -> {
-                blush = outcome.count.toFloat() / CatAffection.PETS_TO_SWITCH
                 emit(Cat.MOMO, 0, 8f + outcome.count * 1.5f, -(4..10).random().toFloat(), Color.rgb(242, 115, 140))
                 if (outcome.count >= 2) {
                     val left = CatAffection.PETS_TO_SWITCH - outcome.count
@@ -678,15 +703,10 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
                 }
             }
             CatAffection.Outcome.Happy -> {
-                blush = 1f
                 for (i in 0 until 3) emit(Cat.MOMO, if (i == 1) 3 else 0, 10f + i * 2, -(4 + i * 5).toFloat(), Color.rgb(242, 115, 140))
                 motion(Cat.MIMIMO)
-                happyUntil[Cat.MIMIMO] = now + 700
             }
-            CatAffection.Outcome.Resting -> {
-                blush = 1f
-                emit(Cat.MOMO, 0, 9f, -(4..10).random().toFloat(), Color.rgb(242, 115, 140))
-            }
+            CatAffection.Outcome.Resting -> emit(Cat.MOMO, 0, 9f, -(4..10).random().toFloat(), Color.rgb(242, 115, 140))
         }
         invalidate()
         return outcome
@@ -730,46 +750,7 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         }
     }
 
-    // Natural, irregular blinks; now and then 莫莫 blinks twice.
-    private fun scheduleBlink(cat: Cat) {
-        val delay = (2800..6400).random().toLong()
-        blinkHandler.postDelayed({
-            blink(cat)
-            if (cat == Cat.MOMO && Math.random() < 0.25) blinkHandler.postDelayed({ blink(cat) }, 300)
-            scheduleBlink(cat)
-        }, delay)
-    }
-
-    private fun blink(cat: Cat) {
-        if (!(region.cats && look.cats) || !isShown) return
-        faces[cat] = Face.BLINK
-        invalidate()
-        blinkHandler.postDelayed({ faces[cat] = Face.OPEN; invalidate() }, 120)
-    }
-
-    /** Blink timers run only while the bar is on screen; a hidden keyboard does nothing. */
-    private fun setBlinking(on: Boolean) {
-        blinkHandler.removeCallbacksAndMessages(null)
-        faces[Cat.MIMIMO] = Face.OPEN
-        faces[Cat.MOMO] = Face.OPEN
-        if (on) {
-            scheduleBlink(Cat.MIMIMO)
-            scheduleBlink(Cat.MOMO)
-        }
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        setBlinking(isShown)
-    }
-
-    override fun onVisibilityAggregated(isVisible: Boolean) {
-        super.onVisibilityAggregated(isVisible)
-        setBlinking(isVisible)
-    }
-
     override fun onDetachedFromWindow() {
-        setBlinking(false)
         leanAnimator?.cancel()
         super.onDetachedFromWindow()
     }
@@ -797,10 +778,11 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
             out += VirtualAccessibility.Item(CHEVRON_ID, Rect((c.left * density).toInt(), (c.top * density).toInt(), (c.right * density).toInt(), (c.bottom * density).toInt()),
                 if (content.expanded) content.words("收合候選詞", "收起候选词") else content.words("展開候選詞", "展开候选词"))
         }
-        if (region.cats && look.cats) {
-            fun boxRect(b: Box) = Rect((b.left * density).toInt(), (b.top * density).toInt(), (b.right * density).toInt(), (b.bottom * density).toInt())
-            out += VirtualAccessibility.Item(MIMIMO_ID, boxRect(region.mimimo), content.words("摸摸米米莫", "摸摸米米莫"))
-            out += VirtualAccessibility.Item(MOMO_ID, boxRect(region.momo), content.words("摸摸莫莫，連續五下切換簡繁", "摸摸莫莫，连续五下切换简繁"))
+        for (seat in seats()) {
+            val b = seat.touch
+            val bounds = Rect((b.left * density).toInt(), (b.top * density).toInt(), (b.right * density).toInt(), (b.bottom * density).toInt())
+            out += if (seat.place.cat == Cat.MIMIMO) VirtualAccessibility.Item(MIMIMO_ID, bounds, content.words("摸摸米米莫", "摸摸米米莫"))
+            else VirtualAccessibility.Item(MOMO_ID, bounds, content.words("摸摸莫莫，連續五下切換簡繁", "摸摸莫莫，连续五下切换简繁"))
         }
         return out
     }
@@ -830,6 +812,7 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
         private const val ROW_FADE = 18f
         /** Between a Japanese candidate's text and its paw mark (DESIGN.md §4). */
         const val PAW_GAP = 3f
-        private val MOMO_CHEEKS = floatArrayOf(0.23f, 0.595f, 0.585f, 0.672f)
+        /** Blur of the light around 米米莫 in dark appearance, in dp. */
+        private const val GLOW_BLUR = 2.2f
     }
 }

@@ -255,7 +255,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 /** The candidate bar as the keyboard draws it, with sample candidates. */
 @SuppressLint("ViewConstructor")
 private class BarPreview(context: Context, private val prefs: Prefs) : FrameLayout(context) {
-    private val bar = CandidateBarView(context, CatSprites(context.resources, context.assets))
+    private val bar = CandidateBarView(context, CatSprites(context.resources))
     private val density = resources.displayMetrics.density
     private val background = Paint(Paint.ANTI_ALIAS_FLAG)
     private var backgroundKey = 0L

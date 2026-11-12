@@ -108,6 +108,26 @@ object GlassOutline {
         return y
     }
 
+    /** Radius of the outline's round ends. */
+    fun endRadius(shape: GlassShape, height: Float): Float = when (shape) {
+        GlassShape.CAPSULE -> height / 2
+        GlassShape.WAVE -> max(1f, height / 2 - WAVE_AMPLITUDE * height)
+        GlassShape.CLOUD -> (height - CLOUD_BASE * height) / 2
+    }
+
+    /** Upper edge of the outline at [x] (relative to its box): the round ends and the curve between them. */
+    fun top(shape: GlassShape, x: Float, width: Float, height: Float): Float {
+        val radius = endRadius(shape, height)
+        val rim = contentBand(shape, height).first
+        val fromEnd = max(0f, min(x, width - x))
+        if (fromEnd < radius) return rim + radius - sqrt(radius * radius - (radius - fromEnd) * (radius - fromEnd))
+        return when (shape) {
+            GlassShape.CAPSULE -> 0f
+            GlassShape.WAVE -> rim + waveOffset(x, width, height)
+            GlassShape.CLOUD -> cloudTop(x, width, height)
+        }
+    }
+
     /** Emits the outline of [box] inset by [inset] into [sink]. */
     fun trace(shape: GlassShape, box: Box, inset: Float, sink: PathSink) {
         val left = box.left + inset

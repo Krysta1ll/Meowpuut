@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 
 namespace meowpuut::ui {
@@ -160,26 +161,157 @@ RectF panelBox(GlassShape shape, float left, float right, float bodyTop, float b
     return {left, bodyTop, right - left, bodyHeight};
 }
 
-void placeCats(CandidateLayout &L, const Metrics &m, float bodyTop, float glassLeftX, float momoX) {
-    const float hm = m.mimimoHeight, wm = hm * CatAnchors::mimimoAspect;
-    const float hf = m.momoHeight, wf = hf * CatAnchors::momoAspect;
-    // The bottom of his eyes is one DIP above the glass, clear of its edge line.
-    L.mimimo = {glassLeftX - 0.24f * wm, bodyTop - 1 - hm * CatAnchors::mimimoEyeBottom, wm, hm};
-    L.momo = {momoX, bodyTop - 1 - hf * CatAnchors::momoEyeLine, wf, hf};
-    L.momoContactShadow = {L.momo.x + 0.12f * wf, L.momo.y + 0.80f * hf, 0.72f * wf, 0.20f * hf};
+// The two boxes of BarFrame for a glass that starts at `glassLeft`, with the
+// right box at `rightX`. The window's edges and `content` are measured from them.
+struct FrameBoxes {
+    RectF left, right;
+};
+
+FrameBoxes frameBoxes(float bodyTop, float glassLeft, float rightX) {
+    const float wl = BarFrame::leftWidth, hl = BarFrame::leftHeight;
+    const float wr = BarFrame::rightWidth, hr = BarFrame::rightHeight;
+    return {{glassLeft - BarFrame::glassStart * wl, bodyTop - 1 - hl * BarFrame::leftSeat, wl, hl},
+            {rightX, bodyTop - 1 - hr * BarFrame::rightSeat, wr, hr}};
 }
 
-RectF contentBounds(const CandidateLayout &L) {
-    RectF box = L.glass.bounds;
-    if (L.decorations) {
-        box = unite(box, L.mimimo);
-        box = unite(box, L.momo);
-        if (L.showTail) box = unite(box, L.tail);
+// The glass's top edge, read from the outline's samples.
+class TopEdge {
+public:
+    explicit TopEdge(const GlassOutline &glass) : points_(outlineRun(glass, OutlineEdge::Top, 0, 0, 1)) {}
+
+    float at(float x) const {
+        std::size_t i = 1;
+        while (i + 1 < points_.size() && points_[i].x < x) ++i;
+        const PointF a = points_[i - 1], b = points_[i];
+        return a.y + (b.y - a.y) * clampf((x - a.x) / (b.x - a.x), 0, 1);
     }
-    return box;
+
+    // Between two x positions: the edge's lowest point, and how far the edge
+    // rises above it anywhere on the stretch and over its middle half. A cat
+    // is seated on the lowest point, so this much of it is behind the glass.
+    struct Rise {
+        float low, most, middle;
+    };
+    Rise rise(float from, float to) const {
+        const float quarter = (to - from) / 4;
+        float low = at(from), high = low, middle = std::numeric_limits<float>::max();
+        for (float x = from;; x += 1) {
+            const float here = std::min(x, to), y = at(here);
+            low = std::max(low, y);
+            high = std::min(high, y);
+            if (here >= from + quarter && here <= to - quarter) middle = std::min(middle, y);
+            if (x >= to) break;
+        }
+        return {low, low - high, low - std::min(low, middle)};
+    }
+
+private:
+    std::vector<PointF> points_;
+};
+
+// The bar as the cats see it.
+struct CatStage {
+    const TopEdge &edge;
+    RectF glass;       // the glass's rect
+    float unit;        // gaps and tolerances are in these: 1 on a 46 pt bar
+    float endRadius;   // of the glass's round ends
+    float room;        // how far a cat rises above its seat
+    float top;         // nothing of a cat is above this line
+    RectF row, arrow;  // the candidates' band and the expand arrow: no paw covers either
+};
+
+// A cat at one end of the top edge. Its cut starts just inside the round end
+// and slides inward until the edge under it is level enough and its paws are
+// clear of what is drawn on the glass.
+std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s) {
+    const CatSprite &art = *catArt(cat).sprite;
+    const float scale = std::min(1.0f, s.room / ((art.anchorY - art.top) * art.height));
+    const float width = art.width * scale, height = art.height * scale;
+    const float span = (art.cutRight - art.cutLeft) * width;
+    // How far into the round end the cut may start, and how much of the cat
+    // the edge may hide: at its sides, and under its face.
+    const float cornerReach = 4 * s.unit, hiddenSide = 4 * s.unit, hiddenFace = 1.5f * s.unit;
+    for (float slide = 0; slide <= 0.3f * s.glass.width; slide += 2 * s.unit) {
+        const float from = left ? s.glass.x + s.endRadius - cornerReach + slide
+                                : s.glass.right() - s.endRadius + cornerReach - slide - span;
+        const TopEdge::Rise rise = s.edge.rise(from, from + span);
+        if (rise.most > hiddenSide || rise.middle > hiddenFace) continue;
+        CatPlacement place;
+        place.cat = cat;
+        place.sprite = &art;
+        const float x = from - art.cutLeft * width;
+        place.anchor = {x + art.anchorX * width, rise.low};
+        place.frame = {x, rise.low - art.anchorY * height, width, height};
+        if (place.body().y < s.top) continue;
+        bool covers = false;
+        for (int i = 0; i < art.pawCount; ++i)
+            covers = covers || place.paw(i).intersects(s.row) || place.paw(i).intersects(s.arrow);
+        if (!covers) return place;
+    }
+    return std::nullopt;
+}
+
+// 米米莫 at the left end of the top edge, 莫莫 at the right end: the
+// arrangement `ends` of Sources/CatSprites.swift. `row` is the band the
+// candidates take and `stageTop` the top of the room kept for the cats.
+void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &row) {
+    const TopEdge edge(L.glass);
+    // The arrow as Scene.cpp draws it: 9.2 × 4.8 with a 1.7 stroke.
+    const RectF arrow{L.chevron.midX() - 5.5f, L.chevron.midY() - 3.3f, 11, 6.6f};
+    // Units come from the collapsed bar's glass, so the panel seats the cats
+    // the same way. The three shapes share the body's top line here, not the
+    // top of their rects (DESIGN.md §5): the room is measured from that line
+    // and the cats are one size on every shape.
+    const float unit = glassBox(L.shape, 0, 1, 0, L.metrics.barHeight).height / 46;
+    const CatStage stage{edge, L.glass.bounds, unit, L.metrics.barHeight / 2, bodyTop - stageTop - 1.5f, stageTop, row, arrow};
+    const auto mimimo = seatCat(Cat::Mimimo, true, stage), momo = seatCat(Cat::Momo, false, stage);
+    // Should the two ever meet, 莫莫 stays: five clicks on her switch the script.
+    const bool apart = !mimimo || !momo || !mimimo->body().inset(-4 * unit, 0).intersects(momo->body());
+    if (mimimo && apart) L.cats.push_back(*mimimo);
+    if (momo) L.cats.push_back(*momo);
 }
 
 } // namespace
+
+CatArt catArt(Cat cat) {
+    const std::string_view name = cat == Cat::Mimimo ? "mimimo_edge_peek" : "momo_edge_peek";
+    for (const CatSprite &sprite : kCatSprites)
+        if (name == sprite.name) return {&sprite, std::string(name) + ".png"};
+    return {};
+}
+
+RectF CatPlacement::body() const {
+    return {frame.x + sprite->left * frame.width, frame.y + sprite->top * frame.height,
+            (sprite->right - sprite->left) * frame.width, (sprite->bottom - sprite->top) * frame.height};
+}
+
+RectF CatPlacement::touch() const {
+    const RectF box = body();
+    return {box.x, box.y, box.width, anchor.y - box.y};
+}
+
+RectF CatPlacement::paw(int index) const {
+    const CatPaw &p = sprite->paws[index];
+    return {frame.x + (p.x - p.halfWidth) * frame.width - 0.5f, anchor.y, 2 * p.halfWidth * frame.width + 1,
+            p.depth * frame.height + 0.5f};
+}
+
+CatReaction catReaction(Cat cat, float t) {
+    CatReaction r;
+    if (t <= 0 || t >= 1) return r;
+    const float pi = 3.14159265f, settle = 1 - t;
+    if (cat == Cat::Mimimo) {
+        // Ducks once and shakes his head on the way back up.
+        const float duck = std::sin(pi * t);
+        r.scaleX = 1 + 0.04f * duck;
+        r.scaleY = 1 - 0.07f * duck;
+        r.shift = 1.2f * std::sin(4 * pi * t) * settle;
+    } else {
+        // Leans to one side, then a little to the other.
+        r.tilt = 4 * std::sin(2 * pi * t) * settle;
+    }
+    return r;
+}
 
 std::vector<std::string_view> utf8CodePoints(std::string_view text) {
     std::vector<std::string_view> out;
@@ -265,22 +397,21 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
     L.decorations = model.decorations;
     L.chevronUp = model.expanded;
     const bool deco = model.decorations;
-    const float wm = m.mimimoHeight * CatAnchors::mimimoAspect;
-    const float wf = m.momoHeight * CatAnchors::momoAspect;
+    // Every position below that names BarFrame is frozen (see CandidateLayout.h).
+    const float wl = BarFrame::leftWidth, wr = BarFrame::rightWidth;
     const float G = m.barHeight;
-    const float bodyTop = deco ? std::ceil(m.padTop + m.mimimoHeight * CatAnchors::mimimoEyeBottom + 1) : m.padTop + 6;
-    // The cat's left edge sits two DIPs inside the window; the glass starts a
-    // quarter of the way across his body, so his chest is behind it.
-    const float catLeft = m.padLeft + 2;
-    const float glassLeft = deco ? catLeft + 0.24f * wm : m.padLeft;
-    // His body shows blurred through the glass; the candidates start right of it.
-    const float rowStart = deco ? catLeft + CatAnchors::mimimoBodyRight * wm + 2 : glassLeft + 10;
-    // The cloud has no bump over his eyes.
-    const float eyesClear = deco ? (CatAnchors::mimimoEyesRight - 0.24f) * wm : 0;
+    const float bodyTop = deco ? std::ceil(m.padTop + BarFrame::leftHeight * BarFrame::leftSeat + 1) : m.padTop + 6;
+    // The left box sits two DIPs inside the window; the glass starts a
+    // quarter of the way across it.
+    const float boxLeft = m.padLeft + 2;
+    const float glassLeft = deco ? boxLeft + BarFrame::glassStart * wl : m.padLeft;
+    const float rowStart = deco ? boxLeft + BarFrame::rowStart * wl + 2 : glassLeft + 10;
+    // The cloud keeps its bumps off the glass's left end.
+    const float cloudClear = deco ? (BarFrame::cloudClear - BarFrame::glassStart) * wl : 0;
     auto cells = measureAll(model, measurer, m);
 
     if (!model.expanded) {
-        const float rightZone = deco ? m.chevronWidth - m.chevronUnderMomo + wf + m.padRight : m.chevronWidth + 10 + m.padRight;
+        const float rightZone = deco ? m.chevronWidth - BarFrame::arrowInset + wr + m.padRight : m.chevronWidth + 10 + m.padRight;
         const float maxRow = std::max(m.minRow, limits.maxWidth - rowStart - rightZone);
         // A squeezed candidate keeps at least one character and the ellipsis.
         const float floor = std::ceil(measurer.measure("\xE6\xB0\xB8\xE2\x80\xA6", m.font, true));
@@ -301,23 +432,25 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
         float rowEnd = cells.empty() ? rowStart : x - m.cellGap;
         rowEnd = std::max(rowEnd, rowStart + m.minRow);
         L.chevron = {rowEnd + 2, bodyTop, m.chevronWidth, G};
-        const float momoX = L.chevron.right() - m.chevronUnderMomo;
-        const float glassRight = deco ? momoX + wf - 2 : L.chevron.right() + 8;
-        L.glass = makeBarOutline(model.shape, glassBox(model.shape, glassLeft, glassRight, bodyTop, G), eyesClear);
+        const float rightBoxX = L.chevron.right() - BarFrame::arrowInset;
+        const float glassRight = deco ? rightBoxX + wr - 2 : L.chevron.right() + 8;
+        L.glass = makeBarOutline(model.shape, glassBox(model.shape, glassLeft, glassRight, bodyTop, G), cloudClear);
+        L.content = L.glass.bounds;
         float bottom = L.glass.bounds.bottom();
         if (deco) {
-            placeCats(L, m, bodyTop, glassLeft, momoX);
+            const FrameBoxes frame = frameBoxes(bodyTop, glassLeft, rightBoxX);
+            L.content = unite(unite(L.content, frame.left), frame.right);
             if (model.shape == GlassShape::Capsule) {
-                const float th = m.tailHeight, tw = th * CatAnchors::tailAspect;
-                L.showTail = true;
-                L.tail = {catLeft + 7, bodyTop + G + 1 - th, tw, th};
-                bottom = std::max(bottom, L.tail.bottom());
+                const float h = BarFrame::stripHeight;
+                const RectF strip{boxLeft + 7, bodyTop + G + 1 - h, h * BarFrame::stripAspect, h};
+                L.content = unite(L.content, strip);
+                bottom = std::max(bottom, strip.bottom());
             }
-            bottom = std::max(bottom, L.momo.bottom());
+            bottom = std::max(bottom, frame.right.bottom());
+            seatCats(L, bodyTop, frame.left.y, {rowStart, bodyTop + (G - pillHeight) / 2, rowEnd - rowStart, pillHeight});
         }
         L.size = {glassRight + m.padRight, std::ceil(bottom + m.padBottom)};
         L.anchorX = L.cells.empty() ? rowStart : L.cells.front().frame.x;
-        L.content = contentBounds(L);
         return L;
     }
 
@@ -338,14 +471,14 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
     const float inner = std::clamp(wanted, minInner, std::max(minInner, maxInner));
     const float colWidth = (inner - static_cast<float>(cols - 1) * m.gridColumnGap) / static_cast<float>(cols);
     const float panelRight = panelLeft + inner + 2 * insetX;
-    const float momoX = deco ? panelRight + 2 - wf : panelRight;
+    const float rightBoxX = deco ? panelRight + 2 - wr : panelRight;
 
-    // Header: the reading and the mode, clear of both cats.
+    // Header: the reading and the mode.
     L.preedit = model.preedit;
     L.modeLabel = model.modeLabel;
     L.headerY = bodyTop + 4 + m.headerHeight / 2;
     L.preeditX = std::max(panelLeft + insetX, rowStart);
-    L.modeRight = deco ? momoX - 6 : panelRight - insetX;
+    L.modeRight = deco ? rightBoxX - 6 : panelRight - insetX;
     if (!L.preedit.empty()) {
         const float room = std::max(20.0f, L.modeRight - 50 - L.preeditX);
         L.preedit = ellipsizeMiddle(L.preedit, room, m.headerFont, false, measurer);
@@ -392,15 +525,20 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
     const float barBox = glassBox(model.shape, 0, 1, 0, G).height;
     L.glass = makePanelOutline(model.shape,
                                panelBox(model.shape, panelLeft, panelRight, bodyTop, panelBottom - bodyTop, barBox),
-                               m.panelCorner, barBox, eyesClear);
-    float bottom = L.glass.bounds.bottom();
+                               m.panelCorner, barBox, cloudClear);
+    L.content = L.glass.bounds;
+    float right = panelRight, bottom = L.glass.bounds.bottom();
     if (deco) {
-        placeCats(L, m, bodyTop, glassLeft, momoX);
-        bottom = std::max(bottom, L.momo.bottom());
+        const FrameBoxes frame = frameBoxes(bodyTop, glassLeft, rightBoxX);
+        L.content = unite(unite(L.content, frame.left), frame.right);
+        right = std::max(right, frame.right.right());
+        bottom = std::max(bottom, frame.right.bottom());
+        // On the panel the paws stay off the header's text and the grid.
+        const float textTop = L.headerY - 0.6f * m.headerFont;
+        seatCats(L, bodyTop, frame.left.y, {panelLeft + insetX, textTop, inner, gridBottom - textTop});
     }
-    L.size = {std::max(panelRight, deco ? L.momo.right() : panelRight) + m.padRight, std::ceil(bottom + m.padBottom)};
+    L.size = {right + m.padRight, std::ceil(bottom + m.padBottom)};
     L.anchorX = rowStart;
-    L.content = contentBounds(L);
     return L;
 }
 
@@ -412,19 +550,17 @@ Hit hitTest(const CandidateLayout &layout, PointF p) {
         if (layout.canPrev && layout.prevPage.contains(p)) return {HitKind::PrevPage, 0};
         if (layout.canNext && layout.nextPage.contains(p)) return {HitKind::NextPage, 0};
     }
-    if (layout.decorations) {
-        // Only the faces, so a pet never lands on a candidate or the chevron.
-        const RectF mimimoFace{layout.mimimo.x, layout.mimimo.y, layout.mimimo.width, layout.mimimo.height * 0.62f};
-        if (mimimoFace.contains(p)) return {HitKind::Mimimo, 0};
-        if (layout.momo.contains(p)) return {HitKind::Momo, 0};
-    }
+    // A cat takes clicks on what shows above the glass, never on the paws over it.
+    for (const auto &cat : layout.cats)
+        if (cat.touch().contains(p)) return {cat.cat == Cat::Mimimo ? HitKind::Mimimo : HitKind::Momo, 0};
     return {};
 }
 
 bool coversPoint(const CandidateLayout &layout, PointF p) {
     if (outlineContains(layout.glass, p)) return true;
-    if (!layout.decorations) return false;
-    return layout.mimimo.contains(p) || layout.momo.contains(p) || (layout.showTail && layout.tail.contains(p));
+    for (const auto &cat : layout.cats)
+        if (cat.touch().contains(p)) return true;
+    return false;
 }
 
 PixelPoint placeNearCaret(const CandidateLayout &layout, float scale, PixelRect caret, PixelRect work) {
