@@ -474,7 +474,11 @@ struct CandidateRegionView: View {
     /// not take touches. Nothing is drawn for now.
     @ViewBuilder private func barTrim(_ layout: CandidateRegionLayout) -> some View {
         if let theme = ui.outfit?.theme {
-            FestivalTrimView(trim: theme.trim, glass: layout.glass, shape: preferences.glassShape, clear: [layout.chevron])
+            // Faded only under the arrow itself, not its whole touch area.
+            let glyph = CandidateRegionLayout.chevronGlyph
+            FestivalTrimView(trim: theme.trim, glass: layout.glass, shape: preferences.glassShape,
+                             clear: [CGRect(x: layout.chevron.midX - glyph.width / 2 - 2, y: layout.chevron.midY - glyph.height / 2 - 2,
+                                            width: glyph.width + 4, height: glyph.height + 4)])
         }
     }
 
