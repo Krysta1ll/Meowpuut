@@ -15,7 +15,12 @@ Session::Session(const std::filesystem::path &path) {
     std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     if (file.bad()) throw std::runtime_error("Unable to read Meowpuut lexicon");
     pinyin_ = data.compare(0, 18, "MEOWPUUT-PINYIN-1\n") == 0;
-    lexicon_.reset(mpn_lexicon_create(data.data(), data.size()));
+    lexicon_.reset(mpn_lexicon_create(data.data(), data.size()), mpn_lexicon_destroy);
+    if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
+    session_.reset(mpn_session_create(lexicon_.get()));
+    if (!session_) throw std::runtime_error("Unable to create Meowpuut session");
+}
+Session::Session(SharedLexicon lexicon, bool pinyin) : lexicon_(std::move(lexicon)), pinyin_(pinyin) {
     if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
     session_.reset(mpn_session_create(lexicon_.get()));
     if (!session_) throw std::runtime_error("Unable to create Meowpuut session");
@@ -126,6 +131,12 @@ bool Session::commitLiteralWithSpace() {
     mpn_clear(session_.get());
     page_ = 0; refreshCandidates();
     return true;
+}
+void Session::commit() {
+    pending_ += mpn_committed(session_.get());
+    mpn_clear_commit(session_.get());
+    mpn_commit(session_.get());
+    page_ = 0; refreshCandidates();
 }
 void Session::setSimplified(bool value) {
     simplified_ = value; mpn_set_simplified(session_.get(), value);

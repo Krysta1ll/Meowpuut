@@ -2,6 +2,10 @@
 #include "../Keyboard.h"
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <iostream>
 #include <stdexcept>
 
@@ -126,12 +130,41 @@ static void verifyPrintableAcceptance(meowpuut::Session &session, meowpuut::Inpu
         require(allowed == session.key(ch), "query and core key handling disagree");
     }
 }
+// The text service's way in: mimo_base.bin read in place, one lexicon shared
+// by several sessions, and commit() to finish a reading.
+static void verifySharedBase(const std::filesystem::path &base, const std::filesystem::path &japanese) {
+    std::ifstream file(base, std::ios::binary);
+    auto *bytes = new std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    require(!bytes->empty(), "mimo_base.bin readable");
+    const auto release = [](void *context) { delete static_cast<std::string *>(context); };
+    MPNLexicon *raw = mpn_lexicon_create_from_base_in_place(bytes->data(), bytes->size(), 1, release, bytes);
+    require(raw != nullptr, "mimo_base.bin loads in place");
+    const meowpuut::SharedLexicon lexicon(raw, mpn_lexicon_destroy);
+    meowpuut::Session first(lexicon, true), second(lexicon, true);
+    first.registerJapaneseWords(japanese);
+    type(first, "nihao");
+    require(first.chooseOnPage(indexOf(first.takeSnapshot(), u8"你好")), "shared lexicon pinyin choice");
+    require(first.takeSnapshot().committed == u8"你好", "shared lexicon commit");
+    type(second, "woxihuanni");
+    second.commit();
+    for (int i = 0; i < 16 && second.hasComposition(); ++i) second.commit();
+    const auto finished = second.takeSnapshot();
+    require(!second.hasComposition() && !finished.committed.empty() && finished.committed.find('w') == std::string::npos,
+            "commit() finishes a reading with candidates");
+    type(second, "zzzq");
+    for (int i = 0; i < 16 && second.hasComposition(); ++i) second.commit();
+    require(second.takeSnapshot().committed.size() >= 1 && !second.hasComposition(), "commit() ends any reading");
+}
+
 #ifdef _WIN32
 int wmain(int argc, wchar_t **argv) {
 #else
 int main(int argc, char **argv) {
 #endif
-    if (argc != 4) { std::cerr << "usage: session_test native-pinyin.tsv native-zhuyin.tsv japanese.tsv\n"; return 2; }
+    if (argc != 4 && argc != 5) {
+        std::cerr << "usage: session_test native-pinyin.tsv native-zhuyin.tsv japanese.tsv [mimo_base.bin]\n";
+        return 2;
+    }
     try {
         bool invalid = false;
         try { meowpuut::Session missing("no-such-meowpuut-lexicon.tsv"); } catch (const std::runtime_error &) { invalid = true; }
@@ -334,6 +367,7 @@ int main(int argc, char **argv) {
         require(page.input == "nihao" && py.segmentContext().empty(), "mixed prefix retains raw suffix but clears old Chinese context");
         py.clear();
         require(py.segmentContext().empty(), "explicit clear removes context");
+        if (argc == 5) verifySharedBase(argv[4], argv[3]);
         verifyInputLimit(py, zy);
         for (auto prefix : {"", "hao", "hao3"}) verifyPrintableAcceptance(py, meowpuut::InputMode::Pinyin, prefix);
         for (auto prefix : {"", "su", "su3"}) verifyPrintableAcceptance(zy, meowpuut::InputMode::Zhuyin, prefix);

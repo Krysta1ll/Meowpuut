@@ -1,0 +1,32 @@
+// Version and icon of MeowpuutTextService.dll. The build passes
+// MEOWPUUT_VERSION ("0.8.0-alpha.1") and MEOWPUUT_VERSION_NUMBERS (0,8,0,1)
+// and puts Meowpuut.ico, made from assets/brand/AppIcon.png, on the include path.
+#include <winver.h>
+
+1 ICON "Meowpuut.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION MEOWPUUT_VERSION_NUMBERS
+PRODUCTVERSION MEOWPUUT_VERSION_NUMBERS
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_DLL
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040404B0"
+        BEGIN
+            VALUE "CompanyName", "Meowpuut"
+            VALUE "FileDescription", "Meowpuut text service"
+            VALUE "FileVersion", MEOWPUUT_VERSION
+            VALUE "InternalName", "MeowpuutTextService"
+            VALUE "LegalCopyright", "Code: MIT License. Cat artwork: all rights reserved."
+            VALUE "OriginalFilename", "MeowpuutTextService.dll"
+            VALUE "ProductName", "Meowpuut"
+            VALUE "ProductVersion", MEOWPUUT_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0404, 1200
+    END
+END
