@@ -311,6 +311,18 @@ class LogicTest {
             compared++
         }
         assertEquals(1826, compared)
+        // Each theme's dressed cats sit at the ends and its cluster fits the right end, on the three shapes.
+        for (theme in shipped.themes) {
+            for (shape in com.krysta1ll.meowpuut.android.ime.GlassShape.values()) {
+                val layout = com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout(393f, com.krysta1ll.meowpuut.android.ime.Idiom.PHONE,
+                    rim = com.krysta1ll.meowpuut.android.ime.GlassOutline.contentBand(shape, 1f).first)
+                val stage = layout.stage(shape)
+                assertTrue("${theme.id} $shape cats", com.krysta1ll.meowpuut.android.ime.CatSeats.ends(stage, theme.mimimo.catSprite()!!, theme.momo.catSprite()!!) != null)
+                val box = Festivals.placeRight(theme.right!!, layout.glass, com.krysta1ll.meowpuut.android.ime.GlassOutline.contentBand(shape, layout.glass.height),
+                    layout.width, layout.chevron.centerX + com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout.ARROW_WIDTH / 2)
+                assertTrue("${theme.id} $shape ornament", box != null && box.right <= layout.width && box.left > layout.chevron.centerX)
+            }
+        }
         // 光明節 2026 is met once its lead-up week begins.
         assertTrue(Festivals.met(LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 27), shipped).isEmpty())
         assertEquals(listOf("hanukkah"), Festivals.met(LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 28), shipped).map { it.id })

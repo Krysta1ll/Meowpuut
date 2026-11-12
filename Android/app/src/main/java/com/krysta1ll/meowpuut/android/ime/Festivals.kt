@@ -13,8 +13,26 @@ import java.time.LocalDate
 
 data class FestivalInsets(val top: Float, val left: Float, val bottom: Float, val right: Float)
 
+/**
+ * Where the bar's top edge crosses a dressed cat seated behind the glass, as
+ * fractions of the picture: its opaque bounds (left, top, width, height), the
+ * row the edge runs along, and the opaque span on that row.
+ */
+data class FestivalBust(val bounds: List<Float>, val row: Float, val cutLeft: Float, val cutRight: Float)
+
 /** A dressed cat: logical size in points, feet as a fraction of the size from the top left. */
-data class FestivalSprite(val image: String, val width: Float, val height: Float, val anchorX: Float, val anchorY: Float)
+data class FestivalSprite(
+    val image: String, val width: Float, val height: Float, val anchorX: Float, val anchorY: Float, val bust: FestivalBust? = null,
+) {
+    /** The cat as the bar seats it (Sources/FestivalTrim.swift catSprite): behind the glass, no paws in front. */
+    fun catSprite(): CatSprite? = bust?.let { b ->
+        CatSprite(image, width, height, (b.cutLeft + b.cutRight) / 2, b.row,
+            b.bounds[0], b.bounds[1], b.bounds[0] + b.bounds[2], b.bounds[1] + b.bounds[3], b.cutLeft, b.cutRight, listOf())
+    }
+}
+
+/** An ornament cluster the importer cut off the trim, size in dp. */
+data class FestivalPiece(val image: String, val width: Float, val height: Float)
 
 /** The decoration around the glass; only the middle between the caps stretches. */
 data class FestivalTrim(
@@ -41,6 +59,8 @@ data class FestivalTheme(
     val mimimo: FestivalSprite,
     val momo: FestivalSprite,
     val trim: FestivalTrim,
+    /** The right end's ornament cluster, or null. */
+    val right: FestivalPiece?,
     val colors: FestivalColors,
     val days: List<FestivalDays>,
 ) {
@@ -82,17 +102,25 @@ object Festivals {
             mimimo = sprite(o.getJSONObject("mimimo")), momo = sprite(o.getJSONObject("momo")),
             trim = FestivalTrim(t.getString("image"), trimSize.first, trimSize.second,
                 insets(t.getJSONArray("caps")), insets(t.getJSONArray("safeText")), insets(t.getJSONArray("rim"))),
+            right = o.optJSONObject("ends")?.optJSONObject("right")?.let { r ->
+                val size = pair(r.getJSONArray("size"))
+                FestivalPiece(r.getString("image"), size.first, size.second)
+            },
             colors = FestivalColors(colors.getString("accent"), strings(colors.getJSONArray("light")),
                 strings(colors.getJSONArray("dark")), colors.getString("contrast")),
             days = days,
         )
-        return theme.takeIf { listOf(it.id, it.mimimo.image, it.momo.image, it.trim.image).all(::isName) }
+        return theme.takeIf { listOfNotNull(it.id, it.mimimo.image, it.momo.image, it.trim.image, it.right?.image).all(::isName) }
     }
 
     private fun sprite(o: JSONObject): FestivalSprite {
         val size = pair(o.getJSONArray("size"))
         val anchor = pair(o.getJSONArray("anchor"))
-        return FestivalSprite(o.getString("image"), size.first, size.second, anchor.first, anchor.second)
+        val bust = o.optJSONObject("bust")?.let { b ->
+            val cut = numbers(b.getJSONArray("cut"), 2)
+            FestivalBust(numbers(b.getJSONArray("bounds"), 4), b.getDouble("row").toFloat(), cut[0], cut[1])
+        }
+        return FestivalSprite(o.getString("image"), size.first, size.second, anchor.first, anchor.second, bust)
     }
 
     private fun numbers(a: JSONArray, count: Int): List<Float> {
@@ -156,5 +184,20 @@ object Festivals {
     /** Themes whose worn range has begun at least once between [since] and [today], in manifest order. */
     fun met(since: LocalDate, today: LocalDate, loaded: Loaded): List<FestivalTheme> = loaded.themes.filter { theme ->
         theme.days.any { !it.first.minusDays(loaded.leadDays.toLong()).isAfter(today) && !it.last.isBefore(since) }
+    }
+
+    /**
+     * Where the right end's cluster goes (Sources/Festivals.swift
+     * FestivalEndsLayout): between the expand arrow's glyph and the screen
+     * edge, on the glass's lower edge, no taller than the glass; null when it
+     * would come out under 60 % of the glass height.
+     */
+    fun placeRight(piece: FestivalPiece, glass: Box, band: Pair<Float, Float>, width: Float, arrowRight: Float): Box? {
+        val tallest = band.second - band.first
+        val bottom = glass.top + band.second + 1
+        val end = minOf(width - 1, glass.right + 4)
+        val k = minOf(tallest / piece.height, (end - arrowRight - 2) / piece.width)
+        if (piece.height * k < 0.6f * tallest) return null
+        return Box(end - piece.width * k, bottom - piece.height * k, piece.width * k, piece.height * k)
     }
 }

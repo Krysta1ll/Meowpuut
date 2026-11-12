@@ -36,6 +36,7 @@ class MeowpuutIME : InputMethodService(),
     private val composer = Composer()
     private var keyboard: KeyboardView? = null
     private var look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
+    private var festivalArt: FestivalArt? = null
     /** The festival wardrobe (Festivals.kt), read once. */
     private val festivals by lazy {
         try { assets.open(Festivals.MANIFEST).use { Festivals.parse(it.readBytes().decodeToString()) } } catch (_: Exception) { Festivals.EMPTY }
@@ -642,13 +643,14 @@ class MeowpuutIME : InputMethodService(),
             Tone.LIGHT -> false
             Tone.DARK -> true
         }
-        // A festival day gives the selected capsule the theme's colour; its
-        // cats and ornaments are not drawn on Android yet.
+        // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
         val festival = Festivals.theme(java.time.LocalDate.now(), festivals, FestivalWardrobe(on = prefs.festivals))
         val festivalPill = festival?.let { Look.parseColor((if (dark) it.colors.dark else it.colors.light).lastOrNull()) }
+        if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
         look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, festivalPill, wantsMoreContrast(this))
         keyboard?.let {
             it.look = look
+            it.bar.festival = festivalArt
             it.cats = prefs.cats
         }
         configureWindow()
