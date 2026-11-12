@@ -11,7 +11,12 @@
 #   bash scripts/windows-vm.sh show <name> <preview options…>   preview in a fixed state, PNG around the caret
 #   bash scripts/windows-vm.sh shots         three shapes, light and dark, collapsed and expanded
 #   bash scripts/windows-vm.sh scale <100|125|150|175|200>      display scale; restarts Windows
-#   bash scripts/windows-vm.sh screen <file.png>                the whole screen
+#   bash scripts/windows-vm.sh shot <file.png>                  the whole screen (also: screen)
+#   bash scripts/windows-vm.sh desktop '<command line>'         start a program on the signed-in desktop, elevated
+#   bash scripts/windows-vm.sh type '<ASCII text>'              keyboard input (US layout)
+#   bash scripts/windows-vm.sh keys ret ctrl-a alt-f4           QEMU key names; "-" joins a combination
+#   bash scripts/windows-vm.sh click <x> <y> [left|right]       screenshot pixels
+#   bash scripts/windows-vm.sh snapshot save|restore|list [<name>]   default name "clean"; VM stopped
 #   bash scripts/windows-vm.sh ssh           interactive shell
 #
 # QEMU with Apple's hypervisor (hvf). Large files live in WINDOWS_VM_DIR,
@@ -56,7 +61,7 @@ boot() {
     -drive "if=pflash,format=raw,file=$VM/vars.fd" \
     -device ramfb -device qemu-xhci -device usb-kbd -device usb-tablet \
     -drive "if=none,id=disk,format=qcow2,file=$VM/disk.qcow2" -device nvme,drive=disk,serial=meowpuut,bootindex=0 \
-    "${cd[@]}" \
+    ${cd[@]+"${cd[@]}"} \
     -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:22" -device "${WINDOWS_VM_NIC:-virtio-net-pci},netdev=net0" \
     ${WINDOWS_VM_EXTRA:-} \
     -rtc base=localtime -display none -serial "file:$VM/serial.log" \
@@ -126,6 +131,55 @@ cmd_screen() {
   echo "$1"
 }
 
+# Width and height of the guest screen in pixels.
+screen_size() {
+  qmp "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$VM/size.png\",\"format\":\"png\"}}" >/dev/null
+  python3 -I -c 'import sys; from PIL import Image; print(*Image.open(sys.argv[1]).size)' "$VM/size.png"
+}
+
+# Moves the pointer to screen pixel x, y (usb-tablet: absolute, 0–32767).
+pointer() {
+  local size w h; size=$(screen_size); w=${size% *}; h=${size#* }
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[
+    {\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$(( $1 * 32767 / (w - 1) ))}},
+    {\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$(( $2 * 32767 / (h - 1) ))}}]}}" >/dev/null
+}
+
+# click <x> <y> [left|right|middle]: in screenshot pixels.
+cmd_click() {
+  local button=${3:-left}
+  pointer "$1" "$2"
+  sleep 0.2
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"btn\",\"data\":{\"down\":true,\"button\":\"$button\"}}]}}" >/dev/null
+  sleep 0.1
+  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"btn\",\"data\":{\"down\":false,\"button\":\"$button\"}}]}}" >/dev/null
+}
+
+# Starts a program in the signed-in desktop session (an SSH session is
+# session 0, where windows are invisible) through a scheduled task, elevated.
+# desktop <program> [<argument>…] quotes each argument; cmd_desktop takes one
+# command line as written.
+desktop() {
+  python3 -I "$REPO/scripts/windows-vm/show_script.py" "$VM/desktop.ps1" "$@"
+  "${SCP[@]}" "$VM/desktop.ps1" "meow@127.0.0.1:C:/meow/desktop.ps1"
+  "${SSH[@]}" 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\meow\desktop.ps1'
+}
+cmd_desktop() { desktop --line "$1"; }
+
+# snapshot save|restore|list [<name>]: internal qcow2 snapshots of the system
+# disk plus a copy of the UEFI variables; the VM must be stopped.
+cmd_snapshot() {
+  local name=${2:-clean}
+  case $1 in
+    save|restore) if running; then echo "error: stop the VM first" >&2; exit 1; fi ;;
+  esac
+  case $1 in
+    save) qemu-img snapshot -c "$name" "$VM/disk.qcow2" && cp "$VM/vars.fd" "$VM/vars-$name.fd" ;;
+    restore) qemu-img snapshot -a "$name" "$VM/disk.qcow2" && cp "$VM/vars-$name.fd" "$VM/vars.fd" ;;
+    list) qemu-img snapshot -l "$VM/disk.qcow2" ;;
+  esac
+}
+
 # Display scale of the signed-in user, in percent.
 guest_scale() {
   local dpi
@@ -143,16 +197,11 @@ cmd_show() {
   local scale; scale=$(guest_scale)
   local x=$((160 * scale / 100)) y=$((200 * scale / 100))
   mkdir -p "$SHOTS/screens"
-  python3 -I "$REPO/scripts/windows-vm/show_script.py" "$VM/show.ps1" --at "$x,$y" --seconds 120 "$@"
-  "${SCP[@]}" "$VM/show.ps1" "meow@127.0.0.1:C:/meow/show.ps1"
-  "${SSH[@]}" 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\meow\show.ps1'
-  local full="$SHOTS/screens/$name.png"
-  cmd_screen "$full" >/dev/null
-  local size; size=$(python3 -I -c 'import sys; from PIL import Image; print(*Image.open(sys.argv[1]).size)' "$full")
-  local w=${size% *} h=${size#* } mx=${MOUSE:-"$((w - 1)),$((h - 1))"}
-  qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[
-    {\"type\":\"abs\",\"data\":{\"axis\":\"x\",\"value\":$(( ${mx%,*} * 32767 / w ))}},
-    {\"type\":\"abs\",\"data\":{\"axis\":\"y\",\"value\":$(( ${mx#*,} * 32767 / h ))}}]}}" >/dev/null
+  desktop 'C:\meow\preview\MeowpuutCandidatePreview.exe' --at "$x,$y" --seconds 120 "$@"
+  sleep 2
+  local full="$SHOTS/screens/$name.png" mx=${MOUSE:-}
+  if [ -z "$mx" ]; then read -r mx < <(screen_size); mx="${mx% *},${mx#* }"; fi
+  pointer "${mx%,*}" "${mx#*,}"
   sleep 1
   cmd_screen "$full" >/dev/null
   "${SSH[@]}" 'taskkill /im MeowpuutCandidatePreview.exe /f' >/dev/null 2>&1 || true
@@ -296,7 +345,12 @@ case "${1:-}" in
   show) shift; cmd_show "$@" ;;
   shots) cmd_shots ;;
   scale) cmd_scale "$2" ;;
-  screen) cmd_screen "$2" ;;
+  screen|shot) cmd_screen "$2" ;;
+  desktop) cmd_desktop "$2" ;;
+  keys) shift; python3 -I "$REPO/scripts/windows-vm/type.py" "$VM/qmp.sock" --keys "$@" ;;
+  type) python3 -I "$REPO/scripts/windows-vm/type.py" "$VM/qmp.sock" --text "$2" ;;
+  click) shift; cmd_click "$@" ;;
+  snapshot) shift; cmd_snapshot "$@" ;;
   ssh) exec ssh -i "$VM/ssh/id_ed25519" -p "$PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null meow@127.0.0.1 ;;
-  *) sed -n '2,15p' "$0"; exit 1 ;;
+  *) sed -n '2,21p' "$0"; exit 1 ;;
 esac

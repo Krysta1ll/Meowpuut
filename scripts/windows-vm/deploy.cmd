@@ -17,8 +17,11 @@ echo assign letter=W
 ) > X:\disk.txt
 diskpart /s X:\disk.txt || goto fail
 dism /Apply-Image /ImageFile:%M%\windows.esd /Name:"Windows 11 Pro" /ApplyDir:W:\ || goto fail
-if exist %M%\meow\drivers\netkvm dism /Image:W:\ /Add-Driver /Driver:%M%\meow\drivers /Recurse || goto fail
-mkdir W:\Windows\Panther W:\meow
+mkdir W:\Windows\Panther W:\meow W:\Windows\Setup\Scripts
+rem DISM /Add-Driver fails here (0x80004002); Windows adds the network driver
+rem itself at the end of setup, before the first sign-in.
+xcopy /e /i %M%\meow\drivers W:\meow\drivers
+echo pnputil /add-driver C:\meow\drivers\netkvm\netkvm.inf /install > W:\Windows\Setup\Scripts\SetupComplete.cmd
 copy %M%\meow\unattend.xml W:\Windows\Panther\unattend.xml
 copy %M%\meow\firstlogon.ps1 W:\meow\
 copy %M%\meow\OpenSSH-ARM64.zip W:\meow\

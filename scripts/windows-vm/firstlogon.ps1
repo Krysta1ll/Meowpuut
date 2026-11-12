@@ -10,6 +10,12 @@ Set-ItemProperty $winlogon DefaultUserName 'meow'
 Set-ItemProperty $winlogon DefaultPassword 'meow'
 Remove-ItemProperty $winlogon AutoLogonCount -ErrorAction SilentlyContinue
 
+# Test VM only: administrators are elevated without a UAC prompt, so install
+# scripts run unattended. UAC itself stays on (Store apps need it).
+$policies = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+Set-ItemProperty $policies ConsentPromptBehaviorAdmin 0 -Type DWord
+Set-ItemProperty $policies PromptOnSecureDesktop 0 -Type DWord
+
 powercfg /change monitor-timeout-ac 0
 powercfg /change standby-timeout-ac 0
 powercfg /hibernate off
