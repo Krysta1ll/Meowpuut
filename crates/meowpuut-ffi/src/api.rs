@@ -338,8 +338,15 @@ session_fn!(/// Registers a Japanese word for mixed input; 1 if accepted.
 session_fn!(/// Mixed pinyin + Japanese sentence ("" if none); valid until the next call.
     fn mpn_mixed_pinyin(s, reading: *const c_char, simplified: c_int) -> *const c_char, EMPTY.as_ptr(), {
         // SAFETY: forwarded caller contract for `reading`.
-        let text = unsafe { arg_str(reading) }.map_or("", |r| s.core.mixed_pinyin(r, simplified != 0));
-        s.mixed.set(text);
+        let reading = unsafe { arg_str(reading) };
+        // A panic in the decoder yields "" instead of unwinding into the caller.
+        let decoded = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let text = reading.map_or("", |r| s.core.mixed_pinyin(r, simplified != 0));
+            s.mixed.set(text);
+        }));
+        if decoded.is_err() {
+            s.mixed.set("");
+        }
         s.mixed.as_cstr().as_ptr()
     });
 session_fn!(/// Leading mixed segment and the ASCII bytes it consumes.
@@ -351,8 +358,17 @@ session_fn!(/// Leading mixed segment and the ASCII bytes it consumes.
         EMPTY.as_ptr()
     }, {
         // SAFETY: forwarded caller contract for `reading`.
-        let (text, used) = unsafe { arg_str(reading) }.map_or(("", 0), |r| s.core.mixed_pinyin_prefix(r, simplified != 0));
-        s.mixed.set(text);
+        let reading = unsafe { arg_str(reading) };
+        // A panic in the decoder yields "" and 0 instead of unwinding into the caller.
+        let decoded = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let (text, used) = reading.map_or(("", 0), |r| s.core.mixed_pinyin_prefix(r, simplified != 0));
+            s.mixed.set(text);
+            used
+        }));
+        let used = decoded.unwrap_or_else(|_| {
+            s.mixed.set("");
+            0
+        });
         if !consumed.is_null() {
             // SAFETY: caller passes NULL or a writable `size_t`.
             unsafe { consumed.write(used) };
@@ -363,7 +379,9 @@ session_fn!(/// Computes next-word associations for committed `context`; returns
     fn mpn_predict(s, context: *const c_char, limit: usize) -> usize, 0, {
         // SAFETY: forwarded caller contract for `context`.
         let context = unsafe { arg_str(context) }.unwrap_or("");
-        let n = s.predictor.predict(&s.lexicon, context, s.simplified, limit);
+        // A panic yields no associations instead of unwinding into the caller.
+        let n = std::panic::catch_unwind(AssertUnwindSafe(|| s.predictor.predict(&s.lexicon, context, s.simplified, limit)))
+            .unwrap_or(0);
         s.predictions.clear();
         for i in 0..n {
             s.predictions.push(s.predictor.text(i));
