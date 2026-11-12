@@ -11,11 +11,12 @@ Branch: worktree-agent-a490ea3ecee5b1e5f. Phase 1 done; Phase 2 under way. docs/
 - `FestivalOutfit` and the Kotlin/C++ `Outfit` stubs are gone; render_cats.py no longer handles festivals.
 - The shipped keyboard now shows the theme (no longer lab-only). Lab: `-festivalDay`, `-festivalTheme`. Real-keyboard shots of another day: `FESTIVAL_SHOTS=1 bash scripts/ios-real-keyboard-shots.sh` with `"festivalShotDay"` in a plan's settings.
 
-## Run
+## Run (after the size change, 0daab6f)
 
-- `bash scripts/test-ios.sh`: 15/15 (FestivalsTests 577 checks, incl. the end-cluster placement for 24 themes × 3 shapes).
-- `bash scripts/build.sh --test`: exit 0. Android `testDebugUnitTest`: 55/0. `bash scripts/build-windows-check.sh`: layout and session tests pass, MinGW cross build of the preview app succeeds. Windows never run on Windows.
-- iOS app and lab build for the simulator.
+- `bash scripts/test-ios.sh --simulator <iPhone 16e>`: All 16 passed, 112 typing checks on the real touch surface (incl. the festival lab cases).
+- `bash scripts/build.sh --test`: exit 0, 633 PASS lines, none failing.
+- Android `testDebugUnitTest --rerun`: 55 tests, 0 failures.
+- `bash scripts/build-windows-check.sh`: layout_test and session_test pass; MinGW cross build of the preview app succeeds. Never run on Windows.
 
 ## Pictures
 
