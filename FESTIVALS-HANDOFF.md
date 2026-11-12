@@ -22,9 +22,14 @@ Branch: worktree-agent-a490ea3ecee5b1e5f. Phase 1 done; Phase 2 under way. docs/
 - .build/festival-previews/ornaments/01…06-*.png (24 themes from the lab, by date from 2026-11-12; capsule light/dark, long candidate, wave light, cloud dark) and 給主人的說明.md.
 - .build/festival-previews/real/: the four December themes on the real system keyboard (FESTIVAL_SHOTS build), capsule and wave; keyboard frame 390 × 386.
 
+## Checked (December themes)
+
+- Lab shots in .build/festival-previews/more/: landscape (cluster 28–35 pt, cats 0.53), 320 pt dark (cluster 34–41 pt, cats 0.66), wave dark, expanded panel, ^_^ row, Increase Contrast light and dark (palette pill, theme ornaments and cats stay). No case fell back to the plain look.
+- Size: only the cats and cut ornaments ship. Keyboard Assets.car 6928 KB → 2968 KB; app 184560 KB → 180520 KB (simulator Debug).
+- Height: real keyboard, same FESTIVAL_SHOTS build, 2026-12-24 vs an ordinary day: frame 390 × 386 both, typing and idle; the key area is pixel-identical (.build/festival-previews/height/).
+
 ## Open
 
 - Android and Windows: dressed cats and the right-end ornament.
 - Cut quality: halloween and songkran keep a short piece of tube, mid_autumn's moon loses an edge; raising `tau` for them cut the ornaments instead. new_year, white_day, midsummer lose ribbon ends. Narrow clusters (tanabata, midsummer, lantern_festival) come out about 30 pt tall.
-- Not looked at yet: landscape, iPad, 320 pt phones, Increase Contrast with a theme.
-- iOS catalog still ships the unused `_frame` images (~2 MB); drop them once Android/Windows decide what they draw.
+- iPad seen only as geometry (no iPad simulator): at 820 and 1024 pt the cluster is 42–52 pt tall and the dressed cats seat at 0.83.
