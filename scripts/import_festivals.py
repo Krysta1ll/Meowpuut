@@ -443,6 +443,11 @@ def main():
     manifest = {"version": 2, "leadDays": LEAD_DAYS, "packs": packs, "themes": themes}
     text = json.dumps(manifest, ensure_ascii=False, indent=1) + "\n"
 
+    def shipped(t):
+        # What the clients draw: the two cats and the cut ornaments. The whole
+        # trim stays only in assets/festivals, as the record.
+        return [f"{t['id']}_mimimo", f"{t['id']}_momo"] + [e["image"] for e in t["ends"].values()]
+
     def write(name, scale, target):
         # The pack's own images are copied byte for byte; the cut ones are saved.
         if (name, scale) in images:
@@ -479,7 +484,7 @@ def main():
         json.dump(info, f, indent=2)
         f.write("\n")
     for t in themes:
-        for name in [f"{t['id']}_{part}" for part in PARTS] + [e["image"] for e in t["ends"].values()]:
+        for name in shipped(t):
             folder = os.path.join(catalog, name + ".imageset")
             os.makedirs(folder)
             entries = []
@@ -494,7 +499,7 @@ def main():
     mac = os.path.join(ROOT, "Resources", "Festivals")
     fresh(mac)
     for name, scale in list(images) + list(derived):
-        if scale in (1, 2):
+        if scale in (1, 2) and not name.endswith("_frame"):
             write(name, scale, os.path.join(mac, name + ("@2x" if scale == 2 else "") + ".png"))
 
     # Android and Windows: one @3x image each, sized in code from the manifest.
@@ -502,7 +507,7 @@ def main():
                       os.path.join(ROOT, "Windows", "UI", "Assets", "festivals")):
         fresh(directory)
         for name, scale in list(images) + list(derived):
-            if scale == 3:
+            if scale == 3 and not name.endswith("_frame"):
                 write(name, scale, os.path.join(directory, name + ".png"))
 
     for t in themes:

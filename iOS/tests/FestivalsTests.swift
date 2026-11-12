@@ -54,7 +54,9 @@ struct FestivalsTests {
                    "\(theme.id): trim size and caps")
             expect(theme.trim.rim.top > 5 && theme.trim.rim.top < 20 && theme.trim.rim.bottom > 5 && theme.trim.rim.bottom < 20,
                    "\(theme.id): rim measured")
-            for part in ["mimimo", "momo", "frame"] {
+            expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("iOS/Festivals.xcassets/\(theme.id)_frame.imageset").path),
+                   "\(theme.id): the whole trim is not shipped")
+            for part in ["mimimo", "momo", "right"] {
                 let name = "\(theme.id)_\(part)"
                 let set = root.appendingPathComponent("iOS/Festivals.xcassets/\(name).imageset")
                 expect(FileManager.default.fileExists(atPath: set.appendingPathComponent("\(name)@3x.png").path)

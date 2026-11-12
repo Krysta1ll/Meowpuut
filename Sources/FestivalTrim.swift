@@ -34,65 +34,6 @@ enum FestivalImages {
     #endif
 }
 
-/// The trim of a theme around the candidate glass. It fills the bar, draws
-/// at `glass` (in its own coordinates), takes no touches and says nothing
-/// to VoiceOver. Placed in front of the glass and behind the candidates.
-struct FestivalTrimView: View {
-    var trim: FestivalTheme.Trim
-    var glass: CGRect
-    var shape: GlassShape
-    /// Where the trim must not compete with the bar's own content, such as
-    /// the expand arrow or a candidate that falls outside the trim's text
-    /// area: the trim fades out there, with a soft edge.
-    var clear: [CGRect] = []
-    var image: CGImage?
-
-    init(trim: FestivalTheme.Trim, glass: CGRect, shape: GlassShape, clear: [CGRect] = [], image: CGImage? = nil) {
-        self.trim = trim
-        self.glass = glass
-        self.shape = shape
-        self.clear = clear
-        self.image = image ?? FestivalImages.image(trim.image)
-    }
-
-    var body: some View {
-        Canvas { context, _ in
-            guard let image, let layout = FestivalTrimLayout.place(trim, glass: glass, shape: shape) else { return }
-            // Pixels per trim point in this image (@2x or @3x).
-            let pixels = CGFloat(image.width) / trim.size.width
-            for slice in layout.slices(trim, pixels: pixels) {
-                let source = CGRect(x: (slice.source.minX * pixels).rounded(), y: 0,
-                                    width: (slice.source.width * pixels).rounded(), height: CGFloat(image.height))
-                guard let piece = image.cropping(to: source) else { continue }
-                let destination = CGRect(x: layout.frame.minX + slice.destination.minX * layout.scale, y: layout.frame.minY,
-                                         width: slice.destination.width * layout.scale, height: layout.frame.height)
-                context.draw(Image(decorative: piece, scale: 1), in: destination)
-            }
-            // Without the middle, each end's piece of straight rim fades out
-            // towards the centre instead of stopping at a cut.
-            context.blendMode = .destinationOut
-            if !layout.middle {
-                for (cap, leftEnd) in [(trim.caps.left, true), (trim.caps.right, false)] {
-                    let fade = cap * 0.45 * layout.scale
-                    let edge = leftEnd ? layout.frame.minX + cap * layout.scale : layout.frame.maxX - cap * layout.scale
-                    let rect = CGRect(x: leftEnd ? edge - fade : edge, y: layout.frame.minY, width: fade, height: layout.frame.height)
-                    context.fill(Path(rect), with: .linearGradient(Gradient(colors: [.clear, .black]),
-                                                                    startPoint: CGPoint(x: leftEnd ? rect.minX : rect.maxX, y: 0),
-                                                                    endPoint: CGPoint(x: leftEnd ? rect.maxX : rect.minX, y: 0)))
-                }
-            }
-            for rect in clear where !layout.textArea.contains(rect) {
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 5))
-                    layer.fill(Path(roundedRect: rect.insetBy(dx: -2, dy: -2), cornerRadius: 8), with: .color(.black.opacity(0.85)))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
 /// A theme's ornament clusters at the two ends of the candidate bar
 /// (FestivalEndsLayout). Takes no touches and says nothing to VoiceOver.
 struct FestivalEndsView: View {

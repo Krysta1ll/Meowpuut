@@ -136,9 +136,9 @@ python3 scripts/import_festivals.py ~/…/Meowpuut_Festivals_24_Collection ~/…
 1. 在 `DAYS` 寫五年的日期（附上算法和來源的註解），在 `NAMES` 寫簡體、日文、英文名稱。腳本會檢查包裡的主題和這兩張表完全對得上。
 2. 執行匯入。腳本對照 `SHA256SUMS.txt`、檢查尺寸、透明邊、腳的位置，量出 `rim`，從主色算出膠囊顏色，寫出各平台的清單和圖。
 3. 執行 `bash scripts/test-ios.sh --only Festivals`，用上面的指令重寫逐日對照檔，看新節日落在哪些日子、有沒有擠掉別的節日的正日。
-4. `bash scripts/preview-festivals.sh` 產生預覽圖（`.build/festival-previews/`），淺色和深色都看過再提交。
+4. 用 Lab 看每一套：`bash scripts/ios-keyboard-shots.sh <模擬器> <資料夾> "名稱:-inputMode pinyin -type nihao -festivalTheme <id>"`，淺色和深色、三種造型都看過再提交。
 
-各平台拿到的檔案：iOS 是 @2x 和 @3x 的 asset catalog，只放在鍵盤擴充裡，App 從內嵌的擴充讀（不放 @1x，App Store 只給裝置需要的那一組）；macOS 是 @1x 和 @2x；Android 和 Windows 是 @3x 一張，大小由程式按清單算。
+各平台只拿到要畫的圖（兩隻貓和剪下的裝飾），整張飾邊只留在 `assets/festivals/` 當紀錄。iOS 是 @2x 和 @3x 的 asset catalog，只放在鍵盤擴充裡，App 從內嵌的擴充讀（不放 @1x，App Store 只給裝置需要的那一組）；macOS 是 @1x 和 @2x；Android 和 Windows 是 @3x 一張，大小由程式按清單算。
 
 ## 美術交件的內容
 
@@ -157,4 +157,4 @@ python3 scripts/import_festivals.py ~/…/Meowpuut_Festivals_24_Collection ~/…
 
 - Lab App（`MeowpuutKeyboardLab`，不出貨）：`-festivalDay 2026-12-25` 看那天穿哪套，`-festivalTheme halloween` 直接穿某一套，`-festivalOutfits NO`、`-festivalsSkipped '(christmas)'` 模擬設定。這段程式碼只在 `KEYBOARD_LAB` 編譯條件下存在。
 - 測試：`Festivals.theme(onDay:in:wardrobe:)` 可以指定任何日子。
-- 預覽圖：`bash scripts/preview-festivals.sh`。
+- 截圖：Lab 加 `-festivalTheme`（`scripts/ios-keyboard-shots.sh`）；真正的系統鍵盤用 `FESTIVAL_SHOTS=1 bash scripts/ios-real-keyboard-shots.sh`，計畫的 settings 裡寫 `"festivalShotDay"`。
