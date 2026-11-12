@@ -644,7 +644,9 @@ class MeowpuutIME : InputMethodService(),
             Tone.DARK -> true
         }
         // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
-        val festival = Festivals.theme(java.time.LocalDate.now(), festivals, FestivalWardrobe(on = prefs.festivals))
+        val wardrobe = FestivalWardrobe(on = prefs.festivals)
+        // FestivalOverride: debug builds only; the release build's always returns null.
+        val festival = FestivalOverride.theme(this, festivals, wardrobe) ?: Festivals.theme(java.time.LocalDate.now(), festivals, wardrobe)
         val festivalPill = festival?.let { Look.parseColor((if (dark) it.colors.dark else it.colors.light).lastOrNull()) }
         if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
         look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, festivalPill, wantsMoreContrast(this))

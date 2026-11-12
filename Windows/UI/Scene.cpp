@@ -235,6 +235,7 @@ void cats(Builder &b, const CandidateLayout &L, const CandidateViewModel &model,
         b.popClip();
     }
     for (const auto &c : L.cats) {
+        if (c.sprite->pawCount == 0) continue;  // a dressed cat has no paws over the edge
         b.pushClipOvals(pawOvals(c), turn(c));
         b.image(sprite(c), c.frame, turn(c));
         b.popClip();
@@ -333,8 +334,11 @@ void panelChrome(Builder &b, const CandidateLayout &L, const Theme &t) {
 Scene buildScene(const CandidateLayout &L, const CandidateViewModel &model, const Theme &t) {
     Builder b;
     b.scene.size = L.size;
+    b.scene.dressed = L.dressed;
 
     glass(b, L, t);
+    // A festival's ornaments at the right end, over the glass and under the cats.
+    if (L.decorations && L.ornament) b.image(Sprite::Ornament, *L.ornament, Affine{});
     // The cats are in front of the glass and under the candidates; no paw reaches the candidates.
     cats(b, L, model, t);
     candidates(b, L, model, t);

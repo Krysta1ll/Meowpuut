@@ -374,6 +374,7 @@ struct CandidateWindow::Impl {
 
     FestivalManifest manifest;
     std::optional<FestivalTheme> festival;
+    std::shared_ptr<const FestivalArt> festivalLook;  // what the layout seats and draws for `festival`
     LocalDate outfitDay;
 
     std::optional<std::size_t> hovered;
@@ -506,12 +507,19 @@ struct CandidateWindow::Impl {
         const FestivalTheme *worn = wornTheme(manifest, today, FestivalWardrobe{});
         if (worn) festival = *worn;
         else festival.reset();
+        festivalLook = worn ? festivalArt(*worn) : nullptr;
     }
 
     bool outfitActive() const { return options.festivalOutfits && festival.has_value() && !highContrast; }
 
-    // File behind a cat's picture (catArt: where a festival can bring its own).
-    std::wstring spritePath(Sprite sprite) const {
+    // File behind a picture of the scene: a cat (catArt), or on a festival day
+    // the dressed cats and the ornament cluster.
+    std::wstring spritePath(Sprite sprite, bool dressed) const {
+        if (festival && (dressed || sprite == Sprite::Ornament)) {
+            const std::string &name = sprite == Sprite::Mimimo ? festival->mimimo.image
+                                      : sprite == Sprite::Momo ? festival->momo.image : festival->rightImage;
+            return assetDir + L"\\festivals\\" + widen(name) + L".png";
+        }
         return assetDir + L"\\" + widen(catArt(sprite == Sprite::Mimimo ? Cat::Mimimo : Cat::Momo).image);
     }
 
@@ -898,7 +906,7 @@ struct CandidateWindow::Impl {
             case Kind::Image: {
                 const auto moved = d2d(c.transform);
                 if (!c.transform.identity()) rt->SetTransform(&moved);
-                drawSprite(spritePath(c.sprite), c.rect, c.opacity, c.blur, c.tint);
+                drawSprite(spritePath(c.sprite, scene.dressed), c.rect, c.opacity, c.blur, c.tint);
                 if (!c.transform.identity()) {
                     const auto id = identity();
                     rt->SetTransform(&id);
@@ -922,6 +930,7 @@ struct CandidateWindow::Impl {
         CandidateViewModel m = model;
         m.shape = options.shape;
         m.decorations = !highContrast;
+        m.festival = outfitActive() ? festivalLook : nullptr;
         m.hovered = hovered;
         if (pressed.kind == HitKind::Candidate) m.pressed = pressed.index;
         else m.pressed.reset();
