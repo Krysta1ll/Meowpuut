@@ -237,9 +237,9 @@ int main(int argc, char **argv) {
     contrastPanel.model.modeLabel = "拼音 · 繁";
     scenarios.push_back(contrastPanel);
 
-    // Optional festival check: the outfit active on the given date, with its
-    // pill colour. Its cat pictures are not drawn yet (made for the earlier art).
-    std::optional<Color> festivalPill;
+    // Optional festival check: the theme worn on the given date, with its
+    // capsule colours. Its cats and ornaments are not drawn on Windows yet.
+    std::optional<FestivalTheme> festivalTheme;
     if (argc == 5) {
         const std::string dir = argv[3];
         std::ifstream in(dir + "/festivals.json", std::ios::binary);
@@ -248,11 +248,11 @@ int main(int argc, char **argv) {
         const auto manifest = parseFestivalManifest(json, &error);
         LocalDate day;
         if (!parseLocalDate(argv[4], day)) { std::fprintf(stderr, "bad date %s\n", argv[4]); return 2; }
-        const Outfit *outfit = activeOutfit(manifest, day);
-        if (!outfit) { std::fprintf(stderr, "no outfit on %s (%s)\n", argv[4], error.c_str()); return 1; }
-        Scenario festival{"festival-" + outfit->id, sushi(), Appearance::Light};
+        const FestivalTheme *worn = wornTheme(manifest, day, FestivalWardrobe{});
+        if (!worn) { std::fprintf(stderr, "no festival on %s (%s)\n", argv[4], error.c_str()); return 1; }
+        Scenario festival{"festival-" + worn->id, sushi(), Appearance::Light};
         scenarios.push_back(festival);
-        festivalPill = outfit->pill;
+        festivalTheme = *worn;
         festivalName = festival.name;
     }
 
@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
                                       Color::rgb(0xD6B4FD), Color::rgb(0x2B2B2B), Color::rgb(0xA6A6A6))
                           : makeTheme(s.appearance, s.palette, s.transparency, false);
         const bool festive = s.name == festivalName;
-        if (festive && festivalPill) applyOutfitPill(theme, *festivalPill);
+        if (festive && festivalTheme) applyFestivalPill(theme, *festivalTheme);
         const Scene scene = buildScene(layout, s.model, theme);
         std::ofstream(out + "/" + s.name + ".svg", std::ios::binary) << renderSvg(scene, svgAssets, font, 2.0f);
         std::ofstream(out + "/" + s.name + "-on-page.svg", std::ios::binary)

@@ -8,6 +8,22 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
 
+/**
+ * Today's festival pictures (Festivals.kt): the dressed cats, seated by their
+ * bust, and the right end's ornament cluster. All at 3 px per dp.
+ */
+class FestivalArt(val theme: FestivalTheme, val mimimo: CatSprites.Art?, val momo: CatSprites.Art?, val right: Bitmap?) {
+    companion object {
+        fun load(theme: FestivalTheme, assets: android.content.res.AssetManager): FestivalArt {
+            fun bitmap(image: String) = try {
+                assets.open("festivals/$image.png").use { BitmapFactory.decodeStream(it) }?.apply { setHasMipMap(true) }
+            } catch (_: Exception) { null }
+            fun cat(sprite: FestivalSprite) = sprite.catSprite()?.let { s -> bitmap(sprite.image)?.let { CatSprites.Art(s, it) } }
+            return FestivalArt(theme, cat(theme.mimimo), cat(theme.momo), theme.right?.let { bitmap(it.image) })
+        }
+    }
+}
+
 /** The cat pictures on the candidate bar (written by scripts/render_cats.py at 3 px per dp). */
 class CatSprites(private val resources: Resources) {
     class Art(val sprite: CatSprite, val bitmap: Bitmap)

@@ -20,7 +20,6 @@ import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.Edit
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.engine.Lexicons
-import java.time.LocalDate
 import kotlin.math.abs
 
 /**
@@ -36,8 +35,12 @@ class MeowpuutIME : InputMethodService(),
     private lateinit var sprites: CatSprites
     private val composer = Composer()
     private var keyboard: KeyboardView? = null
-    private var outfits: List<Outfit> = emptyList()
     private var look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
+    private var festivalArt: FestivalArt? = null
+    /** The festival wardrobe (Festivals.kt), read once. */
+    private val festivals by lazy {
+        try { assets.open(Festivals.MANIFEST).use { Festivals.parse(it.readBytes().decodeToString()) } } catch (_: Exception) { Festivals.EMPTY }
+    }
 
     private var english = false
     private var page = 0
@@ -71,11 +74,6 @@ class MeowpuutIME : InputMethodService(),
         lexicons = Lexicons(this)
         sprites = CatSprites(resources)
         composer.simplified = prefs.simplified
-        outfits = try {
-            assets.open(Festivals.MANIFEST).use { Festivals.parse(it.readBytes().decodeToString()) }
-        } catch (_: Exception) {
-            emptyList()
-        }
         openLexicon()
     }
 
@@ -645,11 +643,14 @@ class MeowpuutIME : InputMethodService(),
             Tone.LIGHT -> false
             Tone.DARK -> true
         }
-        // A festival gives the selected capsule its colour; its pictures are not drawn on the cats.
-        val outfit = if (prefs.festivals && outfits.isNotEmpty()) Festivals.active(outfits, LocalDate.now()) else null
-        look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, outfit?.pill, wantsMoreContrast(this))
+        // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
+        val festival = Festivals.theme(java.time.LocalDate.now(), festivals, FestivalWardrobe(on = prefs.festivals))
+        val festivalPill = festival?.let { Look.parseColor((if (dark) it.colors.dark else it.colors.light).lastOrNull()) }
+        if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
+        look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, festivalPill, wantsMoreContrast(this))
         keyboard?.let {
             it.look = look
+            it.bar.festival = festivalArt
             it.cats = prefs.cats
         }
         configureWindow()

@@ -27,14 +27,13 @@ targets:
       - ../Sources/CatSpriteData.swift
       - ../Sources/CatFigures.swift
       - ../Sources/Festivals.swift
+      - ../Sources/FestivalTrim.swift
       - Keyboard/KeyboardGeometry.swift
       - Keyboard/CandidateStripLayout.swift
       - ../assets/brand/MeowpuutMark.png
       - Keyboard/Cats.xcassets
       - Generated/Assets.xcassets
-      - path: Festivals
-        type: folder
-        buildPhase: resources
+      # The festival manifest and art ship once, in the keyboard extension.
       - path: Photos
         type: folder
         buildPhase: resources
@@ -82,10 +81,12 @@ targets:
       - ../Sources/CatSprites.swift
       - ../Sources/CatSpriteData.swift
       - ../Sources/Festivals.swift
+      - ../Sources/FestivalTrim.swift
       - ../Sources/Bridge.h
       - path: Festivals
         type: folder
         buildPhase: resources
+      - Festivals.xcassets
       - path: Generated/Licenses
         type: folder
         buildPhase: resources
@@ -148,11 +149,12 @@ targets:
       - ../Sources/CatSprites.swift
       - ../Sources/CatSpriteData.swift
       - ../Sources/Festivals.swift
+      - ../Sources/FestivalTrim.swift
       - ../Sources/Bridge.h
-      - path: LabFestivals
+      - path: Festivals
         type: folder
         buildPhase: resources
-        optional: true
+      - Festivals.xcassets
       - path: Generated/mimo_base.bin
         buildPhase: resources
       - path: Generated/mimo_pairs.bin

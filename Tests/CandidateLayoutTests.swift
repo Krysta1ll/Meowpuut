@@ -301,31 +301,13 @@ private func checkAppearance(_ h: inout SmokeHarness) {
 }
 
 private func checkFestivals(_ h: inout SmokeHarness) {
-    // The bundled list is empty unless a holiday is near; the cats are then as usual.
+    // The wardrobe ships in the app; the logic itself is in iOS/tests/FestivalsTests.swift.
     let bundled = Bundle.main.url(forResource: "Festivals", withExtension: nil)?.appendingPathComponent("festivals.json")
-    h.check(bundled.flatMap { try? Data(contentsOf: $0) }.map { Festivals.decode($0) } != nil, "內建節日清單可讀取")
-    h.check(Festivals.decode(Data(#"{"version":1,"outfits":[]}"#.utf8)).isEmpty && Festivals.active(in: []) == nil, "空的節日清單不換裝")
-    // The example from docs/FESTIVALS.md.
-    let sample = ##"""
-    {"version": 1, "outfits": [{
-        "id": "lunar-new-year-2027", "title": {"hant": "春節", "hans": "春节"},
-        "start": "2027-02-03", "end": "2027-02-12",
-        "cats": {"mimimo": {"front": "mimimo_front.png"},
-                 "momo": {"front": "momo_front.png", "back": "momo_back.png", "frames": {"happy": "momo_happy.png"}}},
-        "pill": "#C8463C"}]}
-    """##
-    let outfits = Festivals.decode(Data(sample.utf8))
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(identifier: "Asia/Taipei")!
-    func day(_ year: Int, _ month: Int, _ day: Int) -> Date { calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12))! }
-    h.check(outfits.count == 1 && Festivals.active(in: outfits, on: day(2027, 2, 3), calendar: calendar)?.id == "lunar-new-year-2027" &&
-            Festivals.active(in: outfits, on: day(2027, 2, 12), calendar: calendar) != nil &&
-            Festivals.active(in: outfits, on: day(2027, 2, 13), calendar: calendar) == nil &&
-            Festivals.active(in: outfits, on: day(2027, 2, 2), calendar: calendar) == nil, "節日裝扮只在起訖日期內生效")
-    h.check(outfits.first?.pillColor != nil && outfits.first?.layers(for: "momo")?.frames?["happy"] == "momo_happy.png" &&
-            FestivalOutfit(id: "x", title: .init(hant: "", hans: ""), start: "", end: "", cats: [:], pill: "red").pillColor == nil,
-            "節日裝扮帶圖層與選中顏色")
-    h.check(Festivals.decode(Data(#"{"version":2,"outfits":[]}"#.utf8)).isEmpty && Festivals.decode(Data("oops".utf8)).isEmpty, "看不懂的節日清單當作沒有")
+    let loaded = bundled.flatMap { try? Data(contentsOf: $0) }.map { Festivals.decode($0) }
+    h.check(loaded?.themes.count == 24, "內建節日衣櫥有 24 套")
+    h.check(Festivals.theme(onDay: "2026-12-25", in: loaded ?? .empty, wardrobe: FestivalWardrobe())?.id == "christmas" &&
+            Festivals.theme(onDay: "2026-12-25", in: loaded ?? .empty, wardrobe: FestivalWardrobe(on: false)) == nil, "節日衣櫥照日期換裝，關閉後不換")
+    h.check(Festivals.decode(Data(#"{"version":1,"outfits":[]}"#.utf8)).isEmpty && Festivals.decode(Data("oops".utf8)).isEmpty, "看不懂的節日清單當作沒有")
 }
 
 /// 米米莫 and 莫莫 on the desktop bar: the bar's own numbers are what they were,

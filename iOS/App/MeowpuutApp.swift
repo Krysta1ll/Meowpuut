@@ -3,6 +3,7 @@ import UIKit
 
 @main
 struct MeowpuutApp: App {
+    init() { FestivalWardrobeSince.record() }
     var body: some Scene {
         WindowGroup { HomeView() }
     }
@@ -265,7 +266,8 @@ struct HomeView: View {
                 strength: settings.glassStrength.flatMap(GlassStrength.init(rawValue:)) ?? .balanced,
                 cats: settings.catGlassSkin ?? true,
                 placement: settings.catPlacement ?? CatSchedule.daily,
-                simplified: settings.simplified ?? false)
+                simplified: settings.simplified ?? false,
+                festival: settings.festivalToday)
             Text(t("加入方式：設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤 → 喵撲。不需要開啟「完整取用」。",
                    "添加方式：设置 → 通用 → 键盘 → 键盘 → 添加新键盘 → 喵扑。不需要打开“完全访问”。"))
                 .font(.footnote)

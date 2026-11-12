@@ -176,6 +176,7 @@ final class LabScript {
             "predictions": engine.predictions,
             "suggestions": keyboard.labSuggestions,
             "kaomoji": keyboard.labKaomojiRow,
+            "festival": KeyboardFestival.today()?.id ?? "",
             "english": engine.english,
             "mode": engine.inputMode.rawValue,
             "shift": keyboard.labShift,

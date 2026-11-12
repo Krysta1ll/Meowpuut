@@ -75,8 +75,10 @@ final class Preferences: ObservableObject {
     @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
     @Published var candidatePalette: CandidatePalette { didSet { defaults.set(candidatePalette.rawValue, forKey: "candidatePalette") } }
     @Published var glassShape: GlassShape { didSet { defaults.set(glassShape.rawValue, forKey: "glassShape") } }
-    // Holiday outfits for the cats (docs/FESTIVALS.md).
+    // The festival wardrobe (docs/FESTIVALS.md): the master switch and the themes switched off.
     @Published var festivalOutfits: Bool { didSet { defaults.set(festivalOutfits, forKey: "festivalOutfits") } }
+    @Published var festivalsSkipped: [String] { didSet { defaults.set(festivalsSkipped, forKey: "festivalsSkipped") } }
+    var festivalWardrobe: FestivalWardrobe { FestivalWardrobe(on: festivalOutfits, skipped: Set(festivalsSkipped)) }
     var inputMode: InputMode {
         get { InputMode(rawValue: defaults.string(forKey: "inputMode") ?? "") ?? .zhuyin }
         set { defaults.set(newValue.rawValue, forKey: "inputMode") }
@@ -99,6 +101,7 @@ final class Preferences: ObservableObject {
         catPlacement = defaults.string(forKey: "catPlacement") ?? CatSchedule.daily
         glassShape = GlassShape(rawValue: defaults.string(forKey: "glassShape") ?? "") ?? .capsule
         festivalOutfits = defaults.object(forKey: "festivalOutfits") as? Bool ?? true
+        festivalsSkipped = defaults.stringArray(forKey: "festivalsSkipped") ?? []
         candidateTone = CandidateTone(rawValue: defaults.string(forKey: "candidateTone") ?? "") ?? .system
         glassStrength = GlassStrength(rawValue: defaults.string(forKey: "glassStrength") ?? "") ?? .balanced
         candidatePalette = CandidatePalette(rawValue: defaults.string(forKey: "candidatePalette") ?? "") ?? .rose
@@ -127,6 +130,7 @@ final class Preferences: ObservableObject {
         if let value = settings.candidatePalette, let palette = CandidatePalette(rawValue: value), candidatePalette != palette { candidatePalette = palette }
         if let value = settings.glassShape, let shape = GlassShape(rawValue: value), glassShape != shape { glassShape = shape }
         if let value = settings.festivals, festivalOutfits != value { festivalOutfits = value }
+        if let value = settings.festivalsSkipped, festivalsSkipped != value { festivalsSkipped = value }
         if let request = settings.clearMemoryRequest, request != defaults.string(forKey: "lastClearMemoryRequest") {
             ChoiceMemory.shared.clear()
             Kaomoji.forgetRecent()

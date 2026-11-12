@@ -33,8 +33,7 @@ To the clients (the edge poses, which are the ones on the candidate bar):
   Sources/CatSpriteData.swift, Android .../ime/CatSpriteData.kt,
   Windows/UI/CatSpriteData.h         the numbers in cats.json as code
 
-The festival manifest (docs/FESTIVALS.md) is checked and copied from
-assets/festivals to each client's festivals folder.
+Festival art has its own importer, scripts/import_festivals.py.
 """
 import argparse
 import hashlib
@@ -62,9 +61,6 @@ VISIBLE = 24        # alpha that counts for the outer bounds
 def cats_dir():
     return os.path.join(ROOT, "assets", "brand", "cats")
 
-
-def festivals_dir():
-    return os.path.join(ROOT, "assets", "festivals")
 
 
 def stop(message):
@@ -422,105 +418,11 @@ def collect_platforms(out, metrics):
 
 
 # --------------------------------------------------------------------------
-# Festival outfits (docs/FESTIVALS.md). The manifest is checked and copied to
-# every client. Outfit pictures are copied as they are: the overlays were
-# drawn on the earlier cats' canvases, which no longer exist, so there is no
-# canvas to check them against until the festival art is rebuilt for these cats.
-# --------------------------------------------------------------------------
-
-def festival_targets():
-    return ("iOS/Festivals", "Resources/Festivals", "Android/app/src/main/assets/festivals", "Windows/UI/Assets/festivals")
-
-
-def check_manifest(manifest):
-    """Stop on a manifest the clients would skip without saying why.
-
-    Clients drop an outfit they cannot read and show the plain cats, so a
-    typo in a date would only be noticed on the holiday itself.
-    """
-    import datetime
-    import re
-
-    def stop(where, problem):
-        raise SystemExit(f"assets/festivals/festivals.json: {where}: {problem}")
-
-    if manifest.get("version") != 1:
-        stop("version", "expected 1")
-    outfits = manifest.get("outfits")
-    if not isinstance(outfits, list):
-        stop("outfits", "expected a list (an empty list is fine)")
-    seen = set()
-    for index, outfit in enumerate(outfits):
-        where = f"outfits[{index}]"
-        if not isinstance(outfit, dict):
-            stop(where, "expected an object")
-        ident = outfit.get("id")
-        if not isinstance(ident, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", ident):
-            stop(where, "id must be lower-case letters, digits and hyphens")
-        where = ident
-        if ident in seen:
-            stop(where, "id is used twice")
-        seen.add(ident)
-        title = outfit.get("title")
-        if not isinstance(title, dict) or not title.get("hant") or not title.get("hans"):
-            stop(where, "title needs hant and hans")
-        days = []
-        for key in ("start", "end"):
-            value = outfit.get(key)
-            if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-                stop(where, f"{key} must be yyyy-MM-dd")
-            try:
-                days.append(datetime.date.fromisoformat(value))
-            except ValueError:
-                stop(where, f"{key} is not a real date: {value}")
-        if days[0] > days[1]:
-            stop(where, "start is after end")
-        cats = outfit.get("cats")
-        if not isinstance(cats, dict) or not cats:
-            stop(where, "cats needs mimimo, momo or both")
-        for cat, layers in cats.items():
-            if cat not in ("mimimo", "momo"):
-                stop(where, f"unknown cat {cat}")
-            if not isinstance(layers, dict):
-                stop(where, f"{cat} must be an object")
-            frames = layers.get("frames", {})
-            if not isinstance(frames, dict) or any(k not in ("open", "happy", "blink") for k in frames):
-                stop(where, f"{cat}.frames may hold open, happy and blink")
-            names = [layers.get("front"), layers.get("back")] + list(frames.values())
-            names = [name for name in names if name is not None]
-            if not names:
-                stop(where, f"{cat} has no image")
-            for name in names:
-                if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+\.png", name):
-                    stop(where, f"{cat}: file names are letters, digits, _ and - with .png, got {name!r}")
-        pill = outfit.get("pill")
-        if pill is not None and (not isinstance(pill, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", pill)):
-            stop(where, "pill must be #RRGGBB")
-
-
-def collect_festivals(out):
-    source = festivals_dir()
-    with open(os.path.join(source, "festivals.json"), encoding="utf-8") as f:
-        manifest = json.load(f)
-    check_manifest(manifest)
-    text = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
-    for folder in festival_targets():
-        out.own(folder)
-        out.add(f"{folder}/festivals.json", text)
-        for outfit in manifest.get("outfits", []):
-            for layers in outfit.get("cats", {}).values():
-                names = [layers.get("front"), layers.get("back")] + list(layers.get("frames", {}).values())
-                for name in filter(None, names):
-                    out.copy(f"{folder}/{outfit['id']}/{name}", os.path.join(source, outfit["id"], name))
-
-
-# --------------------------------------------------------------------------
 
 def collect():
     metrics = build_metrics()
     out = Outputs()
     collect_platforms(out, metrics)
-    collect_festivals(out)
     return out, metrics
 
 
@@ -529,7 +431,7 @@ def self_test():
     global ROOT
     real = ROOT
     with tempfile.TemporaryDirectory() as scratch:
-        for folder in ("assets/brand/cats", "assets/festivals"):
+        for folder in ("assets/brand/cats",):
             shutil.copytree(os.path.join(real, folder), os.path.join(scratch, folder))
         ROOT = scratch
         sprites = os.path.join(scratch, "assets", "brand", "cats", "sprites")

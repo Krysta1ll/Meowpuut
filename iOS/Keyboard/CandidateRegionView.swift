@@ -10,7 +10,8 @@ final class KeyboardUIState: ObservableObject {
     @Published var trailingInset: CGFloat = 0
     @Published var expanded = false
     @Published var dark = false
-    @Published var outfit: FestivalOutfit?
+    /// The festival theme worn today (docs/FESTIVALS.md), or nil.
+    @Published var festival: FestivalTheme?
     /// Where 米米莫 and 莫莫 sit today (CatSchedule); empty without the cats.
     @Published var cats: [CatPlacement] = []
     /// False while the keyboard is off screen: the cats stop moving.
@@ -100,11 +101,6 @@ struct CandidateCell: View {
             if item.selected { CandidatePill(palette: palette, dark: dark, highContrast: highContrast, festival: festival) }
         }
     }
-}
-
-extension FestivalOutfit {
-    /// The outfit's colour for the selected candidate, if it brings one.
-    var pillTint: Color? { pillRGB.map { Color(red: $0.red, green: $0.green, blue: $0.blue) } }
 }
 
 struct CandidateRegionView: View {
@@ -331,7 +327,7 @@ struct CandidateRegionView: View {
                         } label: {
                             CandidateCell(item: item, fontSize: layout.fontSize, pillHeight: layout.pillHeight,
                                           dark: dark, palette: preferences.candidatePalette,
-                                          highContrast: contrast == .increased, festival: ui.outfit?.pillTint)
+                                          highContrast: contrast == .increased, festival: ui.festival?.pill(dark: dark))
                                 .frame(maxHeight: .infinity)
                                 .contentShape(Rectangle())
                         }
@@ -473,7 +469,11 @@ struct CandidateRegionView: View {
     /// goes here: over the glass, under the candidates and the cats. It must
     /// not take touches. Nothing is drawn for now.
     @ViewBuilder private func barTrim(_ layout: CandidateRegionLayout) -> some View {
-        EmptyView()
+        if let ends = ui.festival?.ends {
+            let glyph = layout.chevron.midX + CandidateRegionLayout.chevronGlyph.width / 2
+            FestivalEndsView(placed: FestivalEndsLayout.place(ends, glass: layout.glass, shape: preferences.glassShape,
+                                                              width: layout.width, left: layout.row.minX, right: glyph))
+        }
     }
 
     private func petZone(_ cat: KeyboardCat, rect: CGRect) -> some View {
