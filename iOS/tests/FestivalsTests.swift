@@ -262,7 +262,7 @@ struct FestivalsTests {
     static let wornSkipped: Set<String> = ["winter_solstice", "chuseok", "spring_festival", "halloween"]
 
     static func worn(_ loaded: Festivals.Loaded) {
-        var lines = ["# day, worn with every theme on, worn with \(wornSkipped.sorted().joined(separator: " ")) switched off"]
+        var lines = ["# day, worn with every theme on, worn with these off: \(wornSkipped.sorted().joined(separator: " "))"]
         for n in Festivals.number("2026-01-01")...Festivals.number("2030-12-31") {
             let day = text(n)
             let all = Festivals.theme(onDay: day, in: loaded, wardrobe: FestivalWardrobe())?.id ?? "-"

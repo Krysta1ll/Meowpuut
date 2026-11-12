@@ -1,4 +1,4 @@
-# day, worn with every theme on, worn with chuseok halloween spring_festival winter_solstice switched off
+# day, worn with every theme on, worn with these off: chuseok halloween spring_festival winter_solstice
 2026-01-01 new_year new_year
 2026-01-02 - -
 2026-01-03 - -

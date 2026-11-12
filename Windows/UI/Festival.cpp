@@ -1,5 +1,6 @@
 #include "Festival.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <utility>
@@ -181,54 +182,87 @@ private:
     }
 };
 
-bool asciiLetterOrDigit(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+// 1 to 64 ASCII letters, digits, '_' or '-': safe as a file name.
+bool isName(const std::string &text) {
+    if (text.empty() || text.size() > 64) return false;
+    for (char c : text)
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return false;
+    return true;
 }
 
-// Names Windows opens as a device whatever the extension.
-bool deviceName(const std::string &stem) {
-    std::string upper;
-    for (char c : stem) upper += (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
-    if (upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL") return true;
-    return upper.size() == 4 && (upper.compare(0, 3, "COM") == 0 || upper.compare(0, 3, "LPT") == 0) &&
-           upper[3] >= '1' && upper[3] <= '9';
+// The readers below return false when a field is missing or of the wrong kind.
+bool readString(const Json &node, std::string_view key, std::string &out) {
+    const auto *v = node.get(key);
+    if (!v || v->type != Json::Type::String) return false;
+    out = v->string;
+    return true;
 }
 
-// A file name inside the outfit's own directory: letters, digits, '_', '-'
-// and '.', ending in ".png". No separators, no "..", no device names.
-bool safeFileName(const std::string &name) {
-    if (name.size() <= 4 || name.size() > 128) return false;
-    for (char c : name)
-        if (!(asciiLetterOrDigit(c) || c == '_' || c == '-' || c == '.')) return false;
-    if (name.front() == '.' || name.find("..") != std::string::npos) return false;
-    if (deviceName(name.substr(0, name.find('.')))) return false;
-    return name.compare(name.size() - 4, 4, ".png") == 0;
-}
-
-bool safeId(const std::string &id) {
-    if (id.empty() || id.size() > 64) return false;
-    for (char c : id)
-        if (!(asciiLetterOrDigit(c) || c == '-' || c == '_')) return false;
-    return !deviceName(id);
-}
-
-bool readCat(const Json *node, CatOutfit &out) {
-    if (!node) return true;
-    if (node->type != Json::Type::Object) return false;
-    const auto take = [](const std::string &v, std::string &slot) {
-        if (v.empty()) return true;
-        if (!safeFileName(v)) return false;
-        slot = v;
-        return true;
-    };
-    if (!take(node->str("front"), out.front) || !take(node->str("back"), out.back)) return false;
-    if (const auto *frames = node->get("frames")) {
-        if (frames->type != Json::Type::Object) return false;
-        const char *names[3] = {"open", "happy", "blink"};
-        for (int i = 0; i < 3; ++i)
-            if (!take(frames->str(names[i]), out.frames[i])) return false;
+bool readNumbers(const Json &node, std::string_view key, std::size_t count, float *out) {
+    const auto *v = node.get(key);
+    if (!v || v->type != Json::Type::Array || v->array.size() != count) return false;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (v->array[i].type != Json::Type::Number) return false;
+        out[i] = static_cast<float>(v->array[i].number);
     }
     return true;
+}
+
+bool readInsets(const Json &node, std::string_view key, FestivalInsets &out) {
+    float v[4];
+    if (!readNumbers(node, key, 4, v)) return false;
+    out = {v[0], v[1], v[2], v[3]};
+    return true;
+}
+
+bool readStrings(const Json &node, std::string_view key, std::vector<std::string> &out) {
+    const auto *v = node.get(key);
+    if (!v || v->type != Json::Type::Array) return false;
+    for (const auto &item : v->array) {
+        if (item.type != Json::Type::String) return false;
+        out.push_back(item.string);
+    }
+    return true;
+}
+
+bool readSprite(const Json *node, FestivalSprite &out) {
+    float size[2], anchor[2];
+    if (!node || !readString(*node, "image", out.image) || !readNumbers(*node, "size", 2, size) ||
+        !readNumbers(*node, "anchor", 2, anchor))
+        return false;
+    out.width = size[0], out.height = size[1], out.anchorX = anchor[0], out.anchorY = anchor[1];
+    return true;
+}
+
+bool readDays(const Json &node, FestivalDays &out) {
+    if (node.type != Json::Type::Array || node.array.size() != 3) return false;
+    LocalDate d[3];
+    for (int i = 0; i < 3; ++i)
+        if (node.array[i].type != Json::Type::String || !parseLocalDate(node.array[i].string, d[i])) return false;
+    if (d[1].key() < d[0].key() || d[2].key() < d[1].key()) return false;
+    out = {d[0], d[1], d[2]};
+    return true;
+}
+
+bool readTheme(const Json &node, FestivalTheme &t) {
+    const auto *names = node.get("names"), *trim = node.get("trim"), *colors = node.get("colors"), *days = node.get("days");
+    if (node.type != Json::Type::Object || !names || !trim || !colors || !days || days->type != Json::Type::Array) return false;
+    float size[2];
+    if (!readString(node, "id", t.id) || !readString(*names, "hant", t.hant) || !readString(*names, "hans", t.hans) ||
+        !readString(*names, "ja", t.ja) || !readString(*names, "en", t.en) || !readSprite(node.get("mimimo"), t.mimimo) ||
+        !readSprite(node.get("momo"), t.momo) || !readString(*trim, "image", t.trim.image) ||
+        !readNumbers(*trim, "size", 2, size) || !readInsets(*trim, "caps", t.trim.caps) ||
+        !readInsets(*trim, "safeText", t.trim.safeText) || !readInsets(*trim, "rim", t.trim.rim) ||
+        !readString(*colors, "accent", t.colors.accent) || !readStrings(*colors, "light", t.colors.light) ||
+        !readStrings(*colors, "dark", t.colors.dark) || !readString(*colors, "contrast", t.colors.contrast))
+        return false;
+    t.trim.width = size[0], t.trim.height = size[1];
+    for (const auto &item : days->array) {
+        FestivalDays d;
+        if (!readDays(item, d)) return false;
+        t.days.push_back(d);
+    }
+    return isName(t.id) && isName(t.mimimo.image) && isName(t.momo.image) && isName(t.trim.image);
 }
 
 void setError(std::string *error, std::string message) {
@@ -273,6 +307,15 @@ std::optional<Color> parseHexColor(std::string_view text) {
     return Color::rgb(value);
 }
 
+int dayNumber(LocalDate date) {
+    const int y = date.month <= 2 ? date.year - 1 : date.year, m = date.month, d = date.day;
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const int yoe = y - era * 400;
+    const int doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+    const int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
 FestivalManifest parseFestivalManifest(std::string_view json, std::string *error) {
     FestivalManifest manifest;
     Json root;
@@ -281,52 +324,64 @@ FestivalManifest parseFestivalManifest(std::string_view json, std::string *error
         setError(error, "festivals.json is not a JSON object");
         return manifest;
     }
-    if (const auto *version = root.get("version")) {
-        if (version->type != Json::Type::Number || version->number != 1) {
-            setError(error, "unsupported festivals.json version");
-            return manifest;
-        }
-    }
-    const auto *outfits = root.get("outfits");
-    if (!outfits) return manifest;
-    if (outfits->type != Json::Type::Array) {
-        setError(error, "outfits is not an array");
+    const auto *version = root.get("version"), *lead = root.get("leadDays"), *themes = root.get("themes");
+    if (!version || version->type != Json::Type::Number || version->number != 2 || !lead ||
+        lead->type != Json::Type::Number || !themes || themes->type != Json::Type::Array) {
+        setError(error, "festivals.json is not version 2 with leadDays and themes");
         return manifest;
     }
-    for (const auto &item : outfits->array) {
-        if (item.type != Json::Type::Object) { setError(error, "outfit is not an object"); continue; }
-        Outfit outfit;
-        outfit.id = item.str("id");
-        if (!safeId(outfit.id)) { setError(error, "outfit id must use letters, digits, - or _"); continue; }
-        if (!parseLocalDate(item.str("start"), outfit.start) || !parseLocalDate(item.str("end"), outfit.end) ||
-            outfit.end.key() < outfit.start.key()) {
-            setError(error, "outfit " + outfit.id + " has an invalid date range");
-            continue;
-        }
-        if (const auto *title = item.get("title")) {
-            outfit.titleHant = title->str("hant");
-            outfit.titleHans = title->str("hans");
-        }
-        const auto *cats = item.get("cats");
-        if (cats && cats->type != Json::Type::Object) { setError(error, "outfit " + outfit.id + ": cats is not an object"); continue; }
-        if (cats && (!readCat(cats->get("mimimo"), outfit.mimimo) || !readCat(cats->get("momo"), outfit.momo))) {
-            setError(error, "outfit " + outfit.id + " names an invalid image file");
-            continue;
-        }
-        const std::string pill = item.str("pill");
-        if (!pill.empty()) {
-            outfit.pill = parseHexColor(pill);
-            if (!outfit.pill) { setError(error, "outfit " + outfit.id + " has an invalid pill colour"); continue; }
-        }
-        manifest.outfits.push_back(std::move(outfit));
+    manifest.leadDays = static_cast<int>(lead->number);
+    for (const auto &item : themes->array) {
+        FestivalTheme theme;
+        if (readTheme(item, theme)) manifest.themes.push_back(std::move(theme));
+        else setError(error, "a theme does not read: " + item.str("id"));
     }
     return manifest;
 }
 
-const Outfit *activeOutfit(const FestivalManifest &manifest, LocalDate today) {
-    for (const auto &outfit : manifest.outfits)
-        if (today.key() >= outfit.start.key() && today.key() <= outfit.end.key()) return &outfit;
-    return nullptr;
+const FestivalTheme *wornTheme(const FestivalManifest &manifest, LocalDate today, const FestivalWardrobe &wardrobe) {
+    if (!wardrobe.on) return nullptr;
+    struct Standing { int step; const FestivalTheme *theme; const FestivalDays *days; };
+    const int now = dayNumber(today);
+    std::vector<Standing> pool;
+    for (const auto &theme : manifest.themes) {
+        if (wardrobe.skipped.count(theme.id)) continue;
+        for (const auto &days : theme.days) {
+            if (now < dayNumber(days.first) - manifest.leadDays || today.key() > days.last.key()) continue;
+            const int step = today.key() == days.main.key() ? 1 : today.key() >= days.first.key() ? 2 : 3;
+            pool.push_back({step, &theme, &days});
+        }
+    }
+    if (pool.empty()) return nullptr;
+    int step = 3;
+    for (const auto &s : pool) step = std::min(step, s.step);
+    std::vector<Standing> standing;
+    for (const auto &s : pool)
+        if (s.step == step) standing.push_back(s);
+    // The first of the best, as Swift's min(by:) picks it.
+    const Standing *leader = &standing[0];
+    for (const auto &s : standing) {
+        const auto &a = *s.days, &b = *leader->days;
+        const bool before = step == 2 ? (a.first.key() > b.first.key() || (a.first.key() == b.first.key() && a.last.key() < b.last.key()))
+                          : step == 3 ? a.first.key() < b.first.key() : false;
+        if (before) leader = &s;
+    }
+    std::vector<const FestivalTheme *> turns;
+    for (const auto &s : standing)
+        if (s.days->main.key() == leader->days->main.key()) turns.push_back(s.theme);
+    const int n = static_cast<int>(turns.size());
+    return turns[static_cast<std::size_t>(((now % n) + n) % n)];
+}
+
+std::vector<const FestivalTheme *> metThemes(const FestivalManifest &manifest, LocalDate since, LocalDate today) {
+    std::vector<const FestivalTheme *> out;
+    for (const auto &theme : manifest.themes)
+        for (const auto &days : theme.days)
+            if (dayNumber(days.first) - manifest.leadDays <= dayNumber(today) && days.last.key() >= since.key()) {
+                out.push_back(&theme);
+                break;
+            }
+    return out;
 }
 
 void applyOutfitPill(Theme &theme, Color pill) {

@@ -20,7 +20,6 @@ import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.Edit
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.engine.Lexicons
-import java.time.LocalDate
 import kotlin.math.abs
 
 /**
@@ -36,7 +35,6 @@ class MeowpuutIME : InputMethodService(),
     private lateinit var sprites: CatSprites
     private val composer = Composer()
     private var keyboard: KeyboardView? = null
-    private var outfits: List<Outfit> = emptyList()
     private var look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
 
     private var english = false
@@ -73,11 +71,6 @@ class MeowpuutIME : InputMethodService(),
         // The first time the keyboard shows it should not wait for the cats to decode.
         Thread({ sprites.preload() }, "meowpuut-cats").start()
         composer.simplified = prefs.simplified
-        outfits = try {
-            assets.open(Festivals.MANIFEST).use { Festivals.parse(it.readBytes().decodeToString()) }
-        } catch (_: Exception) {
-            emptyList()
-        }
         openLexicon()
     }
 
@@ -647,7 +640,8 @@ class MeowpuutIME : InputMethodService(),
             Tone.LIGHT -> false
             Tone.DARK -> true
         }
-        val outfit = if (prefs.festivals && outfits.isNotEmpty()) Festivals.active(outfits, LocalDate.now()) else null
+        // The festival themes (Festivals.kt) are not drawn on Android yet.
+        val outfit: Outfit? = null
         val dressed = sprites.dress(outfit)
         look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, outfit?.pill, wantsMoreContrast(this))
         keyboard?.let {

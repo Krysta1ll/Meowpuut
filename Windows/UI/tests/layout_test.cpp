@@ -10,6 +10,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
+#include <sstream>
 #include <string>
 
 using namespace meowpuut::ui;
@@ -614,77 +617,101 @@ void testShadowMask() {
     CHECK(px[(20 * 40 + 34) * 4] > 195 && px[(20 * 40 + 4) * 4] == 0);
     CHECK(px[(20 * 40 + 20) * 4] > 60 && px[(20 * 40 + 20) * 4] < 140);
 }
-void testFestivals() {
-    // Test fixture only; the shipped manifest stays empty.
-    const char *json = R"({
-      "version": 1,
-      "outfits": [
-        {"id": "lunar-new-year-2027", "title": {"hant": "春節", "hans": "春节"},
-         "start": "2027-02-03", "end": "2027-02-12",
-         "cats": {"mimimo": {"front": "mimimo_front.png"},
-                  "momo": {"front": "momo_front.png", "back": "momo_back.png",
-                           "frames": {"happy": "momo_happy.png"}}},
-         "pill": "#C8463C"},
-        {"id": "overlap", "start": "2027-02-10", "end": "2027-02-20", "cats": {}},
-        {"id": "../escape", "start": "2027-01-01", "end": "2027-01-02"},
-        {"id": "bad-file", "start": "2027-03-01", "end": "2027-03-02", "cats": {"momo": {"front": "../x.png"}}},
-        {"id": "bad-date", "start": "2027-02-30", "end": "2027-03-02"},
-        {"id": "reversed", "start": "2027-05-02", "end": "2027-05-01"},
-        {"id": "escaped", "start": "2027-06-01", "end": "2027-06-01", "pill": "#zzzzzz"},
-        {"id": "nul-in-name", "start": "2027-07-01", "end": "2027-07-02", "cats": {"momo": {"front": "a\u0000.png"}}},
-        {"id": "device", "start": "2027-07-03", "end": "2027-07-04", "cats": {"momo": {"front": "COM1.png"}}},
-        {"id": "device-lower", "start": "2027-07-05", "end": "2027-07-06", "cats": {"mimimo": {"back": "nul.png"}}},
-        {"id": "space", "start": "2027-07-07", "end": "2027-07-08", "cats": {"momo": {"front": "hat .png"}}},
-        {"id": "upper-ext", "start": "2027-07-09", "end": "2027-07-10", "cats": {"momo": {"front": "Hat.PNG"}}},
-        {"id": "hidden", "start": "2027-07-11", "end": "2027-07-12", "cats": {"momo": {"front": ".png"}}},
-        {"id": "nul", "start": "2027-07-13", "end": "2027-07-14"},
-        {"id": "unicode-title", "title": {"hant": "\u4E2D\u79CB", "hans": "\uD83C\uDF15"},
-         "start": "2027-09-15", "end": "2027-09-15", "cats": {"momo": {"front": "Moon-Hat_2.png"}}}
-      ]
-    })";
-    std::string error;
-    const auto manifest = parseFestivalManifest(json, &error);
-    CHECK(manifest.outfits.size() == 3);
-    // \u escapes, a surrogate pair included, come out as UTF-8.
-    CHECK(manifest.outfits[2].titleHant == "中秋" && manifest.outfits[2].titleHans == "\xF0\x9F\x8C\x95");
-    CHECK(manifest.outfits[2].momo.front == "Moon-Hat_2.png");
-    CHECK(!error.empty());
-    const auto &ny = manifest.outfits[0];
-    CHECK(ny.titleHant == "春節" && ny.titleHans == "春节");
-    CHECK(ny.mimimo.front == "mimimo_front.png" && ny.mimimo.back.empty());
-    CHECK(ny.momo.back == "momo_back.png" && ny.momo.frames[static_cast<int>(CatFace::Happy)] == "momo_happy.png");
-    CHECK(ny.momo.frames[static_cast<int>(CatFace::Open)].empty());
-    CHECK(ny.pill.has_value());
-    CHECK(activeOutfit(manifest, {2027, 2, 2}) == nullptr);
-    CHECK(activeOutfit(manifest, {2027, 2, 3}) == &manifest.outfits[0]);
-    CHECK(activeOutfit(manifest, {2027, 2, 11}) == &manifest.outfits[0]);   // overlap: first listed wins
-    CHECK(activeOutfit(manifest, {2027, 2, 13}) == &manifest.outfits[1]);
-    CHECK(activeOutfit(manifest, {2027, 2, 21}) == nullptr);
-    CHECK(manifest.outfits[1].mimimo.empty() && manifest.outfits[1].momo.empty());
+std::string readFile(const std::string &path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
 
-    CHECK(parseFestivalManifest(R"({"version":1,"outfits":[]})").outfits.empty());
-    CHECK(parseFestivalManifest("").outfits.empty());
-    CHECK(parseFestivalManifest("{\"version\":2,\"outfits\":[{\"id\":\"x\",\"start\":\"2027-01-01\",\"end\":\"2027-01-02\"}]}").outfits.empty());
-    CHECK(parseFestivalManifest("{not json").outfits.empty());
+// The repository root, from this file's path.
+std::string repoRoot() {
+    const std::string file = __FILE__;
+    const auto at = file.rfind("Windows/UI/tests/");
+    return at == std::string::npos ? std::string() : file.substr(0, at); // "" when compiled from the root
+}
+
+LocalDate date(const std::string &text) {
+    LocalDate d;
+    parseLocalDate(text, d);
+    return d;
+}
+
+// The same cases as iOS/tests/FestivalsTests.swift and Android's LogicTest.
+void testFestivals() {
+    const std::string root = repoRoot();
+    std::string error;
+    const auto fixture = parseFestivalManifest(readFile(root + "Android/app/src/test/resources/festivals/fixture.json"), &error);
+    CHECK(fixture.themes.size() == 4 && fixture.leadDays == 7 && !error.empty());
+    CHECK(fixture.themes.size() == 4 && fixture.themes[0].id == "alpha" && fixture.themes[1].id == "beta" &&
+          fixture.themes[2].id == "gamma" && fixture.themes[3].id == "delta");
+    if (fixture.themes.size() != 4) return;
+    const auto &alpha = fixture.themes[0];
+    CHECK(alpha.trim.caps.left == 70 && alpha.trim.caps.right == 70 && alpha.trim.safeText.left == 90);
+    CHECK(alpha.momo.image == "alpha_momo" && alpha.ja == "\xE3\x82\xA2\xE3\x83\xAB\xE3\x83\x95\xE3\x82\xA1");
+    CHECK(alpha.days.size() == 1 && alpha.days[0].first.key() == 20270205 && alpha.days[0].main.key() == 20270206 &&
+          alpha.days[0].last.key() == 20270212);
+    CHECK(alpha.colors.dark.size() == 2 && alpha.colors.dark[1] == "#990000");
+
+    const auto worn = [&](const char *day, const FestivalWardrobe &wardrobe) {
+        const auto *theme = wornTheme(fixture, date(day), wardrobe);
+        return theme ? theme->id : std::string("-");
+    };
+    const FestivalWardrobe all;
+    const char *days[] = {"2027-01-28", "2027-01-29", "2027-02-02", "2027-02-06", "2027-02-07", "2027-02-09",
+                          "2027-02-10", "2027-02-12", "2027-02-13", "2027-02-14", "2027-02-15"};
+    const char *want[] = {"-", "alpha", "alpha", "alpha", "alpha", "delta", "alpha", "alpha", "beta", "gamma", "-"};
+    for (int i = 0; i < 11; ++i) CHECK(worn(days[i], all) == want[i]);
+    CHECK(worn("2027-02-13", {true, {"beta"}}) == "gamma" && worn("2027-02-14", {true, {"beta"}}) == "gamma");
+    CHECK(worn("2027-02-06", {true, {"alpha"}}) == "delta" && worn("2027-02-06", {false, {}}) == "-");
+    const auto met = [&](const char *since, const char *today) {
+        std::string ids;
+        for (const auto *theme : metThemes(fixture, date(since), date(today))) ids += theme->id + " ";
+        return ids;
+    };
+    CHECK(met("2027-02-01", "2027-02-01") == "alpha " && met("2027-02-01", "2027-02-07") == "alpha beta gamma delta ");
+    CHECK(met("2027-02-13", "2027-02-13") == "beta gamma " && met("2027-03-01", "2028-02-07") == "beta ");
+
+    // Every day of 2026-2030 against the file the Swift tests write.
+    const auto shipped = parseFestivalManifest(readFile(root + "Windows/UI/Assets/festivals/festivals.json"));
+    CHECK(shipped.themes.size() == 24);
+    std::ifstream lines(root + "Android/app/src/test/resources/festivals/worn-2026-2030.txt");
+    std::string line;
+    std::getline(lines, line);
+    FestivalWardrobe some;
+    {
+        std::istringstream ids(line.substr(line.find(": ") + 2));
+        for (std::string id; ids >> id;) some.skipped.insert(id);
+    }
+    int compared = 0, wrong = 0;
+    while (std::getline(lines, line)) {
+        std::istringstream fields(line);
+        std::string day, a, b;
+        fields >> day >> a >> b;
+        const auto *x = wornTheme(shipped, date(day), all), *y = wornTheme(shipped, date(day), some);
+        if ((x ? x->id : "-") != a || (y ? y->id : "-") != b) {
+            if (++wrong <= 5) std::fprintf(stderr, "worn on %s differs\n", day.c_str());
+        }
+        ++compared;
+    }
+    CHECK(compared == 1826 && wrong == 0 && some.skipped.size() == 4);
+
+    CHECK(parseFestivalManifest(R"({"version":1,"outfits":[]})").themes.empty());
+    CHECK(parseFestivalManifest("").themes.empty());
+    CHECK(parseFestivalManifest("{not json").themes.empty());
     // Nesting deeper than the reader allows is refused, not followed.
     const std::string deep = std::string(200, '[') + std::string(200, ']');
-    CHECK(parseFestivalManifest("{\"version\":1,\"x\":" + deep + ",\"outfits\":[]}", &error).outfits.empty());
-    const std::string shallow = std::string(8, '[') + std::string(8, ']');
-    const auto nested = parseFestivalManifest("{\"version\":1,\"x\":" + shallow +
-        ",\"outfits\":[{\"id\":\"x\",\"start\":\"2027-01-01\",\"end\":\"2027-01-02\"}]}");
-    CHECK(nested.outfits.size() == 1);
-    // A raw control character inside a string is not JSON.
-    CHECK(parseFestivalManifest("{\"version\":1,\"outfits\":[{\"id\":\"a\tb\",\"start\":\"2027-01-01\",\"end\":\"2027-01-02\"}]}").outfits.empty());
+    CHECK(parseFestivalManifest("{\"version\":2,\"leadDays\":7,\"x\":" + deep + ",\"themes\":[]}", &error).themes.empty());
     LocalDate d;
     CHECK(parseLocalDate("2028-02-29", d) && !parseLocalDate("2027-02-29", d) && !parseLocalDate("2027-13-01", d));
+    CHECK(dayNumber(date("1970-01-01")) == 0 && dayNumber(date("2028-03-01")) - dayNumber(date("2028-02-28")) == 2);
     CHECK(!parseHexColor("C8463C") && parseHexColor("#c8463c"));
 
+    const Color pill = *parseHexColor("#C8463C");
     auto theme = makeTheme(Appearance::Light, Palette::Rose, true, false);
-    applyOutfitPill(theme, *ny.pill);
-    CHECK(std::fabs(theme.pillBottom.r - ny.pill->r) < 1e-4f);
+    applyOutfitPill(theme, pill);
+    CHECK(std::fabs(theme.pillBottom.r - pill.r) < 1e-4f);
     auto dark = makeTheme(Appearance::Dark, Palette::Rose, true, false);
-    applyOutfitPill(dark, *ny.pill);
-    CHECK(dark.pillBottom.r < ny.pill->r);
+    applyOutfitPill(dark, pill);
+    CHECK(dark.pillBottom.r < pill.r);
 
     // Overlays are drawn in the sprite's own box, behind and in front.
     FixedMeasurer measurer;
