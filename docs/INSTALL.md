@@ -25,7 +25,7 @@
 
 需要 macOS 27 以上的 Apple 晶片 Mac。Intel Mac 和較舊的 macOS 沒有測過。
 
-下載下面兩種其中一種，選一種裝就好：
+下面兩種選一種下載就好：
 
 - [Meowpuut-0.8.0-alpha.1-macos-arm64.dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-macos-arm64.dmg)：紙箱安裝盤，裡面也有一份「安裝或更新.pkg」。
 - [Meowpuut-0.8.0-alpha.1-macos-arm64.pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.8.0-alpha.1/Meowpuut-0.8.0-alpha.1-macos-arm64.pkg)：安裝套件。
