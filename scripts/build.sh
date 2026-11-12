@@ -26,6 +26,7 @@ swiftc scripts/ConvertScript.swift -o .build/convert-script
 python3 scripts/compile-native-lexicon.py "$APP/Contents/Resources" "$PWD/.build/convert-script"
 mkdir -p "$APP/Contents/Resources/Licenses"
 cp LICENSE "$APP/Contents/Resources/Licenses/Meowpuut-MIT.txt"
+cp ASSETS-LICENSE.md "$APP/Contents/Resources/Licenses/Meowpuut-Artwork.txt"
 cp DataSources/mimo-tc/LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-tc-MIT.txt"
 cp DataSources/mimo-tc/OPENCC-LICENSE.txt "$APP/Contents/Resources/Licenses/OpenCC-Apache-2.0.txt"
 cp DataSources/mimo-tc/JIEBA-LICENSE.txt "$APP/Contents/Resources/Licenses/jieba-MIT.txt"

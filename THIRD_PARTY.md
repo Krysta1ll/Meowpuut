@@ -1,5 +1,7 @@
 # 資料來源與授權
 
+喵撲自己的程式碼和資料是 MIT（[LICENSE](LICENSE)）。米米莫和莫莫的圖像、App 圖示、標誌和節日素材不是 MIT，保留所有權利，範圍和可以怎麼用見 [ASSETS-LICENSE.md](ASSETS-LICENSE.md)。下面是詞庫和其他資料用到的外部來源。
+
 本專案詞庫系統精簡為繁體、簡體、日語各一份統一詞庫（`mimo-tc`、`mimo-sc`、`mimo-jp`），由離線清洗管線（`scripts/mimo_pipeline.py`、日語為 `scripts/mimo_jp_pipeline.py`）改造開源詞庫並編譯為本專案自訂格式的唯讀二進位檔 `mimo_base.bin`（`MIMO-BASE-1` / `MIMO-BIN-1`）與日語詞表 `mimo_jp.bin`（`MIMO-JP-1`）。
 
 ## 1. mimo-tc 繁體中文詞庫（MIT / Apache-2.0）

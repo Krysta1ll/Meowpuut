@@ -15,7 +15,7 @@
 
 目前是公開測試版。macOS 和 iOS 可以日常輸入中文，Android 和 Windows 有較早的測試包；選詞和相容性仍在改進。遇到不順手的地方，歡迎提供按鍵順序和預期文字。
 
-![候選列：米米莫在左，莫莫在右；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
+![macOS 候選列，淺色和深色：米米莫和莫莫趴在玻璃上緣；sushi 的候選裡有一個帶貓爪的寿司](assets/screenshots/candidates.png)
 
 ## 米米莫、莫莫，和候選列
 
@@ -122,4 +122,4 @@ iOS 另需 XcodeGen，見 [iOS/README.md](iOS/README.md)。
 
 詞庫修訂放在 `Resources/Lexicon/`，不要直接修改上游快照。歡迎修讀音、調排序、補日常詞彙和改善跨應用相容性。提交方式見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-喵撲以 [MIT](LICENSE) 授權發佈。詞庫的語料是我們自己收集和撰寫的，用到的公開詞表與句子都保留來源與授權聲明，見 [THIRD_PARTY.md](THIRD_PARTY.md)。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語詞表的審讀（不收的詞目前由自動審讀判定，尚未經母語者審讀）和不同應用中的候選定位，都還有需要打磨的地方。
+喵撲的程式碼和資料以 [MIT](LICENSE) 授權發佈；米米莫和莫莫的圖像、App 圖示和節日素材保留所有權利，可以隨喵撲一起建置使用，其他用途見 [ASSETS-LICENSE.md](ASSETS-LICENSE.md)。詞庫的語料是我們自己收集和撰寫的，用到的公開詞表與句子都保留來源與授權聲明，見 [THIRD_PARTY.md](THIRD_PARTY.md)。喵撲仍在測試階段，長句斷詞、繁簡歧義字形、日語詞表的審讀（不收的詞目前由自動審讀判定，尚未經母語者審讀）和不同應用中的候選定位，都還有需要打磨的地方。
