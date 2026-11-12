@@ -132,7 +132,9 @@ bash scripts/windows-vm.sh create
 
 1. 從 Microsoft 的 Media Creation Tool 目錄（`products.cab`）找出繁體中文 Arm64 的 ESD，從 `dl.delivery.mp.microsoft.com` 下載並核對 SHA-1（約 4.7 GB）。另外下載 virtio 網路卡驅動（Fedora 的 `virtio-win.iso`，Windows 沒有 QEMU 網路卡的驅動）和 Microsoft 的 OpenSSH（GitHub `PowerShell/Win32-OpenSSH`）。
 2. 用 wimlib 從 ESD 取出開機檔和 Windows PE，做成 `install.iso`；ESD 本身超過 4 GB，放不進 ISO 9660，所以和網路卡驅動、OpenSSH、`scripts/windows-vm/` 的檔案一起放進 exFAT 的 `data.dmg`。不跑 Windows 安裝程式（因此沒有產品金鑰和版本選擇的畫面）：Windows PE 執行 `deploy.cmd`，分割磁碟、套用專業版映像、加入網路卡驅動、寫入 `unattend.xml`，然後關機。
-3. 第一次開機時 Windows 依 `unattend.xml` 完成設定，建立本機帳號並登入，`firstlogon.ps1` 安裝 OpenSSH 伺服器、關掉睡眠和自動更新。等到 SSH 能連、桌面出現就完成。
+3. 第一次開機時 Windows 依 `unattend.xml` 完成設定，`SetupComplete.cmd` 用 pnputil 裝網路卡驅動（Windows PE 裡的 `dism /Add-Driver` 會失敗，0x80004002），建立本機帳號並登入，`firstlogon.ps1` 安裝 OpenSSH 伺服器、關掉睡眠和自動更新。等到 SSH 能連、桌面出現就完成。
+
+在這台 M4 上，ESD 下載約 10 分鐘，Windows PE 套用映像約 60 分鐘（資料碟走模擬的 USB，很慢），第一次開機到桌面約 10 分鐘。改了 `scripts/windows-vm/` 的檔案後，刪掉 `media/data.dmg` 和 `install.iso` 再 `create`，否則用的是舊的檔案；要整台重裝，另外刪掉 `installed` 和 `disk.qcow2`。之後每次開機到桌面約 30 秒，關機幾秒。螢幕固定是 1024 × 768（QEMU 的 ramfb）。
 
 日常使用：
 
@@ -142,7 +144,7 @@ bash scripts/windows-vm.sh start                 # 開機，等到桌面出現
 bash scripts/windows-vm.sh deploy                # 複製 mingw/ 的 exe、Assets 和詞庫到 C:\meow\preview
 bash scripts/windows-vm.sh run 'C:\meow\preview\meowpuut_layout_test.exe'
 bash scripts/windows-vm.sh shots                 # 三種造型 × 淺深色 × 收合／展開
-bash scripts/windows-vm.sh scale 200             # 換顯示比例，Windows 會重新開機
+bash scripts/windows-vm.sh scale 150             # 換顯示比例，Windows 會重新開機；1024 × 768 的螢幕到 200 % 時候選列放不下
 bash scripts/windows-vm.sh shots
 bash scripts/windows-vm.sh stop
 ```
@@ -172,7 +174,7 @@ bash scripts/windows-vm.sh show list --candidates '喵,貓,ja:ねこ' --preedit 
 MOUSE=420,330 bash scripts/windows-vm.sh show hover --candidates '喵,貓,毛'   # 先把滑鼠移到該處
 ```
 
-這台虛擬機能證明的：Windows 的 Direct2D、DirectWrite（微軟正黑體）、WIC 讀 PNG、分層視窗的透明與陰影、DPI 縮放後的排版，在真的 Windows 上畫出來的樣子；排版測試在 Windows 上通過。不能證明的：畫面是 QEMU 的 ramfb，Windows 用基本顯示卡驅動，沒有 GPU（候選窗本來就用軟體繪製，影響不大）；x64 程式跑在模擬下，速度不代表實機；只有一個螢幕，沒有測不同 DPI 的兩個螢幕之間移動；也沒有測輸入法本身，因為還沒有 TSF 文字服務。
+這台虛擬機能證明的：Windows 的 Direct2D、DirectWrite（微軟正黑體）、WIC 讀 PNG、分層視窗的透明與陰影、DPI 縮放後的排版、滑鼠點擊範圍，在真的 Windows 上的樣子；排版測試在 Windows 上通過。不能證明的：畫面是 QEMU 的 ramfb，Windows 用基本顯示卡驅動，沒有 GPU（候選窗本來就用軟體繪製，影響不大）；x64 程式跑在 Windows 的 x64 模擬下，速度不代表實機；只有一個 1024 × 768 的螢幕，沒有測不同 DPI 的兩個螢幕之間移動，200 % 也放不下；顯示比例是用 `LogPixels` 設的整體比例，不是每個螢幕各自的設定。
 
 ## 尚未完成
 

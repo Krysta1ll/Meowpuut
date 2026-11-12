@@ -186,7 +186,7 @@ cmd_snapshot() {
 # Display scale of the signed-in user, in percent.
 guest_scale() {
   local dpi
-  dpi=$("${SSH[@]}" 'reg query "HKCU\Control Panel\Desktop" /v LogPixels' 2>/dev/null | awk '/LogPixels/{print $3}')
+  dpi=$("${SSH[@]}" 'reg query "HKCU\Control Panel\Desktop" /v LogPixels' 2>/dev/null | awk '/LogPixels/{print $3}' | tr -d '\r')
   echo $(( ${dpi:-0x60} * 100 / 96 ))
 }
 
