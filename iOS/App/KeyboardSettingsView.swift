@@ -236,8 +236,8 @@ private struct LicensesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(t("喵撲 Meowpuut", "喵扑 Meowpuut")).font(.headline)
                     Text("Copyright © 2026 Krystal and Meowpuut contributors")
-                    Text(t("喵撲依 MIT 授權發佈，不提供任何擔保。授權全文是下方清單裡的 Meowpuut-MIT；其餘各項是詞庫和表情資料的來源與授權。",
-                           "喵扑依 MIT 许可发布，不提供任何担保。许可全文是下方列表里的 Meowpuut-MIT；其余各项是词库和表情数据的来源与许可。"))
+                    Text(t("喵撲的程式碼和資料依 MIT 授權發佈，不提供任何擔保，全文是下方清單裡的 Meowpuut-MIT。米米莫和莫莫的圖像、App 圖示和節日素材保留所有權利，見 Meowpuut-Artwork。其餘各項是詞庫和表情資料的來源與授權。",
+                           "喵扑的代码和数据依 MIT 许可发布，不提供任何担保，全文是下方列表里的 Meowpuut-MIT。米米莫和莫莫的图像、App 图标和节日素材保留所有权利，见 Meowpuut-Artwork。其余各项是词库和表情数据的来源与许可。"))
                 }
                 .font(.subheadline)
                 .padding(.vertical, 4)
