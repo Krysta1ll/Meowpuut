@@ -24,7 +24,8 @@ crates/meowpuut-core/src/decoder.rs（修正前 109–143 行）：有詞對表�
 
 ## 進度
 - [x] 修正、cargo test --workspace 全過（iOS/Generated 從主目錄 cp -c 複製，未重新產生）
-- [ ] Rust 回歸測試
+- [x] Rust 回歸測試：crates/meowpuut-core/tests/pairs_shipped.rs 的 shipped_pairs_first_candidates
+  （舊核心在 ma 就失敗：默哀）
 - [ ] meoweval（Swift 引擎）bench/dev/held 前後
 - [ ] build.sh --test、test-ios.sh、Tests/golden
 - [ ] build-windows-check.sh、build-android.sh --test

@@ -47,3 +47,43 @@ fn shipped_pairs_attach_in_place() {
     let copied = Lexicon::load_binary(&base[64..64 + u32::from_le_bytes(base[20..24].try_into().unwrap()) as usize]).unwrap();
     assert!(Pairs::load(pairs, &copied.index().word_ids).is_none(), "a lexicon without word ids takes no table");
 }
+
+/// With the pair table, a complete syllable gives its word first, not an
+/// abbreviation of two words (ma: 嗎, not 默哀 = m + 哀), and letters that
+/// spell no word still give their abbreviation. Android and Windows show the
+/// core's order as it is.
+#[test]
+fn shipped_pairs_first_candidates() {
+    let mut lex = Lexicon::from_base_in_place(generated("mimo_base.bin"), true, None).unwrap();
+    let table = Pairs::in_place(generated("mimo_pairs.bin"), &lex.index().word_ids, None).unwrap();
+    lex.set_pairs(table);
+    let mut session = Session::new(Arc::new(lex));
+    let cases = [
+        ("ma", "嗎", "吗"),
+        ("ta", "他", "他"),
+        ("de", "的", "的"),
+        ("ba", "吧", "吧"),
+        ("ha", "哈", "哈"),
+        ("la", "啦", "啦"),
+        ("ne", "呢", "呢"),
+        ("wo", "我", "我"),
+        ("ni", "你", "你"),
+        ("shi", "是", "是"),
+        ("nihao", "你好", "你好"),
+        ("xiexie", "謝謝", "谢谢"),
+        ("women", "我們", "我们"),
+        ("xkl", "辛苦了", "辛苦了"),
+        ("zenmb", "怎麼辦", "怎么办"),
+        ("nh", "你好", "你好"),
+    ];
+    for (keys, hant, hans) in cases {
+        for (simplified, expected) in [(false, hant), (true, hans)] {
+            session.clear();
+            session.set_simplified(simplified);
+            for k in keys.bytes() {
+                session.key(i32::from(k));
+            }
+            assert_eq!(session.candidate(0), expected, "{keys}, simplified {simplified}");
+        }
+    }
+}
