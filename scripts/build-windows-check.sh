@@ -9,8 +9,9 @@
 #    (MEOWPUUT_LEXICON_DIR, default iOS/Generated), when the lexicon exists.
 # 3. SVG snapshots of every shape, tone and state, converted to PNG
 #    (macOS: text is measured with Core Text; needs rsvg-convert).
-# 4. MinGW-w64 cross build of the Rust engine, the candidate window and the
-#    preview app, with GCC MinGW-w64 or llvm-mingw (MINGW_BIN).
+# 4. MinGW-w64 cross build of the Rust engine, the candidate window, the
+#    preview app and the text service DLL (scripts/build-windows-ime.sh), with
+#    GCC MinGW-w64 or llvm-mingw (MINGW_BIN).
 #
 # Output: .build/windows-check/
 set -euo pipefail
@@ -109,3 +110,4 @@ done
 "$MCXX" -std=c++17 "${WARN[@]}" -O2 -static -I "$UI" "${PORTABLE[@]}" "$UI/tests/layout_test.cpp" -o "$MW/meowpuut_layout_test.exe"
 cp -R "$UI/Assets" "$MW/Assets"
 echo "Built $MW/MeowpuutCandidatePreview.exe (copy a lexicon folder next to it before running on Windows)"
+bash scripts/build-windows-ime.sh x64 "$OUT/mingw-ime"
