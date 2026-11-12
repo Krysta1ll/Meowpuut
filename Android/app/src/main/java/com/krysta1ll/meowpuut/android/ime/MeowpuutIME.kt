@@ -646,7 +646,9 @@ class MeowpuutIME : InputMethodService(),
         // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
         val wardrobe = FestivalWardrobe(on = prefs.festivals)
         // FestivalOverride: debug builds only; the release build's always returns null.
-        val festival = FestivalOverride.theme(this, festivals, wardrobe) ?: Festivals.theme(java.time.LocalDate.now(), festivals, wardrobe)
+        val today = java.time.LocalDate.now()
+        festivalDay = today
+        val festival = FestivalOverride.theme(this, festivals, wardrobe) ?: Festivals.theme(today, festivals, wardrobe)
         val festivalPill = festival?.let { Look.parseColor((if (dark) it.colors.dark else it.colors.light).lastOrNull()) }
         if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
         look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, festivalPill, wantsMoreContrast(this))
@@ -711,8 +713,13 @@ class MeowpuutIME : InputMethodService(),
         }
     }
 
+    /** The day the festival theme was last looked up for. */
+    private var festivalDay: java.time.LocalDate? = null
+
     private fun refresh(resetPanel: Boolean = false) {
         val view = keyboard ?: return
+        // A keyboard left up past midnight takes the new day's theme, between words only.
+        if (composer.input.isEmpty() && festivalDay != java.time.LocalDate.now()) applyLook()
         val (returnTitle, accent) = returnTitle()
         val context = KeyContext(
             mode = mode,

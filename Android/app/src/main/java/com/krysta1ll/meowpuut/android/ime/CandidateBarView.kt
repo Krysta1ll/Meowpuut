@@ -633,7 +633,7 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
                     else -> TARGET_NONE
                 }
                 when (target) {
-                    TARGET_ROW -> pressedItem = itemAt(x)
+                    TARGET_ROW -> pressedItem = if (toastAlpha(SystemClock.uptimeMillis()) > 0f) -1 else itemAt(x)
                     TARGET_MIMIMO -> pressedCats += Cat.MIMIMO
                     TARGET_MOMO -> pressedCats += Cat.MOMO
                 }
@@ -663,6 +663,9 @@ class CandidateBarView(context: Context, private val sprites: CatSprites) : View
                         val vx = -(velocity?.xVelocity ?: 0f)
                         scroller.fling((scroll * density).roundToInt(), 0, vx.roundToInt(), 0, 0, (maxScroll * density).roundToInt(), 0, 0)
                         postInvalidateOnAnimation()
+                    } else if (toastAlpha(SystemClock.uptimeMillis()) > 0f) {
+                        // The note hides the row: a tap only puts the row back.
+                        toast = null
                     } else {
                         val n = itemAt(x)
                         if (n >= 0) activateItem(items[n])

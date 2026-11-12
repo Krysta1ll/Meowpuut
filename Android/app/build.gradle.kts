@@ -15,8 +15,8 @@ android {
         applicationId = "com.krysta1ll.meowpuut.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 8
+        versionName = "0.8.0"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }

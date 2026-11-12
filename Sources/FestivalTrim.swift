@@ -21,12 +21,18 @@ enum FestivalImages {
         UIImage(named: name, in: bundle, with: nil)?.cgImage
     }
     #else
+    /// Decoded once per name for the life of the process: the candidate
+    /// window redraws on every keystroke. A festival has three pictures.
+    private static var cache: [String: CGImage] = [:]
+
     /// macOS keeps @1x and @2x PNGs next to the manifest; the larger one is drawn.
     static func image(_ name: String) -> CGImage? {
+        if let hit = cache[name] { return hit }
         guard let folder = Festivals.directory else { return nil }
         for file in [name + "@2x.png", name + ".png"] {
-            if let image = NSImage(contentsOf: folder.appendingPathComponent(file)) {
-                return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            if let image = NSImage(contentsOf: folder.appendingPathComponent(file))?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                cache[name] = image
+                return image
             }
         }
         return nil

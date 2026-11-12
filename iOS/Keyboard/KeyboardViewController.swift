@@ -187,6 +187,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
                 .sink { [weak self] _ in self?.relayout() }
                 .store(in: &observers)
         }
+        NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.checkFestivalDay() } }
+            .store(in: &observers)
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitVerticalSizeClass.self,
                                  UITraitHorizontalSizeClass.self, UITraitUserInterfaceIdiom.self]) {
             (controller: KeyboardViewController, _: UITraitCollection) in
@@ -428,9 +431,24 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         case .dark: true
         }
         if ui.dark != dark { ui.dark = dark }
-        let festival = KeyboardFestival.today()
-        if ui.festival != festival { ui.festival = festival }
+        // The theme changes only between words (checkFestivalDay).
+        if engine.snapshot.preedit.isEmpty {
+            festivalDay = Festivals.day(Date())
+            let festival = KeyboardFestival.today()
+            if ui.festival != festival { ui.festival = festival }
+        }
         relayout()
+    }
+
+    /// The day the festival theme was last looked up for.
+    private var festivalDay = ""
+
+    /// A keyboard left up past midnight takes the new day's theme: checked
+    /// when the day changes and after each change to the text, and swapped
+    /// only between words, never while a reading is being composed.
+    private func checkFestivalDay() {
+        guard engine.snapshot.preedit.isEmpty, Festivals.day(Date()) != festivalDay else { return }
+        refreshAppearance()
     }
 
     private func setExpanded(_ expanded: Bool) {
