@@ -56,7 +56,8 @@ boot() {
     -device ramfb -device qemu-xhci -device usb-kbd -device usb-tablet \
     -drive "if=none,id=disk,format=qcow2,file=$VM/disk.qcow2" -device nvme,drive=disk,serial=meowpuut,bootindex=0 \
     "${cd[@]}" \
-    -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:$PORT-:22" \
+    -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$PORT-:22" -device "${WINDOWS_VM_NIC:-virtio-net-pci},netdev=net0" \
+    ${WINDOWS_VM_EXTRA:-} \
     -rtc base=localtime -display none -serial "file:$VM/serial.log" \
     -qmp "unix:$VM/qmp.sock,server=on,wait=off" -pidfile "$VM/qemu.pid" -daemonize
 }
@@ -231,11 +232,13 @@ build_iso() {
   local t="$MEDIA/iso" pro
   rm -rf "$t" && mkdir -p "$t/meow/drivers"
   pro=$(wimlib-imagex info "$MEDIA/windows.esd" | awk '/^Index:/{i=$2} /^Edition ID:/ && $3=="Professional"{print i; exit}')
-  wimlib-imagex apply "$MEDIA/windows.esd" 1 "$t" >/dev/null
+  wimlib-imagex apply "$MEDIA/windows.esd" 1 "$t" >/dev/null 2>&1
+  rm -rf "$t/__chunk_data"
   wimlib-imagex export "$MEDIA/windows.esd" 2 "$t/sources/boot.wim" --compress=LZX --boot >/dev/null
   wimlib-imagex update "$t/sources/boot.wim" 1 \
     --command="add $REPO/scripts/windows-vm/startnet.cmd /Windows/System32/startnet.cmd" >/dev/null
-  wimlib-imagex export "$MEDIA/windows.esd" "$pro" "$t/sources/install.esd" --solid >/dev/null
+  # Recompressed so it holds only Pro and stays under 4 GB (ISO 9660 limit).
+  wimlib-imagex export "$MEDIA/windows.esd" "$pro" "$t/sources/install.esd" --solid --recompress >/dev/null
   xorriso -osirrox on -indev "$MEDIA/virtio-win.iso" -extract /NetKVM/w11/ARM64 "$t/meow/drivers/netkvm" 2>/dev/null
   cp "$MEDIA/OpenSSH-ARM64.zip" "$REPO"/scripts/windows-vm/{deploy.cmd,unattend.xml,firstlogon.ps1} "$t/meow/"
   cp "$VM/ssh/id_ed25519.pub" "$t/meow/authorized_keys"
@@ -261,7 +264,14 @@ cmd_create() {
     echo "Windows PE applies the image, then powers off"
     local t=$SECONDS
     boot "$MEDIA/install.iso"
-    while running; do sleep 15; done
+    while running; do
+      if [ $((SECONDS - t)) -gt 3600 ]; then
+        cmd_screen "$VM/install-stuck.png"
+        echo "error: Windows PE did not finish in an hour; see the screenshot above" >&2
+        exit 1
+      fi
+      sleep 15
+    done
     touch "$VM/installed"
     echo "image applied in $((SECONDS - t)) s"
   fi
