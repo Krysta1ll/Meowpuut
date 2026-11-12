@@ -156,5 +156,6 @@ python3 scripts/import_festivals.py ~/…/Meowpuut_Festivals_24_Collection ~/…
 出貨的 App 和鍵盤沒有這種功能，也沒有隱藏手勢。只有下面這些地方可以：
 
 - Lab App（`MeowpuutKeyboardLab`，不出貨）：`-festivalDay 2026-12-25` 看那天穿哪套，`-festivalTheme halloween` 直接穿某一套，`-festivalOutfits NO`、`-festivalsSkipped '(christmas)'` 模擬設定。這段程式碼只在 `KEYBOARD_LAB` 編譯條件下存在。
+- Android 的 debug 版（release 版沒有）：`adb shell run-as com.krysta1ll.meowpuut.android sh -c 'echo christmas > files/festival'`，寫主題 id 或日期；刪掉檔案就回到今天。
 - 測試：`Festivals.theme(onDay:in:wardrobe:)` 可以指定任何日子。
 - 截圖：Lab 加 `-festivalTheme`（`scripts/ios-keyboard-shots.sh`）；真正的系統鍵盤用 `FESTIVAL_SHOTS=1 bash scripts/ios-real-keyboard-shots.sh`，計畫的 settings 裡寫 `"festivalShotDay"`。
