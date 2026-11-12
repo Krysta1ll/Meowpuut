@@ -8,10 +8,14 @@ import UIKit
 // process draws nothing while they move. No frame sequences are loaded.
 
 extension CatArt {
-    /// The picture for a sprite, from the asset catalog. With `CatArt.sprite`
-    /// this is where a cat's look comes from: a festival that brings its own
-    /// cats returns its picture here.
-    static func image(_ sprite: CatSprite) -> UIImage? { UIImage(named: sprite.name) }
+    /// Pictures that stand in for the asset catalog's, by sprite name: a
+    /// festival puts its cats here and gives their sprites (size, anchor, and
+    /// a cut or none) through the `sprite:` argument of `CatSchedule.arrangement`.
+    static var pictures: [String: UIImage] = [:]
+
+    /// The picture for a sprite. With `CatArt.sprite` this is where a cat's
+    /// look comes from.
+    static func image(_ sprite: CatSprite) -> UIImage? { pictures[sprite.name] ?? UIImage(named: sprite.name) }
 }
 
 /// Outfit images exported by scripts/render_cats.py (@3x), cached.

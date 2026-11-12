@@ -139,13 +139,8 @@ int main(int argc, char **argv) {
     }
     const std::string assets = argv[1], out = argv[2];
     SvgAssets svgAssets;
-    const char *faces[] = {"open", "happy", "blink"};
-    for (int i = 0; i < 3; ++i) {
-        svgAssets.mimimo[i] = dataUri(assets + "/mimimo_" + faces[i] + ".png");
-        svgAssets.momo[i] = dataUri(assets + "/momo_" + faces[i] + ".png");
-    }
-    svgAssets.tail = dataUri(assets + "/mimimo_tail.png");
-    SvgAssets festivalAssets;
+    svgAssets.mimimo = dataUri(assets + "/" + catArt(Cat::Mimimo).image);
+    svgAssets.momo = dataUri(assets + "/" + catArt(Cat::Momo).image);
     std::string festivalName;
 
     std::vector<Scenario> scenarios;
@@ -185,8 +180,9 @@ int main(int argc, char **argv) {
     oceanPanel.model.modeLabel = "拼音 · 繁";
     scenarios.push_back(oceanPanel);
     Scenario hello{"light-capsule-nihao", nihao(), Appearance::Light};
-    hello.model.mimimoFace = CatFace::Blink;
-    hello.model.momoFace = CatFace::Happy;
+    // Both cats a third of the way through their answer to a click.
+    hello.model.reactions[0] = catReaction(Cat::Mimimo, 0.33f);
+    hello.model.reactions[1] = catReaction(Cat::Momo, 0.33f);
     hello.model.pressed = 3;
     scenarios.push_back(hello);
     Scenario zhuyin{"dark-cloud-zhuyin", nihao(), Appearance::Dark};
@@ -209,7 +205,7 @@ int main(int argc, char **argv) {
     single.model.candidates = {"喵"};
     single.model.japanese = {false};
     scenarios.push_back(single);
-    // A short bar: the cloud's first bump stays right of 米米莫's eyes.
+    // A short bar on the cloud.
     for (auto appearance : {Appearance::Light, Appearance::Dark}) {
         Scenario shortCloud{std::string(appearance == Appearance::Light ? "light" : "dark") + "-cloud-short", {}, appearance};
         shortCloud.model.candidates = {"喵", "貓"};
@@ -241,8 +237,8 @@ int main(int argc, char **argv) {
     contrastPanel.model.modeLabel = "拼音 · 繁";
     scenarios.push_back(contrastPanel);
 
-    // Optional festival check: the outfit active on the given date, drawn
-    // with its overlays, replaced frames and pill colour.
+    // Optional festival check: the outfit active on the given date, with its
+    // pill colour. Its cat pictures are not drawn yet (made for the earlier art).
     std::optional<Color> festivalPill;
     if (argc == 5) {
         const std::string dir = argv[3];
@@ -254,21 +250,9 @@ int main(int argc, char **argv) {
         if (!parseLocalDate(argv[4], day)) { std::fprintf(stderr, "bad date %s\n", argv[4]); return 2; }
         const Outfit *outfit = activeOutfit(manifest, day);
         if (!outfit) { std::fprintf(stderr, "no outfit on %s (%s)\n", argv[4], error.c_str()); return 1; }
-        const auto file = [&](const std::string &name) { return name.empty() ? std::string() : dataUri(dir + "/" + outfit->id + "/" + name); };
         Scenario festival{"festival-" + outfit->id, sushi(), Appearance::Light};
-        festival.model.momoFace = CatFace::Happy;
         scenarios.push_back(festival);
-        SvgAssets festive = svgAssets;
-        festive.mimimoBack = file(outfit->mimimo.back);
-        festive.mimimoFront = file(outfit->mimimo.front);
-        festive.momoBack = file(outfit->momo.back);
-        festive.momoFront = file(outfit->momo.front);
-        for (int i = 0; i < 3; ++i) {
-            if (!outfit->mimimo.frames[i].empty()) festive.mimimo[i] = file(outfit->mimimo.frames[i]);
-            if (!outfit->momo.frames[i].empty()) festive.momo[i] = file(outfit->momo.frames[i]);
-        }
         festivalPill = outfit->pill;
-        festivalAssets = festive;
         festivalName = festival.name;
     }
 
@@ -286,10 +270,9 @@ int main(int argc, char **argv) {
         const bool festive = s.name == festivalName;
         if (festive && festivalPill) applyOutfitPill(theme, *festivalPill);
         const Scene scene = buildScene(layout, s.model, theme);
-        const SvgAssets &sprites = festive ? festivalAssets : svgAssets;
-        std::ofstream(out + "/" + s.name + ".svg", std::ios::binary) << renderSvg(scene, sprites, font, 2.0f);
+        std::ofstream(out + "/" + s.name + ".svg", std::ios::binary) << renderSvg(scene, svgAssets, font, 2.0f);
         std::ofstream(out + "/" + s.name + "-on-page.svg", std::ios::binary)
-            << onPage(renderSvg(scene, sprites, font, 1.0f), layout.size, s.appearance == Appearance::Dark, 2.0f);
+            << onPage(renderSvg(scene, svgAssets, font, 1.0f), layout.size, s.appearance == Appearance::Dark, 2.0f);
         std::printf("%s %.0fx%.0f\n", s.name.c_str(), static_cast<double>(layout.size.width),
                     static_cast<double>(layout.size.height));
     }

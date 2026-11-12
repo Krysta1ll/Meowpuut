@@ -18,10 +18,14 @@ enum DesktopCatArt {
         return image
     }
 
+    /// Pictures that stand in for the bundle's, by sprite name (as
+    /// CatArt.pictures on iOS).
+    static var pictures: [String: NSImage] = [:]
+
     /// The picture for a sprite. With `CatArt.sprite` this is where a cat's
-    /// look comes from: a festival that brings its own cats returns its picture here.
+    /// look comes from.
     static func picture(_ sprite: CatSprite) -> Image {
-        image(sprite.name).map { Image(nsImage: $0) } ?? Image(systemName: "cat")
+        (pictures[sprite.name] ?? image(sprite.name)).map { Image(nsImage: $0) } ?? Image(systemName: "cat")
     }
 
     /// Holiday outfit layers (exported at 2x by scripts/render_cats.py).
@@ -370,7 +374,12 @@ struct GlassCandidateView: View {
             .padding(.trailing, chevron ? Desk.rowTrail : Desk.rowTrailPlain)
             .padding(.top, Desk.glassTop + band.top)
             .padding(.bottom, Desk.glass - band.bottom + Desk.glassBottom)
-            .background { glassBar(look).padding(glassInsets) }
+            .background {
+                ZStack {
+                    glassBar(look).padding(glassInsets)
+                    barTrim()
+                }
+            }
             // The cats in front: behind the bar with their paws over its edge, or standing at its end.
             .overlay {
                 GeometryReader { proxy in
@@ -380,6 +389,15 @@ struct GlassCandidateView: View {
                                picture: DesktopCatArt.picture)
                 }
             }
+    }
+
+    /// A decoration laid round the glass's ends (a festival's frame trim)
+    /// goes here: in the bar's whole frame (the glass is at Desk.glassLeft,
+    /// Desk.glassTop), over the glass, under the candidates and the cats. It
+    /// must not take clicks. Nothing is drawn for now; the iOS keyboard's
+    /// counterpart is CandidateRegionView.barTrim.
+    @ViewBuilder private func barTrim() -> some View {
+        EmptyView()
     }
 
     private func plainBar(_ look: CandidateLook) -> some View {

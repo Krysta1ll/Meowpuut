@@ -105,7 +105,6 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
         t.causticCount = 4;
         t.causticOpacity = 0.6f;
         t.spillOpacity = 0.05f;
-        t.frostOpacity = 0.32f;
         t.text = Color::rgb(0xF5EFE9);
         t.secondaryText = Color::rgb(0xF5EFE9, 0.62f);
         t.number = Color::rgb(0xF5EFE9, 0.50f);
@@ -139,7 +138,6 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
         t.causticCount = 6;
         t.causticOpacity = 0.8f;
         t.spillOpacity = 0.075f;
-        t.frostOpacity = 0.14f;
         t.text = Color::rgb(0x3A3334);
         t.secondaryText = Color::rgb(0x7A7072);
         t.number = Color::rgb(0x3A3334, 0.45f);
@@ -154,12 +152,11 @@ Theme makeTheme(Appearance appearance, Palette palette, bool transparencyEnabled
         t.contactShadow = Color::rgb(0x503C3C, 0.16f);
     }
     // With transparency off the glass is one flat colour (DESIGN.md §3): the
-    // border stays, the clear rim, the caustic and the frosted cat go.
+    // border stays; the clear rim and the caustic go.
     if (t.opaque) {
         t.glassTop = t.glassBottom = dark ? Color::rgb(0x2B2729) : Color::rgb(0xF4F2F6);
         t.rimTint = t.rimShade = t.refraction = kClear;
         t.causticCount = 0;
-        t.frostOpacity = 0;
     }
     // The selected pill is a bead of tinted glass.
     t.pillText = kWhite;

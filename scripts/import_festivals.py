@@ -140,10 +140,12 @@ PARTS = ("mimimo", "momo", "frame")
 # the tube may reach; `tau`, how close in colour a pixel there must be to the
 # bare tube to count as tube; `left` and `right`, which cluster goes to that end: "left",
 # "right", the other side mirrored ("left-mirrored", "right-mirrored"), or
-# None for nothing at that end. On the bar the left end has room only for a
+# None for nothing at that end. `bust`: on the bar a dressed cat sits behind
+# the glass like the everyday poses; the glass's top edge cuts it this far
+# (a fraction of the picture's height) below the top of its paint. On the bar the left end has room only for a
 # cluster too small to read (the first candidate starts 12 pt into the glass),
 # so by default only the right end is dressed.
-ADAPT_DEFAULT = {"band": 6.5, "tau": 0.12, "thin": 9, "fragment": 0.08, "left": None, "right": "right"}
+ADAPT_DEFAULT = {"bust": 0.56, "band": 6.5, "tau": 0.12, "thin": 9, "fragment": 0.08, "left": None, "right": "right"}
 ADAPT = {}
 
 # Capsule colours under white text (docs/DESIGN.md §4): light top 3.2:1 and
@@ -309,6 +311,23 @@ def end_piece(clusters, which, scale):
     return image.crop(box)
 
 
+def bust(sprite, depth):
+    """Where the bar's edge crosses a dressed sitting cat seated behind it:
+    the opaque bounds, the row `depth` below their top and the opaque span
+    along that row, as fractions of the picture (CatSprite in
+    Sources/CatSprites.swift)."""
+    alpha = sprite.getchannel("A").point(lambda v: 255 if v > 60 else 0)
+    w, h = sprite.size
+    x0, y0, x1, y1 = alpha.getbbox()
+    row = round(y0 + depth * h)
+    found = runs(alpha.getpixel((x, row)) for x in range(w))
+    if not found:
+        stop("a dressed cat has no paint where the edge would cut it")
+    a, b = found[0][0], found[-1][1] + 1
+    f = lambda v, n: round(v / n, 4)
+    return {"bounds": [f(x0, w), f(y0, h), f(x1 - x0, w), f(y1 - y0, h)], "row": f(row, h), "cut": [f(a, w), f(b, w)]}
+
+
 def sha256(path):
     with open(path, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
@@ -397,7 +416,8 @@ def main():
             ends[end] = {"image": name, "size": [round(piece.width / 3, 2), round(piece.height / 3, 2)]}
 
         def sprite(part):
-            return {"image": f"{ident}_{part}", "size": [cat_w, cat_h], "anchor": t["catAnchorNormalized"]}
+            return {"image": f"{ident}_{part}", "size": [cat_w, cat_h], "anchor": t["catAnchorNormalized"],
+                    "bust": bust(Image.open(images[(f"{ident}_{part}", 3)]), adapt["bust"])}
 
         themes.append({
             "id": ident,

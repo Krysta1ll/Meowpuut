@@ -124,6 +124,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         var shape: GlassShape
         var setting: String
         var day: Int
+        var festival: String?
     }
     private var catInputs: CatInputs?
     private var t: InterfaceText { InterfaceText(simplified: Preferences.shared.simplified) }
@@ -386,11 +387,20 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     /// the shape, the setting or the day changes.
     private func placeCats(_ region: CandidateRegionLayout) {
         let prefs = Preferences.shared
-        let inputs = CatInputs(region: region, shape: prefs.glassShape, setting: prefs.catPlacement, day: catDay)
+        let theme = ui.outfit?.theme
+        let inputs = CatInputs(region: region, shape: prefs.glassShape, setting: prefs.catPlacement, day: catDay, festival: theme?.id)
         guard inputs != catInputs else { return }
         catInputs = inputs
+        let stage = region.stage(shape: inputs.shape)
+        // On a festival day the dressed pair sits at the two ends; where that
+        // does not fit, the everyday cats keep their place of the day.
+        let dressed = theme.flatMap { theme in
+            CatSchedule.arrangement(setting: "ends", day: catDay, on: stage, sprite: { cat, pose in
+                theme.catSprite(cat) ?? CatArt.sprite(cat, pose)
+            }).flatMap { $0.arrangement.id == "ends" ? $0.places : nil }
+        }
         let places = region.cats
-            ? CatSchedule.arrangement(setting: inputs.setting, day: catDay, on: region.stage(shape: inputs.shape))?.places ?? [] : []
+            ? dressed ?? CatSchedule.arrangement(setting: inputs.setting, day: catDay, on: stage)?.places ?? [] : []
         if ui.cats != places { ui.cats = places }
     }
 
@@ -405,15 +415,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         return built
     }
 
-    /// Today's festival theme (docs/FESTIVALS.md). Until the dressed cats
-    /// are on the bar it is shown only in the lab and in festival screenshot
-    /// builds: the trim and colours with the plain cats are not shipped.
+    /// Today's festival theme (docs/FESTIVALS.md), if one is worn.
     private func activeOutfit(dark: Bool) -> FestivalOutfit? {
-        #if KEYBOARD_LAB || FESTIVAL_SHOTS
-        return KeyboardFestival.today().map { FestivalOutfit(theme: $0, dark: dark) }
-        #else
-        return nil
-        #endif
+        KeyboardFestival.today().map { FestivalOutfit(theme: $0, dark: dark) }
     }
 
     private func refreshAppearance() {

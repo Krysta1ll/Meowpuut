@@ -109,3 +109,15 @@ struct FestivalEndsView: View {
         .accessibilityHidden(true)
     }
 }
+
+extension FestivalTheme {
+    /// The dressed cat as the bar's stage takes it: seated behind the glass
+    /// like the everyday poses, the edge across its chest, no paws in front.
+    func catSprite(_ cat: KeyboardCat) -> CatSprite? {
+        let sprite = cat == .mimimo ? mimimo : momo
+        guard let bust = sprite.bust else { return nil }
+        let b = bust.bounds
+        return CatSprite(name: sprite.image, size: sprite.size, anchor: CGPoint(x: (bust.cut[0] + bust.cut[1]) / 2, y: bust.row),
+                         bounds: CGRect(x: b[0], y: b[1], width: b[2], height: b[3]), cut: bust.cut[0]...bust.cut[1], paws: [])
+    }
+}

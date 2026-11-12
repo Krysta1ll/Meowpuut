@@ -32,17 +32,28 @@ struct FestivalTheme: Decodable, Equatable, Identifiable {
     /// One cat's dressed sprite: logical size in points, and where its feet
     /// are as a fraction of the size from the top left.
     struct Sprite: Decodable, Equatable {
+        /// Where the bar's top edge crosses the cat when it sits behind the
+        /// glass, in fractions of the picture: its opaque bounds, the row the
+        /// edge runs along and the opaque span on that row (the importer's `bust`).
+        struct Bust: Decodable, Equatable {
+            var bounds: [CGFloat]
+            var row: CGFloat
+            var cut: [CGFloat]
+        }
+
         var image: String
         var size: CGSize
         var anchor: CGPoint
+        var bust: Bust?
 
-        private enum Keys: String, CodingKey { case image, size, anchor }
+        private enum Keys: String, CodingKey { case image, size, anchor, bust }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
             image = try c.decode(String.self, forKey: .image)
             size = try Self.pair(c.decode([CGFloat].self, forKey: .size), c, .size).size
             anchor = try Self.pair(c.decode([CGFloat].self, forKey: .anchor), c, .anchor).point
+            bust = try c.decodeIfPresent(Bust.self, forKey: .bust).flatMap { $0.bounds.count == 4 && $0.cut.count == 2 ? $0 : nil }
         }
 
         static func pair<K: CodingKey>(_ v: [CGFloat], _ c: KeyedDecodingContainer<K>, _ key: K) throws -> (size: CGSize, point: CGPoint) {
