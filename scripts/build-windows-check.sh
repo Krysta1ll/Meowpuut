@@ -66,6 +66,9 @@ if [ "$(uname)" = Darwin ] && command -v rsvg-convert >/dev/null; then
   rm -rf "$OUT/previews"
   mkdir -p "$OUT/previews"
   "$OUT/render_previews" "$UI/Assets" "$OUT/previews"
+  # A festival day: the dressed cats, the ornament cluster and the capsule colour
+  # (any other theme id or a yyyy-MM-dd date works the same way).
+  "$OUT/render_previews" "$UI/Assets" "$OUT/previews" "$UI/Assets/festivals" christmas
   for svg in "$OUT"/previews/*.svg; do rsvg-convert "$svg" -o "${svg%.svg}.png"; done
   echo "PNG snapshots in $OUT/previews"
 else

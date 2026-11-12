@@ -716,6 +716,24 @@ void testFestivals() {
     }
     CHECK(compared == 1826 && wrong == 0 && some.skipped.size() == 4);
 
+    // A festival day: the dressed pair at the ends, the cluster past the arrow, on every shape.
+    for (const auto &theme : shipped.themes) {
+        const auto art = festivalArt(theme);
+        CHECK(art != nullptr && art->rightWidth > 0);
+        if (!art) continue;
+        for (auto shape : {GlassShape::Capsule, GlassShape::Wave, GlassShape::Cloud}) {
+            FixedMeasurer measurer;
+            auto model = sample();
+            model.shape = shape;
+            model.festival = art;
+            const auto L = layoutCandidates(model, measurer);
+            CHECK(L.dressed && L.cats.size() == 2 && L.ornament && L.ornament->x > L.chevron.midX() && L.ornament->right() <= L.size.width);
+            model.decorations = false;  // high contrast: no cats, no ornaments
+            const auto plain = layoutCandidates(model, measurer);
+            CHECK(!plain.dressed && !plain.ornament);
+        }
+    }
+
     CHECK(parseFestivalManifest(R"({"version":1,"outfits":[]})").themes.empty());
     CHECK(parseFestivalManifest("").themes.empty());
     CHECK(parseFestivalManifest("{not json").themes.empty());
