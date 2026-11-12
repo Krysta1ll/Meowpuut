@@ -9,7 +9,15 @@
 - [x] 交叉編譯：`scripts/build-windows-ime.sh x64|arm64`（llvm-mingw 20261020 在 `/Users/scarletkrimilia/Documents/Projects/Meowpuut/.build/toolchains/`）；`build-windows-check.sh` 第 4 段也編 x64 DLL
 - [x] 安裝、移除腳本與打包：`scripts/package-windows.sh` → `.build/windows-package/Meowpuut-0.8.0-alpha.1-windows-{x64,arm64}.zip`
 - [x] Windows/README.md 改寫
-- [ ] 在 VM 上實測（VM 代理的 `scripts/windows-vm.sh` 還在安裝 Windows）
+- [x] `ITfTextLayoutSink`（Chromium 晚給位置時重擺候選窗）、同一版重裝不覆蓋使用中的 DLL
+- [ ] 在 VM 上實測（13:29 時 VM 代理還在 WinPE 裡裝 Windows，沒有 `installed`）
+
+最後打包：commit ae94bb9，`.build/windows-package/`（這個 worktree 底下）
+- `Meowpuut-0.8.0-alpha.1-windows-x64.zip` 39,492,480 bytes，SHA-256 e3e9cfa063bbebf76e1a8112ef99c421e56d503ff1984ad4369218a415affc91
+- `Meowpuut-0.8.0-alpha.1-windows-arm64.zip` 39,426,992 bytes，SHA-256 31d551b5eb290be1ebb2228cb195f84619012b3ab1fa097425c81a8779a02ac3
+- 之後若再提交，重跑 `MINGW_BIN=… MEOWPUUT_LEXICON_DIR=/Users/scarletkrimilia/Documents/Projects/Meowpuut/iOS/Generated bash scripts/package-windows.sh`，BUILD-INFO 的 commit 才對得上。
+
+VM 用的驅動：`/private/tmp/claude-501/-Users-scarletkrimilia-Documents-Projects-Meowpuut/5b918450-7542-4720-b593-bb806111566a/scratchpad/vm.py`（QMP 按鍵、滑鼠、截圖），還沒對 VM 用過。
 
 ## 在 Windows 上跑過的
 
