@@ -148,10 +148,6 @@ targets:
         type: folder
         buildPhase: resources
       - Festivals.xcassets
-      - path: LabFestivals
-        type: folder
-        buildPhase: resources
-        optional: true
       - path: Generated/mimo_base.bin
         buildPhase: resources
       - path: Generated/mimo_pairs.bin

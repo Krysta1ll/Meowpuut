@@ -19,7 +19,7 @@ bash scripts/test-ios.sh --simulator <udid>   # 另外在模擬器上用真正�
 | `Keyboard/` | 鍵盤擴充 |
 | `Lab/` | 開發用 App，把鍵盤的控制器放進一般 App，用啟動參數開到任何狀態。不隨產品出貨 |
 | `Photos/` | 首頁的生活照和 `photos.json`。照片是私人的，不放進倉庫（`.gitignore`）；沒有這個資料夾時 `scripts/prepare-ios.sh` 會建一份空清單，首頁就不顯示相簿 |
-| `Festivals/` | 節日裝扮清單，平時是空的。`LabFestivals/` 只給 Lab 測試用 |
+| `Festivals/`、`Festivals.xcassets` | 節日衣櫥的清單和圖（docs/FESTIVALS.md），只放在鍵盤擴充裡，App 從內嵌的擴充讀 |
 | `tests/` | 單元測試，每個檔案是一支獨立程式，由 `scripts/test-ios.sh` 編譯執行 |
 | `Generated/` | `scripts/prepare-ios.sh` 產生的詞庫、授權文字和圖示 |
 

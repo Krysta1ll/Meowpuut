@@ -274,6 +274,11 @@ cases = [
  ("Japanese ー joins the reading and Return keeps the kana", JA, "keys:ge;tap:symbols;tap:ー;keys:mu;tap:return", dict(text="げーむ", page=0)),
  ("Japanese shows every candidate", JA, "keys:neko", dict(_has="猫")),
  ("capitals put katakana first", JA, "tap:shift;tap:shift;keys:sushi", dict(_first="スシ")),
+ ("no festival theme on an ordinary day", PY + ["-festivalDay", "2026-11-12"], "keys:a", dict(festival="")),
+ ("the festival theme follows the date", PY + ["-festivalDay", "2026-12-25"], "keys:a", dict(festival="christmas")),
+ ("a theme switched off in the app gives way", PY + ["-festivalDay", "2026-12-20", "-festivalsSkipped", "(winter_solstice)"], "keys:a", dict(festival="christmas")),
+ ("跟著節日換裝 off means no theme", PY + ["-festivalDay", "2026-12-25", "-festivalOutfits", "NO"], "keys:a", dict(festival="")),
+ ("the lab can wear any theme", PY + ["-festivalTheme", "halloween"], "keys:a", dict(festival="halloween")),
 ]
 
 failed = 0
