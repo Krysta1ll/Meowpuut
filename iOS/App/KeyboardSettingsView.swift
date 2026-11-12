@@ -94,6 +94,7 @@ struct KeyboardSettingsView: View {
                     }
                 }
                 Section {
+                    NavigationLink(t("隱私政策", "隐私政策")) { PrivacyView() }
                     NavigationLink(t("開源授權", "开源许可")) { LicensesView() }
                 }
             }
