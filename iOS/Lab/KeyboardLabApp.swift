@@ -100,6 +100,10 @@ final class LabViewController: UIViewController {
         let args = UserDefaults.standard
         KeyboardFestival.labDay = args.string(forKey: "festivalDay")
         KeyboardFestival.labTheme = args.string(forKey: "festivalTheme")
+        // From this launch's arguments only: the saved values are the last run's.
+        let launch = args.volatileDomain(forName: UserDefaults.argumentDomain)
+        Preferences.shared.festivalOutfits = (launch["festivalOutfits"] as? String).map { $0 == "YES" } ?? true
+        Preferences.shared.festivalsSkipped = launch["festivalsSkipped"] as? [String] ?? []
         dark = args.string(forKey: "candidateTone") == "dark"
         overrideUserInterfaceStyle = dark ? .dark : .light
         // Set on every launch, so one run does not carry over into the next.
