@@ -36,29 +36,38 @@ pub fn whole_word_score(lexicon: &Lexicon, index: usize) -> f64 {
     }
 }
 
-/// Pushes the spelled words that read as the whole input (every word in
-/// zhuyin), scored as one-word paths; the kinds are those the decoder gives
-/// whole-input words.
-pub fn push_whole_words(lexicon: &Lexicon, reading: &Reading, input: &str, hans: bool, metadata: bool, out: &mut DecodeOutputSoA) {
+/// Pushes the words that read as the whole input (every word in zhuyin),
+/// scored as one-word paths: the spelled words, and with `abbreviations` the
+/// abbreviation rows too (默哀 for ma). An abbreviation row has an eighth of
+/// its word's weight, so it comes after the common spelled words (嗎 before
+/// 默哀). It gets no clause start and end terms, which would outweigh the
+/// small weight differences between abbreviation rows. The kinds are those
+/// the decoder gives whole-input words.
+pub fn push_whole_words(lexicon: &Lexicon, reading: &Reading, input: &str, hans: bool, abbreviations: bool, metadata: bool, out: &mut DecodeOutputSoA) {
     let (lo, hi) = lexicon.range(reading.sounds());
     for index in lo..hi {
         if out.len() == CANDIDATE_LIMIT {
             return;
         }
-        let spelled = lexicon.words.is_fully_spelled(index);
-        if lexicon.pinyin && !spelled
+        let spelled = !lexicon.pinyin || lexicon.words.is_fully_spelled(index);
+        if !spelled && !abbreviations
             || !reading.matches(lexicon.words.reading(&lexicon.storage, index).as_bytes(), 0, reading.len())
         {
             continue;
         }
-        let kind = if reading.unambiguous && (!metadata || !lexicon.pinyin || lexicon.words.is_verified_spelling(index)) {
+        let kind = if !reading.unambiguous {
+            CandidateKind::Unknown
+        } else if !spelled {
+            CandidateKind::Correction
+        } else if !metadata || !lexicon.pinyin || lexicon.words.is_verified_spelling(index) {
             CandidateKind::Exact
         } else {
             CandidateKind::Unknown
         };
         let text = lexicon.words.text(&lexicon.storage, index, hans);
         if !out.contains_text(text) {
-            out.push(text, input.len(), kind as u32, CandidateScoreKind::Lexicon as u32, whole_word_score(lexicon, index));
+            let score = if spelled { whole_word_score(lexicon, index) } else { f64::from(lexicon.words.weight(index)) / 700.0 - 19.0 };
+            out.push(text, input.len(), kind as u32, CandidateScoreKind::Lexicon as u32, score);
         }
     }
 }

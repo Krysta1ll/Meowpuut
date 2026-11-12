@@ -106,17 +106,20 @@ pub fn decode_with_buffers(
         }
     };
 
-    // With a pair table only abbreviation rows are listed first here; the
-    // spelled whole-input words compete with the paths by score (merge.rs).
+    // With a pair table the spelled whole-input words compete with the paths
+    // by score (merge.rs). Abbreviation rows are listed first here only when
+    // no spelled word reads as the whole input (nh, xkl); otherwise they are
+    // scored with the spelled words and come after them (嗎 before 默哀 for ma).
     let ranked = lexicon.pairs().is_some();
     let (whole_lo, whole_hi) = lexicon.range(reading.sounds());
+    let whole = |index: usize| reading.matches(lexicon.words.reading(&lexicon.storage, index).as_bytes(), 0, length);
+    let spelled_whole = ranked && (whole_lo..whole_hi).any(|i| lexicon.words.is_fully_spelled(i) && whole(i));
     for index in whole_lo..whole_hi {
-        let wr = lexicon.words.reading(&lexicon.storage, index).as_bytes();
         let spelled = lexicon.words.is_fully_spelled(index);
-        if ranked && (spelled || !lexicon.pinyin) {
+        if ranked && (spelled || !lexicon.pinyin || spelled_whole) {
             continue;
         }
-        if (!complete_only || spelled) && reading.matches(wr, 0, length) {
+        if (!complete_only || spelled) && whole(index) {
             let kind = if !reading.unambiguous {
                 CandidateKind::Unknown as u32
             } else if lexicon.pinyin && !spelled {
@@ -149,7 +152,7 @@ pub fn decode_with_buffers(
     let mut sort_from: Option<usize> = None;
     if ranked {
         sort_from = Some(out.len());
-        merge::push_whole_words(lexicon, &reading, input, hans, compute_metadata, out);
+        merge::push_whole_words(lexicon, &reading, input, hans, spelled_whole && !complete_only, compute_metadata, out);
         if !complete_only && input == reading.sounds() {
             merge::push_mixed_whole(lexicon, input, hans, out);
         }

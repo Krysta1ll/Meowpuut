@@ -130,16 +130,35 @@ static void verifyPrintableAcceptance(meowpuut::Session &session, meowpuut::Inpu
         require(allowed == session.key(ch), "query and core key handling disagree");
     }
 }
-// The text service's way in: mimo_base.bin read in place, one lexicon shared
-// by several sessions, and commit() to finish a reading.
+// The text service's way in: mimo_base.bin read in place with mimo_pairs.bin
+// attached when it lies next to it, one lexicon shared by several sessions,
+// and commit() to finish a reading.
 static void verifySharedBase(const std::filesystem::path &base, const std::filesystem::path &japanese) {
-    std::ifstream file(base, std::ios::binary);
-    auto *bytes = new std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const auto read = [](const std::filesystem::path &path) {
+        std::ifstream file(path, std::ios::binary);
+        return new std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    };
+    auto *bytes = read(base);
     require(!bytes->empty(), "mimo_base.bin readable");
     const auto release = [](void *context) { delete static_cast<std::string *>(context); };
     MPNLexicon *raw = mpn_lexicon_create_from_base_in_place(bytes->data(), bytes->size(), 1, release, bytes);
     require(raw != nullptr, "mimo_base.bin loads in place");
+    const auto pairsPath = base.parent_path() / "mimo_pairs.bin";
+    const bool pairs = std::filesystem::exists(pairsPath);
+    if (pairs) {
+        auto *table = read(pairsPath);
+        require(mpn_lexicon_attach_pairs(raw, table->data(), table->size(), release, table) == 1, "mimo_pairs.bin attaches");
+    }
     const meowpuut::SharedLexicon lexicon(raw, mpn_lexicon_destroy);
+    if (pairs) {
+        // A complete syllable gives its word first, not an abbreviation (ma: 嗎, not 默哀).
+        meowpuut::Session ranked(lexicon, true);
+        for (const auto &[keys, word] : {std::pair{"ma", u8"嗎"}, {"de", u8"的"}, {"wo", u8"我"}, {"nh", u8"你好"}}) {
+            ranked.clear();
+            type(ranked, keys);
+            require(indexOf(ranked.takeSnapshot(), word) == 0, "word-pair ranking: first candidate");
+        }
+    }
     meowpuut::Session first(lexicon, true), second(lexicon, true);
     first.registerJapaneseWords(japanese);
     type(first, "nihao");
