@@ -11,6 +11,10 @@ final class KeyboardUIState: ObservableObject {
     @Published var expanded = false
     @Published var dark = false
     @Published var outfit: FestivalOutfit?
+    /// Where 米米莫 and 莫莫 sit today (CatSchedule); empty without the cats.
+    @Published var cats: [CatPlacement] = []
+    /// False while the keyboard is off screen: the cats stop moving.
+    @Published var active = true
     /// English: completions and a correction for the word before the caret.
     @Published var suggestions: [String] = []
     /// Bumped when the extension reappears to rebuild the decorative layer.
@@ -113,15 +117,9 @@ struct CandidateRegionView: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var mimimoHappy = false
-    @State private var momoHappy = false
-    @State private var mimimoJoy = 0
-    @State private var momoJoy = 0
-    @State private var mimimoMotion = 0
-    @State private var momoMotion = 0
-    @State private var mimimoPressed = false
-    @State private var momoPressed = false
-    @State private var momoBlush: Double = 0
+    /// Touches each cat has had; a change plays its reaction.
+    @State private var pets: [KeyboardCat: Int] = [:]
+    @State private var pressedCat: KeyboardCat?
     @State private var affection = CatAffection()
     @State private var particles: [CatParticle] = []
     @State private var toast: CatToast?
@@ -139,22 +137,16 @@ struct CandidateRegionView: View {
     var body: some View {
         let layout = ui.region
         let band = CandidateGlassShape.contentBand(preferences.glassShape, height: layout.glass.height)
+        let stage = layout.stage(shape: preferences.glassShape)
         ZStack(alignment: .topLeading) {
-            if layout.cats {
-                LiveCatView(cat: .mimimo, happy: mimimoHappy, motion: mimimoMotion,
-                            pressed: mimimoPressed, look: composing ? 1 : 0, outfit: ui.outfit)
-                    .frame(width: layout.mimimo.width, height: layout.mimimo.height)
-                    .position(x: layout.mimimo.midX, y: layout.mimimo.midY)
-            }
             LiquidGlassBar(style: preferences.glassShape, dark: dark, accessible: accessible,
                            strength: preferences.glassStrength, tint: accent)
                 .equatable()
                 .frame(width: layout.glass.width, height: layout.glass.height)
                 .position(x: layout.glass.midX, y: layout.glass.midY)
             if layout.cats && !accessible && !dark {
-                // The row starts over 米米莫's dark body behind the glass: a soft
-                // light band there keeps dark text readable (CandidateBarPreview draws the same).
-                let span = layout.mimimo.maxX + 10 * layout.scale - layout.row.minX
+                // The soft light band at the start of the row (CandidateBarPreview draws the same).
+                let span = layout.lightBand
                 Capsule().fill(Color.white.opacity(0.5))
                     .frame(width: span, height: layout.pillHeight)
                     .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.6),
@@ -163,48 +155,27 @@ struct CandidateRegionView: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
-            if layout.cats {
-                // Under the row: where 米米莫 and the first candidate overlap, a tap chooses the candidate.
-                petZone(.mimimo, rect: layout.mimimo)
-            }
+            barTrim(layout)
+            // Under the row and the expand key: where a cat's touch area meets them, the tap is theirs.
+            ForEach(ui.cats, id: \.cat) { place in petZone(place.cat, rect: place.touch(on: stage)) }
             rowContent(layout)
                 .frame(width: layout.row.width, height: band.bottom - band.top)
                 .position(x: layout.row.midX, y: layout.glass.minY + (band.top + band.bottom) / 2)
-            if layout.cats && preferences.glassShape == .capsule {
-                Image("mimimo_tail").resizable().interpolation(.high)
-                    .frame(width: layout.tail.width, height: layout.tail.height)
-                    .position(x: layout.tail.midX, y: layout.tail.midY)
+            if !ui.cats.isEmpty {
+                CatStageView(scene: CatLayersView.Scene(places: ui.cats, glass: layout.glass, shape: preferences.glassShape,
+                                                        dark: dark, shadows: !accessible),
+                             active: ui.active, composing: composing, pressed: pressedCat, pets: pets)
+                    .frame(width: layout.width, height: layout.height)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
-            }
-            if layout.cats && !accessible {
-                // 莫莫 rests her chin on the glass: a soft shadow where she touches it.
-                Ellipse()
-                    .fill(Color(red: 0.25, green: 0.16, blue: 0.12).opacity(dark ? 0.35 : 0.16))
-                    .frame(width: layout.momo.width * 0.62, height: layout.momo.height * 0.16)
-                    .blur(radius: 4)
-                    .position(x: layout.momo.midX - layout.momo.width * 0.04, y: layout.momo.maxY - layout.momo.height * 0.06)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            if layout.cats {
-                LiveCatView(cat: .momo, happy: momoHappy, motion: momoMotion,
-                            pressed: momoPressed, look: composing ? 1 : 0, blush: momoBlush, outfit: ui.outfit)
-                    .frame(width: layout.momo.width, height: layout.momo.height)
-                    .position(x: layout.momo.midX, y: layout.momo.midY)
-                petZone(.momo, rect: CGRect(x: layout.momo.minX + 12 * layout.scale, y: max(0, layout.momo.minY),
-                                            width: layout.momo.width - 12 * layout.scale, height: layout.momo.height))
             }
             chevron(layout)
             ForEach(particles) { particle in
+                // From the cat's brow upward. A keyboard cannot draw above
+                // its own top edge, so the flight (16 pt) ends inside it.
+                let box = ui.cats.first { $0.cat == particle.cat }?.visible ?? .zero
                 CatParticleView(particle: particle)
-                    // From the cat's brow upward. A keyboard cannot draw above
-                    // its own top edge, so the flight (16 pt) ends inside it.
-                    .position(x: particle.cat == .mimimo ? layout.mimimo.minX + layout.mimimo.width * 0.6
-                                                         : layout.momo.minX + layout.momo.width * 0.45,
-                              y: max(17 + particle.size / 2,
-                                     particle.cat == .mimimo ? layout.mimimo.minY + layout.mimimo.height * 0.36
-                                                             : layout.momo.minY + layout.momo.height * 0.30))
+                    .position(x: box.midX, y: max(17 + particle.size / 2, box.minY + box.height * 0.3))
             }
             if let toast {
                 CatToastView(toast: toast, dark: dark, tint: accent)
@@ -223,26 +194,9 @@ struct CandidateRegionView: View {
             try? await Task.sleep(for: .seconds(current.emphasis ? 2.4 : 1.4))
             if !Task.isCancelled, toast?.id == current.id { toast = nil }
         }
-        .task(id: momoJoy) {
-            guard momoJoy > 0 else { return }
-            momoHappy = true
-            try? await Task.sleep(for: .milliseconds(900))
-            if !Task.isCancelled { momoHappy = false }
-        }
-        .task(id: mimimoJoy) {
-            guard mimimoJoy > 0 else { return }
-            mimimoHappy = true
-            try? await Task.sleep(for: .milliseconds(700))
-            if !Task.isCancelled { mimimoHappy = false }
-        }
-        .task(id: momoMotion) {
-            // Her blush fades once the petting stops.
-            try? await Task.sleep(for: .seconds(2.2))
-            if !Task.isCancelled { momoBlush = 0 }
-        }
         .onChange(of: composing) { was, now in
             // 米米莫 ducks and shakes his head whenever text is committed.
-            if was && !now { mimimoMotion &+= 1 }
+            if was && !now { pets[.mimimo, default: 0] &+= 1 }
         }
         // The rest of the pool belongs to one reading in one script. 莫莫
         // can switch the script while the reading stays.
@@ -515,12 +469,19 @@ struct CandidateRegionView: View {
 
     // MARK: Cats
 
+    /// A decoration laid round the glass's ends (a festival's frame trim)
+    /// goes here: over the glass, under the candidates and the cats. It must
+    /// not take touches. Nothing is drawn for now.
+    @ViewBuilder private func barTrim(_ layout: CandidateRegionLayout) -> some View {
+        EmptyView()
+    }
+
     private func petZone(_ cat: KeyboardCat, rect: CGRect) -> some View {
         Button { pet(cat) } label: {
             Color.clear.frame(width: max(1, rect.width), height: max(1, rect.height)).contentShape(Rectangle())
         }
         .buttonStyle(CatPetButtonStyle { pressed in
-            if cat == .mimimo { mimimoPressed = pressed } else { momoPressed = pressed }
+            if pressed { pressedCat = cat } else if pressedCat == cat { pressedCat = nil }
         })
         .position(x: rect.midX, y: rect.midY)
         .accessibilityLabel(cat == .mimimo ? "摸摸米米莫" : "摸摸莫莫")
@@ -531,19 +492,14 @@ struct CandidateRegionView: View {
         UIDevice.current.playInputClick()
         switch cat {
         case .mimimo:
-            // Mischievous and a little aloof: sometimes he smiles, sometimes
-            // he only hops and keeps his look.
-            mimimoMotion &+= 1
-            if Bool.random() { mimimoJoy &+= 1 }
+            pets[.mimimo, default: 0] &+= 1
             let symbol = ["pawprint.fill", "music.note", "questionmark", "exclamationmark", "sparkle"].randomElement() ?? "pawprint.fill"
             emit(CatParticle(symbol: symbol, cat: .mimimo, size: 10, drift: CGFloat.random(in: 4...10),
                              tint: Color(red: 0.86, green: 0.66, blue: 0.24)))
         case .momo:
-            momoMotion &+= 1
-            momoJoy &+= 1
+            pets[.momo, default: 0] &+= 1
             switch affection.pet() {
             case .pleased(let count):
-                momoBlush = Double(count) / Double(CatAffection.petsToSwitch)
                 emit(CatParticle(symbol: "heart.fill", cat: .momo, size: 8 + CGFloat(count) * 1.5,
                                  drift: -CGFloat.random(in: 4...10), tint: Color(red: 0.95, green: 0.45, blue: 0.55)))
                 if count >= 2 {
@@ -554,10 +510,8 @@ struct CandidateRegionView: View {
                                      hearts: ui.region.row.width >= 230 ? count : nil)
                 }
             case .happy:
-                momoBlush = 1
                 celebrate()
             case .resting:
-                momoBlush = 1
                 emit(CatParticle(symbol: "heart.fill", cat: .momo, size: 9, drift: -CGFloat.random(in: 4...10),
                                  tint: Color(red: 0.95, green: 0.45, blue: 0.55)))
             }
@@ -577,9 +531,8 @@ struct CandidateRegionView: View {
             emit(CatParticle(symbol: index == 1 ? "sparkles" : "heart.fill", cat: .momo, size: 10 + CGFloat(index) * 2,
                              drift: -CGFloat(4 + index * 5), tint: Color(red: 0.95, green: 0.45, blue: 0.55)))
         }
-        // 米米莫 notices and perks up too.
-        mimimoMotion &+= 1
-        mimimoJoy &+= 1
+        // 米米莫 notices too.
+        pets[.mimimo, default: 0] &+= 1
     }
 
     private func emit(_ particle: CatParticle) {

@@ -1,0 +1,446 @@
+{
+  "animations" : [
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "atlasColumns" : 8,
+      "atlasOrder" : "row-major, top-left origin",
+      "fps" : 24,
+      "frames" : 48,
+      "id" : "mimimo_idle",
+      "kind" : "2D transform animation; not rigged 3D",
+      "loop" : true,
+      "path" : "software\/animation\/mimimo_idle",
+      "size" : [
+        192,
+        192
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "atlasColumns" : 6,
+      "atlasOrder" : "row-major, top-left origin",
+      "fps" : 24,
+      "frames" : 18,
+      "id" : "mimimo_pet",
+      "kind" : "2D transform animation; not rigged 3D",
+      "loop" : false,
+      "path" : "software\/animation\/mimimo_pet",
+      "size" : [
+        192,
+        192
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "atlasColumns" : 8,
+      "atlasOrder" : "row-major, top-left origin",
+      "fps" : 24,
+      "frames" : 48,
+      "id" : "momo_idle",
+      "kind" : "2D transform animation; not rigged 3D",
+      "loop" : true,
+      "path" : "software\/animation\/momo_idle",
+      "size" : [
+        192,
+        192
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "atlasColumns" : 6,
+      "atlasOrder" : "row-major, top-left origin",
+      "fps" : 24,
+      "frames" : 18,
+      "id" : "momo_pet",
+      "kind" : "2D transform animation; not rigged 3D",
+      "loop" : false,
+      "path" : "software\/animation\/momo_pet",
+      "size" : [
+        192,
+        192
+      ]
+    }
+  ],
+  "artwork" : "Generated character illustrations; no 3D rig or mesh included.",
+  "colorSpace" : "sRGB",
+  "edgeSprites" : [
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.83999999999999997
+      ],
+      "anchorPurpose" : "candidate top edge; paws overlap below rim",
+      "id" : "mimimo_edge_rest",
+      "logicalSize" : [
+        72,
+        80
+      ],
+      "nativeTrimmedPixels" : [
+        348,
+        388
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.83999999999999997
+      ],
+      "anchorPurpose" : "candidate top edge; paws overlap below rim",
+      "id" : "mimimo_edge_lounge",
+      "logicalSize" : [
+        112,
+        72
+      ],
+      "nativeTrimmedPixels" : [
+        571,
+        356
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.83999999999999997
+      ],
+      "anchorPurpose" : "candidate top edge; paws overlap below rim",
+      "id" : "mimimo_edge_peek",
+      "logicalSize" : [
+        64,
+        64
+      ],
+      "nativeTrimmedPixels" : [
+        318,
+        308
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.83999999999999997
+      ],
+      "anchorPurpose" : "candidate top edge; paws overlap below rim",
+      "id" : "momo_edge_rest",
+      "logicalSize" : [
+        72,
+        80
+      ],
+      "nativeTrimmedPixels" : [
+        343,
+        400
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.83999999999999997
+      ],
+      "anchorPurpose" : "candidate top edge; paws overlap below rim",
+      "id" : "momo_edge_lounge",
+      "logicalSize" : [
+        112,
+        72
+      ],
+      "nativeTrimmedPixels" : [
+        558,
+        347
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.83999999999999997
+      ],
+      "anchorPurpose" : "candidate top edge; paws overlap below rim",
+      "id" : "momo_edge_peek",
+      "logicalSize" : [
+        64,
+        64
+      ],
+      "nativeTrimmedPixels" : [
+        303,
+        304
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.85164928486293201,
+        0.58301549463647195
+      ],
+      "anchorPurpose" : "vertical side edge; y is center of paw grip",
+      "id" : "mimimo_side_hold",
+      "logicalSize" : [
+        64,
+        88
+      ],
+      "nativeTrimmedPixels" : [
+        597,
+        839
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.12630632040050066,
+        0.56664580725907387
+      ],
+      "anchorPurpose" : "vertical side edge; y is center of paw grip",
+      "id" : "momo_side_hold",
+      "logicalSize" : [
+        64,
+        88
+      ],
+      "nativeTrimmedPixels" : [
+        557,
+        799
+      ],
+      "origin" : "top-left",
+      "rotation" : 0,
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    }
+  ],
+  "name" : "Meowpuut 06 Character Assets",
+  "pngAlpha" : "straight alpha RGBA; antialiased silhouettes",
+  "sprites" : [
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "mimimo_idle",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        556,
+        843
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "mimimo_press",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        285,
+        384
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "mimimo_happy",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        268,
+        386
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "mimimo_sleep",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        294,
+        295
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "momo_idle",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        570,
+        846
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "momo_wave",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        280,
+        381
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "momo_happy",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        260,
+        352
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "anchorNormalized" : [
+        0.5,
+        0.90000000000000002
+      ],
+      "id" : "momo_jump",
+      "logicalSize" : 64,
+      "masterCanvas" : [
+        512,
+        512
+      ],
+      "nativeTrimmedPixels" : [
+        282,
+        355
+      ],
+      "scales" : [
+        1,
+        2,
+        3
+      ]
+    }
+  ],
+  "version" : "1.0",
+  "video" : {
+    "alphaFile" : "video\/meowpuut-duo-idle-alpha.mov",
+    "codec" : "Apple ProRes 4444",
+    "durationSeconds" : 4,
+    "fps" : 30,
+    "height" : 1080,
+    "preview" : "preview\/meowpuut-duo-idle.mp4",
+    "width" : 1920
+  }
+}

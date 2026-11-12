@@ -158,17 +158,3 @@ object Festivals {
         theme.days.any { !it.first.minusDays(loaded.leadDays.toLong()).isAfter(today) && !it.last.isBefore(since) }
     }
 }
-
-// The cat drawing still takes the old per-cat overlay outfits. Nothing ships
-// in that format any more; these go when the cats wear the themes above.
-data class CatOutfit(val front: String?, val back: String?, val frames: Map<String, String>)
-
-data class Outfit(
-    val id: String,
-    val titleTraditional: String,
-    val titleSimplified: String,
-    val cats: Map<String, CatOutfit>,
-    val pill: Int?,
-) {
-    fun asset(file: String) = "festivals/$id/$file"
-}

@@ -69,6 +69,8 @@ final class Preferences: ObservableObject {
     @Published var modulesEnabled: Bool { didSet { defaults.set(modulesEnabled, forKey: "modulesEnabled") } }
     @Published var rememberChoices: Bool { didSet { defaults.set(rememberChoices, forKey: "rememberChoices") } }
     @Published var catGlassSkin: Bool { didSet { defaults.set(catGlassSkin, forKey: "catGlassSkin") } }
+    /// Where the cats sit: `CatSchedule.daily`, or one arrangement's id.
+    @Published var catPlacement: String { didSet { defaults.set(catPlacement, forKey: "catPlacement") } }
     @Published var candidateTone: CandidateTone { didSet { defaults.set(candidateTone.rawValue, forKey: "candidateTone") } }
     @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
     @Published var candidatePalette: CandidatePalette { didSet { defaults.set(candidatePalette.rawValue, forKey: "candidatePalette") } }
@@ -96,6 +98,7 @@ final class Preferences: ObservableObject {
     private init() {
         // 米米莫 and 莫莫 are the default on every platform.
         catGlassSkin = defaults.object(forKey: "catGlassSkin") as? Bool ?? true
+        catPlacement = defaults.string(forKey: "catPlacement") ?? CatSchedule.daily
         glassShape = GlassShape(rawValue: defaults.string(forKey: "glassShape") ?? "") ?? .capsule
         festivalOutfits = defaults.object(forKey: "festivalOutfits") as? Bool ?? true
         festivalsSkipped = defaults.stringArray(forKey: "festivalsSkipped") ?? []
@@ -120,6 +123,7 @@ final class Preferences: ObservableObject {
             }
         }
         if let value = settings.catGlassSkin, catGlassSkin != value { catGlassSkin = value }
+        if let value = settings.catPlacement, catPlacement != value { catPlacement = value }
         if let value = settings.rememberChoices, rememberChoices != value { rememberChoices = value }
         if let value = settings.candidateTone, let tone = CandidateTone(rawValue: value), candidateTone != tone { candidateTone = tone }
         if let value = settings.glassStrength, let strength = GlassStrength(rawValue: value), glassStrength != strength { glassStrength = strength }

@@ -266,6 +266,8 @@ class MeowpuutInputController: IMKInputController {
             toggle.state = on ? .on : .off
         }
         let groups: [(String, [(String, String, Bool)])] = [
+            ("位置", [(t("每天換", "每天换"), "place:" + CatSchedule.daily, preferences.catPlacement == CatSchedule.daily)]
+                + CatArrangement.all.map { ($0.name(t), "place:" + $0.id, $0.id == preferences.catPlacement) }),
             (t("造型", "造型"), GlassShape.allCases.map { ($0.name(t), "shape:" + $0.rawValue, $0 == preferences.glassShape) }),
             (t("色調", "色调"), CandidateTone.allCases.map { ($0.name(t), "tone:" + $0.rawValue, $0 == preferences.candidateTone) }),
             (t("色系", "色系"), CandidatePalette.allCases.map { ($0.name(t), "palette:" + $0.rawValue, $0 == preferences.candidatePalette) }),

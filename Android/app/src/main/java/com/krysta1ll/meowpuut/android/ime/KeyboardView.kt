@@ -34,7 +34,7 @@ class KeyboardView(context: Context, sprites: CatSprites) : FrameLayout(context)
             panel.look = value
             previews.look = value
             backgroundKey = 0
-            // The cats sit at the shape's rim, so a new shape moves them.
+            // The expand key follows the shape's rim, so a new shape moves it.
             requestLayout()
             invalidate()
         }

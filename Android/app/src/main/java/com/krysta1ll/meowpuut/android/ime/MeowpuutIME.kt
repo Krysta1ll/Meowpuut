@@ -67,9 +67,7 @@ class MeowpuutIME : InputMethodService(),
         prefs = Prefs(this)
         prefs.store.registerOnSharedPreferenceChangeListener(this)
         lexicons = Lexicons(this)
-        sprites = CatSprites(resources, assets)
-        // The first time the keyboard shows it should not wait for the cats to decode.
-        Thread({ sprites.preload() }, "meowpuut-cats").start()
+        sprites = CatSprites(resources)
         composer.simplified = prefs.simplified
         openLexicon()
     }
@@ -641,13 +639,11 @@ class MeowpuutIME : InputMethodService(),
             Tone.DARK -> true
         }
         // The festival themes (Festivals.kt) are not drawn on Android yet.
-        val outfit: Outfit? = null
-        val dressed = sprites.dress(outfit)
-        look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, outfit?.pill, wantsMoreContrast(this))
+        val festivalPill: Int? = null
+        look = Look(dark, prefs.shape, prefs.palette, prefs.strength, prefs.cats, festivalPill, wantsMoreContrast(this))
         keyboard?.let {
             it.look = look
             it.cats = prefs.cats
-            if (dressed) it.bar.invalidate()
         }
         configureWindow()
     }

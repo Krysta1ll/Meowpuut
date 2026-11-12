@@ -118,6 +118,16 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     private var keySet: KeyboardKeySet?
     private var festivalHour = -1
     private var festivalOutfit: FestivalOutfit?
+    /// The day the cats' arrangement is for. It is read when the keyboard
+    /// appears, so the cats never move while someone is typing.
+    private var catDay = CatSchedule.day()
+    private struct CatInputs: Equatable {
+        var region: CandidateRegionLayout
+        var shape: GlassShape
+        var setting: String
+        var day: Int
+    }
+    private var catInputs: CatInputs?
     private var t: InterfaceText { InterfaceText(simplified: Preferences.shared.simplified) }
 
     #if KEYBOARD_LAB
@@ -198,6 +208,12 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         // Rebuild only the decorative layer after the extension reappears;
         // the composition and candidates stay as they were.
         ui.appearanceRevision &+= 1
+        ui.active = true
+        catDay = CatSchedule.day()
+        #if KEYBOARD_LAB
+        // `-catDay <n>` shows the arrangement of another day.
+        if let day = UserDefaults.standard.string(forKey: "catDay").flatMap({ Int($0) }) { catDay = day }
+        #endif
         shortSince = nil
         if appliedSettingsOnLoad { appliedSettingsOnLoad = false } else { Preferences.shared.applySharedSettings() }
         let wanted = Preferences.shared.inputMode
@@ -357,6 +373,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         metrics.bottomPadding += max(0, area - metrics.areaHeight(rows: keySet.rowCount))
         if ui.region != region { ui.region = region }
         if ui.keysAreaHeight != area { ui.keysAreaHeight = area }
+        placeCats(region)
         let theme = KeyboardKeyTheme(dark: ui.dark, highContrast: UIAccessibility.isDarkerSystemColorsEnabled,
                                      palette: prefs.candidatePalette, bold: UIAccessibility.isBoldTextEnabled,
                                      opaque: UIAccessibility.isReduceTransparencyEnabled || UIAccessibility.isDarkerSystemColorsEnabled,
@@ -366,6 +383,18 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     }
 
     private func updateKeys() { relayout() }
+
+    /// Today's arrangement on this bar, worked out again only when the bar,
+    /// the shape, the setting or the day changes.
+    private func placeCats(_ region: CandidateRegionLayout) {
+        let prefs = Preferences.shared
+        let inputs = CatInputs(region: region, shape: prefs.glassShape, setting: prefs.catPlacement, day: catDay)
+        guard inputs != catInputs else { return }
+        catInputs = inputs
+        let places = region.cats
+            ? CatSchedule.arrangement(setting: inputs.setting, day: catDay, on: region.stage(shape: inputs.shape))?.places ?? [] : []
+        if ui.cats != places { ui.cats = places }
+    }
 
     /// The keys for the current state. Most keystrokes change nothing here,
     /// so the last set is kept and compared by its inputs.
@@ -906,6 +935,11 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
         super.viewWillDisappear(animated)
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        ui.active = false
+    }
+
     #if KEYBOARD_LAB
     /// Types through the same path as the keys (lab app screenshots only).
     func labType(_ text: String) {
@@ -934,6 +968,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardKeysViewDeleg
     var labPage: Int { page }
     var labExpanded: Bool { ui.expanded }
     var labRegion: CandidateRegionLayout { ui.region }
+    var labCats: [CatPlacement] { ui.cats }
     #endif
 
     // MARK: Labels

@@ -1,28 +1,17 @@
 import SwiftUI
 import UIKit
 
-// 米米莫 and 莫莫 on the candidate glass: sprites, expressions, petting.
-// Every motion is event-driven (a blink timer, a pet, a commit), so an idle
-// keyboard does not redraw continuously.
+// 米米莫 and 莫莫 on the candidate glass. Where each one sits comes from
+// CatSprites.swift; this file draws them and moves them. Each cat is one
+// picture; breathing and the reactions to a touch are Core Animation
+// transforms on its layer, run by the render server, so the keyboard's own
+// process draws nothing while they move. No frame sequences are loaded.
 
-enum KeyboardCat: String {
-    case mimimo, momo
-
-    /// Cheek centres (fractions of the sprite) for the blush, from the eyes'
-    /// positions in assets/brand/cats.
-    var cheeks: [UnitPoint] {
-        self == .mimimo ? [UnitPoint(x: 0.40, y: 0.62), UnitPoint(x: 0.71, y: 0.585)]
-                        : [UnitPoint(x: 0.23, y: 0.595), UnitPoint(x: 0.585, y: 0.672)]
-    }
-}
-
-enum CatFrame: String, CaseIterable { case open, happy, blink }
-
-private struct CatMotion {
-    var scale: CGFloat = 1
-    var squash: CGFloat = 1
-    var tilt: Double = 0
-    var lift: CGFloat = 0
+extension CatArt {
+    /// The picture for a sprite, from the asset catalog. With `CatArt.sprite`
+    /// this is where a cat's look comes from: a festival that brings its own
+    /// cats returns its picture here.
+    static func image(_ sprite: CatSprite) -> UIImage? { UIImage(named: sprite.name) }
 }
 
 /// Outfit images exported by scripts/render_cats.py (@3x), cached.
@@ -39,152 +28,282 @@ enum FestivalArt {
     }
 }
 
-struct CatSpriteView: View {
-    let cat: KeyboardCat
-    var frame: CatFrame = .open
-    var motion = 0
-    var pressed = false
-    var look: CGFloat = 0
-    var blush: Double = 0
-    var outfit: FestivalOutfit? = nil
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var layers: FestivalOutfit.Layers? { outfit?.layers(for: cat.rawValue) }
-
-    private func image(_ frame: CatFrame) -> Image {
-        if let outfit, let file = layers?.frames?[frame.rawValue], let art = FestivalArt.image(outfit, file) {
-            return Image(uiImage: art)
-        }
-        return Image("\(cat.rawValue)_\(frame.rawValue)")
+/// The layers of the cats on one stage.
+final class CatLayersView: UIView {
+    struct Scene: Equatable {
+        var places: [CatPlacement] = []
+        var glass: CGRect = .zero
+        var shape: GlassShape = .capsule
+        var dark = false
+        /// Paw shadows on the glass; off when the glass is drawn opaque.
+        var shadows = true
     }
 
-    private func overlay(_ file: String?) -> Image? {
-        guard let outfit, let file, let art = FestivalArt.image(outfit, file) else { return nil }
-        return Image(uiImage: art)
+    private struct Figure {
+        var place: CatPlacement
+        /// The picture, and for a cat behind the bar its paws again in front of the glass.
+        var sprites: [CALayer]
     }
 
-    var body: some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            ZStack {
-                if let back = overlay(layers?.back) { back.resizable().interpolation(.high) }
-                // The open frame stays opaque underneath; the other frames
-                // fade in over it. Fading it out as well would let the
-                // glass show through the cat for the length of a blink.
-                image(.open).resizable().interpolation(.high)
-                ForEach([CatFrame.happy, .blink], id: \.self) { candidate in
-                    image(candidate).resizable().interpolation(.high)
-                        .opacity(frame == candidate ? 1 : 0)
+    private var scene = Scene()
+    private var figures: [Figure] = []
+    private var breathing = false
+    private var lean: CGFloat = 0
+    private var pressed: KeyboardCat?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// The glass's outline in this view, as CandidateGlassShape draws it.
+    private func glassPath() -> CGPath {
+        CandidateGlassShape(style: scene.shape).path(in: scene.glass).cgPath
+    }
+
+    func show(_ next: Scene) {
+        guard next != scene else { return }
+        scene = next
+        layer.sublayers?.forEach { $0.removeFromSuperlayer() }
+        figures = []
+        let glass = glassPath()
+        let bounds = CGRect(x: 0, y: 0, width: 4000, height: 400)
+        // Paws go on after every body, so one cat's body never cuts into the other's paws.
+        var front: [CALayer] = []
+        for place in next.places {
+            guard let image = CatArt.image(place.sprite)?.cgImage else { continue }
+            func sprite() -> CALayer {
+                let sprite = CALayer()
+                sprite.contents = image
+                sprite.contentsGravity = .resize
+                sprite.minificationFilter = .trilinear
+                // Transforms turn about the paws, so they stay on the edge.
+                sprite.anchorPoint = place.sprite.anchor
+                sprite.frame = place.frame
+                sprite.actions = ["transform": NSNull(), "opacity": NSNull()]
+                return sprite
+            }
+            let body = sprite()
+            if next.dark && place.cat == .mimimo {
+                // Black on a dark keyboard: a soft warm light round his outline.
+                body.shadowColor = UIColor(red: 1, green: 0.93, blue: 0.84, alpha: 1).cgColor
+                body.shadowOpacity = 0.6
+                body.shadowRadius = 2.2
+                body.shadowOffset = .zero
+            }
+            guard place.sprite.behindBar else {
+                layer.addSublayer(body)
+                figures.append(Figure(place: place, sprites: [body]))
+                continue
+            }
+            // The body shows only outside the glass: its flat cut is behind the edge, also where the edge curves.
+            let outside = CALayer()
+            outside.frame = bounds
+            let hole = CAShapeLayer()
+            let everything = CGMutablePath()
+            everything.addRect(bounds)
+            everything.addPath(glass)
+            hole.frame = bounds
+            hole.path = everything
+            hole.fillRule = .evenOdd
+            outside.mask = hole
+            outside.addSublayer(body)
+            layer.addSublayer(outside)
+            if next.shadows {
+                // Where a paw rests on the glass.
+                let shadows = CALayer()
+                shadows.frame = bounds
+                let inside = CAShapeLayer()
+                inside.frame = bounds
+                inside.path = glass
+                shadows.mask = inside
+                for paw in place.sprite.paws {
+                    let width = 2 * paw.halfWidth * place.frame.width * 1.25, depth = paw.depth * place.frame.height
+                    let shadow = CAGradientLayer()
+                    shadow.type = .radial
+                    shadow.colors = [UIColor(red: 0.18, green: 0.11, blue: 0.09, alpha: next.dark ? 0.5 : 0.26).cgColor,
+                                     UIColor(red: 0.18, green: 0.11, blue: 0.09, alpha: 0).cgColor]
+                    shadow.startPoint = CGPoint(x: 0.5, y: 0.5)
+                    shadow.endPoint = CGPoint(x: 1, y: 1)
+                    shadow.frame = CGRect(x: place.frame.minX + paw.x * place.frame.width - width / 2, y: place.anchor.y + depth - 2.2,
+                                          width: width, height: 5.5)
+                    shadows.addSublayer(shadow)
                 }
-                if blush > 0 {
-                    ForEach(Array(cat.cheeks.enumerated()), id: \.offset) { _, cheek in
-                        Ellipse()
-                            .fill(Color(red: 0.96, green: 0.52, blue: 0.60).opacity(blush * (cat == .mimimo ? 0.55 : 0.45)))
-                            .frame(width: size.width * 0.15, height: size.width * 0.085)
-                            .blur(radius: 1.4)
-                            .position(x: size.width * cheek.x, y: size.height * cheek.y)
-                    }
-                }
-                if let front = overlay(layers?.front) { front.resizable().interpolation(.high) }
+                layer.addSublayer(shadows)
+            }
+            // The paws again, in front of the glass.
+            let paws = sprite()
+            let shape = CAShapeLayer()
+            let outline = CGMutablePath()
+            place.sprite.pawOutlines(place.frame.size).forEach { outline.addEllipse(in: $0) }
+            shape.frame = CGRect(origin: .zero, size: place.frame.size)
+            shape.path = outline
+            paws.mask = shape
+            front.append(paws)
+            figures.append(Figure(place: place, sprites: [body, paws]))
+        }
+        front.forEach(layer.addSublayer)
+        applyRest()
+        if breathing { breathing = false; setBreathing(true) }
+    }
+
+    /// Each cat's resting transform: its tilt, a lean toward the candidates
+    /// while something is being typed, and a squash under a finger.
+    private func rest(_ figure: Figure) -> CATransform3D {
+        let place = figure.place
+        let toward: CGFloat = place.anchor.x < scene.glass.midX ? 1 : -1
+        var transform = CATransform3DMakeRotation((place.tilt + lean * 2 * toward) * .pi / 180, 0, 0, 1)
+        if pressed == place.cat { transform = CATransform3DScale(transform, 1.06, 0.93, 1) }
+        return transform
+    }
+
+    private func applyRest() {
+        for figure in figures {
+            for sprite in figure.sprites { sprite.transform = rest(figure) }
+        }
+    }
+
+    private func animateRest() {
+        for figure in figures {
+            let target = rest(figure)
+            for sprite in figure.sprites {
+                let move = CABasicAnimation(keyPath: "transform")
+                move.fromValue = sprite.presentation()?.transform ?? sprite.transform
+                move.toValue = target
+                move.duration = 0.22
+                move.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                sprite.transform = target
+                sprite.add(move, forKey: "rest")
             }
         }
-        .animation(.easeInOut(duration: 0.08), value: frame)
-        .animation(.easeOut(duration: 0.2), value: blush)
-        .scaleEffect(x: pressed && !reduceMotion ? 1.06 : 1, y: pressed && !reduceMotion ? 0.93 : 1, anchor: .bottom)
-        .brightness(pressed && reduceMotion ? 0.06 : 0)
-        .animation(.spring(duration: 0.2, bounce: 0.4), value: pressed)
-        // A slight lean toward the candidates while composing. 米米莫's ears
-        // reach the keyboard's top edge, and nothing can be drawn above it,
-        // so he also settles 2 % lower: the raised ear stays inside.
-        .scaleEffect(y: cat == .mimimo && !reduceMotion ? 1 - 0.02 * look : 1, anchor: .bottom)
-        .rotationEffect(.degrees(reduceMotion ? 0 : Double(look) * (cat == .mimimo ? 2.5 : -2.5)), anchor: .bottom)
-        .animation(.easeOut(duration: 0.3), value: look)
-        .keyframeAnimator(initialValue: CatMotion(), trigger: reduceMotion ? 0 : motion) { content, m in
-            content
-                .scaleEffect(x: m.scale / m.squash, y: m.scale * m.squash, anchor: .bottom)
-                .rotationEffect(.degrees(m.tilt), anchor: .bottom)
-                .offset(y: m.lift)
-        } keyframes: { _ in
-            // 米米莫 ducks and shakes his head; 莫莫 nuzzles slowly into the hand.
-            // His ears end at the keyboard's top edge, and a keyboard cannot
-            // draw above it, so his motion never rises over his resting
-            // height: he stays ducked while his head turns and comes back up
-            // without overshoot. 莫莫 has 6 pt above her and keeps a small lift.
-            let mimimo = cat == .mimimo
-            KeyframeTrack(\.squash) {
-                if mimimo {
-                    LinearKeyframe(0.90, duration: 0.08, timingCurve: .easeOut)
-                    LinearKeyframe(0.93, duration: 0.26)
-                    LinearKeyframe(1, duration: 0.24, timingCurve: .easeOut)
-                } else {
-                    CubicKeyframe(0.9, duration: 0.08)
-                    SpringKeyframe(1, duration: 0.4, spring: .bouncy)
+    }
+
+    /// `amount` is 1 while something is being typed.
+    func setLean(_ amount: CGFloat, animated: Bool) {
+        guard amount != lean else { return }
+        lean = amount
+        if animated { animateRest() } else { applyRest() }
+    }
+
+    func setPressed(_ cat: KeyboardCat?, animated: Bool) {
+        guard cat != pressed else { return }
+        pressed = cat
+        if animated { animateRest() } else { applyRest() }
+    }
+
+    /// A slow breath: the body rises 1.8 % from the paws and settles, 5.2 s a
+    /// cycle. The two cats breathe out of step.
+    func setBreathing(_ on: Bool) {
+        guard on != breathing else { return }
+        breathing = on
+        for (index, figure) in figures.enumerated() {
+            // The body breathes; the paws in front stay where they are.
+            guard let body = figure.sprites.first else { continue }
+            guard on else { body.removeAnimation(forKey: "breath"); continue }
+            // Added to the resting transform, so a tilt or a press shows through.
+            let rise = CABasicAnimation(keyPath: "transform.scale.y")
+            rise.fromValue = 0
+            rise.toValue = 0.018
+            rise.isAdditive = true
+            let narrow = CABasicAnimation(keyPath: "transform.scale.x")
+            narrow.fromValue = 0
+            narrow.toValue = -0.006
+            narrow.isAdditive = true
+            let breath = CAAnimationGroup()
+            breath.animations = [rise, narrow]
+            breath.duration = 2.6
+            breath.autoreverses = true
+            breath.repeatCount = .infinity
+            breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            breath.timeOffset = Double(index) * 1.7
+            body.add(breath, forKey: "breath")
+        }
+    }
+
+    /// 米米莫 ducks and shakes his head; 莫莫 nuzzles into the hand. Both
+    /// turn about their paws and stay under their resting height while they
+    /// turn: a keyboard cannot draw above its own top edge, and the ears are
+    /// 1.5 pt under it. With `still` (Reduce Motion) the cat only dims for a
+    /// moment.
+    func react(_ cat: KeyboardCat, still: Bool) {
+        for figure in figures where figure.place.cat == cat {
+            for sprite in figure.sprites {
+                if still {
+                    let dim = CAKeyframeAnimation(keyPath: "opacity")
+                    dim.values = [1, 0.72, 1]
+                    dim.duration = 0.3
+                    sprite.add(dim, forKey: "react")
+                    continue
                 }
-            }
-            KeyframeTrack(\.lift) {
-                CubicKeyframe(0, duration: 0.08)
-                CubicKeyframe(mimimo ? 0 : -1.5, duration: mimimo ? 0.12 : 0.16)
-                SpringKeyframe(0, duration: mimimo ? 0.38 : 0.5, spring: .bouncy)
-            }
-            KeyframeTrack(\.tilt) {
-                if mimimo {
-                    LinearKeyframe(-5, duration: 0.10, timingCurve: .easeOut)
-                    LinearKeyframe(4, duration: 0.12, timingCurve: .easeInOut)
-                    LinearKeyframe(-2, duration: 0.11, timingCurve: .easeInOut)
-                    LinearKeyframe(0, duration: 0.13, timingCurve: .easeOut)
-                } else {
-                    CubicKeyframe(6, duration: 0.18)
-                    CubicKeyframe(5, duration: 0.12)
-                    CubicKeyframe(4, duration: 0.12)
-                    SpringKeyframe(0, duration: 0.45, spring: .smooth)
+                func track(_ path: String, _ values: [CGFloat], _ times: [Double], _ duration: Double) -> CAKeyframeAnimation {
+                    let track = CAKeyframeAnimation(keyPath: path)
+                    track.values = values
+                    track.keyTimes = times.map { NSNumber(value: $0) }
+                    track.duration = duration
+                    track.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: values.count - 1)
+                    // Added to the resting transform.
+                    track.isAdditive = true
+                    return track
                 }
-            }
-            KeyframeTrack(\.scale) {
-                CubicKeyframe(1, duration: 0.08)
-                CubicKeyframe(mimimo ? 1 : 1.03, duration: 0.12)
-                SpringKeyframe(1, duration: 0.4, spring: .bouncy)
+                let radians = CGFloat.pi / 180
+                let group = CAAnimationGroup()
+                if cat == .mimimo {
+                    group.duration = 0.6
+                    group.animations = [
+                        track("transform.scale.y", [0, -0.10, -0.07, 0], [0, 0.13, 0.57, 1], 0.6),
+                        track("transform.scale.x", [0, 0.07, 0.05, 0], [0, 0.13, 0.57, 1], 0.6),
+                        track("transform.rotation.z", [0, -5 * radians, 4 * radians, -2 * radians, 0], [0, 0.2, 0.45, 0.7, 1], 0.6),
+                    ]
+                } else {
+                    group.duration = 0.9
+                    group.animations = [
+                        track("transform.scale.y", [0, -0.08, -0.03, 0], [0, 0.1, 0.5, 1], 0.9),
+                        track("transform.scale.x", [0, 0.05, 0.02, 0], [0, 0.1, 0.5, 1], 0.9),
+                        track("transform.rotation.z", [0, 6 * radians, 5 * radians, 4 * radians, 0], [0, 0.2, 0.35, 0.5, 1], 0.9),
+                    ]
+                }
+                sprite.add(group, forKey: "react")
             }
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
-/// A cat that blinks on its own: every 2.8 to 6.4 s for 120 ms, and now and
-/// then 莫莫 blinks twice. The blink lives in this view, so it redraws the
-/// sprite and nothing else in the candidate area.
-struct LiveCatView: View {
-    let cat: KeyboardCat
-    var happy = false
-    var motion = 0
-    var pressed = false
-    var look: CGFloat = 0
-    var blush: Double = 0
-    var outfit: FestivalOutfit? = nil
-    @State private var blink = false
+/// The cats in the candidate area. `pets` counts the touches each cat got;
+/// a change plays its reaction. `active` is false while the keyboard is off
+/// screen, and with Reduce Motion nothing moves.
+struct CatStageView: UIViewRepresentable {
+    var scene: CatLayersView.Scene
+    var active: Bool
+    var composing: Bool
+    var pressed: KeyboardCat?
+    var pets: [KeyboardCat: Int]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    var body: some View {
-        CatSpriteView(cat: cat, frame: happy ? .happy : (blink ? .blink : .open), motion: motion,
-                      pressed: pressed, look: look, blush: blush, outfit: outfit)
-            .task { await live() }
+    final class Coordinator {
+        var pets: [KeyboardCat: Int] = [:]
     }
 
-    private func live() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(Double.random(in: 2.8...6.4)))
-            guard !Task.isCancelled else { return }
-            await blinkOnce()
-            if cat == .momo, Double.random(in: 0...1) < 0.25 {
-                try? await Task.sleep(for: .milliseconds(180))
-                await blinkOnce()
-            }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> CatLayersView {
+        context.coordinator.pets = pets
+        return CatLayersView()
+    }
+
+    func updateUIView(_ view: CatLayersView, context: Context) {
+        view.show(scene)
+        let moving = active && !reduceMotion
+        view.setLean(composing && !reduceMotion ? 1 : 0, animated: moving)
+        view.setPressed(reduceMotion ? nil : pressed, animated: moving)
+        view.setBreathing(moving)
+        for cat in KeyboardCat.allCases where pets[cat] != context.coordinator.pets[cat] {
+            if active { view.react(cat, still: reduceMotion) }
         }
-    }
-
-    private func blinkOnce() async {
-        blink = true
-        try? await Task.sleep(for: .milliseconds(120))
-        blink = false
+        context.coordinator.pets = pets
     }
 }
 

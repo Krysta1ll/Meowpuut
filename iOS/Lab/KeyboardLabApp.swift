@@ -9,8 +9,9 @@ import UIKit
 //     -glassShape wave -candidateTone dark -inputMode pinyin -type sushi
 //
 // Preferences read UserDefaults, so `-glassShape`, `-candidateTone`,
-// `-candidatePalette`, `-catGlassSkin`, `-simplified` and `-inputMode` apply
-// directly. Lab-only:
+// `-candidatePalette`, `-catGlassSkin`, `-catPlacement` (daily, or an
+// arrangement's id), `-simplified` and `-inputMode` apply directly. Lab-only:
+//   -catDay <n>           the arrangement of day n (days since 2001-01-01)
 //   -type <text>          type through the engine, without touches
 //   -english YES          start in English
 //   -page <1|2>           open a symbol page

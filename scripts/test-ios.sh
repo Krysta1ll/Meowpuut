@@ -38,11 +38,12 @@ tests=(
   "SharedKeyboardSettings: iOS/SharedKeyboardSettings.swift"
   "RepeatDelete: iOS/Keyboard/KeyboardDrivers.swift"
   "SpaceCursor: iOS/Keyboard/KeyboardDrivers.swift"
-  "KeyboardGeometry: iOS/Keyboard/KeyboardGeometry.swift"
-  "KeyboardKeys: iOS/tests/Support/InputMode.swift iOS/InterfaceText.swift iOS/Keyboard/KeyboardGeometry.swift iOS/Keyboard/KeyboardKeys.swift"
+  "KeyboardGeometry: iOS/Keyboard/KeyboardGeometry.swift Sources/Appearance.swift Sources/CatSprites.swift Sources/CatSpriteData.swift iOS/tests/Support/BarFrame.swift"
+  "KeyboardKeys: iOS/tests/Support/InputMode.swift iOS/InterfaceText.swift iOS/Keyboard/KeyboardGeometry.swift Sources/Appearance.swift Sources/CatSprites.swift Sources/CatSpriteData.swift iOS/Keyboard/KeyboardKeys.swift"
   "CandidateStripLayout: iOS/Keyboard/CandidateStripLayout.swift"
   "Festivals: Sources/Appearance.swift Sources/Festivals.swift"
-  "CatArt: iOS/Keyboard/KeyboardGeometry.swift"
+  "CatArt: iOS/Keyboard/KeyboardGeometry.swift Sources/Appearance.swift Sources/CatSprites.swift Sources/CatSpriteData.swift"
+  "CatSchedule: iOS/Keyboard/KeyboardGeometry.swift Sources/Appearance.swift Sources/CatSprites.swift Sources/CatSpriteData.swift"
 )
 
 for entry in "${tests[@]}"; do

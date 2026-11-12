@@ -23,6 +23,9 @@ targets:
       - ../Sources/Appearance.swift
       - ../Sources/CandidatePalette.swift
       - ../Sources/GlassShapes.swift
+      - ../Sources/CatSprites.swift
+      - ../Sources/CatSpriteData.swift
+      - ../Sources/CatFigures.swift
       - ../Sources/Festivals.swift
       - ../Sources/FestivalTrim.swift
       - Keyboard/KeyboardGeometry.swift
@@ -75,6 +78,8 @@ targets:
       - ../Sources/Appearance.swift
       - ../Sources/CandidatePalette.swift
       - ../Sources/GlassShapes.swift
+      - ../Sources/CatSprites.swift
+      - ../Sources/CatSpriteData.swift
       - ../Sources/Festivals.swift
       - ../Sources/FestivalTrim.swift
       - ../Sources/Bridge.h
@@ -141,6 +146,8 @@ targets:
       - ../Sources/Appearance.swift
       - ../Sources/CandidatePalette.swift
       - ../Sources/GlassShapes.swift
+      - ../Sources/CatSprites.swift
+      - ../Sources/CatSpriteData.swift
       - ../Sources/Festivals.swift
       - ../Sources/FestivalTrim.swift
       - ../Sources/Bridge.h

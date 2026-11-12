@@ -20,6 +20,7 @@ func runCandidateWindowChecks(_ h: inout SmokeHarness) {
     checkAnnouncements(&h)
     checkAppearance(&h)
     checkFestivals(&h)
+    checkCats(&h)
 }
 
 private func fittingSize(_ engine: Engine, cats: Bool, expanded: Bool, maxHeight: CGFloat = .greatestFiniteMagnitude,
@@ -307,4 +308,46 @@ private func checkFestivals(_ h: inout SmokeHarness) {
     h.check(Festivals.theme(onDay: "2026-12-25", in: loaded ?? .empty, wardrobe: FestivalWardrobe())?.id == "christmas" &&
             Festivals.theme(onDay: "2026-12-25", in: loaded ?? .empty, wardrobe: FestivalWardrobe(on: false)) == nil, "節日衣櫥照日期換裝，關閉後不換")
     h.check(Festivals.decode(Data(#"{"version":1,"outfits":[]}"#.utf8)).isEmpty && Festivals.decode(Data("oops".utf8)).isEmpty, "看不懂的節日清單當作沒有")
+}
+
+/// 米米莫 and 莫莫 on the desktop bar: the bar's own numbers are what they were,
+/// and every arrangement keeps the cats inside the bar and off the candidates.
+private func checkCats(_ h: inout SmokeHarness) {
+    h.check(Desk.glassTop == 32 && Desk.glassLeft == 12 && Desk.momoOverhang == 2 && Desk.rowLead == 12 && Desk.rowTrail == 36 &&
+            Desk.rowTrailPlain == 43 && Desk.catsBarHeight == 72 && Desk.lead(cats: true) == 32, "候選列的位置數值和換貓之前相同")
+    var clear = true, inside = true, fits = true, sized = true
+    for shape in GlassShape.allCases {
+        for width in stride(from: CGFloat(170), through: 620, by: 30) {
+            for chevron in [true, false] {
+                let stage = Desk.stage(width: width, shape: shape, chevron: chevron)
+                let bounds = CGRect(origin: .zero, size: stage.size)
+                var pool = 0
+                for arrangement in CatArrangement.all {
+                    guard let places = arrangement.place(on: stage) else { continue }
+                    pool += 1
+                    for place in places {
+                        if !bounds.contains(place.visible) { inside = false }
+                        if place.inFront.contains(where: { $0.intersects(stage.row) || $0.intersects(stage.arrow) }) { clear = false }
+                        if place.scale > 1 || place.scale < CatArrangement.smallest { sized = false }
+                    }
+                }
+                // A wave or cloud bar of one or two short candidates has no level stretch near its ends: no cats there.
+                if (pool == 0 && width >= 230) || (shape == .capsule && pool != CatArrangement.all.count) { fits = false }
+            }
+        }
+    }
+    h.check(inside, "貓不超出候選列的範圍")
+    h.check(clear, "貓的爪子不蓋住候選和展開鍵")
+    h.check(sized, "貓不放大，也不小到看不清")
+    h.check(fits, "膠囊造型放得下每一種位置，其他造型在 230 pt 以上至少一種")
+    let preferences = Preferences.shared
+    let saved = preferences.catPlacement
+    h.check(applyAppearance("place:lounge") && preferences.catPlacement == "lounge" && applyAppearance("place:daily") &&
+            preferences.catPlacement == CatSchedule.daily && !applyAppearance("place:nowhere"), "選單可固定貓的位置或每天換")
+    preferences.catPlacement = saved
+    h.check(CatArrangement.all.allSatisfy { $0.name(InterfaceText(simplified: false)) != $0.id && $0.name(InterfaceText(simplified: true)) != $0.id },
+            "每一種位置有繁簡名稱")
+    h.check(CatArrangement.all.allSatisfy { arrangement in
+        arrangement.seats.allSatisfy { DesktopCatArt.image("\($0.cat.rawValue)_\($0.pose.asset)") != nil }
+    }, "每一種位置的貓圖都在 app 裡")
 }
