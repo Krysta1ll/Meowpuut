@@ -92,7 +92,6 @@ MINGW_BIN=/path/to/llvm-mingw/bin MEOWPUUT_LEXICON_DIR=/path/to/generated/lexico
 
 ### 在 Windows 上用 MSVC
 
-
 需要 CMake 3.16 以上、Visual Studio 的 C++ 工具（MSVC）、Windows 10 SDK 和 Rust（`cargo` 在 PATH 中，MSVC 目標）。CMake 會先呼叫 `cargo build --release -p meowpuut-ffi`。這份 CMake 只支援 MSVC，用其他編譯器設定時會直接報錯；MinGW 請用下面的 `scripts/build-windows-check.sh`。
 
 ```powershell
