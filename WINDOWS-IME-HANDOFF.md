@@ -11,18 +11,18 @@
 - [x] Windows/README.md 改寫
 - [x] `ITfTextLayoutSink`（Chromium 晚給位置時重擺候選窗）、同一版重裝不覆蓋使用中的 DLL
 - [x] 審查修正：Shift 加點按／加其他鍵不切英文（比對執行緒鍵盤狀態的翻轉位元，加一秒上限，焦點離開時取消）；Ctrl／Alt／Win 組合鍵與 Delete、Home 等先結束讀音再交給程式（在 OnTestKeyDown 同步寫入）；Shift+Enter 送出原文；沒有候選時方向鍵不動；SetText 中組字被終止時不取空指標；FFI 的 mixed_pinyin、mixed_pinyin_prefix、predict 包 catch_unwind（cargo test --workspace、build.sh --test 都通過）
-- [ ] 在 VM 上實測（13:29 時 VM 代理還在 WinPE 裡裝 Windows，沒有 `installed`）
+- [x] 在 VM 上實測（Windows 11 Arm64，arm64 zip；結果寫在 Windows/README.md「在 Windows 上檢查過的」）
+- [x] 實測後修正：架構檢查移到提高權限之前，提高權限那一步的訊息印在使用者視窗；移除時清掉 TIP 登錄機碼
 
-最後打包：commit ae94bb9，`.build/windows-package/`（這個 worktree 底下）
-- `Meowpuut-0.8.0-alpha.1-windows-x64.zip` 39,492,480 bytes，SHA-256 e3e9cfa063bbebf76e1a8112ef99c421e56d503ff1984ad4369218a415affc91
-- `Meowpuut-0.8.0-alpha.1-windows-arm64.zip` 39,426,992 bytes，SHA-256 31d551b5eb290be1ebb2228cb195f84619012b3ab1fa097425c81a8779a02ac3
-- 之後若再提交，重跑 `MINGW_BIN=… MEOWPUUT_LEXICON_DIR=/Users/scarletkrimilia/Documents/Projects/Meowpuut/iOS/Generated bash scripts/package-windows.sh`，BUILD-INFO 的 commit 才對得上。
+最後打包：commit b37ac10，`.build/windows-package/`（這個 worktree 底下），最後的 arm64 zip 在乾淨的 VM 上又裝了一次並打字確認
+- `Meowpuut-0.8.0-alpha.1-windows-x64.zip` 39,493,920 bytes，SHA-256 2db8880628ab12236ab5eaf759ef9f7eddab170b0bb2e6fbb260713648bb813d
+- `Meowpuut-0.8.0-alpha.1-windows-arm64.zip` 39,428,249 bytes，SHA-256 21c9dc55a1ccdac048cbb4f2a6be28190a1fd31ce5f2a1d797f12f3944cb8768
 
-VM 用的驅動：`/private/tmp/claude-501/-Users-scarletkrimilia-Documents-Projects-Meowpuut/5b918450-7542-4720-b593-bb806111566a/scratchpad/vm.py`（QMP 按鍵、滑鼠、截圖），還沒對 VM 用過。
+截圖：`.build/ime-shots/`（這個 worktree 底下）。VM 測完已還原成 `clean` 快照並關機。
 
 ## 在 Windows 上跑過的
 
-還沒有。
+見 Windows/README.md。沒跑過：x64 DLL、Windows 10、高 DPI、UWP。
 
 ## VM 上要跑的測試（Arm64 VM，用 arm64 的 zip）
 
