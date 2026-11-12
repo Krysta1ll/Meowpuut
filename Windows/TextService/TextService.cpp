@@ -294,6 +294,18 @@ wchar_t punctuation(InputMode mode, const KeyEvent &event) {
 
 bool isShift(WPARAM vk) { return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT; }
 
+// Keys that only change the state of others; pressing one leaves a reading open.
+bool isModifier(WPARAM vk) {
+    switch (vk) {
+    case VK_SHIFT: case VK_CONTROL: case VK_MENU: case VK_LSHIFT: case VK_RSHIFT: case VK_LCONTROL:
+    case VK_RCONTROL: case VK_LMENU: case VK_RMENU: case VK_LWIN: case VK_RWIN: case VK_CAPITAL:
+    case VK_NUMLOCK: case VK_SCROLL: case VK_PROCESSKEY: case VK_PACKET:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool compartmentOn(IUnknown *owner, REFGUID guid) {
     auto manager = query<ITfCompartmentMgr>(owner, IID_ITfCompartmentMgr);
     Ref<ITfCompartment> compartment;
@@ -334,7 +346,9 @@ struct ContextState {
     DWORD layoutCookie = TF_INVALID_COOKIE; // ITfTextLayoutSink on this context
 };
 
-enum class Act { Pass, Engine, Move, Expand, Collapse, Choose, Finish, Insert };
+// Ignore eats a key and does nothing. FinishThenPass ends the reading and
+// lets the key go on to the program.
+enum class Act { Pass, Engine, Move, Expand, Collapse, Choose, Finish, Insert, Literal, Ignore, FinishThenPass };
 struct Plan {
     Act act = Act::Pass;
     KeyEvent event{0, 0};
@@ -712,7 +726,15 @@ public:
         *eaten = FALSE;
         try {
             noteKeyDown(vk);
-            *eaten = plan(context, vk, lp).act != Act::Pass;
+            const Plan next = plan(context, vk, lp);
+            // TSF does not call OnKeyDown for a key that is not eaten here, so
+            // a key that goes on to the program ends the reading now.
+            if (next.act == Act::FinishThenPass) {
+                const auto state = states_.at(context);
+                perform(state, next);
+            } else {
+                *eaten = next.act != Act::Pass;
+            }
         } catch (...) {
         }
         return S_OK;
@@ -724,7 +746,7 @@ public:
             noteKeyDown(vk);
             const Plan next = plan(context, vk, lp);
             if (next.act == Act::Pass) return S_OK;
-            *eaten = TRUE;
+            *eaten = next.act != Act::FinishThenPass;
             const auto state = states_.at(context);
             perform(state, next);
         } catch (...) {
@@ -759,6 +781,7 @@ public:
         // the next key typed in it.
         hideWindow();
         active_.reset();
+        cancelShift();
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnPushContext(ITfContext *) override { return S_OK; }
@@ -788,6 +811,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE OnKillThreadFocus() override {
         hideWindow();
+        cancelShift(); // the Shift-up goes to another program
         return S_OK;
     }
 
@@ -870,7 +894,8 @@ public:
                 if (SUCCEEDED(result)) clearAttribute(cookie, context, range.get());
                 if (SUCCEEDED(result)) {
                     caretAfter(cookie, context, range.get());
-                    s.composition->EndComposition(cookie);
+                    // The host may have ended it inside SetText (OnCompositionTerminated).
+                    if (s.composition) s.composition->EndComposition(cookie);
                     s.composition.reset();
                     s.written.clear();
                 }
@@ -896,7 +921,7 @@ public:
             // Cancelled or deleted down to nothing.
             Ref<ITfRange> range;
             if (SUCCEEDED(s.composition->GetRange(range.put())) && range) range->SetText(cookie, 0, L"", 0);
-            s.composition->EndComposition(cookie);
+            if (s.composition) s.composition->EndComposition(cookie);
             s.composition.reset();
             s.written.clear();
         }
@@ -958,8 +983,18 @@ private:
         if (!composing && (GetKeyState(VK_CAPITAL) & 1)) return {};
         Plan p;
         p.event = keyEvent(vk, lp);
-        if (p.event.control || p.event.alt || p.event.win) return {};
         const auto count = s->last.candidates.size();
+        // A shortcut such as Ctrl+Enter acts on the text: the reading is ended
+        // first, as macOS does through commitComposition.
+        if (p.event.control || p.event.alt || p.event.win) {
+            if (composing && !isModifier(vk)) p.act = Act::FinishThenPass;
+            return p;
+        }
+        if (composing && vk == VK_RETURN && p.event.shift) {
+            // Shift+Enter sends the letters as typed (macOS does the same).
+            p.act = Act::Literal;
+            return p;
+        }
         if (composing && count > 0 && !p.event.shift) {
             const auto act = [&](Act a, int delta = 0) {
                 p.act = a;
@@ -1007,7 +1042,14 @@ private:
             p.text = static_cast<wchar_t>(p.event.printable);
             return p;
         }
-        return {};
+        if (composing && (vk == VK_LEFT || vk == VK_RIGHT || vk == VK_UP || vk == VK_DOWN)) {
+            // No caret moves inside the reading (macOS keeps these too).
+            p.act = Act::Ignore;
+            return p;
+        }
+        // Delete, Home, F5 and the like act on the text around the reading.
+        if (composing && !isModifier(vk)) p.act = Act::FinishThenPass;
+        return p;
     }
 
     void perform(const std::shared_ptr<ContextState> &state, const Plan &p) {
@@ -1031,6 +1073,19 @@ private:
         case Act::Choose: session.chooseOnPage(std::min(s.highlighted, count - 1)); break;
         case Act::Finish: finish(s); break;
         case Act::Insert: finish(s); break;
+        case Act::Literal: {
+            const std::string typed(session.input());
+            session.clear();
+            deliver(state, widen(typed));
+            return;
+        }
+        case Act::FinishThenPass:
+            // Synchronously when the host allows it: the key that follows must
+            // find the finished text in the document, not the reading.
+            finish(s);
+            deliver(state, {}, true);
+            return;
+        case Act::Ignore:
         case Act::Pass: return;
         }
         deliver(state, p.act == Act::Insert ? std::wstring(1, p.text) : std::wstring());
@@ -1049,7 +1104,7 @@ private:
 
     // Moves the session's commit into the pending queue, then asks for an edit
     // session to write it and the new reading.
-    void deliver(const std::shared_ptr<ContextState> &state, const std::wstring &tail = {}) {
+    void deliver(const std::shared_ptr<ContextState> &state, const std::wstring &tail = {}, bool now = false) {
         ContextState &s = *state;
         Snapshot snapshot = s.session->takeSnapshot();
         s.pending += widen(snapshot.committed) + tail;
@@ -1065,27 +1120,54 @@ private:
         if (s.pending.empty() && s.preedit == s.written) return;
         auto *edit = new EditSession(this, state);
         HRESULT inner = S_OK;
-        s.context->RequestEditSession(clientId_, edit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &inner);
+        if (!now || FAILED(s.context->RequestEditSession(clientId_, edit, TF_ES_SYNC | TF_ES_READWRITE, &inner)) ||
+            inner == TF_E_SYNCHRONOUS)
+            s.context->RequestEditSession(clientId_, edit, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &inner);
         edit->Release();
     }
 
     // --- shift tap: Chinese / English -----------------------------------------
+    // A lone Shift press switches Chinese and English. Mouse clicks never
+    // reach the key sink, so the thread's key state is compared instead: every
+    // press of a key or mouse button flips its low bit, and keys the shell
+    // takes for itself (Win+Shift+S) still flip Win's. Any other key or button
+    // pressed, or still held, between Shift down and up cancels the switch;
+    // so does a press longer than a second.
     void noteKeyDown(WPARAM vk) {
         if (!isShift(vk)) {
             shiftTap_ = false;
         } else if (!shiftDown_) {
             shiftDown_ = true;
-            shiftTap_ = GetKeyState(VK_CONTROL) >= 0 && GetKeyState(VK_MENU) >= 0;
+            shiftAt_ = GetTickCount64();
+            GetKeyboardState(shiftKeys_);
+            shiftTap_ = !otherKeyChanged(shiftKeys_, true);
         }
     }
-    // True once for a Shift press with no other key in between. TSF may ask
-    // about the same key-up twice; the first answer clears the press.
+    // True once per press; TSF may ask about the same key-up twice.
     bool shiftTapped(WPARAM vk) {
         if (!isShift(vk)) return false;
-        const bool tap = shiftDown_ && shiftTap_;
-        shiftDown_ = shiftTap_ = false;
+        bool tap = shiftDown_ && shiftTap_ && GetTickCount64() - shiftAt_ < 1000;
+        if (tap) {
+            BYTE now[256] = {};
+            tap = GetKeyboardState(now) && !otherKeyChanged(now, false);
+        }
+        cancelShift();
         return tap;
     }
+    // With `held`, whether any key but Shift is down in `keys`; without it,
+    // also whether any was pressed since Shift went down.
+    bool otherKeyChanged(const BYTE *keys, bool held) const {
+        for (int vk = 1; vk < 256; ++vk) {
+            // Lock keys flip on their own; TSF's VK_PROCESSKEY and VK_PACKET stand in for keys already counted.
+            if (isShift(static_cast<WPARAM>(vk)) || vk == VK_CAPITAL || vk == VK_NUMLOCK || vk == VK_SCROLL ||
+                vk == VK_PROCESSKEY || vk == VK_PACKET)
+                continue;
+            if (keys[vk] & 0x80) return true;
+            if (!held && ((keys[vk] ^ shiftKeys_[vk]) & 1)) return true;
+        }
+        return false;
+    }
+    void cancelShift() { shiftDown_ = shiftTap_ = false; }
     void toggleEnglish(ITfContext *context) {
         if (!activated_) return;
         const auto found = states_.find(context);
@@ -1287,6 +1369,8 @@ private:
     Ref<ITfLangBarItemMgr> langBar_;
     Ref<ModeButton> button_;
     bool shiftDown_ = false, shiftTap_ = false;
+    ULONGLONG shiftAt_ = 0;
+    BYTE shiftKeys_[256] = {};
     std::unordered_map<ITfContext *, std::shared_ptr<ContextState>> states_;
     std::shared_ptr<ContextState> active_; // the context whose candidates are on screen
     std::unique_ptr<ui::CandidateWindow> window_;
