@@ -55,7 +55,7 @@ std::string polyline(const std::vector<PointF> &pts) {
 }
 
 const std::string &spriteHref(const SvgAssets &assets, Sprite sprite) {
-    return sprite == Sprite::Mimimo ? assets.mimimo : assets.momo;
+    return sprite == Sprite::Mimimo ? assets.mimimo : sprite == Sprite::Momo ? assets.momo : assets.ornament;
 }
 
 std::string matrix(const Affine &m) {

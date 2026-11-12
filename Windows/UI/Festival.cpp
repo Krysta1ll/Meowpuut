@@ -231,6 +231,15 @@ bool readSprite(const Json *node, FestivalSprite &out) {
         !readNumbers(*node, "anchor", 2, anchor))
         return false;
     out.width = size[0], out.height = size[1], out.anchorX = anchor[0], out.anchorY = anchor[1];
+    if (const auto *bust = node->get("bust")) {
+        float row[1], cut[2];
+        const Json *rowNode = bust->get("row");
+        if (!readNumbers(*bust, "bounds", 4, out.bounds) || !readNumbers(*bust, "cut", 2, cut) || !rowNode ||
+            rowNode->type != Json::Type::Number)
+            return false;
+        row[0] = static_cast<float>(rowNode->number);
+        out.bust = true, out.row = row[0], out.cutLeft = cut[0], out.cutRight = cut[1];
+    }
     return true;
 }
 
@@ -257,6 +266,13 @@ bool readTheme(const Json &node, FestivalTheme &t) {
         !readStrings(*colors, "dark", t.colors.dark) || !readString(*colors, "contrast", t.colors.contrast))
         return false;
     t.trim.width = size[0], t.trim.height = size[1];
+    if (const auto *ends = node.get("ends"); ends && ends->get("right")) {
+        float right[2];
+        if (!readString(*ends->get("right"), "image", t.rightImage) || !readNumbers(*ends->get("right"), "size", 2, right) ||
+            !isName(t.rightImage))
+            return false;
+        t.rightWidth = right[0], t.rightHeight = right[1];
+    }
     for (const auto &item : days->array) {
         FestivalDays d;
         if (!readDays(item, d)) return false;
@@ -382,6 +398,24 @@ std::vector<const FestivalTheme *> metThemes(const FestivalManifest &manifest, L
                 break;
             }
     return out;
+}
+
+std::shared_ptr<const FestivalArt> festivalArt(const FestivalTheme &festival) {
+    if (!festival.mimimo.bust || !festival.momo.bust) return nullptr;
+    const auto seated = [](const FestivalSprite &s) {
+        CatSprite c{};
+        c.name = "festival";
+        c.width = s.width, c.height = s.height;
+        c.anchorX = (s.cutLeft + s.cutRight) / 2, c.anchorY = s.row;
+        c.left = s.bounds[0], c.top = s.bounds[1], c.right = s.bounds[0] + s.bounds[2], c.bottom = s.bounds[1] + s.bounds[3];
+        c.cutLeft = s.cutLeft, c.cutRight = s.cutRight;
+        c.pawCount = 0;
+        return c;
+    };
+    auto art = std::make_shared<FestivalArt>();
+    art->mimimo = seated(festival.mimimo), art->momo = seated(festival.momo);
+    art->rightWidth = festival.rightWidth, art->rightHeight = festival.rightHeight;
+    return art;
 }
 
 void applyFestivalPill(Theme &theme, const FestivalTheme &festival) {

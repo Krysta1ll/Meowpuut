@@ -4,6 +4,8 @@
 // result, so they agree on shapes and positions. Text widths come from the
 // measurer and differ with the font.
 #include "CatSpriteData.h"
+
+#include <memory>
 #include "GlassShape.h"
 
 #include <cstddef>
@@ -48,6 +50,14 @@ struct CatReaction {
 // head, 莫莫 tilts hers.
 CatReaction catReaction(Cat cat, float t);
 
+// A festival day (Festival.h): the dressed cats as the bar seats them (behind
+// the glass, the edge across the chest, no paws in front) and the size of the
+// right end's ornament cluster in DIPs (0 for none).
+struct FestivalArt {
+    CatSprite mimimo{}, momo{};
+    float rightWidth = 0, rightHeight = 0;
+};
+
 struct CandidateViewModel {
     std::vector<std::string> candidates;  // the current page, in engine order
     std::vector<bool> japanese;           // parallel to candidates
@@ -63,6 +73,7 @@ struct CandidateViewModel {
     std::optional<std::size_t> hovered;   // candidate under the pointer
     std::optional<std::size_t> pressed;   // candidate under a held mouse button
     CatReaction reactions[2];             // indexed by Cat; the window sets them after a click
+    std::shared_ptr<const FestivalArt> festival;  // null on an ordinary day
 };
 
 class TextMeasurer {
@@ -139,6 +150,9 @@ struct CandidateLayout {
     bool decorations = true;
     GlassOutline glass;            // the bar, or the expanded panel
     std::vector<CatPlacement> cats; // in drawing order; a cat with no level seat is left out
+    std::shared_ptr<const FestivalArt> festival; // keeps the dressed sprites the cats point to
+    bool dressed = false;          // the cats are the festival's
+    std::optional<RectF> ornament; // the festival's cluster at the bar's right end
     std::vector<CandidateCell> cells;
     RectF chevron;                 // expand / collapse
     bool chevronUp = false;

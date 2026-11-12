@@ -119,7 +119,7 @@ macOS、Android 和 Windows 目前只有「節日裝扮」總開關。
 - 選中候選的膠囊用主題顏色；增加對比時用原本的顏色。
 - 每套可調的參數在 `scripts/import_festivals.py` 的 `ADAPT`：用哪一側的裝飾、玻璃管的寬度和顏色容許值、去掉小碎片的門檻、切胸口的位置。改了重新匯入即可，不手改 PNG。
 
-各平台：iOS 鍵盤與 App 的預覽、macOS 候選窗、Android 鍵盤都有貓、右端裝飾和膠囊顏色。Windows 目前只有膠囊顏色，貓和裝飾還沒畫。
+四個平台（iOS 鍵盤與 App 的預覽、macOS 候選窗、Android 鍵盤、Windows 候選窗）都有貓、右端裝飾和膠囊顏色。
 
 ## 匯入新的素材包
 
@@ -157,5 +157,6 @@ python3 scripts/import_festivals.py ~/…/Meowpuut_Festivals_24_Collection ~/…
 
 - Lab App（`MeowpuutKeyboardLab`，不出貨）：`-festivalDay 2026-12-25` 看那天穿哪套，`-festivalTheme halloween` 直接穿某一套，`-festivalOutfits NO`、`-festivalsSkipped '(christmas)'` 模擬設定。這段程式碼只在 `KEYBOARD_LAB` 編譯條件下存在。
 - Android 的 debug 版（release 版沒有）：`adb shell run-as com.krysta1ll.meowpuut.android sh -c 'echo christmas > files/festival'`，寫主題 id 或日期；刪掉檔案就回到今天。
+- Windows 的快照：`render_previews <Windows/UI/Assets> <輸出資料夾> <Windows/UI/Assets/festivals> <主題 id 或日期>`（`scripts/build-windows-check.sh` 會畫聖誕節）。
 - 測試：`Festivals.theme(onDay:in:wardrobe:)` 可以指定任何日子。
 - 截圖：Lab 加 `-festivalTheme`（`scripts/ios-keyboard-shots.sh`）；真正的系統鍵盤用 `FESTIVAL_SHOTS=1 bash scripts/ios-real-keyboard-shots.sh`，計畫的 settings 裡寫 `"festivalShotDay"`。

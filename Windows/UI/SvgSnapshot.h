@@ -10,6 +10,7 @@ namespace meowpuut::ui {
 struct SvgAssets {
     // data: URIs (or file paths) of the cats' pictures in Windows/UI/Assets.
     std::string mimimo, momo;
+    std::string ornament;  // a festival's cluster at the bar's right end
 };
 
 std::string renderSvg(const Scene &scene, const SvgAssets &assets,
