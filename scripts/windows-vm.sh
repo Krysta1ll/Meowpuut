@@ -41,12 +41,13 @@ qmp() {
   python3 -I "$REPO/scripts/windows-vm/qmp.py" "$VM/qmp.sock" "$1"
 }
 
-# Boots QEMU in the background. $1: an installer ISO to attach.
+# Boots QEMU in the background. $1: an installer ISO to attach (with data.dmg).
 boot() {
   local cd=()
   if [ -n "${1:-}" ]; then
     cd=(-device usb-bot,id=cd -drive "if=none,id=install,media=cdrom,readonly=on,file=$1"
-        -device scsi-cd,bus=cd.0,drive=install,bootindex=1)
+        -device scsi-cd,bus=cd.0,drive=install,bootindex=1
+        -drive "if=none,id=data,format=raw,readonly=on,file=$MEDIA/data.dmg" -device usb-storage,drive=data)
   fi
   rm -f "$VM/qmp.sock"
   qemu-system-aarch64 -name meowpuut-windows -machine virt,highmem=on -accel hvf -cpu host \
@@ -223,30 +224,29 @@ for f in re.findall(r"<File id=\"[^\"]*\">(.*?)</File>", xml, re.S):
   cd "$REPO"
 }
 
-# install.iso: boot files and Windows PE from the ESD, the Pro image, the
-# network driver, OpenSSH and the answer file. Windows PE runs deploy.cmd,
-# which partitions the disk, applies the image and powers off; Windows Setup
+# install.iso: boot files and Windows PE from the ESD. data.dmg: an exFAT disk
+# with the ESD itself (over 4 GB, too big for ISO 9660), the network driver,
+# OpenSSH and the answer file. Windows PE runs deploy.cmd from data.dmg, which
+# partitions the disk, applies Windows 11 Pro and powers off. Windows Setup
 # does not run, so there is no product key or edition page.
-build_iso() {
-  [ -f "$MEDIA/install.iso" ] && return
-  local t="$MEDIA/iso" pro
-  rm -rf "$t" && mkdir -p "$t/meow/drivers"
-  pro=$(wimlib-imagex info "$MEDIA/windows.esd" | awk '/^Index:/{i=$2} /^Edition ID:/ && $3=="Professional"{print i; exit}')
+build_media() {
+  [ -f "$MEDIA/install.iso" ] && [ -f "$MEDIA/data.dmg" ] && return
+  local t="$MEDIA/iso" d="$MEDIA/data"
+  rm -rf "$t" "$d" "$MEDIA/data.dmg" && mkdir -p "$d/meow/drivers"
   wimlib-imagex apply "$MEDIA/windows.esd" 1 "$t" >/dev/null 2>&1
   rm -rf "$t/__chunk_data"
   wimlib-imagex export "$MEDIA/windows.esd" 2 "$t/sources/boot.wim" --compress=LZX --boot >/dev/null
   wimlib-imagex update "$t/sources/boot.wim" 1 \
     --command="add $REPO/scripts/windows-vm/startnet.cmd /Windows/System32/startnet.cmd" >/dev/null
-  # Recompressed so it holds only Pro and stays under 4 GB (ISO 9660 limit).
-  wimlib-imagex export "$MEDIA/windows.esd" "$pro" "$t/sources/install.esd" --solid --recompress >/dev/null
-  xorriso -osirrox on -indev "$MEDIA/virtio-win.iso" -extract /NetKVM/w11/ARM64 "$t/meow/drivers/netkvm" 2>/dev/null
-  cp "$MEDIA/OpenSSH-ARM64.zip" "$REPO"/scripts/windows-vm/{deploy.cmd,unattend.xml,firstlogon.ps1} "$t/meow/"
-  cp "$VM/ssh/id_ed25519.pub" "$t/meow/authorized_keys"
   # efisys_noprompt: no "press any key to boot from CD" wait.
   xorriso -as mkisofs -iso-level 3 -J -joliet-long -V MEOWPUUT_WIN11 \
-    -e efi/microsoft/boot/efisys_noprompt.bin -no-emul-boot -o "$MEDIA/install.iso.part" "$t" 2>/dev/null
-  mv "$MEDIA/install.iso.part" "$MEDIA/install.iso"
-  rm -rf "$t"
+    -e efi/microsoft/boot/efisys_noprompt.bin -no-emul-boot -o "$MEDIA/install.iso" "$t" 2>/dev/null
+  ln "$MEDIA/windows.esd" "$d/windows.esd"
+  xorriso -osirrox on -indev "$MEDIA/virtio-win.iso" -extract /NetKVM/w11/ARM64 "$d/meow/drivers/netkvm" 2>/dev/null
+  cp "$MEDIA/OpenSSH-ARM64.zip" "$REPO"/scripts/windows-vm/{deploy.cmd,unattend.xml,firstlogon.ps1} "$d/meow/"
+  cp "$VM/ssh/id_ed25519.pub" "$d/meow/authorized_keys"
+  hdiutil create -quiet -srcfolder "$d" -fs ExFAT -volname MEOWDATA -format UDRW -layout GPTSPUD "$MEDIA/data.dmg"
+  rm -rf "$t" "$d"
 }
 
 cmd_create() {
@@ -257,7 +257,7 @@ cmd_create() {
   mkdir -p "$VM/ssh"
   [ -f "$VM/ssh/id_ed25519" ] || ssh-keygen -q -t ed25519 -N '' -C meowpuut-windows-vm -f "$VM/ssh/id_ed25519"
   fetch_media
-  build_iso
+  build_media
   if [ ! -f "$VM/installed" ]; then
     qemu-img create -q -f qcow2 "$VM/disk.qcow2" 64G
     cp "$QEMU_SHARE/edk2-arm-vars.fd" "$VM/vars.fd"
