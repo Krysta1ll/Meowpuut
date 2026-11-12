@@ -9,6 +9,16 @@
 // <dir> holds native-pinyin.tsv, native-zhuyin.tsv and native-japanese.tsv
 // (scripts/export-windows-lexicon.py). Without the option the program looks
 // for a "lexicon" folder next to the executable.
+//
+// Fixed states for screenshots (scripts/windows-vm.sh). With --at the window
+// stays at one place, keeps the candidates up without focus and quits after
+// --seconds (default 60):
+//
+//   --at X,Y                 caret position in screen pixels
+//   --shape capsule|wave|cloud   --tone light|dark|system
+//   --type <keys>            type ASCII keys through the session, or
+//   --candidates a,b,ja:c    a fixed page; "ja:" marks a Japanese candidate
+//   --preedit <text>  --highlight <n>  --page <n>  --more  --expanded
 #ifndef UNICODE
 #define UNICODE
 #endif
@@ -27,7 +37,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
+#include <cctype>
 #include <string>
+#include <vector>
 
 using namespace meowpuut;
 
@@ -69,6 +81,8 @@ struct App {
     DWORD compositionStart = 0, compositionLength = 0;
     bool eatChar = false;
     bool shiftDown = false, shiftUsed = false;
+    bool scripted = false;  // --at: fixed caret, candidates stay up without focus
+    RECT fixedCaret{};
 
     Session &session() { return mode == InputMode::Pinyin ? *pinyin : *zhuyin; }
 
@@ -83,6 +97,7 @@ struct App {
     }
 
     RECT compositionRect() {
+        if (scripted) return fixedCaret;
         RECT r{};
         const LRESULT pos = SendMessageW(edit, EM_POSFROMCHAR, compositionStart, 0);
         POINT p{};
@@ -256,7 +271,7 @@ struct App {
             app->keyUp(wp);
             break;
         case WM_KILLFOCUS:
-            if (app->candidates) app->candidates->hide();
+            if (app->candidates && !app->scripted) app->candidates->hide();
             break;
         case WM_SETFOCUS:
             app->showCandidates();
@@ -406,6 +421,9 @@ struct App {
                 app->showCandidates();
             }
             return 0;
+        case WM_TIMER:
+            if (wp == 1) DestroyWindow(hwnd);  // --seconds ran out
+            return 0;
         case WM_DESTROY:
             PostQuitMessage(0);
             return 0;
@@ -423,6 +441,80 @@ std::filesystem::path lexiconDirectory() {
         if (std::wstring(argv[i]) == L"--lexicon") dir = argv[i + 1];
     if (argv) LocalFree(argv);
     return dir;
+}
+
+std::vector<std::wstring> arguments() {
+    int argc = 0;
+    LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    std::vector<std::wstring> args(argv + 1, argv + argc);
+    LocalFree(argv);
+    return args;
+}
+
+std::string narrow(const std::wstring &w) {
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    std::string s(static_cast<std::size_t>(std::max(0, n)), '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+// Applies the screenshot options (see the top of this file). Returns the
+// number of seconds to stay up, or 0 without --at.
+UINT applyScript(App &app) {
+    const auto args = arguments();
+    auto value = [&](const wchar_t *name) -> std::wstring {
+        for (std::size_t i = 0; i + 1 < args.size(); ++i)
+            if (args[i] == name) return args[i + 1];
+        return {};
+    };
+    auto flag = [&](const wchar_t *name) { return std::find(args.begin(), args.end(), name) != args.end(); };
+    const auto at = value(L"--at");
+    if (at.empty()) return 0;
+    app.scripted = true;
+    const int x = _wtoi(at.c_str()), y = _wtoi(at.substr(at.find(L',') + 1).c_str());
+    const int line = MulDiv(22, static_cast<int>(GetDpiForWindow(app.window)), 96);
+    app.fixedCaret = {x, y, x + 1, y + line};
+    // The preview window sits behind the caret so the candidates lie on its text.
+    SetWindowPos(app.window, nullptr, x - 3 * line, y - 4 * line, 40 * line, 18 * line, SWP_NOZORDER | SWP_NOACTIVATE);
+
+    auto options = app.candidates->options();
+    const auto shape = value(L"--shape"), tone = value(L"--tone");
+    if (shape == L"wave") options.shape = ui::GlassShape::Wave;
+    if (shape == L"cloud") options.shape = ui::GlassShape::Cloud;
+    if (tone == L"light") options.tone = ui::ToneSetting::Light;
+    if (tone == L"dark") options.tone = ui::ToneSetting::Dark;
+    app.candidates->setOptions(options);
+    app.state.expanded = flag(L"--expanded");
+
+    if (const auto keys = value(L"--type"); !keys.empty()) {
+        for (wchar_t c : keys) {
+            const auto ch = static_cast<char>(c);
+            handleKey(app.session(), app.mode, KeyEvent{static_cast<std::uint32_t>(std::toupper(ch)), ch});
+        }
+        app.refresh();
+    } else {
+        Snapshot page;
+        page.input = "x";
+        page.preedit = narrow(value(L"--preedit"));
+        page.page = static_cast<std::size_t>(_wtoi(value(L"--page").c_str()));
+        page.lastPage = !flag(L"--more");
+        std::wstring list = value(L"--candidates");
+        for (std::size_t start = 0; start <= list.size();) {
+            const auto end = std::min(list.find(L',', start), list.size());
+            std::wstring item = list.substr(start, end - start);
+            const bool japanese = item.rfind(L"ja:", 0) == 0;
+            page.candidates.push_back(narrow(japanese ? item.substr(3) : item));
+            page.japaneseCandidates.push_back(japanese);
+            start = end + 1;
+        }
+        app.writeInline("", page.preedit);
+        app.last = page;
+    }
+    app.state.highlighted = static_cast<std::size_t>(_wtoi(value(L"--highlight").c_str()));
+    app.syncMenu();
+    app.showCandidates();
+    const auto seconds = value(L"--seconds");
+    return seconds.empty() ? 60 : static_cast<UINT>(_wtoi(seconds.c_str()));
 }
 
 } // namespace
@@ -497,6 +589,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     app.layoutChildren();
     ShowWindow(app.window, show);
     SetFocus(app.edit);
+    if (const UINT seconds = applyScript(app)) SetTimer(app.window, 1, seconds * 1000, nullptr);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

@@ -115,6 +115,67 @@ MINGW_BIN=/path/to/llvm-mingw/bin RUST_WINDOWS_TARGET=x86_64-pc-windows-gnullvm 
 
 [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) 的 Clang 要搭配 `x86_64-pc-windows-gnullvm`；腳本會在缺少時執行 `rustup target add`。找不到編譯器時第 4 段跳過，前三段照常執行。交叉編譯出來的 `MeowpuutCandidatePreview.exe` 只依賴系統 DLL，把 `mingw/` 整個資料夾和詞庫複製到 Windows 就能執行。
 
+### 在 Mac 上的 Windows 虛擬機
+
+`scripts/windows-vm.sh` 在 Apple 晶片的 Mac 上跑一台 Windows 11 Arm64 虛擬機，用來實際執行交叉編譯出來的預覽程式和測試。虛擬機是 Homebrew 的 QEMU 加上 macOS 的 Hypervisor（hvf），沒有視窗，全部經由 SSH 和 QEMU 的 QMP 控制。x64 的 exe 在 Windows 內建的 x64 模擬下執行。
+
+檔案在主 checkout 的 `.build/windows-vm/`（不進 git，可用 `WINDOWS_VM_DIR` 改）：`disk.qcow2` 是系統碟，`vars.fd` 是 UEFI 變數，`media/` 是下載的安裝檔和做好的 `install.iso`、`data.dmg`（建好之後可以刪掉 `media/`，約 12 GB），`ssh/` 是登入用的金鑰。Windows 的帳號是 `meow`，密碼 `meow`，開機自動登入；SSH 只收這把金鑰，埠是本機的 127.0.0.1:2222。Windows 沒有啟用，也不需要產品金鑰。
+
+從零建立：
+
+```sh
+brew install qemu wimlib xorriso
+bash scripts/windows-vm.sh create
+```
+
+`create` 依序做這些事，中斷後重跑會從缺的那一步接著做：
+
+1. 從 Microsoft 的 Media Creation Tool 目錄（`products.cab`）找出繁體中文 Arm64 的 ESD，從 `dl.delivery.mp.microsoft.com` 下載並核對 SHA-1（約 4.7 GB）。另外下載 virtio 網路卡驅動（Fedora 的 `virtio-win.iso`，Windows 沒有 QEMU 網路卡的驅動）和 Microsoft 的 OpenSSH（GitHub `PowerShell/Win32-OpenSSH`）。
+2. 用 wimlib 從 ESD 取出開機檔和 Windows PE，做成 `install.iso`；ESD 本身超過 4 GB，放不進 ISO 9660，所以和網路卡驅動、OpenSSH、`scripts/windows-vm/` 的檔案一起放進 exFAT 的 `data.dmg`。不跑 Windows 安裝程式（因此沒有產品金鑰和版本選擇的畫面）：Windows PE 執行 `deploy.cmd`，分割磁碟、套用專業版映像、加入網路卡驅動、寫入 `unattend.xml`，然後關機。
+3. 第一次開機時 Windows 依 `unattend.xml` 完成設定，`SetupComplete.cmd` 用 pnputil 裝網路卡驅動（Windows PE 裡的 `dism /Add-Driver` 會失敗，0x80004002），建立本機帳號並登入，`firstlogon.ps1` 安裝 OpenSSH 伺服器、關掉睡眠和自動更新。等到 SSH 能連、桌面出現就完成。
+
+在這台 M4 上，ESD 下載約 10 分鐘，Windows PE 套用映像約 60 分鐘（資料碟走模擬的 USB，很慢），第一次開機到桌面約 10 分鐘。改了 `scripts/windows-vm/` 的檔案後，刪掉 `media/data.dmg` 和 `install.iso` 再 `create`，否則用的是舊的檔案；要整台重裝，另外刪掉 `installed` 和 `disk.qcow2`。之後每次開機到桌面約 30 秒，關機幾秒。螢幕固定是 1024 × 768（QEMU 的 ramfb）。
+
+日常使用：
+
+```sh
+MEOWPUUT_LEXICON_DIR=iOS/Generated bash scripts/build-windows-check.sh
+bash scripts/windows-vm.sh start                 # 開機，等到桌面出現
+bash scripts/windows-vm.sh deploy                # 複製 mingw/ 的 exe、Assets 和詞庫到 C:\meow\preview
+bash scripts/windows-vm.sh run 'C:\meow\preview\meowpuut_layout_test.exe'
+bash scripts/windows-vm.sh shots                 # 三種造型 × 淺深色 × 收合／展開
+bash scripts/windows-vm.sh scale 150             # 換顯示比例，Windows 會重新開機；1024 × 768 的螢幕到 200 % 時候選列放不下
+bash scripts/windows-vm.sh shots
+bash scripts/windows-vm.sh stop
+```
+
+其他指令：
+
+| 指令 | 作用 |
+| --- | --- |
+| `copy <資料夾> [<Windows 路徑>]` | 複製到 Windows，預設 `C:\meow\<資料夾名>` |
+| `run <命令>` | 經 SSH 在 cmd.exe 執行，輸出和結束碼原樣傳回。SSH 登入的 `meow` 是系統管理員，命令本來就是提高權限的 |
+| `desktop '<命令列>'` | 在已登入的桌面啟動程式（以提高權限的排程工作執行），程式啟動後就返回。SSH 啟動的程式在 session 0，看不到視窗 |
+| `type '<文字>'` | 用 QMP 送出鍵盤輸入，只限 ASCII，美式配置 |
+| `keys ret ctrl-a alt-f4` | 送出按鍵，名稱是 QEMU 的 qcode，`-` 表示同時按 |
+| `click <x> <y> [left\|right]` | 滑鼠點擊，座標是截圖的像素 |
+| `shot <檔名.png>` | 整個畫面的截圖（QMP `screendump`），也可寫 `screen` |
+| `snapshot save\|restore\|list [<名稱>]` | qcow2 內部快照加一份 UEFI 變數，預設名稱 `clean`；要先 `stop` |
+| `show <名稱> <預覽程式參數…>` | 見下 |
+| `status`、`ssh` | 狀態、互動式 shell |
+
+這台是測試機：`firstlogon.ps1` 把系統管理員的 UAC 提示關掉（`ConsentPromptBehaviorAdmin=0`），安裝程式可以無人值守地提高權限；UAC 本身沒關，市集應用程式需要它。裝好後先 `stop`，再 `snapshot save clean`，之後每次測試前 `snapshot restore clean` 就回到乾淨的系統。截圖在 `.build/windows-vm-shots/`：`<比例>-<色調>-<造型>.png` 是游標附近裁下的範圍，`screens/` 是整個畫面。
+
+`show` 的做法：用排程工作在已登入的桌面啟動預覽程式（從 SSH 啟動的程式不能顯示視窗），帶 `--at` 等參數把候選窗固定在一個位置和狀態，再用 QEMU 的 `screendump` 取整個畫面。預覽程式的截圖參數寫在 `Preview/PreviewApp.cpp` 開頭，例如：
+
+```sh
+bash scripts/windows-vm.sh show nihao --shape cloud --tone dark --type nihao
+bash scripts/windows-vm.sh show list --candidates '喵,貓,ja:ねこ' --preedit mao --expanded
+MOUSE=420,330 bash scripts/windows-vm.sh show hover --candidates '喵,貓,毛'   # 先把滑鼠移到該處
+```
+
+這台虛擬機能證明的：Windows 的 Direct2D、DirectWrite（微軟正黑體）、WIC 讀 PNG、分層視窗的透明與陰影、DPI 縮放後的排版、滑鼠點擊範圍，在真的 Windows 上的樣子；排版測試在 Windows 上通過。不能證明的：畫面是 QEMU 的 ramfb，Windows 用基本顯示卡驅動，沒有 GPU（候選窗本來就用軟體繪製，影響不大）；x64 程式跑在 Windows 的 x64 模擬下，速度不代表實機；只有一個 1024 × 768 的螢幕，沒有測不同 DPI 的兩個螢幕之間移動，200 % 也放不下；顯示比例是用 `LogPixels` 設的整體比例，不是每個螢幕各自的設定。
+
 ## 尚未完成
 
 這裡還沒有 TSF 文字服務，也沒有安裝包。接 TSF 還需要：
