@@ -144,3 +144,22 @@ case "$mode" in
 esac
 # shellcheck disable=SC2086
 "$GRADLE" ${MEOWPUUT_GRADLE_ARGS:-} $tasks
+
+# The release APK is signed with the project's release key when this Mac has it:
+# MEOWPUUT_ANDROID_KEYSTORE (default ~/.android/meowpuut/meowpuut-release.p12, alias
+# meowpuut), password from the login Keychain item "meowpuut-android-release".
+# Without the key the unsigned APK is left as it is.
+if [ "$mode" = "--release" ]; then
+  KEYSTORE="${MEOWPUUT_ANDROID_KEYSTORE:-$HOME/.android/meowpuut/meowpuut-release.p12}"
+  OUTDIR=app/build/outputs/apk/release
+  if [ -f "$KEYSTORE" ]; then
+    APKSIGNER="$SDK/build-tools/37.0.0/apksigner"
+    MEOWPUUT_KS_PASS="$(security find-generic-password -s meowpuut-android-release -a meowpuut -w)" \
+      "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias meowpuut --ks-pass env:MEOWPUUT_KS_PASS \
+      --out "$OUTDIR/app-release.apk" "$OUTDIR/app-release-unsigned.apk"
+    "$APKSIGNER" verify "$OUTDIR/app-release.apk"
+    echo "signed: Android/$OUTDIR/app-release.apk"
+  else
+    echo "no release key at $KEYSTORE: Android/$OUTDIR/app-release-unsigned.apk is unsigned"
+  fi
+fi
