@@ -18,10 +18,14 @@ enum DesktopCatArt {
         return image
     }
 
+    /// Pictures that stand in for the bundle's, by sprite name (as
+    /// CatArt.pictures on iOS).
+    static var pictures: [String: NSImage] = [:]
+
     /// The picture for a sprite. With `CatArt.sprite` this is where a cat's
-    /// look comes from: a festival that brings its own cats returns its picture here.
+    /// look comes from.
     static func picture(_ sprite: CatSprite) -> Image {
-        image(sprite.name).map { Image(nsImage: $0) } ?? Image(systemName: "cat")
+        (pictures[sprite.name] ?? image(sprite.name)).map { Image(nsImage: $0) } ?? Image(systemName: "cat")
     }
 
     /// Holiday outfit layers (exported at 2x by scripts/render_cats.py).

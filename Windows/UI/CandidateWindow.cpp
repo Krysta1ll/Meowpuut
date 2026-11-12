@@ -18,7 +18,6 @@
 #include <list>
 #include <map>
 #include <optional>
-#include <random>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -97,6 +96,11 @@ D2D1_MATRIX_3X2_F rotation(float degrees, float cx, float cy) {
     m._11 = c; m._12 = s; m._21 = -s; m._22 = c;
     m._31 = cx - c * cx + s * cy;
     m._32 = cy - s * cx - c * cy;
+    return m;
+}
+D2D1_MATRIX_3X2_F d2d(const Affine &a) {
+    D2D1_MATRIX_3X2_F m;
+    m._11 = a.a; m._12 = a.b; m._21 = a.c; m._22 = a.d; m._31 = a.e; m._32 = a.f;
     return m;
 }
 D2D1_PIXEL_FORMAT premultipliedBgra() {
@@ -303,7 +307,10 @@ private:
     std::unordered_map<std::string, std::list<Entry>::iterator> index_;
 };
 
-enum TimerId : UINT_PTR { kMimimoBlink = 1, kMomoBlink, kMimimoOpen, kMomoOpen, kMimimoPet, kMomoPet };
+enum TimerId : UINT_PTR { kCatFrame = 1 };
+
+// How long a cat's answer to a click lasts, in ms.
+constexpr ULONGLONG kReactionMs = 600;
 
 // Windows that share the class in this module. A DLL has to unregister its
 // classes itself before it unloads. A text service can live on several UI
@@ -373,11 +380,9 @@ struct CandidateWindow::Impl {
     Hit pressed;
     bool trackingLeave = false;
     int wheel = 0;
-    CatFace mimimoFace = CatFace::Open, momoFace = CatFace::Open;
-    bool mimimoPetting = false, momoPetting = false;
+    ULONGLONG petStart[2] = {0, 0}; // GetTickCount64 when each cat was last clicked; 0 when still
     int momoPets = 0;            // pets on 莫莫 in a row
     ULONGLONG lastMomoPet = 0;   // GetTickCount64 of the last one
-    std::mt19937 rng{std::random_device{}()};
 
     // --- setup --------------------------------------------------------------
     void create() {
@@ -505,38 +510,9 @@ struct CandidateWindow::Impl {
 
     bool outfitActive() const { return options.festivalOutfits && outfit.has_value() && !highContrast; }
 
-    std::wstring outfitFile(const std::string &name) const {
-        return assetDir + L"\\festivals\\" + widen(outfit->id) + L"\\" + widen(name);
-    }
-
-    // File behind a sprite of the scene; empty when there is nothing to draw.
-    std::wstring spritePath(Sprite sprite, const Scene &scene) const {
-        static const wchar_t *const faces[] = {L"open", L"happy", L"blink"};
-        const bool festive = outfitActive();
-        const auto frame = [&](bool mimimo, CatFace face) {
-            const auto index = static_cast<std::size_t>(face);
-            if (festive) {
-                const std::string &replacement = (mimimo ? outfit->mimimo : outfit->momo).frames[index];
-                if (!replacement.empty()) return outfitFile(replacement);
-            }
-            return assetDir + (mimimo ? L"\\mimimo_" : L"\\momo_") + faces[index] + L".png";
-        };
-        // `outfit` is only read when an outfit is active.
-        const auto overlay = [&](const std::string CatOutfit::*layer, bool mimimo) {
-            if (!festive) return std::wstring();
-            const std::string &name = (mimimo ? outfit->mimimo : outfit->momo).*layer;
-            return name.empty() ? std::wstring() : outfitFile(name);
-        };
-        switch (sprite) {
-        case Sprite::MimimoBack: return overlay(&CatOutfit::back, true);
-        case Sprite::Mimimo: return frame(true, scene.mimimoFace);
-        case Sprite::MimimoFront: return overlay(&CatOutfit::front, true);
-        case Sprite::MomoBack: return overlay(&CatOutfit::back, false);
-        case Sprite::Momo: return frame(false, scene.momoFace);
-        case Sprite::MomoFront: return overlay(&CatOutfit::front, false);
-        case Sprite::Tail: break;
-        }
-        return assetDir + L"\\mimimo_tail.png";
+    // File behind a cat's picture (catArt: where a festival can bring its own).
+    std::wstring spritePath(Sprite sprite) const {
+        return assetDir + L"\\" + widen(catArt(sprite == Sprite::Mimimo ? Cat::Mimimo : Cat::Momo).image);
     }
 
     // --- bitmaps ------------------------------------------------------------
@@ -560,11 +536,14 @@ struct CandidateWindow::Impl {
     }
 
     // The bitmap resampled to exactly w×h device pixels. With a blur it grows
-    // by `pad` pixels on every side so the soft edge is not cut off.
-    ID2D1Bitmap *sprite(const std::wstring &path, UINT w, UINT h, float sigma, UINT pad) {
+    // by `pad` pixels on every side so the soft edge is not cut off. With a
+    // tint only its shape is kept, in the tint's colour.
+    ID2D1Bitmap *sprite(const std::wstring &path, UINT w, UINT h, float sigma, UINT pad, const Color &tint) {
         if (path.empty() || w == 0 || h == 0 || w > 4096 || h > 4096 || !rt) return nullptr;
-        wchar_t suffix[64];
-        std::swprintf(suffix, 64, L"|%ux%u|%d", w, h, static_cast<int>(std::lround(sigma * 10)));
+        wchar_t suffix[96];
+        std::swprintf(suffix, 96, L"|%ux%u|%d|%02x%02x%02x", w, h, static_cast<int>(std::lround(sigma * 10)),
+                      static_cast<unsigned>(std::lround(tint.r * 255 * tint.a)), static_cast<unsigned>(std::lround(tint.g * 255 * tint.a)),
+                      static_cast<unsigned>(std::lround(tint.b * 255 * tint.a)));
         const std::wstring key = path + suffix;
         if (auto it = sprites.find(key); it != sprites.end()) return it->second.get();
         Com<ID2D1Bitmap> bitmap;
@@ -578,6 +557,13 @@ struct CandidateWindow::Impl {
                 // Straight into the middle of the padded buffer.
                 const std::size_t first = (static_cast<std::size_t>(pad) * fullW + pad) * 4;
                 if (SUCCEEDED(scaler->CopyPixels(nullptr, fullW * 4, static_cast<UINT>(px.size() - first), px.data() + first))) {
+                    if (tint.a > 0)
+                        for (std::size_t i = 0; i < px.size(); i += 4) {
+                            const float a = px[i + 3];
+                            px[i + 0] = static_cast<std::uint8_t>(std::lround(tint.b * a));
+                            px[i + 1] = static_cast<std::uint8_t>(std::lround(tint.g * a));
+                            px[i + 2] = static_cast<std::uint8_t>(std::lround(tint.r * a));
+                        }
                     if (pad > 0) blurPremultiplied(px, static_cast<int>(fullW), static_cast<int>(fullH), sigma);
                     const auto props = bitmapProperties();
                     if (FAILED(rt->CreateBitmap(sizeU(fullW, fullH), px.data(), fullW * 4, &props, bitmap.put())))
@@ -590,14 +576,14 @@ struct CandidateWindow::Impl {
         return raw;
     }
 
-    void drawSprite(const std::wstring &path, const RectF &box, float opacity, float blurDips) {
+    void drawSprite(const std::wstring &path, const RectF &box, float opacity, float blurDips, const Color &tint) {
         // Whole device pixels, so the art is resampled once and not again by DrawBitmap.
         const float x0 = std::round(box.x * scale), y0 = std::round(box.y * scale);
         const float x1 = std::round(box.right() * scale), y1 = std::round(box.bottom() * scale);
         if (x1 <= x0 || y1 <= y0) return;
         const float sigma = blurDips * scale;
         const UINT pad = sigma >= 0.5f ? static_cast<UINT>(std::ceil(sigma * 3)) : 0;
-        if (ID2D1Bitmap *bitmap = sprite(path, static_cast<UINT>(x1 - x0), static_cast<UINT>(y1 - y0), sigma, pad)) {
+        if (ID2D1Bitmap *bitmap = sprite(path, static_cast<UINT>(x1 - x0), static_cast<UINT>(y1 - y0), sigma, pad, tint)) {
             const float p = static_cast<float>(pad);
             const auto dest = rectF((x0 - p) / scale, (y0 - p) / scale, (x1 + p) / scale, (y1 + p) / scale);
             rt->DrawBitmap(bitmap, &dest, opacity, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, nullptr);
@@ -796,6 +782,22 @@ struct CandidateWindow::Impl {
                            static_cast<D2D1_DRAW_TEXT_OPTIONS>(4));
     }
 
+    // A clip that cannot be made still counts, so its PopClip has a partner.
+    void pushClip(ID2D1Geometry *g, const D2D1_MATRIX_3X2_F &transform) {
+        Com<ID2D1Layer> layer;
+        if (FAILED(rt->CreateLayer(nullptr, layer.put()))) layer.reset();
+        D2D1_LAYER_PARAMETERS params;
+        params.contentBounds = rectF(-FLT_MAX, -FLT_MAX, FLT_MAX, FLT_MAX);
+        params.geometricMask = g;
+        params.maskAntialiasMode = D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+        params.maskTransform = transform;
+        params.opacity = g && layer ? 1.0f : 0.0f; // no clip available: draw nothing rather than spill
+        params.opacityBrush = nullptr;
+        params.layerOptions = D2D1_LAYER_OPTIONS_NONE;
+        if (layer) rt->PushLayer(&params, layer.get());
+        clips.push_back(static_cast<bool>(layer));
+    }
+
     void replay(const Scene &scene) {
         std::vector<Com<ID2D1PathGeometry>> outlines;
         outlines.reserve(scene.outlines.size());
@@ -821,21 +823,41 @@ struct CandidateWindow::Impl {
                 if (ID2D1Geometry *g = outline(c.path))
                     if (ID2D1Brush *b = brushFor(c.paint, hold)) rt->DrawGeometry(g, b, c.width, nullptr);
                 break;
-            case Kind::PushClip: {
-                // A clip that cannot be made still counts, so its PopClip has a partner.
-                Com<ID2D1Layer> layer;
+            case Kind::PushClip:
+                pushClip(outline(c.path), identity());
+                break;
+            case Kind::PushClipOut: {
+                // The window's rectangle with the outline taken out.
+                Com<ID2D1RectangleGeometry> all;
+                Com<ID2D1GeometryGroup> outside;
                 ID2D1Geometry *g = outline(c.path);
-                if (FAILED(rt->CreateLayer(nullptr, layer.put()))) layer.reset();
-                D2D1_LAYER_PARAMETERS params;
-                params.contentBounds = rectF(-FLT_MAX, -FLT_MAX, FLT_MAX, FLT_MAX);
-                params.geometricMask = g;
-                params.maskAntialiasMode = D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
-                params.maskTransform = identity();
-                params.opacity = g && layer ? 1.0f : 0.0f; // no clip available: draw nothing rather than spill
-                params.opacityBrush = nullptr;
-                params.layerOptions = D2D1_LAYER_OPTIONS_NONE;
-                if (layer) rt->PushLayer(&params, layer.get());
-                clips.push_back(static_cast<bool>(layer));
+                const auto box = rectF(-40, -40, scene.size.width + 40, scene.size.height + 40);
+                if (g && SUCCEEDED(d2dFactory->CreateRectangleGeometry(&box, all.put()))) {
+                    ID2D1Geometry *parts[] = {all.get(), g};
+                    if (FAILED(d2dFactory->CreateGeometryGroup(D2D1_FILL_MODE_ALTERNATE, parts, 2, outside.put()))) outside.reset();
+                }
+                pushClip(outside.get(), identity());
+                break;
+            }
+            case Kind::PushClipOvals: {
+                std::vector<Com<ID2D1EllipseGeometry>> ovals;
+                std::vector<ID2D1Geometry *> parts;
+                for (const RectF &o : c.ovals) {
+                    D2D1_ELLIPSE e;
+                    e.point = pointF(o.midX(), o.midY());
+                    e.radiusX = o.width / 2;
+                    e.radiusY = o.height / 2;
+                    Com<ID2D1EllipseGeometry> g;
+                    if (SUCCEEDED(d2dFactory->CreateEllipseGeometry(&e, g.put()))) {
+                        parts.push_back(g.get());
+                        ovals.push_back(std::move(g));
+                    }
+                }
+                Com<ID2D1GeometryGroup> group;
+                if (parts.empty() || FAILED(d2dFactory->CreateGeometryGroup(D2D1_FILL_MODE_WINDING, parts.data(),
+                                                                            static_cast<UINT32>(parts.size()), group.put())))
+                    group.reset();
+                pushClip(group.get(), d2d(c.transform));
                 break;
             }
             case Kind::PopClip:
@@ -873,9 +895,16 @@ struct CandidateWindow::Impl {
                     }
                 }
                 break;
-            case Kind::Image:
-                drawSprite(spritePath(c.sprite, scene), c.rect, c.opacity, c.blur);
+            case Kind::Image: {
+                const auto moved = d2d(c.transform);
+                if (!c.transform.identity()) rt->SetTransform(&moved);
+                drawSprite(spritePath(c.sprite), c.rect, c.opacity, c.blur, c.tint);
+                if (!c.transform.identity()) {
+                    const auto id = identity();
+                    rt->SetTransform(&id);
+                }
                 break;
+            }
             case Kind::Text:
                 drawText(c);
                 break;
@@ -896,8 +925,10 @@ struct CandidateWindow::Impl {
         m.hovered = hovered;
         if (pressed.kind == HitKind::Candidate) m.pressed = pressed.index;
         else m.pressed.reset();
-        m.mimimoFace = mimimoFace;
-        m.momoFace = momoFace;
+        const ULONGLONG now = GetTickCount64();
+        for (int cat = 0; cat < 2; ++cat)
+            if (petStart[cat] != 0)
+                m.reactions[cat] = catReaction(static_cast<Cat>(cat), static_cast<float>(now - petStart[cat]) / kReactionMs);
         return m;
     }
 
@@ -996,8 +1027,6 @@ struct CandidateWindow::Impl {
         shown = true;
         // Shows and raises the window without taking the focus.
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        scheduleBlink(true);
-        scheduleBlink(false);
     }
 
     void hide() {
@@ -1015,67 +1044,40 @@ struct CandidateWindow::Impl {
     }
 
     // --- cats ---------------------------------------------------------------
-    // Timers run only while the window is on screen. The blink is a frame
-    // swap, so it stays when the system turns animation off (DESIGN.md §7).
-    void scheduleBlink(bool mimimo, UINT delay = 0) {
-        if (!hwnd || !shown || highContrast) return;
-        if (delay == 0) delay = std::uniform_int_distribution<UINT>(2800, 6400)(rng);
-        SetTimer(hwnd, mimimo ? kMimimoBlink : kMomoBlink, delay, nullptr);
-    }
-
+    // A click on a cat plays its answer (catReaction), redrawn on a frame timer
+    // that runs only while the window is on screen. With the system's
+    // animations off the cat stays still.
     void stopTimers() {
-        for (UINT_PTR id : {kMimimoBlink, kMomoBlink, kMimimoOpen, kMomoOpen, kMimimoPet, kMomoPet}) KillTimer(hwnd, id);
-        mimimoFace = momoFace = CatFace::Open;
-        mimimoPetting = momoPetting = false;
+        KillTimer(hwnd, kCatFrame);
+        petStart[0] = petStart[1] = 0;
     }
 
     void onTimer(UINT_PTR id) {
-        KillTimer(hwnd, id); // every timer here fires once
-        if (!shown) return;
-        switch (id) {
-        case kMimimoBlink:
-            if (!mimimoPetting) { mimimoFace = CatFace::Blink; requestRedraw(); }
-            SetTimer(hwnd, kMimimoOpen, 120, nullptr);
-            break;
-        case kMomoBlink:
-            if (!momoPetting) { momoFace = CatFace::Blink; requestRedraw(); }
-            SetTimer(hwnd, kMomoOpen, 120, nullptr);
-            break;
-        case kMimimoOpen:
-            if (!mimimoPetting) { mimimoFace = CatFace::Open; requestRedraw(); }
-            scheduleBlink(true);
-            break;
-        case kMomoOpen:
-            if (!momoPetting) { momoFace = CatFace::Open; requestRedraw(); }
-            // Now and then 莫莫 blinks twice.
-            scheduleBlink(false, std::uniform_real_distribution<float>(0, 1)(rng) < 0.25f ? 180 : 0);
-            break;
-        case kMimimoPet:
-            mimimoPetting = false;
-            mimimoFace = CatFace::Open;
-            requestRedraw();
-            break;
-        case kMomoPet:
-            momoPetting = false;
-            momoFace = CatFace::Open;
-            requestRedraw();
-            break;
-        default: break;
+        if (id != kCatFrame) return;
+        const ULONGLONG now = GetTickCount64();
+        bool moving = false;
+        for (ULONGLONG &start : petStart) {
+            if (start != 0 && now - start >= kReactionMs) start = 0;
+            moving = moving || start != 0;
         }
+        if (!moving || !shown) KillTimer(hwnd, kCatFrame);
+        requestRedraw();
     }
 
-    // A click on a cat: the happy face for a moment. Returns true on the
-    // fifth pet in a row on 莫莫; a gap of more than 1.6 s starts the count again.
+    static bool animationsOn() {
+        BOOL on = TRUE;
+        return !SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0) || on;
+    }
+
+    // Returns true on the fifth pet in a row on 莫莫; a gap of more than 1.6 s
+    // starts the count again.
     bool pet(bool mimimo) {
+        if (animationsOn()) {
+            petStart[mimimo ? 0 : 1] = GetTickCount64();
+            SetTimer(hwnd, kCatFrame, 16, nullptr);
+        }
         bool fifth = false;
-        if (mimimo) {
-            mimimoPetting = true;
-            mimimoFace = CatFace::Happy;
-            SetTimer(hwnd, kMimimoPet, 700, nullptr);
-        } else {
-            momoPetting = true;
-            momoFace = CatFace::Happy;
-            SetTimer(hwnd, kMomoPet, 900, nullptr);
+        if (!mimimo) {
             const ULONGLONG now = GetTickCount64();
             momoPets = now - lastMomoPet > 1600 ? 1 : momoPets + 1;
             lastMomoPet = now;
@@ -1100,14 +1102,8 @@ struct CandidateWindow::Impl {
     }
 
     void settingsChanged() {
-        const bool hadCats = !highContrast;
         readSystemTheme();
-        const bool hasCats = !highContrast;
-        if (shown && hadCats && !hasCats) stopTimers();
-        if (shown && !hadCats && hasCats) {
-            scheduleBlink(true);
-            scheduleBlink(false);
-        }
+        if (shown && highContrast) stopTimers();
         requestRedraw();
     }
 

@@ -8,12 +8,8 @@
 namespace meowpuut::ui {
 
 struct SvgAssets {
-    // data: URIs (or file paths) of the bitmaps in Windows/UI/Assets.
-    std::string mimimo[3];  // indexed by CatFace
-    std::string momo[3];
-    std::string tail;
-    // Festival overlays on the same canvas as the sprite (docs/FESTIVALS.md).
-    std::string mimimoBack, mimimoFront, momoBack, momoFront;
+    // data: URIs (or file paths) of the cats' pictures in Windows/UI/Assets.
+    std::string mimimo, momo;
 };
 
 std::string renderSvg(const Scene &scene, const SvgAssets &assets,

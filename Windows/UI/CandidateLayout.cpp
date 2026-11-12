@@ -222,8 +222,9 @@ struct CatStage {
 
 // A cat at one end of the top edge. Its cut starts just inside the round end
 // and slides inward until the edge under it is level enough and its paws are
-// clear of what is drawn on the glass.
-std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s) {
+// clear of what is drawn on the glass. `at`, when given, is tried first: where
+// the cut started on the collapsed bar.
+std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s, std::optional<float> at = std::nullopt) {
     const CatSprite &art = *catArt(cat).sprite;
     const float scale = std::min(1.0f, s.room / ((art.anchorY - art.top) * art.height));
     const float width = art.width * scale, height = art.height * scale;
@@ -231,9 +232,10 @@ std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s) {
     // How far into the round end the cut may start, and how much of the cat
     // the edge may hide: at its sides, and under its face.
     const float cornerReach = 4 * s.unit, hiddenSide = 4 * s.unit, hiddenFace = 1.5f * s.unit;
-    for (float slide = 0; slide <= 0.3f * s.glass.width; slide += 2 * s.unit) {
-        const float from = left ? s.glass.x + s.endRadius - cornerReach + slide
-                                : s.glass.right() - s.endRadius + cornerReach - slide - span;
+    for (float slide = at ? -1 : 0; slide <= 0.3f * s.glass.width; slide += slide < 0 ? 1 : 2 * s.unit) {
+        const float from = slide < 0 ? *at
+                           : left    ? s.glass.x + s.endRadius - cornerReach + slide
+                                     : s.glass.right() - s.endRadius + cornerReach - slide - span;
         const TopEdge::Rise rise = s.edge.rise(from, from + span);
         if (rise.most > hiddenSide || rise.middle > hiddenFace) continue;
         CatPlacement place;
@@ -262,7 +264,9 @@ std::optional<CatPlacement> seatCat(Cat cat, bool left, const CatStage &s) {
 // 米米莫 at the left end of the top edge, 莫莫 at the right end: the
 // arrangement `ends` of Sources/CatSprites.swift. `row` is the band the
 // candidates take and `stageTop` the top of the room kept for the cats.
-void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &row) {
+// `bar` is the collapsed bar when this is the panel: 米米莫 keeps his seat
+// from there where the panel's edge allows, so he does not jump when it opens.
+void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &row, const CandidateLayout *bar = nullptr) {
     const TopEdge edge(L.glass);
     // The arrow as Scene.cpp draws it: 9.2 × 4.8 with a 1.7 stroke.
     const RectF arrow{L.chevron.midX() - 5.5f, L.chevron.midY() - 3.3f, 11, 6.6f};
@@ -272,7 +276,12 @@ void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &ro
     // and the cats are one size on every shape.
     const float unit = glassBox(L.shape, 0, 1, 0, L.metrics.barHeight).height / 46;
     const CatStage stage{edge, L.glass.bounds, unit, L.metrics.barHeight / 2, bodyTop - stageTop - 1.5f, stageTop, row, arrow};
-    const auto mimimo = seatCat(Cat::Mimimo, true, stage), momo = seatCat(Cat::Momo, false, stage);
+    std::optional<float> at;
+    if (bar && !bar->cats.empty() && bar->cats.front().cat == Cat::Mimimo) {
+        const CatPlacement &was = bar->cats.front();
+        at = was.frame.x + was.sprite->cutLeft * was.frame.width;
+    }
+    const auto mimimo = seatCat(Cat::Mimimo, true, stage, at), momo = seatCat(Cat::Momo, false, stage);
     // Should the two ever meet, 莫莫 stays: five clicks on her switch the script.
     const bool apart = !mimimo || !momo || !mimimo->body().inset(-4 * unit, 0).intersects(momo->body());
     if (mimimo && apart) L.cats.push_back(*mimimo);
@@ -543,7 +552,10 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
         bottom = std::max(bottom, frame.right.bottom());
         // On the panel the paws stay off the header's text and the grid.
         const float textTop = L.headerY - 0.6f * m.headerFont;
-        seatCats(L, bodyTop, frame.left.y, {panelLeft + insetX, textTop, inner, gridBottom - textTop});
+        CandidateViewModel collapsed = model;
+        collapsed.expanded = false;
+        const CandidateLayout bar = layoutCandidates(collapsed, measurer, limits, m);
+        seatCats(L, bodyTop, frame.left.y, {panelLeft + insetX, textTop, inner, gridBottom - textTop}, &bar);
     }
     L.size = {right + m.padRight, std::ceil(bottom + m.padBottom)};
     L.anchorX = rowStart;
