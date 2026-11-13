@@ -79,11 +79,15 @@ enum JapaneseLexicon {
         }
         return handle
     }()
-    // One query, used on the main thread only, like the session.
+    // Background warmup and typing can use the same query. Its result
+    // pointers stay valid only until the next lookup.
     private static let query = mpn_japanese_query_create()
+    private static let queryLock = NSLock()
 
     static func words(_ input: String, mode: Int32, limit: Int) -> [Word] {
         guard let handle = shared, let query, !input.isEmpty else { return [] }
+        queryLock.lock()
+        defer { queryLock.unlock() }
         let count = mpn_japanese_lookup(query, handle, input, mode, limit)
         return (0..<count).compactMap { index in
             guard let text = mpn_japanese_text(query, index) else { return nil }
@@ -126,6 +130,7 @@ final class JapaneseBackend: InputBackend {
     var symbolCells = false
     private var symbols: Symbols.Found?
     private var raw = ""
+    var currentInput: String { raw }
     private var state = Snapshot()
     private var choices: [String] = []
     // A bundle without mimo_jp.bin fails here, as a bundle without the old JSON did.

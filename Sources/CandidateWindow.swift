@@ -7,6 +7,39 @@ import SwiftUI
 
 // MARK: Sizes
 
+enum CandidateTextSize: String, CaseIterable, Identifiable {
+    case small, standard, large
+
+    var id: Self { self }
+    var font: CGFloat { switch self { case .small: 13; case .standard: Desk.font; case .large: 20 } }
+    var hint: CGFloat { self == .large ? 12 : Desk.hintFont }
+    var pill: CGFloat { self == .large ? 31 : Desk.pill }
+    var gridRow: CGFloat { self == .large ? 36 : Desk.gridRowHeight }
+    var glassHeight: CGFloat { self == .large ? 44 : Desk.glass }
+
+    func name(_ t: InterfaceText) -> String {
+        switch self { case .small: "小字"; case .standard: t("標準", "标准"); case .large: "大字" }
+    }
+}
+
+enum CandidateWindowSize: String, CaseIterable, Identifiable {
+    case compact, standard, spacious
+
+    var id: Self { self }
+    var horizontalInset: CGFloat { switch self { case .compact: -3; case .standard: 0; case .spacious: 4 } }
+    var verticalInset: CGFloat { switch self { case .compact: -4; case .standard: 0; case .spacious: 8 } }
+    var cellPadding: CGFloat { Desk.cellPadding + horizontalInset }
+    var gridPadding: CGFloat { 8 + horizontalInset }
+    var cellSpacing: CGFloat { Desk.cellSpacing + (self == .spacious ? 2 : 0) }
+    func pill(_ text: CandidateTextSize) -> CGFloat { max(text.font + 7, text.pill + verticalInset) }
+    func gridRow(_ text: CandidateTextSize) -> CGFloat { max(pill(text) + 2, text.gridRow + verticalInset) }
+    func glass(_ text: CandidateTextSize) -> CGFloat { text.glassHeight + verticalInset }
+
+    func name(_ t: InterfaceText) -> String {
+        switch self { case .compact: t("緊湊", "紧凑"); case .standard: t("標準", "标准"); case .spacious: t("寬鬆", "宽松") }
+    }
+}
+
 /// Desktop sizes in points. The bar was laid out around the earlier cats (one
 /// behind the glass's left end, one resting on its right end); its design is
 /// kept as it was, so the numbers that came from their sizes are written out
@@ -42,13 +75,16 @@ enum Desk {
     static let chevronGlyph = CGSize(width: 12, height: 7)
 
     /// The bar as the cats see it (CatSprites.swift), for a bar this wide.
-    static func stage(width: CGFloat, shape: GlassShape, chevron: Bool) -> CatStage {
+    static func stage(width: CGFloat, shape: GlassShape, chevron: Bool, textSize: CandidateTextSize = .standard,
+                      windowSize: CandidateWindowSize = .standard) -> CatStage {
+        let glass = windowSize.glass(textSize)
+        let pill = windowSize.pill(textSize)
         let glassRect = CGRect(x: glassLeft, y: glassTop, width: width - glassLeft - momoOverhang, height: glass)
         let band = GlassEdge.band(shape, height: glass)
         let middle = glassTop + (band.top + band.bottom) / 2
         let rowEnd = width - (chevron ? rowTrail + chevronWidth : rowTrailPlain)
         let arrowX = chevron ? rowEnd + (chevronWidth - chevronGlyph.width) / 2 : rowEnd
-        return CatStage(size: CGSize(width: width, height: catsBarHeight), glass: glassRect, shape: shape, unit: glass / 46,
+        return CatStage(size: CGSize(width: width, height: glassTop + glass + glassBottom), glass: glassRect, shape: shape, unit: glass / 46,
                         room: glassTop - 1.5,
                         row: CGRect(x: glassLeft + rowLead, y: middle - pill / 2, width: max(1, rowEnd - glassLeft - rowLead), height: pill),
                         arrow: CGRect(x: arrowX, y: middle - chevronGlyph.height / 2, width: chevron ? chevronGlyph.width : 0, height: chevronGlyph.height))
@@ -128,23 +164,26 @@ struct CollapsedCandidateLayout: Equatable {
         var required: String?
         var page: Int
         var budget: CGFloat?
+        var textSize: CandidateTextSize
+        var windowSize: CandidateWindowSize
     }
     private static var memo: (key: Key, layout: CollapsedCandidateLayout)?
 
-    init(_ snapshot: Snapshot, budget: CGFloat? = nil) {
+    init(_ snapshot: Snapshot, budget: CGFloat? = nil, textSize: CandidateTextSize = Preferences.shared.candidateTextSize,
+         windowSize: CandidateWindowSize = Preferences.shared.candidateWindowSize) {
         // The view and key handling ask several times per keystroke.
         let key = Key(candidates: snapshot.candidates, japanese: snapshot.japaneseCandidates,
                       compact: snapshot.compactJapanese?.text, confident: snapshot.confidentCandidates,
-                      required: snapshot.requiredCandidate, page: snapshot.page, budget: budget)
+                      required: snapshot.requiredCandidate, page: snapshot.page, budget: budget, textSize: textSize, windowSize: windowSize)
         if let memo = Self.memo, memo.key == key { self = memo.layout; return }
-        self.init(measuring: snapshot, budget: budget)
+        self.init(measuring: snapshot, budget: budget, textSize: textSize, windowSize: windowSize)
         Self.memo = (key, self)
     }
 
-    private init(measuring snapshot: Snapshot, budget: CGFloat?) {
+    private init(measuring snapshot: Snapshot, budget: CGFloat?, textSize: CandidateTextSize, windowSize: CandidateWindowSize) {
         let candidates = snapshot.candidates + (snapshot.compactJapanese.map { [$0.text] } ?? [])
         let japanese = markedJapanese(snapshot)
-        let widths = candidates.map { CandidateMeasure.width($0) + (japanese.contains($0) ? Self.paw : 0) }
+        let widths = candidates.map { CandidateMeasure.width($0, size: textSize.font) + (japanese.contains($0) ? Self.paw : 0) }
         guard !widths.isEmpty else { indices = []; textWidths = [:]; truncated = false; return }
         let confidence = Set(snapshot.confidentCandidates)
         let trusted = snapshot.candidates.prefix(7).filter { confidence.contains($0) }.count
@@ -152,9 +191,13 @@ struct CollapsedCandidateLayout: Equatable {
             ?? snapshot.requiredCandidate.flatMap { candidates.firstIndex(of: $0) }
         // How many short candidates the row takes: more when the engine is sure of them.
         let base = max(110, budget ?? (trusted >= 5 ? 330 : trusted >= 3 ? 290 : 240))
-        let cap = max(40, base * Self.longShare - Self.chrome)
+        let chrome = Self.chrome + 2 * windowSize.horizontalInset + windowSize.cellSpacing - Desk.cellSpacing
+        // A preset changes padding around the same candidates. When a caller
+        // sets a hard width, use the actual cell chrome to choose what fits.
+        let fitChrome = budget == nil ? Self.chrome : chrome
+        let cap = max(40, base * Self.longShare - fitChrome)
         func total(_ ids: [Int]) -> CGFloat {
-            ids.reduce(0) { $0 + min(widths[$1], cap) + Self.chrome }
+            ids.reduce(0) { $0 + min(widths[$1], cap) + fitChrome }
         }
         var selected: [Int] = []
         for index in candidates.indices where !japanese.contains(candidates[index]) {
@@ -165,13 +208,13 @@ struct CollapsedCandidateLayout: Equatable {
         var available = base
         if let index = reservedJapanese, snapshot.page == 0 || !japanese.isEmpty, !selected.contains(index) {
             selected.append(index)
-            if budget == nil { available += min(130, widths[index] + Self.chrome) }
+            if budget == nil { available += min(130, widths[index] + fitChrome) }
         }
         if selected.isEmpty { selected = [0] }
         selected.sort()
         // Long candidates may widen the row up to its limit; past that they share what is left, shortest first.
         if budget == nil { available = max(available, Self.rowLimit) }
-        var remaining = max(0, available - CGFloat(selected.count) * Self.chrome)
+        var remaining = max(0, available - CGFloat(selected.count) * fitChrome)
         var allocation: [Int: CGFloat] = [:]
         let shortestFirst = selected.sorted { widths[$0] < widths[$1] }
         for (offset, index) in shortestFirst.enumerated() {
@@ -251,6 +294,9 @@ func collapsedCandidateMove(_ snapshot: Snapshot, key: Int32, modifiers: Int32) 
 
 /// Number, gaps and padding around one candidate in the expanded panel.
 private let gridChrome: CGFloat = 40
+func candidateGridWidthLimit(_ maximumWidth: CGFloat, windowSize: CandidateWindowSize = Preferences.shared.candidateWindowSize) -> CGFloat {
+    max(1, min(Desk.gridMaxWidth, maximumWidth) - windowSize.gridPadding * 2)
+}
 
 /// The expanded panel's candidates in order: the page, then on the first page
 /// the Japanese candidate the row kept from a later page. A marked candidate
@@ -289,24 +335,26 @@ func confirmJapaneseCandidate(_ engine: Engine, key: Int32, modifiers: Int32) ->
     return true
 }
 
-private func gridWidths(_ candidates: [String]) -> [CGFloat] {
-    candidates.prefix(8).map { CandidateMeasure.width($0) + gridChrome }
+private func gridWidths(_ candidates: [String], textSize: CandidateTextSize) -> [CGFloat] {
+    candidates.prefix(8).map { CandidateMeasure.width($0, size: textSize.font) + gridChrome + (textSize.hint - Desk.hintFont) }
 }
 
 /// Width of the expanded grid: three columns of short words, two of medium
 /// ones, or one line per long candidate. Every candidate stays on one line.
-func expandedCandidateWidth(_ candidates: [String], limit: CGFloat = Desk.gridMaxWidth) -> CGFloat {
-    let widths = gridWidths(candidates)
+func expandedCandidateWidth(_ candidates: [String], limit: CGFloat = Desk.gridMaxWidth, textSize: CandidateTextSize = Preferences.shared.candidateTextSize) -> CGFloat {
+    let widths = gridWidths(candidates, textSize: textSize)
     let longest = widths.max() ?? 60
     let columns = CGFloat(min(3, widths.count))
-    if longest <= 85 { return max(170, min(263, longest * columns + max(0, columns - 1) * 4)) }
-    if longest <= 120 { return max(180, longest * 2 + 4) }
-    return min(max(180, limit), max(180, longest))
+    let ideal: CGFloat
+    if longest <= 85 { ideal = max(170, min(263, longest * columns + max(0, columns - 1) * 4)) }
+    else if longest <= 120 { ideal = max(180, longest * 2 + 4) }
+    else { ideal = max(180, longest) }
+    return min(max(1, limit), ideal)
 }
 
-func expandedCandidateRows(_ candidates: [String], limit: CGFloat = Desk.gridMaxWidth) -> [[Int]] {
-    let widths = gridWidths(candidates)
-    let width = expandedCandidateWidth(candidates, limit: limit)
+func expandedCandidateRows(_ candidates: [String], limit: CGFloat = Desk.gridMaxWidth, textSize: CandidateTextSize = Preferences.shared.candidateTextSize) -> [[Int]] {
+    let widths = gridWidths(candidates, textSize: textSize)
+    let width = expandedCandidateWidth(candidates, limit: limit, textSize: textSize)
     var rows: [[Int]] = []
     var row: [Int] = []
     for index in widths.indices {
@@ -323,12 +371,12 @@ func expandedCandidateRows(_ candidates: [String], limit: CGFloat = Desk.gridMax
 
 func expandedCandidateHeight(_ candidates: [String]) -> CGFloat {
     let rows = CGFloat(expandedCandidateRows(candidates).count)
-    return rows * Desk.gridRowHeight + max(0, rows - 1) * Desk.gridRowSpacing
+    return rows * Preferences.shared.candidateWindowSize.gridRow(Preferences.shared.candidateTextSize) + max(0, rows - 1) * Desk.gridRowSpacing
 }
 
-func expandedCandidateMove(_ candidates: [String], from index: Int, key: Int32) -> Int {
+func expandedCandidateMove(_ candidates: [String], from index: Int, key: Int32, limit: CGFloat = Desk.gridMaxWidth) -> Int {
     guard !candidates.isEmpty else { return 0 }
-    let rows = expandedCandidateRows(candidates)
+    let rows = expandedCandidateRows(candidates, limit: limit)
     guard let row = rows.firstIndex(where: { $0.contains(index) }), let column = rows[row].firstIndex(of: index) else { return 0 }
     if key == 0xff51 || key == 0xff53 { return min(candidates.count - 1, max(0, index + (key == 0xff51 ? -1 : 1))) }
     let nextRow = min(rows.count - 1, max(0, row + (key == 0xff52 ? -1 : 1)))
@@ -436,6 +484,7 @@ final class CandidatePanelController {
     private var spoken = ""
     private var spokenPage = 0
     private var spokenExpanded = false
+    private(set) var gridWidthLimit = Desk.gridMaxWidth
     var onChoose: (Int) -> Void = { _ in }
     var onPage: (Int32) -> Void = { _ in }
     var onToggle: () -> Void = {}
@@ -482,8 +531,9 @@ final class CandidatePanelController {
         if let line = placedLine, !candidateSameLine(line, caret) { below = nil }
         placedLine = caret
         let room = candidateRoom(anchor: caret, bounds: bounds)
-        let collapsed = GlassCandidateView.collapsedHeight(cats: cats)
-        let wanted = collapsed + (expanded ? GlassCandidateView.minimumPanelHeight : 0)
+        let textSize = Preferences.shared.candidateTextSize, windowSize = Preferences.shared.candidateWindowSize
+        let collapsed = GlassCandidateView.collapsedHeight(cats: cats, textSize: textSize, windowSize: windowSize)
+        let wanted = collapsed + (expanded ? GlassCandidateView.minimumPanelHeight(textSize: textSize, windowSize: windowSize) : 0)
         let useBelow = candidateGoesBelow(height: wanted, anchor: caret, bounds: bounds, keeping: below)
         below = useBelow
         var view = hosting.rootView
@@ -494,6 +544,7 @@ final class CandidatePanelController {
         view.panelAbove = !useBelow
         view.maxHeight = (useBelow ? room.below : room.above) + Desk.margin.top + Desk.margin.bottom
         view.maxWidth = bounds.width + Desk.margin.left + Desk.margin.right
+        gridWidthLimit = candidateGridWidthLimit(bounds.width - (cats ? Desk.glassLeft + Desk.momoOverhang : 0))
         hosting.rootView = view
         panel.title = InterfaceText.system("喵撲候選", "喵扑候选")
         hosting.layoutSubtreeIfNeeded()

@@ -15,8 +15,6 @@ enum GlassStrength: String, CaseIterable, Identifiable {
     var title: String { switch self { case .soft: "柔和"; case .balanced: "標準"; case .vivid: "通透" } }
 }
 
-// The candidate glass outline (docs/DESIGN.md §2). Dark is an appearance,
-// not a shape: every outline has a dark variant.
 enum GlassShape: String, CaseIterable, Identifiable {
     case capsule, wave, cloud
     var id: String { rawValue }

@@ -89,7 +89,7 @@ extension Engine {
         }
         if browsing && code == 0xff1b { refresh(); return true }
         if code == 0xff0d && modifiers == 1, moduleBuffer != nil || !snapshot.input.isEmpty {
-            let literal = moduleBuffer ?? snapshot.input
+            let literal = moduleBuffer ?? (inputMode == .nineKey ? snapshot.input.replacingOccurrences(of: "'", with: "") : snapshot.input)
             clear(); snapshot.commit = literal
             return true
         }
@@ -105,7 +105,7 @@ extension Engine {
             return true
         }
         if moduleBuffer == nil, !snapshot.candidates.isEmpty {
-            if inputMode == .pinyin, code == 32, modifiers == 0 {
+            if (inputMode == .pinyin || inputMode == .nineKey), code == 32, modifiers == 0 {
                 choose(snapshot.highlighted)
                 return true
             }

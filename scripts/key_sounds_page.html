@@ -1,0 +1,289 @@
+<title>喵撲按鍵聲</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one column like a phone keyboard; each set is a glass card with its own key rows. */
+:root {
+  --bg: #e9e8ef; --bg2: #d9d8e0; --fg: #3a3334; --muted: #6e6466;
+  --glass: rgba(255,255,255,.58); --glass-edge: rgba(255,255,255,.95); --glass-shade: rgba(77,56,87,.10);
+  --key: rgba(250,247,248,.82); --key-fn: #cfced8; --key-down: rgba(0,0,0,.12); --key-fg: #1d1a1b;
+  --pill-top: #ab8689; --pill-bot: #946d71; --pill-fg: #fff;
+  --font: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #252428; --bg2: #1a191c; --fg: #f5efe9; --muted: #b9aeaa;
+  --glass: rgba(58,48,44,.62); --glass-edge: rgba(226,190,184,.45); --glass-shade: rgba(0,0,0,.45);
+  --key: #5e5d63; --key-fn: #3c3b40; --key-down: rgba(255,255,255,.22); --key-fg: #fff;
+  --pill-top: #a88d8c; --pill-bot: #8c716f; --pill-fg: #fff; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #252428; --bg2: #1a191c; --fg: #f5efe9; --muted: #b9aeaa;
+  --glass: rgba(58,48,44,.62); --glass-edge: rgba(226,190,184,.45); --glass-shade: rgba(0,0,0,.45);
+  --key: #5e5d63; --key-fn: #3c3b40; --key-down: rgba(255,255,255,.22); --key-fg: #fff;
+  --pill-top: #a88d8c; --pill-bot: #8c716f; --pill-fg: #fff; color-scheme: dark }
+
+body { background: linear-gradient(var(--bg), var(--bg2)) fixed; background-color: var(--bg); color: var(--fg);
+  font: 15px/1.55 var(--font); padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px; -webkit-text-size-adjust: 100%; }
+main { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+h1 { font-size: 26px; line-height: 1.2; margin: 0; letter-spacing: .02em; }
+h2 { font-size: 20px; margin: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+h2 small { font-size: 13px; font-weight: 400; color: var(--muted); }
+p { margin: 0; }
+.note { color: var(--muted); font-size: 13px; }
+header { display: grid; gap: 6px; }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 23px; background: var(--glass); border: 1px solid var(--glass-edge);
+  box-shadow: 0 5px 12px var(--glass-shade); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+.bar label { font-weight: 600; white-space: nowrap; }
+.bar input { flex: 1; min-width: 0; accent-color: var(--pill-bot); height: 32px; }
+.bar output { font: 13px var(--mono); font-variant-numeric: tabular-nums; min-width: 4.5em; text-align: right; color: var(--muted); }
+
+.card { display: grid; gap: 10px; padding: 16px 14px; border-radius: 22px; background: var(--glass);
+  border: 1px solid var(--glass-edge); box-shadow: 0 5px 12px var(--glass-shade); }
+.rule { font-size: 14px; }
+.kb { display: grid; gap: 8px; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+.row { display: grid; gap: 5px; }
+.row.letters { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+.row.fn { grid-template-columns: 1.3fr 3fr 1.3fr 1.6fr; } .row > * { min-width: 0; }
+button { font: inherit; color: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--pill-bot); outline-offset: 2px; }
+.k { min-height: 46px; border-radius: 8.5px; background: var(--key); color: var(--key-fg); font-size: 19px;
+  box-shadow: 0 1px 0 var(--glass-shade); padding: 0; min-width: 0; }
+.k.f { background: var(--key-fn); font-size: 15px; }
+.k.go { background: linear-gradient(var(--pill-top), var(--pill-bot)); color: var(--pill-fg); font-size: 15px; }
+.k.down { box-shadow: inset 0 0 0 100px var(--key-down); }
+.typed { min-height: 1.6em; font: 15px/1.6 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.typed::after { content: "▏"; opacity: .6; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.act { min-height: 44px; padding: 0 16px; border-radius: 22px; background: linear-gradient(var(--pill-top), var(--pill-bot)); color: var(--pill-fg); font-size: 15px; }
+.act.quiet { background: var(--key); color: var(--key-fg); }
+.act[aria-pressed="true"] { box-shadow: inset 0 0 0 100px rgba(0,0,0,.18); }
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+select { font: inherit; min-height: 44px; border-radius: 12px; border: 1px solid var(--glass-edge); background: var(--key); color: var(--key-fg); padding: 0 10px; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 40px; padding: 0 14px; border-radius: 20px; background: var(--key); color: var(--key-fg); }
+.chip[aria-pressed="true"] { background: linear-gradient(var(--pill-top), var(--pill-bot)); color: var(--pill-fg); }
+textarea { font: 17px/1.5 var(--font); width: 100%; box-sizing: border-box; min-height: 88px; border-radius: 14px; padding: 10px 12px;
+  border: 1px solid var(--glass-edge); background: var(--key); color: var(--key-fg); resize: vertical; }
+@media (prefers-reduced-motion: no-preference) { .k, .act, .chip { transition: transform .08s; } .k.down { transform: scale(.96); } }
+</style>
+
+<main>
+  <header>
+    <h1>喵撲按鍵聲</h1>
+    <p>六組，全部由公式算出來。點下面的鍵盤，或按「打一句」聽它打字。</p>
+    <p class="note">iPhone 開著靜音時可能沒有聲音，請先把側邊的靜音關掉。</p>
+  </header>
+
+  <div class="bar">
+    <label for="vol">音量</label>
+    <input id="vol" type="range" min="-24" max="9" step="1" value="-6">
+    <output id="volOut" for="vol">−6 dB</output>
+  </div>
+
+  <div id="sets" style="display:grid;grid-template-columns:minmax(0,1fr);gap:18px"></div>
+
+  <section class="card" aria-labelledby="cmpTitle">
+    <h2 id="cmpTitle">比較兩組</h2>
+    <p class="rule">同一句話，先用左邊那組打，停一下，再用右邊那組打。</p>
+    <div class="pair"><select id="cmpA" aria-label="第一組"></select><select id="cmpB" aria-label="第二組"></select></div>
+    <div class="typed" id="cmpTyped" aria-live="off"></div>
+    <div class="actions">
+      <button class="act" id="cmpSlow" type="button">輪流打（每秒 5 鍵）</button>
+      <button class="act quiet" id="cmpFast" type="button">輪流打（每秒 10 鍵）</button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="padTitle">
+    <h2 id="padTitle">自己打打看</h2>
+    <p class="rule">在框裡打字會播選中的那一組。空白、刪除、換行各有自己的聲音，數字 1–9 當作選字。</p>
+    <div class="chips" id="padChips" role="group" aria-label="用哪一組"></div>
+    <textarea id="pad" rows="3" placeholder="在這裡打字" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+  </section>
+</main>
+
+<script>
+const D = /*DATA*/null;
+const ROWS = D.rows;
+let ctx = null, master = null, ready = null;
+const buffers = {}, lastVariant = {};
+let volDb = -6;
+
+function b64(s) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; }
+function gain(db) { return Math.pow(10, db / 20); }
+
+// Must run inside a tap: iOS Safari only starts audio from a user gesture.
+function unlock() {
+  if (ctx) { if (ctx.state !== "running") ctx.resume(); return ready; }
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  master = ctx.createGain(); master.gain.value = gain(volDb); master.connect(ctx.destination);
+  const silent = ctx.createBufferSource(); silent.buffer = ctx.createBuffer(1, 1, 22050); silent.connect(master); silent.start(0);
+  ctx.resume();
+  ready = Promise.all(D.sets.map(async s => {
+    buffers[s.id] = {};
+    for (const [kind, list] of Object.entries(s.files))
+      buffers[s.id][kind] = await Promise.all(list.map(x => new Promise((ok, no) => ctx.decodeAudioData(b64(x), ok, no))));
+  }));
+  return ready;
+}
+
+function keyX(ch) {
+  for (let r = 0; r < ROWS.length; r++) { const i = ROWS[r].indexOf(ch); if (i >= 0) return i + 0.5 + r * 0.5; }
+  return 5;
+}
+function kindFor(setId, ch) {
+  const k = { " ": "space", "*": "pick", "<": "delete", "\n": "return" }[ch] || "key";
+  return k === "key" && setId === "penta" ? "key" + Math.min(5, Math.floor(keyX(ch.toLowerCase()) * 6 / 10)) : k;
+}
+
+// Play one sound now or at ctx time `when`; repeats avoid the variant used last time.
+function play(setId, kind, when) {
+  if (!ctx || !buffers[setId] || !buffers[setId][kind]) return null;
+  const list = buffers[setId][kind], key = setId + kind;
+  let i = Math.floor(Math.random() * list.length);
+  if (list.length > 1 && i === lastVariant[key]) i = (i + 1) % list.length;
+  lastVariant[key] = i;
+  const src = ctx.createBufferSource(); src.buffer = list[i]; src.connect(master); src.start(when || 0);
+  return src;
+}
+
+async function tap(setId, ch, el) {
+  unlock();
+  if (el) { el.classList.add("down"); setTimeout(() => el.classList.remove("down"), 110); }
+  await ready;
+  play(setId, kindFor(setId, ch));
+}
+
+// Types D.sentence (or several, one after another) with a look-ahead scheduler.
+let run = null;
+function typeOut(parts, display, button) {
+  if (run) { const was = run.button; stopRun(); if (was === button) return; }
+  unlock();
+  const me = { button, sources: [], timers: [] };
+  run = me;
+  button.setAttribute("aria-pressed", "true");
+  ready.then(() => {
+    if (run !== me) return;
+    let t = ctx.currentTime + 0.12, text = "";
+    const t0 = t, events = [];
+    for (const p of parts) {
+      for (const ch of D.sentence) { events.push({ t, set: p.set, ch }); t += 1 / p.rate; }
+      t += 0.8;
+    }
+    let next = 0;
+    const tick = () => {
+      if (run !== me) return;
+      while (next < events.length && events[next].t < ctx.currentTime + 0.1) {
+        const e = events[next++];
+        me.sources.push(play(e.set, kindFor(e.set, e.ch), e.t));
+        me.timers.push(setTimeout(() => {
+          if (e.ch === "<") text = text.slice(0, -1);
+          else if (e.ch === "\n") text += " ↵  ";
+          else if (e.ch === "*") text += "·";
+          else text += e.ch;
+          display.textContent = text;
+        }, Math.max(0, (e.t - ctx.currentTime) * 1000)));
+      }
+      if (next < events.length) me.timers.push(setTimeout(tick, 25));
+      else me.timers.push(setTimeout(() => { if (run === me) stopRun(); }, (t - ctx.currentTime) * 1000));
+    };
+    display.textContent = "";
+    tick();
+  });
+}
+function stopRun() {
+  if (!run) return;
+  run.timers.forEach(clearTimeout);
+  run.sources.forEach(s => { try { s && s.stop(); } catch (e) {} });
+  run.button.setAttribute("aria-pressed", "false");
+  run = null;
+}
+
+function el(tag, attrs, text) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+const host = document.getElementById("sets");
+for (const s of D.sets) {
+  const card = el("section", { class: "card", "aria-labelledby": "t-" + s.id });
+  const h = el("h2", { id: "t-" + s.id }, s.name);
+  if (s.simp !== s.name) h.append(el("small", {}, s.simp));
+  card.append(h, el("p", { class: "rule" }, s.rule));
+  const kb = el("div", { class: "kb" });
+  const letters = el("div", { class: "row letters" });
+  for (const ch of ROWS[0]) letters.append(Object.assign(el("button", { class: "k", type: "button", "data-ch": ch }, ch)));
+  const fn = el("div", { class: "row fn" });
+  fn.append(el("button", { class: "k f", type: "button", "data-ch": "*" }, "選字"),
+            el("button", { class: "k f", type: "button", "data-ch": " " }, "空白"),
+            el("button", { class: "k f", type: "button", "data-ch": "<", "aria-label": "刪除" }, "⌫"),
+            el("button", { class: "k go", type: "button", "data-ch": "\n" }, "換行"));
+  kb.append(letters, fn);
+  kb.addEventListener("pointerdown", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    e.preventDefault(); tap(s.id, b.dataset.ch, b);
+  });
+  kb.addEventListener("keydown", e => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const b = e.target.closest("button"); if (!b) return;
+    e.preventDefault(); tap(s.id, b.dataset.ch, b);
+  });
+  const typed = el("div", { class: "typed", "aria-live": "off" });
+  const slow = el("button", { class: "act", type: "button", "aria-pressed": "false" }, "打一句（每秒 5 鍵）");
+  const fast = el("button", { class: "act quiet", type: "button", "aria-pressed": "false" }, "快打（每秒 10 鍵）");
+  slow.onclick = () => typeOut([{ set: s.id, rate: 5 }], typed, slow);
+  fast.onclick = () => typeOut([{ set: s.id, rate: 10 }], typed, fast);
+  const acts = el("div", { class: "actions" }); acts.append(slow, fast);
+  card.append(kb, typed, acts);
+  host.append(card);
+}
+
+const cmpA = document.getElementById("cmpA"), cmpB = document.getElementById("cmpB");
+D.sets.forEach((s, i) => { cmpA.append(el("option", { value: s.id }, s.name)); cmpB.append(el("option", { value: s.id }, s.name)); });
+cmpB.selectedIndex = 1;
+const cmpTyped = document.getElementById("cmpTyped");
+for (const [id, rate] of [["cmpSlow", 5], ["cmpFast", 10]]) {
+  const b = document.getElementById(id);
+  b.setAttribute("aria-pressed", "false");
+  b.onclick = () => typeOut([{ set: cmpA.value, rate }, { set: cmpB.value, rate }], cmpTyped, b);
+}
+
+let padSet = D.sets[0].id;
+try { const saved = localStorage.getItem("meowpuut-sound-set"); if (D.sets.some(s => s.id === saved)) padSet = saved; } catch (e) {}
+const chips = document.getElementById("padChips");
+for (const s of D.sets) {
+  const c = el("button", { class: "chip", type: "button", "aria-pressed": String(s.id === padSet), "data-id": s.id }, s.name);
+  c.onclick = () => {
+    padSet = s.id; unlock();
+    chips.querySelectorAll(".chip").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.id === padSet)));
+    try { localStorage.setItem("meowpuut-sound-set", padSet); } catch (e) {}
+  };
+  chips.append(c);
+}
+const pad = document.getElementById("pad");
+pad.addEventListener("pointerdown", unlock);
+pad.addEventListener("beforeinput", e => {
+  unlock();
+  const t = e.inputType, d = e.data || "";
+  let ch = null;
+  if (t.startsWith("delete")) ch = "<";
+  else if (t === "insertLineBreak" || t === "insertParagraph") ch = "\n";
+  else if (t === "insertText" || t === "insertCompositionText" || t === "insertReplacementText") {
+    const last = d.slice(-1);
+    ch = last === " " ? " " : /[1-9]/.test(last) ? "*" : last || "a";
+  }
+  if (ch !== null && ready) ready.then(() => play(padSet, kindFor(padSet, ch)));
+});
+
+const vol = document.getElementById("vol"), volOut = document.getElementById("volOut");
+vol.addEventListener("input", () => {
+  volDb = +vol.value;
+  volOut.textContent = (volDb > 0 ? "+" : volDb < 0 ? "−" : "") + Math.abs(volDb) + " dB";
+  if (master) master.gain.setTargetAtTime(gain(volDb), ctx.currentTime, 0.02);
+});
+</script>

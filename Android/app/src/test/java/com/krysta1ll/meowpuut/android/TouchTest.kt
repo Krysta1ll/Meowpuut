@@ -29,12 +29,15 @@ class TouchTest {
         var now = 0L
         private val timers = ArrayList<Pair<Long, Runnable>>()
         val balloons = HashMap<Int, String>()
+        var keyPress: Pair<Int, Int>? = null
+        var redraws = 0
         var strip: AlternatesStrip? = null
         var options: List<String> = emptyList()
         var selected = -1
 
         override fun post(delayMs: Long, action: Runnable) { timers += (now + delayMs) to action }
         override fun cancel(action: Runnable) { timers.removeAll { it.second === action } }
+        override fun pulseKeyPress(row: Int, column: Int) { keyPress = row to column }
         override fun showBalloon(id: Int, key: Key, frame: Box) { balloons[id] = key.label }
         override fun hideBalloon(id: Int) { balloons.remove(id) }
         override fun showAlternates(strip: AlternatesStrip, options: List<String>, selected: Int) {
@@ -42,8 +45,8 @@ class TouchTest {
         }
         override fun selectAlternate(index: Int) { selected = index }
         override fun hideAlternates() { strip = null }
-        override fun clearVisuals() { balloons.clear(); strip = null }
-        override fun redraw() = Unit
+        override fun clearVisuals() { balloons.clear(); strip = null; keyPress = null }
+        override fun redraw() { redraws++ }
 
         fun advance(ms: Long) {
             val end = now + ms
@@ -60,7 +63,7 @@ class TouchTest {
     }
 
     /** A keyboard that answers like the input method: pages, Shift labels, the return to letters. */
-    private class Board(val english: Boolean = false, val mode: InputMode = InputMode.PINYIN) : KeyListener {
+    private class Board(val english: Boolean = false, val mode: InputMode = InputMode.PINYIN, val composing: Boolean = false) : KeyListener {
         val host = FakeHost()
         val touches = KeyTouches(host)
         val events = ArrayList<String>()
@@ -69,6 +72,8 @@ class TouchTest {
         var shift = ShiftState.OFF
         /** Called on every delete; a test can change the keys from here. */
         var onDeleted: () -> Unit = {}
+        var onFeedback: () -> Unit = {}
+        var onCommit: () -> Unit = {}
         lateinit var set: KeySet
         lateinit var rows: List<List<KeyPlacement>>
 
@@ -78,7 +83,8 @@ class TouchTest {
         }
 
         fun install(sameShape: Boolean, expanded: Boolean = false) {
-            set = KeyBuilder.build(KeyContext(mode, english, page, shift, false, false, "空格", "換行", false, true, expanded))
+            set = KeyBuilder.build(KeyContext(mode, english, page, shift, false, false, "空格", "換行", false, true, expanded,
+                composing = composing))
             rows = KeyGrid.place(set.specs, width, set.referenceColumns, KeyMetrics.of(Idiom.PHONE, width, set.rows.size))
             touches.layout(set, rows, width, sameShape)
         }
@@ -99,12 +105,13 @@ class TouchTest {
 
         val typed get() = events.filter { it.startsWith("key:") }.map { it.removePrefix("key:") }
 
-        override fun onKeyDown(key: Key) = Unit
+        override fun onKeyDown(key: Key, fraction: Float) = onFeedback()
 
         override fun onKey(key: Key, text: String?) {
+            onCommit()
             val shown = text ?: key.label.ifEmpty { key.action.toString() }
             events += "key:" + if (key.action == KeyAction.Space) "space" else shown
-            if (key.action is KeyAction.Text && page > 0 && shown in KeyBuilder.autoReturnMarks) {
+            if (key.action is KeyAction.Text && page in 1..2 && shown in KeyBuilder.autoReturnMarks) {
                 page = 0
                 install(sameShape = false)
             }
@@ -143,14 +150,82 @@ class TouchTest {
     fun aKeyIsTypedWhenTheFingerLifts() {
         val b = Board()
         val q = b.frame("q")
+        b.onFeedback = {
+            assertEquals("q", b.host.balloons[0])
+            assertEquals(1, b.touches.pressedColumns(0))
+            assertEquals(1, b.host.redraws)
+        }
+        b.onCommit = {
+            assertTrue(b.host.balloons.isEmpty())
+            assertEquals(0, b.touches.pressedColumns(0))
+            assertEquals(2, b.host.redraws)
+        }
         b.down(0, q)
-        assertEquals("the balloon is up with the touch", "q", b.host.balloons[0])
         assertTrue(b.typed.isEmpty())
-        assertTrue(b.touches.isPressed(0, 0))
+        assertNull("a real finger does not start a timed flash", b.host.keyPress)
         b.up(0, q)
         assertEquals(listOf("q"), b.typed)
         assertTrue(b.host.balloons.isEmpty())
+        assertEquals(0, b.touches.pressedColumns(0))
         assertTrue(!b.touches.active)
+    }
+
+    @Test
+    fun aTalkBackTapStillFlashesTheKey() {
+        val b = Board()
+        b.touches.activate(0, 0)
+        assertEquals(0 to 0, b.host.keyPress)
+        assertEquals(listOf("q"), b.typed)
+        assertTrue(!b.touches.active)
+    }
+
+    @Test
+    fun nineKeyTapsComposeAndHoldingInsertsTheDigit() {
+        val board = Board(mode = InputMode.NINE_KEY, composing = true)
+        assertEquals(listOf(5, 5, 5), board.set.rows.take(3).map { it.size })
+        val six = board.frame(KeyAction.Engine('6'.code))
+        board.tap(six)
+        board.down(0, six)
+        board.host.advance(600)
+        board.up(0, six)
+        val segment = board.frame(KeyAction.Segment)
+        board.tap(segment)
+        board.down(0, segment)
+        board.host.advance(600)
+        board.up(0, segment)
+        board.tap(board.frame(KeyAction.ClearComposition))
+        board.tap(board.frame(KeyAction.Delete))
+        assertEquals(listOf("key:MNO", "key:6", "key:分詞", "key:1", "key:重輸", "delete"), board.events)
+    }
+
+    @Test
+    fun nineKeyNumberPageCommitsDigitsAndKeepsDecimalPointAvailable() {
+        val board = Board(mode = InputMode.NINE_KEY)
+        board.tap(board.frame(KeyAction.Page(KeyBuilder.NUMERIC_PAGE)))
+        for (text in listOf("1", ".", "0")) board.tap(board.frame(text))
+        assertEquals(listOf("page:3", "key:1", "key:.", "key:0"), board.events)
+        assertEquals(KeyBuilder.NUMERIC_PAGE, board.page)
+        board.tap(board.frame(KeyAction.Page(0)))
+        assertEquals(0, board.page)
+    }
+
+    @Test
+    fun nineKeyTargetsStayWideOnPhonesAndCompactOnTablets() {
+        val set = KeyBuilder.build(KeyContext(InputMode.NINE_KEY, false, 0, ShiftState.OFF, false, true,
+            "空格", "換行", false, true))
+        assertEquals(('1'..'9').map { it.toString() }, set.rows.take(3).flatten().mapNotNull { it.digit })
+        assertEquals(listOf("符號", "123", "", "空格", "英", "換行"), set.rows.last().map { it.label })
+        assertTrue(set.rows[1].last().action == KeyAction.ClearComposition && !set.rows[1].last().enabled)
+        for ((width, idiom) in listOf(276f to Idiom.PHONE, 320f to Idiom.PHONE, 852f to Idiom.PHONE_LANDSCAPE, 1024f to Idiom.TABLET)) {
+            val keypadWidth = set.layoutWidth(width)
+            assertEquals(minOf(460f, width), keypadWidth, 0.01f)
+            val metrics = KeyMetrics.of(idiom, width, 4)
+            val placed = KeyGrid.place(set.specs, keypadWidth, set.referenceColumns, metrics)
+            assertTrue(placed.take(3).flatMap { it.subList(1, 4) }.all { it.hitFrame.width >= 47.99f })
+            assertEquals(placed[0][1].frame.width, placed[0][3].frame.width, 0.01f)
+            assertEquals(keypadWidth / 2, placed[1][2].frame.centerX, 0.01f)
+            assertTrue(placed.flatten().all { it.frame.left >= it.hitFrame.left && it.frame.right <= it.hitFrame.right })
+        }
     }
 
     @Test
@@ -265,6 +340,7 @@ class TouchTest {
         val b = Board(english = true)
         b.down(0, b.frame(KeyAction.Shift))
         assertEquals(listOf("shift-down"), b.events)
+        assertEquals(1, b.touches.pressedColumns(2))
         // The letters turned to capitals under the finger; the keys kept their places.
         b.move(0, b.frame("A"))
         assertEquals("A", b.host.balloons[0])

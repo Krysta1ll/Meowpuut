@@ -65,8 +65,8 @@ build_rust() {
   done
 }
 
-# What the keyboard reads: the Chinese lexicon, its word-pair table and the mimo-jp word list.
-LEXICON_FILES="mimo_base.bin mimo_pairs.bin native-japanese.tsv"
+# What the keyboard reads: the Chinese lexicon, its word-pair table and the mimo-jp word list and emoji associations.
+LEXICON_FILES="mimo_base.bin mimo_pairs.bin native-japanese.tsv associations.json"
 # Everything scripts/compile-native-lexicon.py reads.
 LEXICON_SOURCES="Engine/DataSources Engine/Resources/Lexicon Engine/scripts"
 lexicon_current() {
@@ -104,7 +104,9 @@ GRADLE="${MEOWPUUT_GRADLE:-./gradlew}"
 export ANDROID_HOME="$SDK"
 # AGP and its Kotlin compiler run on JDK 17–25.
 if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
-  for version in 25 21 17; do
+  java_versions=(25 21 17)
+  [ "$mode" != "--test" ] || java_versions=(25)
+  for version in "${java_versions[@]}"; do
     if home="$(/usr/libexec/java_home -v "$version" 2>/dev/null)"; then export JAVA_HOME="$home"; break; fi
   done
 fi

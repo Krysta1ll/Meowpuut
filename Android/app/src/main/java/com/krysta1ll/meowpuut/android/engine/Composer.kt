@@ -12,6 +12,16 @@ data class Edit(val handled: Boolean, val commit: String = "")
  */
 class Composer {
     var japaneseWords: JapaneseWords = JapaneseWords.EMPTY
+    var symbolsAllowed = true
+    var symbols: SymbolAssociations = SymbolAssociations.EMPTY
+        set(value) {
+            if (field === value) return
+            field = value
+            if (!symbolsAllowed) return
+            val selection = candidates.getOrNull(highlighted)
+            candidates = CandidateMerge.withSymbols(candidates, value, raw.length)
+            highlighted = selection?.let(candidates::indexOf)?.coerceAtLeast(0) ?: 0
+        }
 
     var mode: InputMode = InputMode.ZHUYIN
         private set
@@ -41,6 +51,7 @@ class Composer {
 
     val composing get() = raw.isNotEmpty()
     val input get() = raw.toString()
+    val canSeparateNineKey get() = raw.lastOrNull()?.let { it in '2'..'9' } == true && raw.length < maxInput
     val moreAvailable get() = coreFetched < coreTotal
 
     /** Japanese needs no lexicon; Chinese waits for the engine session. */
@@ -66,7 +77,7 @@ class Composer {
     fun type(code: Int): Edit {
         val c = code.toChar()
         return when (mode) {
-            InputMode.PINYIN -> typePinyin(c)
+            InputMode.PINYIN, InputMode.NINE_KEY -> typePinyin(c)
             InputMode.ZHUYIN -> typeZhuyin(c)
             InputMode.JAPANESE -> typeJapanese(c)
         }
@@ -74,13 +85,14 @@ class Composer {
 
     private fun typePinyin(c: Char): Edit {
         if (session == 0L) return Edit(false)
-        val letter = c in 'a'..'z' || c in 'A'..'Z'
-        val separator = c == '\'' && raw.isNotEmpty() && raw.last() != '\''
-        if (!letter && !separator) return Edit(false)
+        val nineKey = mode == InputMode.NINE_KEY
+        val compositionKey = if (nineKey) c in '2'..'9' else c in 'a'..'z' || c in 'A'..'Z'
+        val separator = c == '\'' && if (nineKey) canSeparateNineKey else raw.isNotEmpty() && raw.last() != '\''
+        if (!compositionKey && !separator) return Edit(false)
         var pending = ""
         if (raw.length >= maxInput) {
             // The engine's limit: keep the letters typed so far, then start again.
-            pending = raw.toString()
+            pending = rawLiteral()
             resetCore()
             if (separator) return Edit(true, pending)
         }
@@ -133,7 +145,7 @@ class Composer {
         return when (mode) {
             // A reading with no candidates is typed as its symbols rather than left stuck.
             InputMode.ZHUYIN -> if (raw.last() in TONES) chooseHighlighted() else typeZhuyin(' ')
-            InputMode.PINYIN -> if (candidates.isNotEmpty()) chooseHighlighted() else Edit(true, takeLiteral() + " ")
+            InputMode.PINYIN, InputMode.NINE_KEY -> if (candidates.isNotEmpty()) chooseHighlighted() else Edit(true, takeLiteral() + " ")
             InputMode.JAPANESE -> chooseHighlighted()
         }
     }
@@ -159,36 +171,33 @@ class Composer {
 
     fun choose(index: Int): Edit {
         val c = candidates.getOrNull(index) ?: return if (raw.isEmpty()) Edit(false) else Edit(true, takeLiteral())
-        when (c.kind) {
-            CandidateKind.CHINESE -> {
-                if (session == 0L || !NativeEngine.choose(session, c.coreIndex)) return Edit(false)
-                val text = NativeEngine.takeCommitted(session)
-                val rest = NativeEngine.input(session)
-                if (rest.isEmpty()) raw.setLength(0) else keepSuffix(rest)
-                rebuild()
-                return Edit(true, text)
-            }
-            CandidateKind.MIXED_PREFIX -> {
-                val rest = raw.substring(min(c.consumed, raw.length))
-                resetCore()
-                raw.append(rest)
-                replay()
-                rebuild()
-                return Edit(true, c.text)
-            }
-            else -> {
-                resetCore()
-                return Edit(true, c.text)
-            }
+        if (c.coreIndex >= 0) {
+            if (session == 0L || !NativeEngine.choose(session, c.coreIndex)) return Edit(false)
+            val text = NativeEngine.takeCommitted(session)
+            keepSuffix(NativeEngine.input(session))
+            rebuild()
+            return Edit(true, text)
         }
+        if (c.kind == CandidateKind.MIXED_PREFIX) {
+            val rest = raw.substring(min(c.consumed, raw.length))
+            resetCore()
+            raw.append(rest)
+            replay()
+            rebuild()
+        } else {
+            resetCore()
+        }
+        return Edit(true, c.text)
     }
 
     /** The typed letters (or Zhuyin symbols) as they are; ends the composition. */
     fun takeLiteral(): String {
-        val text = if (mode == InputMode.ZHUYIN) preedit else raw.toString()
+        val text = if (mode == InputMode.ZHUYIN) preedit else rawLiteral()
         resetCore()
         return text
     }
+
+    private fun rawLiteral(): String = if (mode == InputMode.NINE_KEY) raw.filterNot { it == '\'' }.toString() else raw.toString()
 
     fun clear() = resetCore()
 
@@ -197,7 +206,7 @@ class Composer {
         if (session == 0L || coreFetched >= coreTotal) return false
         val more = fetchCore(coreFetched, batch)
         val seen = candidates.mapTo(HashSet()) { it.text }
-        val added = more.filter { seen.add(it.text) }.map { Candidate(it.text, CandidateKind.CHINESE, it.index, it.consumed) }
+        val added = more.filter { mode == InputMode.NINE_KEY || seen.add(it.text) }.map { it.choice() }
         candidates = candidates + added
         return added.isNotEmpty()
     }
@@ -251,7 +260,7 @@ class Composer {
         return texts.mapIndexed { i, text ->
             val consumed = details.getOrElse(i * 2) { 0 }
             val kind = details.getOrElse(i * 2 + 1) { 0 }
-            CoreCandidate(text, start + i, consumed, kind == NativeEngine.KIND_EXACT)
+            CoreCandidate(text, start + i, consumed, kind == NativeEngine.KIND_EXACT, kind == NativeEngine.KIND_JAPANESE)
         }
     }
 
@@ -280,12 +289,12 @@ class Composer {
                 } else null
                 candidates = CandidateMerge.pinyin(lower, raw.toString(), chinese, word, whole, prefix, Romaji.reading(reading), japanese.drop(1))
             }
-            InputMode.ZHUYIN -> {
+            InputMode.ZHUYIN, InputMode.NINE_KEY -> {
                 preedit = NativeEngine.preedit(session)
                 coreTotal = NativeEngine.candidateCount(session)
                 coreFetched = 0
-                candidates = fetchCore(0, FIRST_BATCH).map { Candidate(it.text, CandidateKind.CHINESE, it.index, it.consumed) }
-                    .distinctBy { it.text }
+                val choices = fetchCore(0, FIRST_BATCH).map { it.choice() }
+                candidates = if (mode == InputMode.NINE_KEY) choices else choices.distinctBy { it.text }
             }
             InputMode.JAPANESE -> {
                 val reading = Romaji.reading(raw.toString())
@@ -304,6 +313,7 @@ class Composer {
                 candidates = list.distinctBy { it.text }
             }
         }
+        if (symbolsAllowed) candidates = CandidateMerge.withSymbols(candidates, symbols, raw.length)
     }
 
     companion object {

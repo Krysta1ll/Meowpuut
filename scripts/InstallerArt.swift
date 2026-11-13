@@ -31,7 +31,7 @@ polygon([.init(x: 210,y: 282),.init(x: 310,y: 244),.init(x: 339,y: 261),.init(x:
 text("mimo", 135, 305, 13, .medium, color(0.43,0.31,0.23))
 let arrow = NSBezierPath(); arrow.move(to: .init(x: 368, y: 231)); arrow.curve(to: .init(x: 455,y: 231), controlPoint1: .init(x: 394,y: 218), controlPoint2: .init(x: 426,y: 218)); arrow.line(to: .init(x: 447,y: 220)); arrow.move(to: .init(x: 455,y: 231)); arrow.line(to: .init(x: 442,y: 235)); arrow.lineWidth = 1.6; arrow.lineCapStyle = .round; muted.setStroke(); arrow.stroke()
 text("新的家", 517, 310, 12, .regular, muted)
-text("已裝過喵撲？請用右邊的「安裝或更新」。", 48, 374, 14, .medium, ink)
+text("更新時若喵撲正在使用，請看「安裝說明」。", 48, 374, 14, .medium, ink)
 text("完成後儲存工作，登出再登入。", 48, 402, 14, .regular, ink)
 text("系統設定 → 鍵盤 → 輸入來源 → 加入 Meowpuut", 48, 429, 12, .regular, muted)
 text("macOS 27+ · Apple silicon", 48, 462, 11, .regular, muted)

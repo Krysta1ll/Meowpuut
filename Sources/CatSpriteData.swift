@@ -2,7 +2,7 @@
 import CoreGraphics
 
 extension CatSprite {
-    /// The sprites on the candidate bar, by asset name.
+    /// Geometry of the keyboard artwork, by asset name.
     static let all: [String: CatSprite] = [
         "mimimo_edge_rest": CatSprite(name: "mimimo_edge_rest", size: CGSize(width: 72, height: 80), anchor: CGPoint(x: 0.5, y: 0.84),
             bounds: CGRect(x: 0.1019, y: 0.0875, width: 0.7916, height: 0.7958), cut: 0.1574...0.8194, paws: [CatSprite.Paw(x: 0.4537, halfWidth: 0.0926, depth: 0.0375), CatSprite.Paw(x: 0.7106, halfWidth: 0.0903, depth: 0.0375)]),
@@ -20,5 +20,21 @@ extension CatSprite {
             bounds: CGRect(x: 0.0536, y: 0.0972, width: 0.8899, height: 0.8519), cut: 0.1042...0.8839, paws: [CatSprite.Paw(x: 0.6042, halfWidth: 0.0655, depth: 0.1111), CatSprite.Paw(x: 0.817, halfWidth: 0.0551, depth: 0.0139)]),
         "momo_side_hold": CatSprite(name: "momo_side_hold", size: CGSize(width: 64, height: 88), anchor: CGPoint(x: 0.1263, y: 0.5666),
             bounds: CGRect(x: 0.0938, y: 0.053, width: 0.8124, height: 0.8523), cut: 0...0, paws: []),
+        "mimimo_idle": CatSprite(name: "mimimo_idle", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2344, y: 0.0833, width: 0.5312, height: 0.8125), cut: 0...0, paws: []),
+        "mimimo_press": CatSprite(name: "mimimo_press", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2031, y: 0.0833, width: 0.5938, height: 0.8125), cut: 0...0, paws: []),
+        "mimimo_happy": CatSprite(name: "mimimo_happy", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2188, y: 0.0833, width: 0.5624, height: 0.8125), cut: 0...0, paws: []),
+        "mimimo_sleep": CatSprite(name: "mimimo_sleep", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2031, y: 0.2969, width: 0.5938, height: 0.5989), cut: 0...0, paws: []),
+        "momo_idle": CatSprite(name: "momo_idle", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2292, y: 0.0833, width: 0.5416, height: 0.8125), cut: 0...0, paws: []),
+        "momo_wave": CatSprite(name: "momo_wave", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2083, y: 0.0885, width: 0.5886, height: 0.8021), cut: 0...0, paws: []),
+        "momo_happy": CatSprite(name: "momo_happy", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.2031, y: 0.0833, width: 0.5938, height: 0.8125), cut: 0...0, paws: []),
+        "momo_jump": CatSprite(name: "momo_jump", size: CGSize(width: 64, height: 64), anchor: CGPoint(x: 0.5, y: 0.9),
+            bounds: CGRect(x: 0.1979, y: 0.125, width: 0.6094, height: 0.7708), cut: 0...0, paws: []),
     ]
 }

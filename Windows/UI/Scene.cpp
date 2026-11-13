@@ -263,17 +263,18 @@ void candidates(Builder &b, const CandidateLayout &L, const CandidateViewModel &
     const auto &m = L.metrics;
     for (const auto &cell : L.cells) {
         const bool selected = cell.index == model.highlighted;
-        const bool pressed = !selected && model.pressed && *model.pressed == cell.index;
+        const bool pressed = model.pressed && *model.pressed == cell.index;
         const bool hovered = !selected && model.hovered && *model.hovered == cell.index;
-        const float r = cell.pill.height / 2;
+        // Keep the label and hit target still while the pill responds to a press.
+        const RectF pill = pressed ? cell.pill.inset(cell.pill.width * 0.025f, cell.pill.height * 0.025f) : cell.pill;
+        const float r = pill.height / 2;
         if (selected) {
             // A bead of tinted glass: a shadow in its own colour, light on
             // its upper edge, and the light that crossed it gathered inside
             // the lower edge.
-            const RectF &pill = cell.pill;
             const bool bead = t.pillShadowOpacity > 0;
             const GlassOutline outline = makeBarOutline(GlassShape::Capsule, pill);
-            if (bead) b.shadow(b.outline(outline), t.pillBottom.withAlpha(t.pillShadowOpacity), 3.5f, 1.5f);
+            if (bead) b.shadow(b.outline(outline), t.pillBottom.withAlpha(t.pillShadowOpacity), 3.5f, pressed ? 0.5f : 1.5f);
             b.roundRect(pill, r, linear({0, pill.y}, {0, pill.bottom()}, {{0, t.pillTop}, {1, t.pillBottom}}));
             if (bead) {
                 b.line(outlineRun(outline, OutlineEdge::Top, 0.5f, 0, 1), 0.8f,
@@ -289,9 +290,7 @@ void candidates(Builder &b, const CandidateLayout &L, const CandidateViewModel &
                 b.line(outlineRun(outline, OutlineEdge::Bottom, 1.2f, 0, 1), 1.6f, glow(0.4f));
             }
         } else if (pressed) {
-            // Pressed: the wash shrinks to 0.95 (DESIGN.md §4); the text stays put.
-            const RectF pill = cell.pill.inset(cell.pill.width * 0.025f, cell.pill.height * 0.025f);
-            b.roundRect(pill, pill.height / 2, solid(t.pressed));
+            b.roundRect(pill, r, solid(t.pressed));
         } else if (hovered) {
             b.roundRect(cell.pill, r, solid(t.hover));
         }

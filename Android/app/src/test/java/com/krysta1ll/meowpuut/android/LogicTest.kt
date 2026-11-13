@@ -3,10 +3,12 @@ package com.krysta1ll.meowpuut.android
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.CandidateMerge
+import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.CoreCandidate
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.engine.JapaneseWords
 import com.krysta1ll.meowpuut.android.engine.Romaji
+import com.krysta1ll.meowpuut.android.engine.SymbolAssociations
 import com.krysta1ll.meowpuut.android.ime.Capitalization
 import com.krysta1ll.meowpuut.android.ime.CatAffection
 import com.krysta1ll.meowpuut.android.ime.DeleteRepeat
@@ -28,10 +30,61 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.time.LocalDate
 import kotlin.math.abs
 
 class LogicTest {
+    @Test
+    fun associatedSymbolsKeepTheLeadAndCoreIndicesAndFitCollapsed() {
+        val associations = SymbolAssociations.parse(File("../../Engine/Resources/Lexicon/associations.json").readText())
+        val lead = Candidate("你好", CandidateKind.CHINESE, coreIndex = 7, consumed = 5)
+        val chinese = listOf(lead, lead.copy(text = "您好", coreIndex = 9), lead.copy(text = "擬好", coreIndex = 13))
+        val choices = CandidateMerge.withSymbols(chinese, associations, 5)
+        assertEquals(lead, choices.first())
+        assertEquals(Candidate("👋", CandidateKind.EMOJI, consumed = 5), choices[1])
+        assertEquals(CandidateKind.KAOMOJI, choices[4].kind)
+        assertEquals(listOf(7, 9, 13), choices.filter { it.coreIndex >= 0 }.map { it.coreIndex })
+        assertEquals(listOf(0, 1, 2, 3, 4), CandidateMerge.collapsed(choices))
+        assertTrue(choices.drop(5).all { it.kind == CandidateKind.SYMBOL_EXTRA })
+        assertEquals(chinese, CandidateMerge.withSymbols(chinese, associations, 6)) // nihaox
+        val long = chinese + (20..35).map { lead.copy(text = "詞$it", coreIndex = it) }
+        val expanded = CandidateMerge.withSymbols(long, associations, 5)
+        assertEquals(CandidateKind.SYMBOL_EXTRA, expanded[9].kind)
+        assertEquals(long, CandidateMerge.collapsed(expanded).map(expanded::get).filter { it.coreIndex >= 0 })
+        assertEquals("😊", associations.of("開心")?.emoji?.first())
+        assertEquals("😊", associations.of("开心")?.emoji?.first())
+        assertNull(associations.of("手紙"))
+        assertEquals("✉️", associations.of("手紙", japanese = true)?.emoji?.first())
+        for (word in listOf("猫", "貓", "火")) {
+            val single = Candidate(word, CandidateKind.CHINESE, 3, 3)
+            val result = CandidateMerge.withSymbols(listOf(single), associations, 3)
+            assertEquals(if (word == "火") "🔥" else "🐱", result[1].text)
+            assertEquals(listOf(0, 1), CandidateMerge.collapsed(result))
+        }
+    }
+
+    @Test
+    fun japaneseAssociatedEmojiCommitsTheSymbolAloneAndEndsComposition() {
+        val composer = Composer()
+        composer.attach(InputMode.JAPANESE, 0)
+        composer.japaneseWords = JapaneseWords.parse("sushi|寿司|5000")
+        for (key in "sushi") assertTrue(composer.type(key.code).handled)
+        assertEquals("寿司", composer.candidates[0].text)
+        composer.highlighted = 2
+        val previousSelection = composer.candidates[composer.highlighted]
+        composer.symbols = SymbolAssociations.parse("""{"ja":{"寿司":[["🍣","🍱"]]}}""") { if (it == "🍱") null else it }
+        assertEquals(previousSelection, composer.candidates[composer.highlighted])
+        assertEquals("🍣", composer.candidates[1].text)
+        assertTrue(composer.candidates.none { it.text == "🍱" })
+        assertEquals("🍣", composer.choose(1).commit)
+        assertTrue(!composer.composing)
+        assertTrue(composer.candidates.isEmpty())
+        composer.symbolsAllowed = false
+        for (key in "sushi") assertTrue(composer.type(key.code).handled)
+        assertTrue(composer.candidates.none { it.kind == CandidateKind.EMOJI })
+    }
+
     @Test
     fun romajiMatchesTheMacAndIosTable() {
         assertEquals("すし", Romaji.reading("sushi"))
@@ -185,6 +238,30 @@ class LogicTest {
     }
 
     @Test
+    fun punctuationHoldsGroupScriptsWithoutChangingTheirPrimaryMark() {
+        for ((mark, related) in listOf(
+            "，" to listOf(",", "、"), "。" to listOf(".", "…"), "？" to listOf("?", "！"),
+            "「" to listOf("“", "『"), "」" to listOf("”", "』"), "\"" to listOf("“", "”", "「", "」", "『", "』"),
+            "／" to listOf("/", "\\", "＼"), "）" to listOf(")", "】", "｝"),
+        )) {
+            val options = KeyBuilder.punctuationAlternates(mark)
+            assertEquals(mark, options.first())
+            assertTrue(options.containsAll(related))
+            assertEquals(options.size, options.toSet().size)
+        }
+        for ((mode, english, simplified) in listOf(
+            Triple(InputMode.ZHUYIN, false, false), Triple(InputMode.PINYIN, false, true),
+            Triple(InputMode.JAPANESE, false, false), Triple(InputMode.PINYIN, true, false),
+        )) {
+            val keys = KeyBuilder.build(KeyContext(mode, english, 1, ShiftState.OFF, simplified,
+                false, "空格", "換行", false, true)).rows.flatten()
+            val slash = keys.single { it.label == "/" }
+            assertEquals(KeyAction.Text("/"), slash.action)
+            assertTrue("／" in slash.alternates)
+        }
+    }
+
+    @Test
     fun shiftOnceThenLockOnAQuickSecondTap() {
         val caps = Capitalization()
         caps.tap(1000)
@@ -263,6 +340,17 @@ class LogicTest {
         assertEquals(CatAffection.Outcome.Pleased(1), a.pet(t + 5000))
     }
 
+    @Test
+    fun modeCycleAndInterruptedPetStreak() {
+        val affection = CatAffection()
+        repeat(4) { affection.pet(it * 200L) }
+        affection.resetStreak()
+        assertEquals(CatAffection.Outcome.Pleased(1), affection.pet(800L))
+        val cycle = generateSequence(InputMode.ZHUYIN) { it.next() }.take(4).toList()
+        assertEquals(listOf(InputMode.ZHUYIN, InputMode.PINYIN, InputMode.JAPANESE, InputMode.ZHUYIN), cycle)
+        assertEquals(InputMode.JAPANESE, InputMode.NINE_KEY.next())
+    }
+
     // The same cases as iOS/tests/FestivalsTests.swift and Windows' layout_test.
     @Test
     fun festivalsManifest() {
@@ -317,10 +405,12 @@ class LogicTest {
                 val layout = com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout(393f, com.krysta1ll.meowpuut.android.ime.Idiom.PHONE,
                     rim = com.krysta1ll.meowpuut.android.ime.GlassOutline.contentBand(shape, 1f).first)
                 val stage = layout.stage(shape)
-                assertTrue("${theme.id} $shape cats", com.krysta1ll.meowpuut.android.ime.CatSeats.ends(stage, theme.mimimo.catSprite()!!, theme.momo.catSprite()!!) != null)
+                val places = com.krysta1ll.meowpuut.android.ime.CatSeats.ends(stage, theme.mimimo.catSprite()!!, theme.momo.catSprite()!!)
+                assertTrue("${theme.id} $shape cats", places != null)
+                val fitted = checkNotNull(stage.fitting(checkNotNull(places), theme.right))
                 val box = Festivals.placeRight(theme.right!!, layout.glass, com.krysta1ll.meowpuut.android.ime.GlassOutline.contentBand(shape, layout.glass.height),
-                    layout.width, layout.chevron.centerX + com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout.ARROW_WIDTH / 2)
-                assertTrue("${theme.id} $shape ornament", box != null && box.right <= layout.width && box.left > layout.chevron.centerX)
+                    layout.width, fitted.arrow.right - 1f)
+                assertTrue("${theme.id} $shape ornament", box != null && box.right <= layout.width && box.left > fitted.arrow.centerX)
             }
         }
         // 光明節 2026 is met once its lead-up week begins.

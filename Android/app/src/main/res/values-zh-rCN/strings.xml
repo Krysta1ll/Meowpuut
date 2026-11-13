@@ -1,5 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="keyboard_skin">皮肤</string>
+    <string name="skin_current">喵扑玻璃</string>
+    <string name="skin_classic_cloud">经典云玻璃</string>
+    <string name="skin_pixel">像素</string>
+    <string name="skin_unlock_title">解锁%1$s皮肤</string>
+    <string name="skin_pixel_question">这行 Python 会输出什么？</string>
+    <string name="skin_pixel_try_again">这题没答对，可以再抽一题。</string>
+    <string name="skin_pixel_retry">再抽一题</string>
+    <string name="skin_wardrobe">键盘衣橱</string>
+    <string name="skin_customize">自定义搭配</string>
+    <string name="effects">视觉特效</string>
+    <string name="effects_lightweight">轻量</string>
+    <string name="effects_standard">标准</string>
+    <string name="effects_full">完整</string>
+    <string name="effects_ultra">极致</string>
+    <string name="effects_note">轻量减少动效。极致让候选栏、键帽和底板更通透。</string>
+    <string name="keyboard_height">键盘高度</string>
+    <string name="keyboard_height_compact">较矮</string>
+    <string name="keyboard_height_tall">较高</string>
+    <string name="panel_adjustment">面板调整</string>
+    <string name="panel_adjustment_open">调整 ›</string>
+    <string name="panel_custom">自定义 ›</string>
+    <string name="panel_key_height">按键高度</string>
+    <string name="panel_bottom_gap">底部留白</string>
+    <string name="panel_height_change">%1$+d dp／行</string>
+    <string name="panel_gap_value">%1$d dp</string>
+    <string name="panel_no_gap">贴底</string>
+    <string name="panel_adjustment_hint">贴底键盘会应用这些设置。横屏空间较少时会缩减留白。</string>
+    <string name="panel_reset">重置</string>
+    <string name="panel_done">完成</string>
+    <string name="cursor_drag_hint">左右滑动移动光标</string>
+    <string name="candidate_text_size">候选字大小</string>
+    <string name="key_text_size">按键文字大小</string>
+    <string name="keyboard_text_size_small">较小</string>
+    <string name="keyboard_text_size_large">较大</string>
+    <string name="keyboard_position">键盘位置</string>
+    <string name="keyboard_position_docked">贴底</string>
+    <string name="keyboard_position_floating">悬浮</string>
+    <string name="floating_keyboard_hint">拖动键盘握柄即可移动。</string>
+    <string name="floating_keyboard_handle">移动悬浮键盘</string>
+    <string name="floating_keyboard_dock">将键盘贴底</string>
     <string name="app_name">喵扑</string>
     <string name="app_title">喵扑  Meowpuut</string>
     <string name="ime_name">喵扑</string>
@@ -19,12 +60,13 @@
     <string name="input_title">输入</string>
     <string name="input_mode">输入方式</string>
     <string name="mode_zhuyin">注音</string>
-    <string name="mode_pinyin">拼音</string>
+    <string name="mode_pinyin">全键拼音</string>
+    <string name="mode_nine_key">九键拼音</string>
     <string name="mode_japanese">日本語</string>
     <string name="script">中文</string>
     <string name="script_traditional">繁體</string>
     <string name="script_simplified">简体</string>
-    <string name="script_note">在键盘上连续轻摸莫莫五下，也能切换简体／繁体。</string>
+    <string name="script_note">连摸米米莫五下切换输入方式，中文模式下连摸莫莫五下切换简繁。把小猫拖到按键区再松手，就会收起键盘。</string>
 
     <string name="look_title">外观</string>
     <string name="shape">造型</string>
@@ -51,10 +93,24 @@
     <string name="festivals_note">节日期间，米米莫和莫莫会换上节日的衣服。</string>
 
     <string name="feedback_title">按键反馈</string>
+    <string name="key_popups">按键气泡</string>
     <string name="haptics">振动</string>
+    <string name="haptic_strength">振动强度</string>
+    <string name="haptic_soft">轻柔</string>
+    <string name="haptic_strong">强</string>
+    <string name="sound_volume">自定义音效音量</string>
     <string name="sound">按键声</string>
 
     <string name="licenses">第三方授权</string>
     <string name="close">关闭</string>
     <string name="preview_label">候选栏预览</string>
+    <string name="preview_nine_key">九键拼音键盘预览</string>
+    <string name="sound_off">关闭</string>
+    <string name="sound_system">系统</string>
+    <string name="sound_water">水滴</string>
+    <string name="sound_marimba">木琴</string>
+    <string name="sound_glass">玻璃</string>
+    <string name="sound_felt">毛毡</string>
+    <string name="sound_penta">五声</string>
+    <string name="sound_harmonic">泛音</string>
 </resources>

@@ -506,20 +506,23 @@ private func runJapaneseLexiconSmoke(_ h: inout SmokeHarness) {
     let savedSimplified = Preferences.shared.simplified, savedRemember = Preferences.shared.rememberChoices
     Preferences.shared.simplified = false; Preferences.shared.rememberChoices = false
     defer { Preferences.shared.simplified = savedSimplified; Preferences.shared.rememberChoices = savedRemember }
-    // T7: knownWord gives the first entry of native-japanese.json, and nothing for other words.
-    if let url = Bundle.main.url(forResource: "native-japanese", withExtension: "json"),
-       let data = try? Data(contentsOf: url),
-       let legacy = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]] {
+    let reviewed = JapaneseLexicon.reviewed
+    let unknown = derivedReadings.filter { JapaneseBackend.knownWord($0) == nil }
+    h.check(!reviewed.isEmpty && unknown.count == 200, "日語詞表：\(reviewed.count) 個已審讀音，\(unknown.count) 個大詞表讀音不算已審")
+    h.check(JapaneseBackend.mixedWords.count <= 512 && JapaneseBackend.mixedWords.allSatisfy { reviewed[$0.reading] != nil }, "混打詞池只含已審詞")
+    // Build checks compare the bundled binary with its separately generated source table.
+    if let directory = ProcessInfo.processInfo.environment["MEOWPUUT_LEXICON_DIR"] {
+        let url = URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent("native-japanese.json")
+        guard let data = try? Data(contentsOf: url),
+              let legacy = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]] else {
+            h.check(false, "日語詞表：讀不到 \(url.path)")
+            return
+        }
         let same = legacy.allSatisfy { reading, entries in
             guard let first = entries.first, let known = JapaneseBackend.knownWord(reading) else { return false }
             return known.text == first["text"] as? String && known.weight == first["weight"] as? Int
         }
-        let unknown = derivedReadings.filter { legacy[$0] == nil }
-        h.check(same && unknown.count == 200 && unknown.allSatisfy { JapaneseBackend.knownWord($0) == nil },
-                "日語詞表：\(legacy.count) 個已審讀音照舊，\(unknown.count) 個大詞表讀音不算已審")
-        h.check(JapaneseBackend.mixedWords.count <= 512 && JapaneseBackend.mixedWords.allSatisfy { legacy[$0.reading] != nil }, "混打詞池只含已審詞")
-    } else {
-        h.check(false, "日語詞表：讀不到 native-japanese.json")
+        h.check(same && legacy.count == reviewed.count, "日語詞表：\(legacy.count) 個已審讀音照舊")
     }
     guard let pinyin = try? Engine.makeBackend(mode: .pinyin), let japaneseMode = try? Engine.makeBackend(mode: .japanese) else {
         h.check(false, "日語詞表：引擎無法載入"); return

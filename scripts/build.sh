@@ -17,15 +17,22 @@ export DEVELOPER_DIR="${MEOWPUUT_XCODE_DIR:-/Applications/Xcode.app/Contents/Dev
 APP="$PWD/.build/Meowpuut.app"
 TARGET="$(uname -m)-apple-macosx27.0"
 JOBS="${MEOWPUUT_JOBS:-4}"
+LEXICON="${MEOWPUUT_LEXICON_DIR:-$PWD/.build/macos-lexicon}"
 # Recreate only generated resources so no retired dictionary survives an incremental build.
 rm -rf "$APP/Contents/Resources"
 # A failed compile must not leave an older binary behind.
 rm -f "$APP/Contents/MacOS/Meowpuut"
 mkdir -p .build "$APP/Contents/MacOS" "$APP/Contents/Resources/Modules"
-bash Engine/scripts/build-lexicon.sh "$APP/Contents/Resources"
+if [ -z "${MEOWPUUT_LEXICON_DIR:-}" ]; then
+  bash Engine/scripts/build-lexicon.sh "$LEXICON"
+fi
+for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin associations.json language-evidence.sqlite; do
+  cp "$LEXICON/$file" "$APP/Contents/Resources/"
+done
+python3 Engine/scripts/copy-lexicon-notices.py "$APP/Contents/Resources/Licenses"
 cp ASSETS-LICENSE.md "$APP/Contents/Resources/Licenses/Meowpuut-Artwork.txt"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp -R Resources/*.lproj Engine/Resources/Lexicon Resources/Festivals "$APP/Contents/Resources/"
+cp -R Resources/*.lproj Resources/Festivals "$APP/Contents/Resources/"
 # 米米莫 and 莫莫 (scripts/render_cats.py); NSImage pairs name.png with name@2x.png.
 cp Resources/Cats/*.png "$APP/Contents/Resources/"
 cp Modules/*.json "$APP/Contents/Resources/Modules/"
@@ -46,11 +53,11 @@ echo "已構建：$APP"
 if [ "${1:-}" = "--test" ]; then
   # Uses its own settings and a temporary folder; the installed input method is not touched.
   # MEOWPUUT_GOLDEN_CHECK=1 also compares the candidate lists with Tests/golden.
-  MEOWPUUT_GOLDEN_CHECK=1 "$APP/Contents/MacOS/Meowpuut" --smoke
+  MEOWPUUT_LEXICON_DIR="$LEXICON" MEOWPUUT_GOLDEN_CHECK=1 "$APP/Contents/MacOS/Meowpuut" --smoke
   # Lexicon checks on the bundled files: Japanese image and gate, Chinese goldens, old Japanese
   # outputs, mixed sentences in the core.
-  python3 Engine/scripts/check-mimo-jp.py "$APP/Contents/Resources" --probe
-  python3 Engine/scripts/check-chinese-golden.py --resources "$APP/Contents/Resources"
-  python3 Engine/scripts/check-japanese-lexicon.py "$APP/Contents/Resources"
-  python3 Engine/scripts/check-mixed-core.py "$APP/Contents/Resources"
+  python3 Engine/scripts/check-mimo-jp.py "$LEXICON" --probe
+  python3 Engine/scripts/check-chinese-golden.py --resources "$LEXICON"
+  python3 Engine/scripts/check-japanese-lexicon.py "$LEXICON" "$APP/Contents/Resources/Licenses"
+  python3 Engine/scripts/check-mixed-core.py "$LEXICON"
 fi

@@ -95,14 +95,15 @@ private struct DeskHint: View {
     var label: String
     var selected: Bool
     var look: CandidateLook
+    var textSize: CandidateTextSize
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0.5) {
             if label.hasPrefix("⇧") {
-                Image(systemName: "shift").font(.system(size: 7.5, weight: .semibold)).opacity(0.85)
+                Image(systemName: "shift").font(.system(size: textSize.hint * 0.75, weight: .semibold)).opacity(0.85)
             }
             Text(label.hasPrefix("⇧") ? String(label.dropFirst()) : label)
-                .font(.system(size: Desk.hintFont, weight: .medium, design: .rounded))
+                .font(.system(size: textSize.hint, weight: .medium, design: .rounded))
         }
         .foregroundStyle(selected ? Color.white.opacity(look.contrast ? 1 : 0.88) : look.secondary)
         .fixedSize()
@@ -112,6 +113,7 @@ private struct DeskHint: View {
 
 /// A candidate under the pointer gets a pale capsule; a press shrinks it a little.
 private struct DeskCellStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
     var tint: Color
     var look: CandidateLook
     var selected: Bool
@@ -120,10 +122,17 @@ private struct DeskCellStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
-                if !selected {
+                if enabled && !selected {
                     Capsule(style: .continuous)
                         .fill(tint.opacity(configuration.isPressed ? (look.dark ? 0.30 : 0.22) : (look.dark ? 0.18 : 0.12)))
                         .opacity(hovering || configuration.isPressed ? 1 : 0)
+                }
+            }
+            .overlay {
+                if selected && configuration.isPressed {
+                    Capsule(style: .continuous)
+                        .strokeBorder(.white.opacity(look.contrast ? 1 : 0.72), lineWidth: 1)
+                        .allowsHitTesting(false)
                 }
             }
             .scaleEffect(configuration.isPressed && !look.still ? 0.96 : 1)
@@ -179,9 +188,14 @@ struct GlassCandidateView: View {
     }
 
     /// Visible height of the collapsed window, without the clear margin.
-    static func collapsedHeight(cats: Bool) -> CGFloat { cats ? Desk.catsBarHeight : Desk.glass + 8 }
+    static func collapsedHeight(cats: Bool, textSize: CandidateTextSize = .standard,
+                                windowSize: CandidateWindowSize = .standard) -> CGFloat {
+        windowSize.glass(textSize) + (cats ? Desk.glassTop + Desk.glassBottom : 8)
+    }
     /// The least the expanded panel needs: three rows and the page buttons.
-    static let minimumPanelHeight: CGFloat = panelGap + 16 + 3 * Desk.gridRowHeight + 2 * Desk.gridRowSpacing + 26
+    static func minimumPanelHeight(textSize: CandidateTextSize, windowSize: CandidateWindowSize) -> CGFloat {
+        panelGap + 2 * windowSize.gridPadding + 3 * windowSize.gridRow(textSize) + 2 * Desk.gridRowSpacing + 26
+    }
     private static let panelGap: CGFloat = 6
 
     private var look: CandidateLook {
@@ -201,15 +215,17 @@ struct GlassCandidateView: View {
     private var palette: CandidatePalette { preferences.candidatePalette }
     private var festival: FestivalTheme? { Festivals.theme(wardrobe: preferences.festivalWardrobe) }
     private var style: GlassShape { preferences.glassShape }
+    private var textSize: CandidateTextSize { preferences.candidateTextSize }
+    private var windowSize: CandidateWindowSize { preferences.candidateWindowSize }
 
     var body: some View {
         let look = self.look
         VStack(alignment: .leading, spacing: Self.panelGap) {
             if !panelAbove { bar(look) }
             if expanded && !engine.snapshot.candidates.isEmpty {
-                let chrome = Desk.margin.top + Desk.margin.bottom + Self.collapsedHeight(cats: cats) + Self.panelGap
+                let chrome = Desk.margin.top + Desk.margin.bottom + Self.collapsedHeight(cats: cats, textSize: textSize, windowSize: windowSize) + Self.panelGap
                 DeskExpandedPanel(engine: engine, look: look, palette: palette, festivalPill: festival?.pill(dark: look.dark),
-                                  strength: preferences.glassStrength, t: t,
+                                  strength: preferences.glassStrength, t: t, textSize: textSize, windowSize: windowSize,
                                   maximumHeight: max(60, maxHeight - chrome),
                                   maximumWidth: maxWidth - Desk.margin.left - Desk.margin.right - (cats ? Desk.glassLeft + Desk.momoOverhang : 0),
                                   onChoose: onChoose, onPage: onPage)
@@ -242,14 +258,14 @@ struct GlassCandidateView: View {
 
     private var cells: [Cell] {
         let snapshot = engine.snapshot
-        let layout = CollapsedCandidateLayout(snapshot)
+        let layout = CollapsedCandidateLayout(snapshot, textSize: textSize)
         let japaneseTexts = markedJapanese(snapshot)
         return layout.indices.compactMap { index in
             guard let text = compactCandidateText(snapshot, at: index) else { return nil }
             let japanese = japaneseTexts.contains(text)
-            let full = CandidateMeasure.width(text)
+            let full = CandidateMeasure.width(text, size: textSize.font)
             let given = (layout.textWidths[index] ?? full) - (japanese ? CollapsedCandidateLayout.paw : 0)
-            return Cell(index: index, text: text, japanese: japanese, width: given < full ? max(Desk.font * 2, given) : nil)
+            return Cell(index: index, text: text, japanese: japanese, width: given < full ? max(textSize.font * 2, given) : nil)
         }
     }
 
@@ -257,14 +273,14 @@ struct GlassCandidateView: View {
     private func candidateRow(_ look: CandidateLook) -> some View {
         if engine.snapshot.candidates.isEmpty {
             Text(engine.snapshot.preedit)
-                .font(.system(size: Desk.font))
+                .font(.system(size: textSize.font))
                 .foregroundStyle(look.text)
                 .lineLimit(1).truncationMode(.head)
                 .frame(minWidth: 96, maxWidth: 260, alignment: .leading)
-                .padding(.horizontal, Desk.cellPadding)
+                .padding(.horizontal, windowSize.cellPadding)
                 .accessibilityLabel(t("輸入中：", "输入中：") + engine.snapshot.preedit)
         } else {
-            HStack(spacing: Desk.cellSpacing) {
+            HStack(spacing: windowSize.cellSpacing) {
                 ForEach(Array(cells.enumerated()), id: \.element.index) { ordinal, cell in
                     candidate(cell, shortcut: engine.candidateShortcut(ordinal), look: look)
                 }
@@ -286,17 +302,17 @@ struct GlassCandidateView: View {
                     .overlay {
                         HStack(spacing: 8) {
                             Text(engine.snapshot.preedit)
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: textSize.font - 2, weight: .medium))
                                 .foregroundStyle(look.text)
                                 .lineLimit(1).truncationMode(.head)
                                 .accessibilityLabel(t("輸入中：", "输入中：") + engine.snapshot.preedit)
                             Spacer(minLength: 0)
                             Text(engine.modeLabel)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: textSize.hint + 1, weight: .medium))
                                 .foregroundStyle(look.secondary)
                                 .fixedSize()
                         }
-                        .padding(.horizontal, Desk.cellPadding)
+                        .padding(.horizontal, windowSize.cellPadding)
                     }
             } else {
                 candidateRow(look)
@@ -308,10 +324,10 @@ struct GlassCandidateView: View {
                         .rotationEffect(.degrees(expanded ? 180 : 0))
                         .animation(look.still ? nil : .easeInOut(duration: 0.18), value: expanded)
                         .foregroundStyle(look.text.opacity(look.contrast ? 1 : 0.72))
-                        .frame(width: Desk.chevronWidth, height: Desk.pill)
+                        .frame(width: Desk.chevronWidth, height: windowSize.pill(textSize))
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DeskCellStyle(tint: palette.color(dark: look.dark), look: look, selected: false))
                 .accessibilityLabel(expanded ? t("收起候選", "收起候选") : t("展開候選", "展开候选"))
                 .help(expanded ? t("收起候選（Esc）", "收起候选（Esc）") : t("展開候選（↓）", "展开候选（↓）"))
             }
@@ -347,7 +363,7 @@ struct GlassCandidateView: View {
     /// bar grows and shrinks with the candidates; on a bar too short for it,
     /// the first arrangement that fits is shown.
     private func catPlaces(width: CGFloat, chevron: Bool) -> [CatPlacement] {
-        let stage = Desk.stage(width: width, shape: style, chevron: chevron)
+        let stage = Desk.stage(width: width, shape: style, chevron: chevron, textSize: textSize, windowSize: windowSize)
         // On a festival day the dressed pair sits at the two ends, as on iOS.
         if let theme = festival, let places = CatArrangement.named("ends")?.place(on: stage, sprite: { cat, pose in
             theme.catSprite(cat) ?? CatArt.sprite(cat, pose)
@@ -358,13 +374,14 @@ struct GlassCandidateView: View {
             }
             return places
         }
-        let usual = Desk.stage(width: 360, shape: style, chevron: true)
+        let usual = Desk.stage(width: 360, shape: style, chevron: true, textSize: textSize, windowSize: windowSize)
         let today = CatSchedule.arrangement(setting: preferences.catPlacement, day: catDay, on: usual)?.arrangement
         return today?.place(on: stage) ?? CatArrangement.all.lazy.compactMap { $0.place(on: stage) }.first ?? []
     }
 
     private func catsBar(_ look: CandidateLook) -> some View {
-        let band = CandidateGlassShape.contentBand(style, height: Desk.glass)
+        let height = windowSize.glass(textSize)
+        let band = CandidateGlassShape.contentBand(style, height: height)
         let glassInsets = EdgeInsets(top: Desk.glassTop, leading: Desk.glassLeft, bottom: Desk.glassBottom, trailing: Desk.momoOverhang)
         let chevron = canExpand || expanded
         return row(look)
@@ -373,7 +390,7 @@ struct GlassCandidateView: View {
             .padding(.leading, Desk.glassLeft + Desk.rowLead)
             .padding(.trailing, chevron ? Desk.rowTrail : Desk.rowTrailPlain)
             .padding(.top, Desk.glassTop + band.top)
-            .padding(.bottom, Desk.glass - band.bottom + Desk.glassBottom)
+            .padding(.bottom, height - band.bottom + Desk.glassBottom)
             .background {
                 ZStack {
                     glassBar(look).padding(glassInsets)
@@ -384,7 +401,7 @@ struct GlassCandidateView: View {
             .overlay {
                 GeometryReader { proxy in
                     CatFigures(places: catPlaces(width: proxy.size.width, chevron: chevron), size: proxy.size,
-                               glass: CGRect(x: Desk.glassLeft, y: Desk.glassTop, width: proxy.size.width - Desk.glassLeft - Desk.momoOverhang, height: Desk.glass),
+                               glass: CGRect(x: Desk.glassLeft, y: Desk.glassTop, width: proxy.size.width - Desk.glassLeft - Desk.momoOverhang, height: height),
                                shape: style, dark: look.dark, shadows: !look.opaque, breathing: visible && !look.still,
                                picture: DesktopCatArt.picture)
                 }
@@ -397,7 +414,7 @@ struct GlassCandidateView: View {
     @ViewBuilder private func barTrim() -> some View {
         if let ends = festival?.ends {
             GeometryReader { proxy in
-                let stage = Desk.stage(width: proxy.size.width, shape: style, chevron: canExpand || expanded)
+                let stage = Desk.stage(width: proxy.size.width, shape: style, chevron: canExpand || expanded, textSize: textSize, windowSize: windowSize)
                 FestivalEndsView(placed: FestivalEndsLayout.place(ends, glass: stage.glass, shape: style, width: proxy.size.width,
                                                                   left: stage.row.minX, right: stage.arrow.maxX))
             }
@@ -405,13 +422,14 @@ struct GlassCandidateView: View {
     }
 
     private func plainBar(_ look: CandidateLook) -> some View {
-        let band = CandidateGlassShape.contentBand(style, height: Desk.glass)
+        let height = windowSize.glass(textSize)
+        let band = CandidateGlassShape.contentBand(style, height: height)
         return row(look)
             .frame(height: band.bottom - band.top)
             .frame(maxWidth: expanded ? .infinity : nil, alignment: .leading)
             .padding(.horizontal, 6)
             .padding(.top, band.top)
-            .padding(.bottom, Desk.glass - band.bottom)
+            .padding(.bottom, height - band.bottom)
             .background { glassBar(look) }
             .padding(.vertical, 4)
     }
@@ -421,11 +439,11 @@ struct GlassCandidateView: View {
         let spoken = shortcut.hasPrefix("⇧") ? "Shift " + shortcut.dropFirst() : shortcut
         return Button { onChoose(cell.index) } label: {
             HStack(spacing: 0) {
-                DeskHint(label: shortcut, selected: selected, look: look)
+                DeskHint(label: shortcut, selected: selected, look: look, textSize: textSize)
                     .padding(.trailing, Desk.hintGap)
                 // The medium weight sizes the cell, so the row does not shift as the highlight moves.
                 Text(cell.text)
-                    .font(.system(size: Desk.font, weight: .medium))
+                    .font(.system(size: textSize.font, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(width: cell.width, alignment: .leading)
@@ -433,13 +451,13 @@ struct GlassCandidateView: View {
                     .hidden()
                     .overlay(alignment: .leading) {
                         Text(cell.text)
-                            .font(.system(size: Desk.font, weight: selected ? .medium : .regular))
+                            .font(.system(size: textSize.font, weight: selected ? .medium : .regular))
                             .foregroundStyle(selected ? Color.white : look.text)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 if cell.japanese {
-                    Image(systemName: "pawprint.fill").font(.system(size: (Desk.font * 0.45).rounded()))
+                    Image(systemName: "pawprint.fill").font(.system(size: (textSize.font * 0.45).rounded()))
                         .rotationEffect(.degrees(-20))
                         .foregroundStyle(selected ? Color.white.opacity(0.88) : look.secondary)
                         .frame(width: Desk.pawWidth)
@@ -447,8 +465,8 @@ struct GlassCandidateView: View {
                         .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, Desk.cellPadding)
-            .frame(height: Desk.pill)
+            .padding(.horizontal, windowSize.cellPadding)
+            .frame(height: windowSize.pill(textSize))
             .background { if selected { DeskPill(palette: palette, festival: festival?.pill(dark: look.dark), look: look) } }
             .contentShape(Capsule(style: .continuous))
         }
@@ -485,6 +503,16 @@ struct GlassCandidateView: View {
         Menu(t("造型", "造型")) {
             ForEach(GlassShape.allCases) { shape in
                 check(shape.name(t), shape, preferences.glassShape) { preferences.glassShape = shape }
+            }
+        }
+        Menu(t("候選字級", "候选字号")) {
+            ForEach(CandidateTextSize.allCases) { size in
+                check(size.name(t), size, preferences.candidateTextSize) { preferences.candidateTextSize = size }
+            }
+        }
+        Menu(t("候選窗大小", "候选窗大小")) {
+            ForEach(CandidateWindowSize.allCases) { size in
+                check(size.name(t), size, preferences.candidateWindowSize) { preferences.candidateWindowSize = size }
             }
         }
         Menu(t("色調", "色调")) {
@@ -551,51 +579,54 @@ private struct DeskExpandedPanel: View {
     var festivalPill: Color?
     var strength: GlassStrength
     var t: InterfaceText
+    var textSize: CandidateTextSize
+    var windowSize: CandidateWindowSize
     var maximumHeight: CGFloat
     var maximumWidth: CGFloat
     var onChoose: (Int) -> Void
     var onPage: (Int32) -> Void
 
-    private static let padding: CGFloat = 8
-
     var body: some View {
         let snapshot = engine.snapshot
         let candidates = expandedCandidates(snapshot)
-        let limit = max(180, min(Desk.gridMaxWidth, maximumWidth) - Self.padding * 2)
-        let rows = expandedCandidateRows(candidates, limit: limit)
-        let width = expandedCandidateWidth(candidates, limit: limit)
+        let limit = candidateGridWidthLimit(maximumWidth, windowSize: windowSize)
+        let rows = expandedCandidateRows(candidates, limit: limit, textSize: textSize)
+        let width = expandedCandidateWidth(candidates, limit: limit, textSize: textSize)
         let paged = snapshot.page > 0 || !snapshot.lastPage
-        let gridHeight = CGFloat(rows.count) * Desk.gridRowHeight + CGFloat(max(0, rows.count - 1)) * Desk.gridRowSpacing
-        let room = maximumHeight - Self.padding * 2 - (paged ? 26 : 0)
+        let gridRow = windowSize.gridRow(textSize)
+        let padding = windowSize.gridPadding
+        let gridHeight = CGFloat(rows.count) * gridRow + CGFloat(max(0, rows.count - 1)) * Desk.gridRowSpacing
+        let room = maximumHeight - padding * 2 - (paged ? 26 : 0)
         let japanese = markedJapanese(snapshot)
         VStack(spacing: 4) {
             if gridHeight > room {
                 // Only a short display gets here: whole rows, and the highlight stays in view.
-                let stride = Desk.gridRowHeight + Desk.gridRowSpacing
+                let stride = gridRow + Desk.gridRowSpacing
                 let shown = max(1, floor((room + Desk.gridRowSpacing) / stride))
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) { grid(rows, japanese: japanese) }
                         .frame(height: shown * stride - Desk.gridRowSpacing)
+                        .onAppear { proxy.scrollTo(snapshot.highlighted) }
                         .onChange(of: snapshot.highlighted) { _, index in proxy.scrollTo(index) }
-                        .onChange(of: snapshot.page) { _, _ in proxy.scrollTo(0, anchor: .top) }
+                        .onChange(of: snapshot.page) { _, _ in proxy.scrollTo(snapshot.highlighted) }
                 }
             } else {
                 grid(rows, japanese: japanese)
             }
             if paged {
                 HStack(spacing: 10) {
-                    page(0xff55, symbol: "chevron.left", label: t("上一頁", "上一页")).disabled(snapshot.page == 0)
+                    page(0xff55, symbol: "chevron.left", label: t("上一頁", "上一页"), disabled: snapshot.page == 0)
                     Text("\(snapshot.page + 1)").font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(look.secondary)
                         .accessibilityLabel(t("第 \(snapshot.page + 1) 頁", "第 \(snapshot.page + 1) 页"))
-                    page(0xff56, symbol: "chevron.right", label: t("下一頁", "下一页")).disabled(snapshot.lastPage)
+                    page(0xff56, symbol: "chevron.right", label: t("下一頁", "下一页"), disabled: snapshot.lastPage)
                 }
                 .frame(height: 22)
             }
         }
-        .padding(Self.padding)
+        .padding(padding)
         // The ideal width stops the window at the computed width; a longer candidate is shortened in the middle.
-        .frame(minWidth: width + Self.padding * 2, idealWidth: width + Self.padding * 2, maxWidth: .infinity)
+        .frame(minWidth: width + padding * 2, idealWidth: width + padding * 2, maxWidth: .infinity)
         .background { DeskPanelGlass(look: look, strength: strength, tint: palette.color(dark: look.dark)).equatable() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(t("全部候選", "全部候选"))
@@ -622,16 +653,16 @@ private struct DeskExpandedPanel: View {
         let marked = japanese.contains(text)
         return Button { onChoose(index) } label: {
             HStack(spacing: 0) {
-                DeskHint(label: shortcut, selected: selected, look: look)
-                    .frame(width: Desk.gridHint(shifted: shortcut.hasPrefix("⇧")), alignment: .trailing)
+                DeskHint(label: shortcut, selected: selected, look: look, textSize: textSize)
+                    .frame(width: Desk.gridHint(shifted: shortcut.hasPrefix("⇧")) * textSize.hint / Desk.hintFont, alignment: .trailing)
                     .padding(.trailing, 5)
                 Text(text)
-                    .font(.system(size: Desk.font, weight: selected ? .medium : .regular))
+                    .font(.system(size: textSize.font, weight: selected ? .medium : .regular))
                     .foregroundStyle(selected ? Color.white : look.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if marked {
-                    Image(systemName: "pawprint.fill").font(.system(size: (Desk.font * 0.45).rounded()))
+                    Image(systemName: "pawprint.fill").font(.system(size: (textSize.font * 0.45).rounded()))
                         .rotationEffect(.degrees(-20))
                         .foregroundStyle(selected ? Color.white.opacity(0.88) : look.secondary)
                         .frame(width: Desk.pawWidth)
@@ -640,12 +671,12 @@ private struct DeskExpandedPanel: View {
                 }
             }
             .padding(.leading, shortcut.hasPrefix("⇧") ? 6 : 9).padding(.trailing, 10)
-            .frame(height: Desk.pill)
+            .frame(height: windowSize.pill(textSize))
             .background { if selected { DeskPill(palette: palette, festival: festivalPill, look: look) } }
-            .frame(maxWidth: .infinity, minHeight: Desk.gridRowHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: windowSize.gridRow(textSize), alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DeskCellStyle(tint: palette.color(dark: look.dark), look: look, selected: selected))
         .help(text)
         .id(index)
         .accessibilityLabel(text + (marked ? t("，日語", "，日语") : ""))
@@ -653,7 +684,7 @@ private struct DeskExpandedPanel: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func page(_ key: Int32, symbol: String, label: String) -> some View {
+    private func page(_ key: Int32, symbol: String, label: String, disabled: Bool) -> some View {
         Button { onPage(key) } label: {
             HStack(spacing: 3) {
                 if key == 0xff55 { Image(systemName: symbol) }
@@ -661,11 +692,12 @@ private struct DeskExpandedPanel: View {
                 if key == 0xff56 { Image(systemName: symbol) }
             }
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(look.secondary)
-            .padding(.horizontal, 6).frame(height: 22)
+            .foregroundStyle(disabled ? look.secondary.opacity(0.65) : look.text)
+            .padding(.horizontal, 8).frame(minWidth: 56, minHeight: 22)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DeskCellStyle(tint: palette.color(dark: look.dark), look: look, selected: false))
+        .disabled(disabled)
         .accessibilityLabel(label)
         .help(label + (key == 0xff55 ? "（⌥← / Page Up）" : "（⌥→ / Page Down）"))
     }

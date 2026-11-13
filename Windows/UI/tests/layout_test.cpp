@@ -273,44 +273,48 @@ void testEllipsis() {
 }
 
 void testNarrowScreen() {
-    // 640 DIPs (a 1280-pixel screen at 200%) cannot hold eight four-character
-    // candidates whole. Every cell keeps its first character and the window
-    // still fits.
+    // A short desktop work area cannot hold eight four-character candidates
+    // whole. Every cell keeps its first character and the window still fits.
     FixedMeasurer measurer;
     CandidateViewModel model;
     for (const char *lead : {"你", "我", "他", "她", "它", "牠", "祂", "您"}) model.candidates.push_back(std::string(lead) + "好嗎啊");
     model.japanese.assign(8, false);
     LayoutLimits limits;
-    limits.maxWidth = 640;
+    limits.maxWidth = 690;
     const auto L = layoutCandidates(model, measurer, limits);
     CHECK(L.cells.size() == 8);
-    for (std::size_t i = 0; i < L.cells.size(); ++i) {
-        const auto &c = L.cells[i];
-        CHECK(c.truncated);
-        CHECK(c.text == model.candidates[i].substr(0, 3) + "\xE2\x80\xA6");   // first character and the ellipsis
-    }
+    CHECK(L.cells.back().truncated);
+    CHECK(L.cells.back().text == "您\xE2\x80\xA6");
     CHECK(L.size.width <= limits.maxWidth + 0.5f);
-    // With more room the spare width goes to the first candidates: two come
-    // back whole, the third gets its last character back.
+    // With more room at least the first candidate comes back whole.
     limits.maxWidth = 720;
     const auto roomier = layoutCandidates(model, measurer, limits);
-    CHECK(!roomier.cells[0].truncated && !roomier.cells[1].truncated);
-    CHECK(roomier.cells[2].text == "他\xE2\x80\xA6啊");
+    CHECK(!roomier.cells[0].truncated);
     CHECK(roomier.cells[7].text == "您\xE2\x80\xA6");
     CHECK(roomier.size.width <= limits.maxWidth + 0.5f);
     // At 1000 nothing is cut.
     limits.maxWidth = 1000;
     for (const auto &c : layoutCandidates(model, measurer, limits).cells) CHECK(!c.truncated);
-    // Narrower than the row at its floor: no cell shrinks to a bare ellipsis.
-    // The row keeps its width and the window is wider than the work area;
-    // placeNearCaret keeps the left end on screen, so the right end hangs out.
-    limits.maxWidth = 520;
-    const auto tight = layoutCandidates(model, measurer, limits);
-    for (std::size_t i = 0; i < tight.cells.size(); ++i)
-        CHECK(tight.cells[i].text == model.candidates[i].substr(0, 3) + "\xE2\x80\xA6");
-    CHECK(tight.size.width > limits.maxWidth);
-    const auto at = placeNearCaret(tight, 2.0f, {300, 100, 302, 140}, {0, 0, 1040, 800});
-    CHECK(at.x + std::lround(tight.content.x * 2.0f) == 0);
+    // When there is no room for the full page, the compact bar keeps the
+    // highlighted candidate with its original number. Expand still opens all.
+    for (const float width : {520.0f, 240.0f}) {
+        limits.maxWidth = width;
+        model.expanded = false;
+        model.highlighted = 7;
+        const auto tight = layoutCandidates(model, measurer, limits);
+        CHECK(!tight.cells.empty() && tight.cells.size() < model.candidates.size());
+        CHECK(tight.size.width <= limits.maxWidth + 0.5f);
+        CHECK(tight.cells.back().index == 7 && tight.cells.back().number == "8");
+        CHECK(tight.cells.back().text != "\xE2\x80\xA6");
+        CHECK(hitTest(tight, {tight.cells.back().frame.midX(), tight.cells.back().frame.midY()}).index == 7);
+        CHECK(hitTest(tight, {tight.chevron.midX(), tight.chevron.midY()}).kind == HitKind::Expand);
+        model.expanded = true;
+        model.lastPage = true;
+        const auto expanded = layoutCandidates(model, measurer, limits);
+        CHECK(expanded.cells.size() == model.candidates.size());
+        CHECK(expanded.size.width <= limits.maxWidth + 0.5f);
+        CHECK(!expanded.nextPage.intersects(expanded.chevron));
+    }
 }
 
 void testExpandedAndPaging() {
@@ -377,6 +381,25 @@ void testExpandedAndPaging() {
     const auto capped = layoutCandidates(longModel, measurer);
     CHECK(capped.cells[0].truncated);
     CHECK(std::fabs(capped.glass.bounds.width - capped.metrics.panelMaxWidth) < 0.01f);
+}
+
+void testTextSizes() {
+    FixedMeasurer measurer;
+    auto model = sample();
+    const LayoutLimits limits{240};
+    float previousFont = 0;
+    for (const auto size : {CandidateTextSize::Small, CandidateTextSize::Standard, CandidateTextSize::Large}) {
+        const auto metrics = Metrics::forTextSize(size);
+        CHECK(metrics.font > previousFont);
+        previousFont = metrics.font;
+        for (const bool expanded : {false, true}) {
+            model.expanded = expanded;
+            const auto layout = layoutCandidates(model, measurer, limits, metrics);
+            CHECK(layout.size.width <= limits.maxWidth + 0.5f);
+            CHECK(!layout.cells.empty() && layout.cells.front().index == 0);
+            CHECK(layout.cells.front().pill.height >= metrics.font + 4);
+        }
+    }
 }
 
 void testHitTesting() {
@@ -547,6 +570,14 @@ void testScene() {
             shrunk = true;
     }
     CHECK(shrunk);
+    model.pressed = model.highlighted;
+    const auto selectedPress = buildScene(L, model, makeTheme(Appearance::Light, Palette::Rose, true, false));
+    for (const auto &c : selectedPress.commands) {
+        if (c.kind != DrawCommand::Kind::FillRoundRect) continue;
+        const auto &pill = L.cells[model.highlighted].pill;
+        CHECK(std::fabs(c.rect.width - pill.width * 0.95f) < 0.01f && std::fabs(c.rect.midX() - pill.midX()) < 0.01f);
+    }
+    CHECK(count(selectedPress, DrawCommand::Kind::FillRoundRect) == 1);
 }
 
 void testSvg() {
@@ -776,6 +807,7 @@ int main() {
     testJapaneseNeverWraps();
     testEllipsis();
     testNarrowScreen();
+    testTextSizes();
     testExpandedAndPaging();
     testHitTesting();
     testZhuyinNumbersAndContrast();

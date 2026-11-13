@@ -3,12 +3,21 @@ package com.krysta1ll.meowpuut.android
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.ime.Box
 import com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout
+import com.krysta1ll.meowpuut.android.ime.KeyboardTextSize
+import com.krysta1ll.meowpuut.android.ime.EffectsLevel
+import com.krysta1ll.meowpuut.android.ime.GlassShape
+import com.krysta1ll.meowpuut.android.ime.GlassStrength
 import com.krysta1ll.meowpuut.android.ime.Idiom
 import com.krysta1ll.meowpuut.android.ime.KeyBalloon
+import com.krysta1ll.meowpuut.android.ime.KeyAction
 import com.krysta1ll.meowpuut.android.ime.KeyBuilder
 import com.krysta1ll.meowpuut.android.ime.KeyContext
 import com.krysta1ll.meowpuut.android.ime.KeyGrid
 import com.krysta1ll.meowpuut.android.ime.KeyMetrics
+import com.krysta1ll.meowpuut.android.ime.KeyboardHeight
+import com.krysta1ll.meowpuut.android.ime.Look
+import com.krysta1ll.meowpuut.android.ime.Palette
+import com.krysta1ll.meowpuut.android.ime.PanelAdjustment
 import com.krysta1ll.meowpuut.android.ime.ShiftState
 import com.krysta1ll.meowpuut.android.ime.TextUnits
 import org.junit.Assert.assertEquals
@@ -21,6 +30,20 @@ class GeometryTest {
         KeyContext(mode, english, page, ShiftState.OFF, false, globe, "空格", "換行", false, true)
 
     @Test
+    fun ultraAddsTransmissionWhileKeepingTheOpaqueAccessibilityFill() {
+        assertEquals(EffectsLevel.STANDARD, EffectsLevel.of(null))
+        assertEquals(EffectsLevel.FULL, EffectsLevel.of("full"))
+        assertEquals(EffectsLevel.ULTRA, EffectsLevel.of("ultra"))
+        assertTrue(EffectsLevel.ULTRA.hasFullEffects)
+        for (dark in listOf(false, true)) {
+            val full = Look(dark, GlassShape.WAVE, Palette.ROSE, GlassStrength.BALANCED, true, effects = EffectsLevel.FULL)
+            val ultra = full.copy(effects = EffectsLevel.ULTRA)
+            assertTrue(ultra.glassFill.ushr(24) < full.glassFill.ushr(24))
+            assertEquals(full.copy(opaque = true).glassFill, ultra.copy(opaque = true).glassFill)
+        }
+    }
+
+    @Test
     fun barFitsTheKeyboard() {
         for (width in listOf(360f, 393f, 430f, 480f)) {
             val r = CandidateRegionLayout(width, Idiom.PHONE)
@@ -29,6 +52,55 @@ class GeometryTest {
             assertTrue("glass ends inside the keyboard at $width", r.glass.right <= width)
             assertTrue("pill fits the glass", r.pillHeight < r.glass.height)
         }
+    }
+
+    @Test
+    fun candidateTouchesUseTheSpaceAboveTheKeysWithoutEnteringTheExpandButton() {
+        for ((width, idiom) in listOf(320f to Idiom.PHONE, 852f to Idiom.PHONE_LANDSCAPE, 820f to Idiom.TABLET)) {
+            for (cats in listOf(true, false)) {
+                val region = CandidateRegionLayout(width, idiom, cats, rim = 0.16f)
+                val target = region.candidateTarget(region.row)
+                assertTrue(target.height >= 48f || target.height == region.height)
+                assertTrue(target.top <= region.row.top && target.bottom >= region.row.bottom)
+                assertTrue(target.top >= 0f && target.bottom <= region.height)
+                assertTrue(!target.intersects(region.expandTarget(region.chevron)))
+            }
+        }
+    }
+
+    @Test
+    fun keyboardTextChoicesUseExistingPreferenceKeysAndSystemFontLimit() {
+        assertEquals(KeyboardTextSize.STANDARD, KeyboardTextSize.of(null))
+        assertEquals(KeyboardTextSize.LARGE, KeyboardTextSize.of("large"))
+        val standard = KeyboardTextSize.STANDARD.fontSize(20f, 2f)
+        val large = KeyboardTextSize.LARGE.fontSize(20f, 2f)
+        assertEquals(17f, KeyboardTextSize.of("small").fontSize(20f, 1f), 0.001f)
+        assertEquals(23f, standard, 0.001f)
+        assertEquals(27.6f, large, 0.001f)
+    }
+
+    @Test
+    fun dockedPanelReservesNavigationAndFitsTheAvailableHeight() {
+        val phone = Idiom.PHONE
+        val normal = KeyMetrics.fitted(phone, 390f, 4, 4)
+        val raised = KeyMetrics.fitted(phone, 390f, 4, 4, panelHeightDelta = 8)
+        assertEquals(32f, raised.areaHeight(4) - normal.areaHeight(4), 0.01f)
+
+        val landscape = Idiom.PHONE_LANDSCAPE
+        val nav = 24f
+        val available = PanelAdjustment.availableHeight(360f, landscape, nav)
+        val bar = CandidateRegionLayout(800f, landscape).height
+        val tall = KeyMetrics.fitted(landscape, 800f, 5, 5, panelHeightDelta = PanelAdjustment.MAX_HEIGHT,
+            availableHeight = available - bar)
+        val symbols = KeyMetrics.fitted(landscape, 800f, 4, 5, panelHeightDelta = PanelAdjustment.MAX_HEIGHT,
+            availableHeight = available - bar)
+        val content = bar + tall.areaHeight(5)
+        val gap = PanelAdjustment.bottomGap(PanelAdjustment.MAX_BOTTOM_GAP, available, content)
+        assertTrue(tall.keyHeight >= 26f)
+        assertTrue(gap < PanelAdjustment.MAX_BOTTOM_GAP)
+        assertTrue(content + gap + nav <= 360f - 80f)
+        assertEquals(tall.areaHeight(5), symbols.areaHeight(4), 0.01f)
+        assertEquals(0f, PanelAdjustment.bottomGap(72, 100f, 120f), 0.01f)
     }
 
     @Test
@@ -115,6 +187,35 @@ class GeometryTest {
     }
 
     @Test
+    fun emojiEntryLivesOnBothSymbolPages() {
+        for (mode in InputMode.entries) {
+            val letters = KeyBuilder.build(context(mode))
+            assertTrue(letters.rows.flatten().none { it.action == KeyAction.Emoji })
+            for (page in 1..2) {
+                val symbols = KeyBuilder.build(context(mode, page = page).copy(expanded = true, emoji = true))
+                assertTrue(symbols.rows.last().any { it.action == KeyAction.Emoji })
+                assertTrue(symbols.rows.last().any { it.action == KeyAction.Delete })
+            }
+        }
+    }
+
+    @Test
+    fun keyboardHeightStaysTheSameOnZhuyinSymbolPages() {
+        for (height in KeyboardHeight.entries) {
+            val zhuyin = KeyMetrics.fitted(Idiom.PHONE, 360f, 5, 5, height)
+            val symbols = KeyMetrics.fitted(Idiom.PHONE, 360f, 4, 5, height)
+            assertEquals(zhuyin.areaHeight(5), symbols.areaHeight(4), 0.01f)
+            assertTrue(zhuyin.keyHeight >= 32f)
+        }
+        val (compact, standard, tall) = KeyboardHeight.entries.map {
+            KeyMetrics.fitted(Idiom.PHONE, 360f, 4, 4, it).areaHeight(4)
+        }
+        assertTrue(compact < standard && standard < tall)
+        val landscape = KeyMetrics.fitted(Idiom.PHONE_LANDSCAPE, 820f, 4, 4)
+        assertEquals(landscape, KeyMetrics.fitted(Idiom.PHONE_LANDSCAPE, 820f, 4, 4, KeyboardHeight.TALL))
+    }
+
+    @Test
     fun alternatesStartOverTheKeyOnBothHalves() {
         val width = 393f
         val metrics = KeyMetrics.of(Idiom.PHONE, width, 4)
@@ -134,6 +235,15 @@ class GeometryTest {
             assertEquals(if (strip.mirrored) count - 1 else 0, strip.indexAt(-50f))
             assertEquals(if (strip.mirrored) 0 else count - 1, strip.indexAt(width + 50f))
         }
+    }
+
+    @Test
+    fun aLongPunctuationStripFitsBelowTheBarOnANarrowWindow() {
+        val mark = Box(100f, 6f, 34f, 42f)
+        val strip = KeyBalloon.alternates(mark, 8, 240f, keepOnScreen = true)
+        assertTrue(strip.box.left >= 2f && strip.box.right <= 238f)
+        assertTrue(strip.box.top >= mark.bottom)
+        for (i in 0 until strip.count) assertEquals(i, strip.indexAt(strip.cellLeft(i) + strip.cell / 2))
     }
 
     @Test

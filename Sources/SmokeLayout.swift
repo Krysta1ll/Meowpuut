@@ -77,6 +77,15 @@ func runSmokePunctuationAndGrid(_ h: inout SmokeHarness) {
 
     let shortGrid = ["你好", "妳好", "逆號", "尼好", "你豪", "你毫", "你耗"]
     h.check(expandedCandidateRows(shortGrid) == [[0, 1, 2], [3, 4, 5], [6]], "短詞展開三欄且排序不變")
+    let large = CandidateTextSize.large
+    let largeRow = CollapsedCandidateLayout(Snapshot(candidates: shortGrid), textSize: large)
+    h.check(largeRow.textWidths[0] == CandidateMeasure.width(shortGrid[0], size: large.font)
+            && expandedCandidateRows(shortGrid, textSize: large).flatMap { $0 } == Array(shortGrid.indices),
+            "大字候選按新字級排版並保留選詞索引")
+    h.check(GlassShape.allCases.allSatisfy { shape in
+        let band = CandidateGlassShape.contentBand(shape, height: large.glassHeight)
+        return band.bottom - band.top >= large.pill
+    }, "大字候選在三種玻璃造型內完整顯示")
     h.check(expandedCandidateWidth(shortGrid) < 246 && expandedCandidateWidth([String(repeating: "長", count: 16)]) > expandedCandidateWidth(shortGrid), "展開寬度依詞長變化")
 
     let finalPage = ["斡", "玩偶", "圍毆", "握手"]

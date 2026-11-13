@@ -320,6 +320,25 @@ int g_classUsers = 0;
 
 } // namespace
 
+CandidateTextSize loadCandidateTextSize() {
+    DWORD value = 0, length = sizeof value;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Meowpuut", L"CandidateTextSize", RRF_RT_REG_DWORD,
+                     nullptr, &value, &length) == ERROR_SUCCESS) {
+        if (value == static_cast<DWORD>(CandidateTextSize::Small)) return CandidateTextSize::Small;
+        if (value == static_cast<DWORD>(CandidateTextSize::Large)) return CandidateTextSize::Large;
+    }
+    return CandidateTextSize::Standard;
+}
+
+void saveCandidateTextSize(CandidateTextSize size) {
+    const DWORD value = static_cast<DWORD>(size);
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Meowpuut", 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        return;
+    RegSetValueExW(key, L"CandidateTextSize", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&value), sizeof value);
+    RegCloseKey(key);
+}
+
 struct CandidateWindow::Impl {
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
@@ -963,7 +982,7 @@ struct CandidateWindow::Impl {
         const CandidateViewModel m = frameModel();
         LayoutLimits limits;
         limits.maxWidth = std::max(240.0f, static_cast<float>(work.right - work.left) / scale);
-        layout = layoutCandidates(m, *text, limits);
+        layout = layoutCandidates(m, *text, limits, Metrics::forTextSize(options.textSize));
         const Scene scene = buildScene(layout, m, theme());
         pixels.cx = static_cast<LONG>(std::ceil(layout.size.width * scale));
         pixels.cy = static_cast<LONG>(std::ceil(layout.size.height * scale));

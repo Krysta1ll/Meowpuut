@@ -2,8 +2,14 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.Meowpuut" parent="android:Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:colorAccent">#B58C90</item>
+        <item name="android:alertDialogTheme">@style/Theme.Meowpuut.Dialog</item>
         <item name="android:windowBackground">#FAF2E6</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
+    </style>
+    <style name="Theme.Meowpuut.Dialog" parent="android:Theme.DeviceDefault.Light.Dialog.Alert">
+        <item name="android:colorAccent">#85515D</item>
+        <item name="android:colorControlActivated">#85515D</item>
+        <item name="android:colorBackgroundFloating">#FFFAF4</item>
     </style>
 </resources>

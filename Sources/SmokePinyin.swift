@@ -2,6 +2,16 @@ import AppKit
 
 func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
     let engine = h.engine
+    if let backend = try? ChineseWithJapaneseBackend(mode: .pinyin, emojiCell: false) {
+        for (input, expected) in [("sijian", "時間"), ("woxiangzidao", "我想知道"), ("womeiyousijian", "我沒有時間")] {
+            backend.clear()
+            backend.setSimplified(false)
+            for key in input.utf8 { _ = backend.key(Int32(key), modifiers: 0) }
+            let top = backend.candidates(limit: 5)
+            h.check(top.contains { $0.text == expected && $0.metadata?.remainingOffsetBytes == input.utf8.count },
+                    "拼音模糊音候選保留原輸入範圍 \(input) \(top.map(\.text))")
+        }
+    }
     for input in ["watashihaneko", "ashitahaame", "gakkou", "shin'ya"] {
         engine.clear(); h.type(input)
         let kana = Romaji.reading(input)

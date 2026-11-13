@@ -1,6 +1,9 @@
 package com.krysta1ll.meowpuut.android.engine
 
 import android.content.Context
+import android.graphics.Paint
+import android.icu.lang.UCharacter
+import android.icu.lang.UProperty
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -16,7 +19,7 @@ class Lexicons(private val context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var lexicon = 0L
     private var session = 0L
-    private var loadedPinyin: Boolean? = null
+    private var loadedMode: InputMode? = null
     private var generation = 0
 
     @Volatile
@@ -36,8 +39,8 @@ class Lexicons(private val context: Context) {
             worker.execute { loadJapanese(); main.post { if (token == generation) ready(0L) } }
             return
         }
-        val pinyin = mode == InputMode.PINYIN
-        if (session != 0L && loadedPinyin == pinyin) {
+        val pinyin = mode.pinyinBased
+        if (session != 0L && loadedMode == mode) {
             ready(session)
             return
         }
@@ -63,7 +66,7 @@ class Lexicons(private val context: Context) {
                     Log.w(TAG, "word-pair table unavailable", e)
                     false
                 }
-                newSession = NativeEngine.sessionCreate(lex)
+                newSession = if (mode == InputMode.NINE_KEY) NativeEngine.nineKeySessionCreate(lex) else NativeEngine.sessionCreate(lex)
                 var mixed = 0
                 if (pinyin && newSession != 0L) {
                     // The engine keeps the readings it can use for mixed typing and refuses the rest.
@@ -84,7 +87,7 @@ class Lexicons(private val context: Context) {
                 release()
                 lexicon = lex
                 session = newSession
-                loadedPinyin = if (lex != 0L) pinyin else null
+                loadedMode = if (newSession != 0L) mode else null
                 ready(newSession)
             }
         }
@@ -96,7 +99,7 @@ class Lexicons(private val context: Context) {
         if (lexicon != 0L) NativeEngine.lexiconDestroy(lexicon)
         session = 0L
         lexicon = 0L
-        loadedPinyin = null
+        loadedMode = null
     }
 
     fun shutdown() {
@@ -114,6 +117,29 @@ class Lexicons(private val context: Context) {
             JapaneseWords.EMPTY
         }
         Log.i(TAG, "mimo-jp: ${japanese.size} readings")
+    }
+
+    /** Optional associations follow the initial session; typing need not wait. */
+    fun loadSymbols(ready: (SymbolAssociations) -> Unit) {
+        worker.execute {
+            val started = SystemClock.elapsedRealtime()
+            val symbols = try {
+                val paint = Paint()
+                context.assets.open("lexicon/associations.json").bufferedReader().use { reader ->
+                    SymbolAssociations.parse(reader.readText()) { value ->
+                        val emoji = if (value.codePointCount(0, value.length) == 1 &&
+                            !UCharacter.hasBinaryProperty(value.codePointAt(0), UProperty.EMOJI_PRESENTATION)
+                        ) value + '\uFE0F' else value
+                        emoji.takeIf(paint::hasGlyph)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "emoji association table unavailable", e)
+                SymbolAssociations.EMPTY
+            }
+            Log.i(TAG, "emoji association table ready in ${SystemClock.elapsedRealtime() - started} ms")
+            main.post { if (!worker.isShutdown) ready(symbols) }
+        }
     }
 
     companion object {

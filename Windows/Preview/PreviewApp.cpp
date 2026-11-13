@@ -16,6 +16,7 @@
 //
 //   --at X,Y                 caret position in screen pixels
 //   --shape capsule|wave|cloud   --tone light|dark|system
+//   --text-size small|standard|large
 //   --type <keys>            type ASCII keys through the session, or
 //   --candidates a,b,ja:c    a fixed page; "ja:" marks a Japanese candidate
 //   --preedit <text>  --highlight <n>  --page <n>  --more  --expanded
@@ -47,7 +48,7 @@ namespace {
 
 enum Command : UINT {
     kPinyin = 100, kZhuyin, kTraditional, kSimplified, kCapsule, kWave, kCloud,
-    kToneSystem, kToneLight, kToneDark, kFestivals
+    kToneSystem, kToneLight, kToneDark, kFestivals, kTextSmall, kTextStandard, kTextLarge
 };
 
 std::wstring widen(const std::string &s) {
@@ -324,6 +325,13 @@ struct App {
         case kToneLight: options.tone = ui::ToneSetting::Light; candidates->setOptions(options); break;
         case kToneDark: options.tone = ui::ToneSetting::Dark; candidates->setOptions(options); break;
         case kFestivals: options.festivalOutfits = !options.festivalOutfits; candidates->setOptions(options); break;
+        case kTextSmall:
+        case kTextStandard:
+        case kTextLarge:
+            options.textSize = static_cast<ui::CandidateTextSize>(id - kTextSmall);
+            ui::saveCandidateTextSize(options.textSize);
+            candidates->setOptions(options);
+            break;
         default: return;
         }
         syncMenu();
@@ -344,6 +352,7 @@ struct App {
                            o.tone == ui::ToneSetting::Light ? kToneLight : o.tone == ui::ToneSetting::Dark ? kToneDark : kToneSystem,
                            MF_BYCOMMAND);
         CheckMenuItem(menu, kFestivals, MF_BYCOMMAND | (o.festivalOutfits ? MF_CHECKED : MF_UNCHECKED));
+        CheckMenuRadioItem(menu, kTextSmall, kTextLarge, kTextSmall + static_cast<UINT>(o.textSize), MF_BYCOMMAND);
     }
 
     HMENU buildMenu() {
@@ -362,6 +371,10 @@ struct App {
         AppendMenuW(look, MF_STRING, kToneDark, L"\x6DF1\x8272");                        // 深色
         AppendMenuW(look, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(look, MF_STRING, kFestivals, L"\x7BC0\x65E5\x88DD\x626E");           // 節日裝扮
+        AppendMenuW(look, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(look, MF_STRING, kTextSmall, L"候選字級：小");
+        AppendMenuW(look, MF_STRING, kTextStandard, L"候選字級：標準");
+        AppendMenuW(look, MF_STRING, kTextLarge, L"候選字級：大");
         AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(input), L"\x8F38\x5165\x65B9\x5F0F"); // 輸入方式
         AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(script), L"\x5B57\x5F62");            // 字形
         AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(look), L"\x5019\x9078\x7A97");        // 候選窗
@@ -483,6 +496,10 @@ UINT applyScript(App &app) {
     if (shape == L"cloud") options.shape = ui::GlassShape::Cloud;
     if (tone == L"light") options.tone = ui::ToneSetting::Light;
     if (tone == L"dark") options.tone = ui::ToneSetting::Dark;
+    const auto size = value(L"--text-size");
+    if (size == L"small") options.textSize = ui::CandidateTextSize::Small;
+    if (size == L"standard") options.textSize = ui::CandidateTextSize::Standard;
+    if (size == L"large") options.textSize = ui::CandidateTextSize::Large;
     app.candidates->setOptions(options);
     app.state.expanded = flag(L"--expanded");
 
@@ -576,7 +593,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         app.showCandidates();
     };
     callbacks.toggleScript = [&app] { app.setSimplified(!app.state.simplified); };
-    app.candidates = std::make_unique<ui::CandidateWindow>(instance, ui::CandidateWindowOptions{}, callbacks);
+    ui::CandidateWindowOptions options;
+    options.textSize = ui::loadCandidateTextSize();
+    app.candidates = std::make_unique<ui::CandidateWindow>(instance, options, callbacks);
     if (!app.candidates->valid()) {
         // 無法建立候選窗（Direct2D、DirectWrite 或 WIC 不可用）。
         MessageBoxW(app.window,

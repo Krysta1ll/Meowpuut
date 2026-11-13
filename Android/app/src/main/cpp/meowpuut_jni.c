@@ -175,6 +175,11 @@ JNIEXPORT jlong JNICALL FN(sessionCreate)(JNIEnv *env, jclass cls, jlong lexicon
     return (jlong)(intptr_t)mpn_session_create((const MPNLexicon *)(intptr_t)lexicon);
 }
 
+JNIEXPORT jlong JNICALL FN(nineKeySessionCreate)(JNIEnv *env, jclass cls, jlong lexicon) {
+    (void)env; (void)cls;
+    return (jlong)(intptr_t)mpn_nine_key_session_create((const MPNLexicon *)(intptr_t)lexicon);
+}
+
 JNIEXPORT void JNICALL FN(sessionDestroy)(JNIEnv *env, jclass cls, jlong session) {
     (void)env; (void)cls;
     mpn_session_destroy(SESSION(session));

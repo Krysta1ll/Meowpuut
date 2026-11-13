@@ -53,6 +53,12 @@ func applyAppearance(_ command: String, to preferences: Preferences = .shared) -
     case "tone":
         guard let tone = CandidateTone(rawValue: value) else { return false }
         preferences.candidateTone = tone
+    case "text-size":
+        guard let size = CandidateTextSize(rawValue: value) else { return false }
+        preferences.candidateTextSize = size
+    case "window-size":
+        guard let size = CandidateWindowSize(rawValue: value) else { return false }
+        preferences.candidateWindowSize = size
     case "palette":
         guard let palette = CandidatePalette(rawValue: value) else { return false }
         preferences.candidatePalette = palette
@@ -125,6 +131,7 @@ struct TypingCandidates: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var engine: Engine
+    @ObservedObject private var preferences = Preferences.shared
     var t: InterfaceText
     var onChoose: (Int) -> Void
     var onPage: (Int32) -> Void
@@ -135,8 +142,9 @@ struct TypingCandidates: View {
                 BrandMark(size: 27)
                 Text(engine.snapshot.preedit.isEmpty ? "Meowpuut" : engine.snapshot.preedit)
                     .font(.system(size: 16, weight: .medium))
+                    .lineLimit(1).truncationMode(.head)
                 Spacer()
-                Text(engine.modeLabel).font(.caption).foregroundStyle(.secondary)
+                Text(engine.modeLabel).font(.caption).foregroundStyle(.secondary).fixedSize()
             }
             if !engine.snapshot.candidates.isEmpty || engine.browsing {
                 let marked = markedJapanese(engine.snapshot)
@@ -149,7 +157,7 @@ struct TypingCandidates: View {
                                 Text(engine.candidateShortcut(index))
                                     .font(.system(size: 11, weight: .medium, design: .rounded))
                                     .foregroundStyle(.secondary).frame(width: 26)
-                                Text(candidate).font(.system(size: 18)).lineLimit(1).truncationMode(.middle)
+                                Text(candidate).font(.system(size: preferences.candidateTextSize.font + 3)).lineLimit(1).truncationMode(.middle)
                                 if japanese {
                                     Image(systemName: "pawprint.fill").font(.system(size: 8))
                                         .rotationEffect(.degrees(-20)).foregroundStyle(.secondary)
@@ -227,7 +235,7 @@ private struct AppearancePreview: View {
             }
             .onAppear { fill() }
             .onChange(of: preferences.simplified) { _, _ in fill() }
-            .accessibilityElement(children: .ignore)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel(t("候選窗預覽", "候选窗预览"))
     }
 
@@ -350,32 +358,81 @@ struct Studio: View {
 
     @ViewBuilder private var appearance: some View {
         AppearancePreview(t: t)
-        Toggle(t("米米莫與莫莫", "米米莫与莫莫"), isOn: $preferences.catGlassSkin)
-        Picker("位置", selection: $preferences.catPlacement) {
-            Text(t("每天換", "每天换")).tag(CatSchedule.daily)
-            ForEach(CatArrangement.all) { Text($0.name(t)).tag($0.id) }
+        appearanceGroup(t("候選窗", "候选窗")) {
+            appearanceRow(t("造型", "造型")) {
+                Picker(t("造型", "造型"), selection: $preferences.glassShape) {
+                    ForEach(GlassShape.allCases) { Text($0.name(t)).tag($0) }
+                }.pickerStyle(.segmented)
+            }
+            Divider()
+            appearanceRow(t("色調", "色调")) {
+                Picker(t("色調", "色调"), selection: $preferences.candidateTone) {
+                    ForEach(CandidateTone.allCases) { Text($0.name(t)).tag($0) }
+                }.pickerStyle(.segmented)
+            }
+            Divider()
+            appearanceRow(t("候選字級", "候选字号")) {
+                Picker(t("候選字級", "候选字号"), selection: $preferences.candidateTextSize) {
+                    ForEach(CandidateTextSize.allCases) { Text($0.name(t)).tag($0) }
+                }.pickerStyle(.segmented)
+            }
+            Divider()
+            appearanceRow(t("候選窗大小", "候选窗大小")) {
+                Picker(t("候選窗大小", "候选窗大小"), selection: $preferences.candidateWindowSize) {
+                    ForEach(CandidateWindowSize.allCases) { Text($0.name(t)).tag($0) }
+                }.pickerStyle(.segmented)
+            }
+            Divider()
+            appearanceRow(t("色系", "色系")) {
+                Picker(t("色系", "色系"), selection: $preferences.candidatePalette) {
+                    ForEach(CandidatePalette.allCases) { Text($0.name(t)).tag($0) }
+                }
+            }
+            Divider()
+            appearanceRow(t("玻璃", "玻璃")) {
+                Picker(t("玻璃", "玻璃"), selection: $preferences.glassStrength) {
+                    ForEach(GlassStrength.allCases) { Text($0.name(t)).tag($0) }
+                }.pickerStyle(.segmented)
+            }
         }
-        .disabled(!preferences.catGlassSkin)
-        Picker(t("造型", "造型"), selection: $preferences.glassShape) {
-            ForEach(GlassShape.allCases) { Text($0.name(t)).tag($0) }
-        }.pickerStyle(.segmented)
-        Picker(t("色調", "色调"), selection: $preferences.candidateTone) {
-            ForEach(CandidateTone.allCases) { Text($0.name(t)).tag($0) }
-        }.pickerStyle(.segmented)
-        Picker(t("色系", "色系"), selection: $preferences.candidatePalette) {
-            ForEach(CandidatePalette.allCases) { Text($0.name(t)).tag($0) }
+        appearanceGroup(t("米米莫與莫莫", "米米莫与莫莫")) {
+            appearanceRow(t("顯示小貓", "显示小猫")) {
+                Toggle(t("顯示小貓", "显示小猫"), isOn: $preferences.catGlassSkin).toggleStyle(.switch).tint(accent)
+            }
+            Divider()
+            appearanceRow("位置") {
+                Picker("位置", selection: $preferences.catPlacement) {
+                    Text(t("每天換", "每天换")).tag(CatSchedule.daily)
+                    ForEach(CatArrangement.all) { Text($0.name(t)).tag($0.id) }
+                }.disabled(!preferences.catGlassSkin)
+            }
+            Divider()
+            appearanceRow(t("節日裝扮", "节日装扮")) {
+                Toggle(t("節日裝扮", "节日装扮"), isOn: $preferences.festivalOutfits)
+                    .toggleStyle(.switch).tint(accent)
+            }
+            if let theme = Festivals.theme(wardrobe: preferences.festivalWardrobe) {
+                Text(t("現在是「\(theme.names.hant)」的裝扮。", "现在是“\(theme.names.hans)”的装扮。"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
-        Picker(t("玻璃", "玻璃"), selection: $preferences.glassStrength) {
-            ForEach(GlassStrength.allCases) { Text($0.name(t)).tag($0) }
-        }.pickerStyle(.segmented)
-        Toggle(t("節日裝扮", "节日装扮"), isOn: $preferences.festivalOutfits)
-        if let theme = Festivals.theme(wardrobe: preferences.festivalWardrobe) {
-            Text(t("現在是「\(theme.names.hant)」的裝扮。", "现在是“\(theme.names.hans)”的装扮。"))
-                .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func appearanceGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 6, content: content)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
         }
-        Text(t("色調選「跟隨系統」時，候選窗跟著 macOS 的深淺色外觀。節日裝扮只在節日期間出現。",
-               "色调选“跟随系统”时，候选窗跟着 macOS 的深浅色外观。节日装扮只在节日期间出现。"))
-            .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func appearanceRow<Control: View>(_ title: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack {
+            Text(title).accessibilityHidden(true)
+            Spacer(minLength: 14)
+            control().labelsHidden().fixedSize()
+        }.frame(minHeight: 23)
     }
 
     @ViewBuilder private var memorySection: some View {

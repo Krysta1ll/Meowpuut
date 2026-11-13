@@ -11,7 +11,8 @@
 ## 鍵盤看得到什麼，拿它做什麼
 
 - 你按下的鍵和選的詞，只在裝置上用來算出候選字，算完就丟掉。
-- 鍵盤沒有連網的功能。iOS 版不要求、也不需要「允許完整取用」。
+- 鍵盤不連網。iOS 的「允許完整取用」可選，只有自訂按鍵聲需要開啟。
+- iOS 和 Android 的小貓好感度只在本機記輸入量和互動次數，這份紀錄沒有輸入內容。
 - 沒有帳號，沒有廣告，沒有分析或追蹤工具，沒有第三方的 SDK。
 
 ## 存在你裝置上的東西
@@ -46,7 +47,7 @@ Meowpuut (喵撲) is a keyboard. This policy covers Meowpuut on iOS, iPadOS, mac
 
 **In one sentence:** Meowpuut collects no data. What you type does not leave your device.
 
-**What the keyboard sees.** The keys you press and the words you pick are used on the device to work out candidates, then discarded. The keyboard has no network access. On iOS it does not ask for, or need, "Allow Full Access". There are no accounts, ads, analytics, trackers or third-party SDKs.
+**What the keyboard sees.** The keys you press and the words you pick are used on the device to work out candidates, then discarded. The keyboard does not connect to the network. On iOS, "Allow Full Access" is optional and enables custom typing sounds. On iOS and Android, cat affinity uses on-device counts of committed characters and pet interactions. There are no accounts, ads, analytics, trackers or third-party SDKs.
 
 **What is stored on your device.** Your word choices (what you confirmed, how often, which words you use together, and the emoji and kaomoji you tapped) are kept in the keyboard's own storage on this device, to put what you use first. You can turn this off or clear it in settings. Your settings are stored the same way. These files are included in the system's device backup (for example iCloud Backup) according to your own backup settings; Meowpuut itself uploads nothing.
 

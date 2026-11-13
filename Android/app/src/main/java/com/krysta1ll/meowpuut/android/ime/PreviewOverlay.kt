@@ -20,7 +20,7 @@ import kotlin.math.min
 @SuppressLint("ViewConstructor")
 class PreviewOverlay(context: Context) : View(context) {
     private class Balloon(val key: Box, val bubble: Box, val label: String, val radius: Float, val fontSize: Float)
-    private class Strip(val layout: AlternatesStrip, val options: List<String>, var selected: Int, val fontSize: Float)
+    private class Strip(val layout: AlternatesStrip, val options: List<String>, var selected: Int, val fontSize: Float, val fromBar: Boolean)
 
     private val density = resources.displayMetrics.density
     private val balloons = LinkedHashMap<Int, Balloon>()
@@ -54,18 +54,19 @@ class PreviewOverlay(context: Context) : View(context) {
     }
 
     /** [layout] is in this view's dp coordinates. */
-    fun showAlternates(layout: AlternatesStrip, options: List<String>, selected: Int, fontSize: Float) {
-        strip = Strip(layout, options, selected, fontSize)
+    fun showAlternates(layout: AlternatesStrip, options: List<String>, selected: Int, fontSize: Float, fromBar: Boolean = false) {
+        val fitted = if (layout.box.top < 2f) layout.offset(0f, 2f - layout.box.top) else layout
+        strip = Strip(fitted, options, selected, fontSize, fromBar)
         invalidate()
     }
 
-    fun selectAlternate(index: Int) {
-        val s = strip ?: return
+    fun selectAlternate(index: Int, fromBar: Boolean = false) {
+        val s = strip?.takeIf { it.fromBar == fromBar } ?: return
         if (s.selected != index) { s.selected = index; invalidate() }
     }
 
-    fun hideAlternates() {
-        if (strip != null) { strip = null; invalidate() }
+    fun hideAlternates(fromBar: Boolean = false) {
+        if (strip?.fromBar == fromBar) { strip = null; invalidate() }
     }
 
     fun clear() {
@@ -88,18 +89,25 @@ class PreviewOverlay(context: Context) : View(context) {
     }
 
     private fun drawBalloon(canvas: Canvas, b: Balloon) {
-        balloonPath(b.key, b.bubble, b.radius)
         face.style = Paint.Style.FILL
-        face.color = look.balloonFace
-        shadow(face)
-        canvas.drawPath(path, face)
-        face.clearShadowLayer()
-        face.style = Paint.Style.STROKE
-        face.strokeWidth = 0.5f
-        face.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.10f else 0.06f)
-        canvas.drawPath(path, face)
+        if (look.usesSteppedMaterial) {
+            rect.set(b.bubble.left, b.bubble.top, b.bubble.right, b.bubble.bottom)
+            drawPixelPanel(canvas, rect, look.pixelSurface, look.pixelEdge, face)
+        } else {
+            balloonPath(b.key, b.bubble, b.radius)
+            face.color = look.balloonFace
+            shadow(face)
+            canvas.drawPath(path, face)
+            face.clearShadowLayer()
+            face.style = Paint.Style.STROKE
+            face.strokeWidth = 0.5f
+            face.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.10f else 0.06f)
+            canvas.drawPath(path, face)
+        }
         text.color = look.keyText
         text.textSize = b.fontSize
+        text.textSize *= minOf(1f, (b.bubble.width - 6f).coerceAtLeast(1f) / text.measureText(b.label),
+            (b.bubble.height - 8f).coerceAtLeast(1f) / (text.descent() - text.ascent()))
         val cy = b.bubble.top + b.bubble.height * 0.46f
         canvas.drawText(b.label, b.bubble.centerX, cy - (text.ascent() + text.descent()) / 2, text)
     }
@@ -109,16 +117,21 @@ class PreviewOverlay(context: Context) : View(context) {
         val cell = s.layout.cell
         rect.set(box.left, box.top, box.right, box.bottom)
         face.style = Paint.Style.FILL
-        face.color = look.balloonFace
-        shadow(face)
-        canvas.drawRoundRect(rect, 11f, 11f, face)
-        face.clearShadowLayer()
+        if (look.usesSteppedMaterial) {
+            drawPixelPanel(canvas, rect, look.pixelSurface, look.pixelEdge, face)
+        } else {
+            face.color = look.balloonFace
+            shadow(face)
+            canvas.drawRoundRect(rect, 11f, 11f, face)
+            face.clearShadowLayer()
+        }
         for ((i, option) in s.options.withIndex()) {
             val left = s.layout.cellLeft(i)
             if (i == s.selected) {
-                face.color = look.accent
+                face.color = if (look.usesSteppedMaterial) look.pixelAccent else look.accent
                 rect.set(left + 1, box.top + 5, left + cell - 1, box.bottom - 5)
-                canvas.drawRoundRect(rect, 8f, 8f, face)
+                if (look.usesSteppedMaterial) canvas.drawRect(rect, face)
+                else canvas.drawRoundRect(rect, 8f, 8f, face)
                 text.color = Color.WHITE
             } else {
                 text.color = look.keyText

@@ -23,10 +23,14 @@ namespace meowpuut::ui {
 
 enum class ToneSetting { System, Light, Dark };
 
+CandidateTextSize loadCandidateTextSize();
+void saveCandidateTextSize(CandidateTextSize size);
+
 struct CandidateWindowOptions {
     GlassShape shape = GlassShape::Capsule;
     Palette palette = Palette::Rose;
     ToneSetting tone = ToneSetting::System;
+    CandidateTextSize textSize = CandidateTextSize::Standard;
     bool festivalOutfits = true;  // docs/FESTIVALS.md; off shows the plain cats
     bool simplified = false;      // picks Microsoft YaHei UI and zh-CN shaping
     std::wstring assetDirectory;  // empty: "Assets" next to this module

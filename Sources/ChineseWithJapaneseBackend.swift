@@ -5,6 +5,10 @@ import SQLite3
 // its original engine so the unconverted suffix is never silently discarded.
 final class ChineseWithJapaneseBackend: InputBackend {
     private struct Choice { let text: String; let source: Int; let index: Int; let metadata: CandidateMetadata? }
+    private enum ChoiceIdentity: Hashable {
+        case remainingOffset(String, Int)
+        case backendChoice(String, Int, Int)
+    }
 
     private let engines: [InputBackend]
     private var raw = ""
@@ -245,20 +249,27 @@ final class ChineseWithJapaneseBackend: InputBackend {
     private static let evidence: OpaquePointer? = {
         var db: OpaquePointer?
         guard let path = Bundle.main.path(forResource: "language-evidence", ofType: "sqlite"),
-              sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else { return nil }
+              sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { return nil }
         return db
     }()
     /// Zhuyin typed as initials only (ㄋㄏ for 你好), the way pinyin takes nh.
     /// Words with one syllable per initial, each starting with it; an eighth of
     /// the word's weight, as the pinyin abbreviation rows get.
     private static func zhuyinAbbreviations(_ keys: String, simplified: Bool) -> [String: Int] {
-        guard (2...4).contains(keys.count), keys.allSatisfy({ "1qaz2wsxedcrfv5tgbyhn".contains($0) }) else { return [:] }
+        guard let evidence, (2...4).contains(keys.count),
+              keys.allSatisfy({ "1qaz2wsxedcrfv5tgbyhn".contains($0) }) else { return [:] }
         var statement: OpaquePointer?
-        let sql = "SELECT \(simplified ? "hans" : "hant"),weight FROM lexicon WHERE phonetic GLOB ? AND length(hant)=\(keys.count) ORDER BY weight DESC LIMIT 32"
-        guard sqlite3_prepare_v2(evidence, sql, -1, &statement, nil) == SQLITE_OK else { return [:] }
+        let column = simplified ? "hans" : "hant"
+        let sql = "SELECT \(column),weight FROM zhuyin_initials WHERE initials=? ORDER BY position LIMIT 32"
+        var reading = keys
+        if sqlite3_prepare_v2(evidence, sql, -1, &statement, nil) != SQLITE_OK {
+            // An older bundled dictionary may not yet have the initials index.
+            let fallback = "SELECT \(column),weight FROM lexicon WHERE phonetic GLOB ? AND length(hant)=\(keys.count) ORDER BY weight DESC LIMIT 32"
+            guard sqlite3_prepare_v2(evidence, fallback, -1, &statement, nil) == SQLITE_OK else { return [:] }
+            reading = keys.map { "\($0)*[ 6347]" }.joined()
+        }
         defer { sqlite3_finalize(statement) }
-        // phonetic is the key codes with a tone after each syllable: su3cl3 for 你好.
-        _ = sqlite3_bind_text(statement, 1, keys.map { "\($0)*[ 6347]" }.joined(), -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        _ = sqlite3_bind_text(statement, 1, reading, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         var result: [String: Int] = [:]
         while sqlite3_step(statement) == SQLITE_ROW {
             let word = String(cString: sqlite3_column_text(statement, 0))
@@ -281,7 +292,10 @@ final class ChineseWithJapaneseBackend: InputBackend {
             let expected = mode == .pinyin ? raw.lowercased() : raw
             if index == 0, let key, (backend.key(key, modifiers: 0) || key == 0xff08),
                (backend as? NativeBackend)?.currentInput == expected {
-            } else if index == 1, mode == .pinyin, raw.count <= 64, let key, key != 0xff08, backend.key(key, modifiers: 0) {
+            } else if index == 1, mode == .pinyin, raw.count <= 64, let key,
+                      // Tones and the length limit can leave the side reading out of sync.
+                      key != 0xff08 || (backend as? JapaneseBackend)?.currentInput.utf8.dropLast().elementsEqual(raw.utf8) == true,
+                      backend.key(key, modifiers: 0) {
             } else {
                 backend.clear()
                 if index == 0, !segmentContext.isEmpty { (backend as? NativeBackend)?.setSegmentContext(segmentContext) }
@@ -310,18 +324,20 @@ final class ChineseWithJapaneseBackend: InputBackend {
             item.metadata.map { (item.index, $0) }
         })
         choices = []
+        let rawByteCount = raw.utf8.count
+        let asciiRaw = raw.utf8.allSatisfy { $0 < 128 }
+        var seenChoices = Set<ChoiceIdentity>()
         func append(_ text: String, source: Int, index: Int) {
+            guard !text.isEmpty else { return }
             var metadata = source == 0 ? nativeMetadata[index] : nil
-            if let offset = metadata?.remainingOffsetBytes, raw.utf8.allSatisfy({ $0 < 128 }), offset <= raw.utf8.count {
+            // The same displayed text can consume different parts of the reading.
+            // When the backend supplies no offset, its index identifies the choice.
+            let offset = source == 0 ? metadata?.remainingOffsetBytes : (source == -6 ? index : rawByteCount)
+            let identity = offset.map { ChoiceIdentity.remainingOffset(text, $0) } ?? .backendChoice(text, source, index)
+            guard seenChoices.insert(identity).inserted else { return }
+            if let offset = metadata?.remainingOffsetBytes, asciiRaw, offset <= rawByteCount {
                 metadata?.remainingInput = String(decoding: raw.utf8.dropFirst(offset), as: UTF8.self)
             }
-            guard !text.isEmpty, !choices.contains(where: {
-                guard $0.text == text else { return false }
-                let previousOffset = $0.source == 0 ? $0.metadata?.remainingOffsetBytes : ($0.source == -6 ? $0.index : raw.utf8.count)
-                let newOffset = source == 0 ? metadata?.remainingOffsetBytes : (source == -6 ? index : raw.utf8.count)
-                guard let previousOffset, let newOffset else { return $0.source == source && $0.index == index }
-                return previousOffset == newOffset
-            }) else { return }
             choices.append(Choice(text: text, source: source, index: index, metadata: metadata))
         }
         var chinese = pools[primary]
@@ -358,9 +374,9 @@ final class ChineseWithJapaneseBackend: InputBackend {
             .sorted { (knownJapanese[$0.text] ?? 0) > (knownJapanese[$1.text] ?? 0) }
         var required: String?
         // Same evidence as the old SQLite query: a reviewed reading, apostrophes, tones and nn read loosely.
-        let evidence = raw.lowercased().replacingOccurrences(of: "ü", with: "v")
+        let evidence = pinyinFirst ? raw.lowercased().replacingOccurrences(of: "ü", with: "v")
             .replacingOccurrences(of: "[0-5 '\u{2019}]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "nn(?=[bcdfghjklmpqrstvwxz]|$)", with: "n", options: .regularExpression)
+            .replacingOccurrences(of: "nn(?=[bcdfghjklmpqrstvwxz]|$)", with: "n", options: .regularExpression) : ""
         let literal = unmatchedPinyin || (englishKeys && !hasTones && EnglishEvidence.prefers(raw, context: englishContext,
             chinese: pinyinFirst && !dictionary.isEmpty,
             japanese: pinyinFirst && JapaneseLexicon.reviewedEvidence.contains(evidence)))
@@ -447,6 +463,15 @@ final class ChineseWithJapaneseBackend: InputBackend {
             let a = tier($0.element), b = tier($1.element)
             return a == b ? $0.offset < $1.offset : a < b
         }.map(\.element)
+        if pinyinFirst, !literal, let index = choices.firstIndex(where: {
+            $0.metadata?.scoreKind == MPN_SCORE_FUZZY_INITIAL.rawValue
+        }), index > 2 {
+            // The dictionary can add many exact homophones after the core's
+            // shortlist. Keep its strongest phonetic alternative within reach.
+            let lastPreferred = choices.lastIndex { remembered.contains($0.text) } ?? 0
+            let target = max(2, lastPreferred + 1)
+            if index > target { choices.insert(choices.remove(at: index), at: target) }
+        }
         if pinyinFirst, !literal, dictionary.isEmpty, personalCandidates.isEmpty,
            let mixed, let native = engines[0] as? NativeBackend,
            chinese.allSatisfy({ $0.text.count == 1 && native.consumedInputBytes($0.index) < raw.utf8.count }),

@@ -7,7 +7,7 @@ package com.krysta1ll.meowpuut.android.ime
 /** What the keys ask the input method to do. */
 interface KeyListener {
     /** Touch-down feedback (click and haptics) for any key. */
-    fun onKeyDown(key: Key)
+    fun onKeyDown(key: Key, fraction: Float)
     /** A key is typed; [text] is a chosen alternate, if any. */
     fun onKey(key: Key, text: String?)
     fun onDelete(word: Boolean)
@@ -28,6 +28,8 @@ class KeyTouches(private val host: Host) {
     interface Host {
         fun post(delayMs: Long, action: Runnable)
         fun cancel(action: Runnable)
+        /** A virtual accessibility tap has no pointer to keep the key lit. */
+        fun pulseKeyPress(row: Int, column: Int)
         fun showBalloon(id: Int, key: Key, frame: Box)
         fun hideBalloon(id: Int)
         fun showAlternates(strip: AlternatesStrip, options: List<String>, selected: Int)
@@ -72,7 +74,8 @@ class KeyTouches(private val host: Host) {
             get() = when (mode) {
                 Mode.KEY -> !committed
                 Mode.DELETE -> true
-                Mode.SHIFT, Mode.PAGE -> slid
+                Mode.SHIFT -> slid || key.action == KeyAction.Shift
+                Mode.PAGE -> slid
                 else -> false
             }
     }
@@ -114,9 +117,10 @@ class KeyTouches(private val host: Host) {
         }
     }
 
-    fun isPressed(row: Int, column: Int): Boolean {
-        for (p in pointers.values) if (p.pressing && p.row == row && p.column == column) return true
-        return false
+    fun pressedColumns(row: Int): Int {
+        var columns = 0
+        for (p in pointers.values) if (p.pressing && p.row == row) columns = columns or (1 shl p.column)
+        return columns
     }
 
     private fun keyAt(x: Float, y: Float): Pair<Int, Int>? = KeyGrid.keyAt(x, y, placements)
@@ -137,18 +141,16 @@ class KeyTouches(private val host: Host) {
         val p = Pointer(id, row, column, key, frame, x)
         pointers[id] = p
         begin(p)
-        host.redraw()
     }
 
     private fun begin(p: Pointer) {
         val key = p.key
         if (!key.enabled) { p.mode = Mode.INERT; return }
-        listener?.onKeyDown(key)
+        if (key.isCharacter) showPressed(p)
+        host.redraw()
+        feedback(key, p.frame.centerX)
         when (val action = key.action) {
-            is KeyAction.Engine, is KeyAction.Text -> {
-                showPressed(p)
-                scheduleAlternates(p)
-            }
+            is KeyAction.Engine, is KeyAction.Text, KeyAction.Segment -> scheduleAlternates(p)
             KeyAction.Space -> scheduleHold(p, CURSOR_DELAY) { enterCursor(p) }
             KeyAction.Delete -> {
                 p.mode = Mode.DELETE
@@ -163,7 +165,7 @@ class KeyTouches(private val host: Host) {
                 p.originPage = keySet?.page ?: 0
                 listener?.onPage(action.page)
             }
-            KeyAction.Return, KeyAction.ToggleEnglish, KeyAction.Globe -> Unit
+            KeyAction.Return, KeyAction.ToggleEnglish, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
         }
     }
 
@@ -172,8 +174,9 @@ class KeyTouches(private val host: Host) {
         if (p.committed || p.mode != Mode.KEY || !p.key.rollsOver) return
         cancelHold(p)
         host.hideBalloon(p.id)
-        commit(p, null)
         p.mode = Mode.INERT
+        host.redraw()
+        commit(p, null)
     }
 
     fun move(id: Int, x: Float, y: Float) {
@@ -231,6 +234,10 @@ class KeyTouches(private val host: Host) {
         cancelHold(p)
         host.hideBalloon(p.id)
         val mode = p.mode
+        // Clear the released key before editor or engine callbacks can re-layout the keyboard.
+        if (mode == Mode.ALTERNATES) host.hideAlternates()
+        if (mode == Mode.CURSOR) cursorMode = false
+        host.redraw()
         when (mode) {
             Mode.KEY -> if (!p.committed) {
                 // Characters and space are typed wherever the finger lifts;
@@ -238,13 +245,9 @@ class KeyTouches(private val host: Host) {
                 if (p.key.rollsOver || keyAt(x, y) == (p.row to p.column)) commit(p, null)
             }
             Mode.ALTERNATES -> {
-                host.hideAlternates()
                 if (!p.committed) commit(p, p.options.getOrNull(p.selected))
             }
-            Mode.CURSOR -> {
-                cursorMode = false
-                listener?.onCursorEnd()
-            }
+            Mode.CURSOR -> listener?.onCursorEnd()
             Mode.DELETE -> stopDelete()
             Mode.SHIFT -> {
                 if (p.slid && !p.committed) commit(p, null)
@@ -257,7 +260,6 @@ class KeyTouches(private val host: Host) {
             Mode.INERT -> Unit
         }
         p.mode = Mode.INERT
-        host.redraw()
     }
 
     private fun commit(p: Pointer, text: String?) {
@@ -329,8 +331,9 @@ class KeyTouches(private val host: Host) {
         p.mode = Mode.ALTERNATES
         p.options = options
         p.strip = strip
-        // The option over the key: the first one.
-        p.selected = strip.indexAt(p.frame.centerX)
+        // A stationary hold must still type the original mark even when the
+        // strip is shifted inward on a very narrow screen.
+        p.selected = 0
         host.showAlternates(strip, options, p.selected)
         listener?.onTick()
         host.redraw()
@@ -386,13 +389,19 @@ class KeyTouches(private val host: Host) {
     fun activate(row: Int, column: Int) {
         val key = keyOf(row, column) ?: return
         if (!key.enabled) return
-        listener?.onKeyDown(key)
+        host.pulseKeyPress(row, column)
+        feedback(key, frameOf(row, column)?.centerX ?: width / 2)
         when (val action = key.action) {
             KeyAction.Shift -> { listener?.onShiftDown(); listener?.onShiftUp(false) }
             KeyAction.Delete -> listener?.onDelete(false)
             is KeyAction.Page -> listener?.onPage(action.page)
             else -> listener?.onKey(key, null)
         }
+    }
+
+    private fun feedback(key: Key, centerX: Float) {
+        val fraction = if (width > 0f) (centerX / width).coerceIn(0f, 1f) else 0.5f
+        listener?.onKeyDown(key, fraction)
     }
 
     companion object {

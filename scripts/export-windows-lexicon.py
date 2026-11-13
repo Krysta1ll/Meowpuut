@@ -7,13 +7,16 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TABLES = ('mimo_base.bin', 'mimo_pairs.bin', 'native-pinyin.tsv', 'native-zhuyin.tsv', 'native-japanese.tsv')
+RUNTIME_TABLES = ('mimo_base.bin', 'mimo_pairs.bin', 'native-japanese.tsv')
+DEVELOPMENT_TABLES = ('native-pinyin.tsv', 'native-zhuyin.tsv')
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('resources', type=Path, help='directory of freshly generated native tables')
     parser.add_argument('output', type=Path, help='new destination directory')
+    parser.add_argument("--runtime-only", action="store_true", help="omit text tables only used by the preview and tests")
     args = parser.parse_args()
-    sources = [(args.resources / name, Path(name)) for name in TABLES]
+    tables = RUNTIME_TABLES if args.runtime_only else RUNTIME_TABLES + DEVELOPMENT_TABLES
+    sources = [(args.resources / name, Path(name)) for name in tables]
     for source, _ in sources:
         if not source.is_file():
             parser.error(f'missing file: {source}')

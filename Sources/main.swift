@@ -107,7 +107,7 @@ class MeowpuutInputController: IMKInputController {
         }
         if candidatesExpanded, [Int32(0xff51), 0xff52, 0xff53, 0xff54].contains(key) {
             let current = engine.snapshot.highlighted
-            let next = expandedCandidateMove(expandedCandidates(engine.snapshot), from: current, key: key)
+            let next = expandedCandidateMove(expandedCandidates(engine.snapshot), from: current, key: key, limit: candidates.gridWidthLimit)
             if next == current && (key == 0xff54 || key == 0xff53) && !engine.snapshot.lastPage {
                 engine.key(0xff56)
             } else if next == current && (key == 0xff52 || key == 0xff51) && engine.snapshot.page > 0 {
@@ -270,6 +270,8 @@ class MeowpuutInputController: IMKInputController {
                 + CatArrangement.all.map { ($0.name(t), "place:" + $0.id, $0.id == preferences.catPlacement) }),
             (t("造型", "造型"), GlassShape.allCases.map { ($0.name(t), "shape:" + $0.rawValue, $0 == preferences.glassShape) }),
             (t("色調", "色调"), CandidateTone.allCases.map { ($0.name(t), "tone:" + $0.rawValue, $0 == preferences.candidateTone) }),
+            (t("候選字級", "候选字号"), CandidateTextSize.allCases.map { ($0.name(t), "text-size:" + $0.rawValue, $0 == preferences.candidateTextSize) }),
+            (t("候選窗大小", "候选窗大小"), CandidateWindowSize.allCases.map { ($0.name(t), "window-size:" + $0.rawValue, $0 == preferences.candidateWindowSize) }),
             (t("色系", "色系"), CandidatePalette.allCases.map { ($0.name(t), "palette:" + $0.rawValue, $0 == preferences.candidatePalette) }),
             (t("玻璃", "玻璃"), GlassStrength.allCases.map { ($0.name(t), "glass:" + $0.rawValue, $0 == preferences.glassStrength) }),
         ]

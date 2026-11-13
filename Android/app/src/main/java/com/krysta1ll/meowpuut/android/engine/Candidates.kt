@@ -3,14 +3,22 @@ package com.krysta1ll.meowpuut.android.engine
 import kotlin.math.min
 
 enum class InputMode(val key: String) {
-    PINYIN("pinyin"), ZHUYIN("zhuyin"), JAPANESE("japanese");
+    PINYIN("pinyin"), ZHUYIN("zhuyin"), JAPANESE("japanese"), NINE_KEY("nine-key");
+
+    val pinyinBased get() = this == PINYIN || this == NINE_KEY
+
+    fun next(): InputMode = when (this) {
+        ZHUYIN -> PINYIN
+        PINYIN, NINE_KEY -> JAPANESE
+        JAPANESE -> ZHUYIN
+    }
 
     companion object {
         fun of(key: String?) = entries.firstOrNull { it.key == key } ?: ZHUYIN
     }
 }
 
-enum class CandidateKind { CHINESE, JAPANESE_WORD, MIXED, MIXED_PREFIX, KANA, LITERAL }
+enum class CandidateKind { CHINESE, JAPANESE_WORD, MIXED, MIXED_PREFIX, KANA, LITERAL, EMOJI, KAOMOJI, SYMBOL_EXTRA }
 
 /**
  * One choice. [coreIndex] addresses the engine's own list for Chinese
@@ -22,7 +30,9 @@ data class Candidate(val text: String, val kind: CandidateKind, val coreIndex: I
 }
 
 /** A Chinese candidate as the engine reports it. */
-data class CoreCandidate(val text: String, val index: Int, val consumed: Int, val exact: Boolean)
+data class CoreCandidate(val text: String, val index: Int, val consumed: Int, val exact: Boolean, val japanese: Boolean = false) {
+    fun choice() = Candidate(text, if (japanese) CandidateKind.MIXED else CandidateKind.CHINESE, index, consumed)
+}
 
 /**
  * Orders a pinyin composition's choices (docs/DESIGN.md §4, README):
@@ -95,12 +105,38 @@ object CandidateMerge {
         return list
     }
 
-    /** The collapsed bar keeps one Japanese candidate; the rest wait in the panel. */
-    fun collapsed(all: List<Candidate>): List<Int> {
+    /** Keep the interpreted word first and associate only a full reading. */
+    fun withSymbols(choices: List<Candidate>, symbols: SymbolAssociations, inputLength: Int): List<Candidate> {
+        val first = choices.firstOrNull() ?: return choices
+        if (first.kind == CandidateKind.LITERAL || first.consumed != inputLength) return choices
+        val marks = symbols.of(first.text, japanese = first.japanese) ?: return choices
+        val primaryEmoji = marks.emoji.firstOrNull { it != first.text }
+        val primaryKaomoji = if (first.text.codePointCount(0, first.text.length) > 1) {
+            marks.kaomoji.firstOrNull { it != first.text }
+        } else null
+        val related = (marks.emoji + marks.kaomoji).distinct().filterNot { it == first.text }
+        if (related.isEmpty()) return choices
+        val result = ArrayList<Candidate>(choices.size + related.size)
+        result += choices.filterNot { it.text in related }
+        if (primaryEmoji != null) result.add(1, Candidate(primaryEmoji, CandidateKind.EMOJI, consumed = inputLength))
+        if (primaryKaomoji != null && primaryKaomoji != primaryEmoji) {
+            val position = min(result.size, if (primaryEmoji == null) 3 else 4)
+            result.add(position, Candidate(primaryKaomoji, CandidateKind.KAOMOJI, consumed = inputLength))
+        }
+        var expandedPosition = min(9, result.size)
+        for (mark in related) if (mark != primaryEmoji && mark != primaryKaomoji) {
+            result.add(expandedPosition++, Candidate(mark, CandidateKind.SYMBOL_EXTRA, consumed = inputLength))
+        }
+        return result
+    }
+
+    /** Secondary symbols and repeated Japanese suggestions wait in the panel. */
+    fun collapsed(all: List<Candidate>, limitJapanese: Boolean = true): List<Int> {
         var japaneseShown = false
         val out = ArrayList<Int>(all.size)
         for ((i, c) in all.withIndex()) {
-            if (c.japanese) {
+            if (c.kind == CandidateKind.SYMBOL_EXTRA) continue
+            if (limitJapanese && c.japanese) {
                 if (japaneseShown) continue
                 japaneseShown = true
             }

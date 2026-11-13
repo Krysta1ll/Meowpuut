@@ -9,7 +9,7 @@
 #   .build/windows-package/SHA256SUMS.txt
 #
 # Needs llvm-mingw (both architectures) and a generated lexicon folder with
-# mimo_base.bin, mimo_pairs.bin and the native-*.tsv tables
+# mimo_base.bin, mimo_pairs.bin and native-japanese.tsv
 # (MEOWPUUT_LEXICON_DIR, default Engine/.build/lexicon). The packages are not signed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -25,7 +25,7 @@ mkdir -p "$OUT"
 if [ -z "${MEOWPUUT_LEXICON_DIR:-}" ] && [ ! -f "$LEX/mimo_base.bin" ]; then
   bash Engine/scripts/build-lexicon.sh
 fi
-python3 scripts/export-windows-lexicon.py "$LEX" "$OUT/export" >/dev/null
+python3 scripts/export-windows-lexicon.py "$LEX" "$OUT/export" --runtime-only >/dev/null
 COMMIT=$(git rev-parse HEAD)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then CHANGES="有（建置時工作目錄有未提交的修改）"; else CHANGES="無"; fi
@@ -108,7 +108,7 @@ EOF
 - 編進 DLL 的執行庫：LLVM（\`Licenses/llvm-mingw-LLVM.txt\`）、MinGW-w64（\`Licenses/COPYING.*\`）、Rust 標準庫（\`Licenses/Rust-std-*\`）。
 EOF
   } > "$STAGE/BUILD-INFO.md"
-  (cd "$OUT" && rm -f "$NAME.zip" && zip -qrX "$NAME.zip" "$NAME")
+  (cd "$OUT" && rm -f "$NAME.zip" && zip -9qrX "$NAME.zip" "$NAME")
   echo "Packed $OUT/$NAME.zip ($(du -h "$OUT/$NAME.zip" | cut -f1))"
 done
 (cd "$OUT" && shasum -a 256 Meowpuut-*.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)

@@ -361,6 +361,21 @@ enum SnapshotRun {
             ok = write(Sheet(rows: rows, dark: false), directory, "glass-\(strength.rawValue)") && ok
         }
         preferences.glassStrength = .balanced
+        // Check both size controls independently against the same reading.
+        for (window, text) in [(CandidateWindowSize.compact, CandidateTextSize.large), (.spacious, .small), (.standard, .standard)] {
+            let name = "size-\(window.rawValue)-\(text.rawValue)"
+            guard wanted(name) else { continue }
+            preferences.candidateWindowSize = window
+            preferences.candidateTextSize = text
+            let rows = [
+                SheetRow(label: "nihao", engine: typed(.pinyin, "nihao"), forced: CandidateLookOverride(still: true)),
+                SheetRow(label: "sushi · expanded", engine: typed(.pinyin, "sushi"), expanded: true,
+                         forced: CandidateLookOverride(dark: true, still: true), maxHeight: 235),
+            ]
+            ok = write(Sheet(rows: rows, dark: false), directory, name) && ok
+        }
+        preferences.candidateWindowSize = .standard
+        preferences.candidateTextSize = .standard
         // The settings window, section by section, in both scripts.
         for (name, text) in [("hant", InterfaceText(simplified: false)), ("hans", InterfaceText(simplified: true))] {
             for section in Studio.Section.allCases where name == "hant" || section == .appearance || section == .shortcuts {

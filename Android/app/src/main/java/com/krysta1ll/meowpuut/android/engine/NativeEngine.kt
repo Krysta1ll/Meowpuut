@@ -13,12 +13,14 @@ object NativeEngine {
 
     // MPNCandidateKind
     const val KIND_EXACT = 1
+    const val KIND_JAPANESE = 5
 
     @JvmStatic external fun lexiconFromFd(fd: Int, offset: Long, length: Long, pinyin: Boolean): Long
     @JvmStatic external fun attachPairsFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
     @JvmStatic external fun lexiconDestroy(lexicon: Long)
     @JvmStatic external fun lexiconHeapBytes(lexicon: Long): Long
     @JvmStatic external fun sessionCreate(lexicon: Long): Long
+    @JvmStatic external fun nineKeySessionCreate(lexicon: Long): Long
     @JvmStatic external fun sessionDestroy(session: Long)
     @JvmStatic external fun maxInputBytes(): Int
     @JvmStatic external fun key(session: Long, key: Int): Boolean

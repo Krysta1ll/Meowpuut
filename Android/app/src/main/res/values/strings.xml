@@ -1,5 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="keyboard_skin">皮膚</string>
+    <string name="skin_current">喵撲玻璃</string>
+    <string name="skin_classic_cloud">經典雲玻璃</string>
+    <string name="skin_pixel">像素</string>
+    <string name="skin_unlock_title">解鎖%1$s皮膚</string>
+    <string name="skin_pixel_question">這行 Python 會印出什麼？</string>
+    <string name="skin_pixel_try_again">這題沒答對，可以再抽一題。</string>
+    <string name="skin_pixel_retry">再抽一題</string>
+    <string name="skin_wardrobe">鍵盤衣櫥</string>
+    <string name="skin_customize">自訂搭配</string>
+    <string name="effects">視覺特效</string>
+    <string name="effects_lightweight">輕量</string>
+    <string name="effects_standard">標準</string>
+    <string name="effects_full">完整</string>
+    <string name="effects_ultra">極致</string>
+    <string name="effects_note">輕量減少動效。極致讓候選列、鍵帽和底板更通透。</string>
+    <string name="keyboard_height">鍵盤高度</string>
+    <string name="keyboard_height_compact">較矮</string>
+    <string name="keyboard_height_tall">較高</string>
+    <string name="panel_adjustment">面板調整</string>
+    <string name="panel_adjustment_open">調整 ›</string>
+    <string name="panel_custom">自訂 ›</string>
+    <string name="panel_key_height">按鍵高度</string>
+    <string name="panel_bottom_gap">底部留白</string>
+    <string name="panel_height_change">%1$+d dp／排</string>
+    <string name="panel_gap_value">%1$d dp</string>
+    <string name="panel_no_gap">貼底</string>
+    <string name="panel_adjustment_hint">貼底鍵盤會套用這些設定。橫屏空間較少時會縮減留白。</string>
+    <string name="panel_reset">重置</string>
+    <string name="panel_done">完成</string>
+    <string name="cursor_drag_hint">左右滑動移動游標</string>
+    <string name="candidate_text_size">候選字大小</string>
+    <string name="key_text_size">按鍵文字大小</string>
+    <string name="keyboard_text_size_small">較小</string>
+    <string name="keyboard_text_size_large">較大</string>
+    <string name="keyboard_position">鍵盤位置</string>
+    <string name="keyboard_position_docked">貼底</string>
+    <string name="keyboard_position_floating">懸浮</string>
+    <string name="floating_keyboard_hint">拖動鍵盤握柄即可移動。</string>
+    <string name="floating_keyboard_handle">移動懸浮鍵盤</string>
+    <string name="floating_keyboard_dock">將鍵盤貼底</string>
     <string name="app_name">喵撲</string>
     <string name="app_title">喵撲  Meowpuut</string>
     <string name="ime_name">喵撲</string>
@@ -19,12 +60,13 @@
     <string name="input_title">輸入</string>
     <string name="input_mode">輸入方式</string>
     <string name="mode_zhuyin">注音</string>
-    <string name="mode_pinyin">拼音</string>
+    <string name="mode_pinyin">全鍵拼音</string>
+    <string name="mode_nine_key">九鍵拼音</string>
     <string name="mode_japanese">日本語</string>
     <string name="script">中文</string>
     <string name="script_traditional">繁體</string>
     <string name="script_simplified">简体</string>
-    <string name="script_note">在鍵盤上連續輕摸莫莫五下，也能切換簡體／繁體。</string>
+    <string name="script_note">連摸米米莫五下切換輸入方式，中文模式下連摸莫莫五下切換簡繁。把小貓拖到按鍵區再放手，就會收起鍵盤。</string>
 
     <string name="look_title">外觀</string>
     <string name="shape">造型</string>
@@ -51,10 +93,26 @@
     <string name="festivals_note">節日期間，米米莫和莫莫會換上節日的衣服。</string>
 
     <string name="feedback_title">按鍵回饋</string>
+    <string name="key_popups">按鍵氣泡</string>
     <string name="haptics">震動</string>
+    <string name="haptic_strength">震動強度</string>
+    <string name="haptic_soft">輕柔</string>
+    <string name="haptic_strong">強</string>
+    <string name="sound_volume">自訂音效音量</string>
+    <string name="sound_volume_percent">%1$d%%</string>
     <string name="sound">按鍵聲</string>
 
     <string name="licenses">第三方授權</string>
+    <string name="cancel">取消</string>
     <string name="close">關閉</string>
     <string name="preview_label">候選列預覽</string>
+    <string name="preview_nine_key">九鍵拼音鍵盤預覽</string>
+    <string name="sound_off">關閉</string>
+    <string name="sound_system">系統</string>
+    <string name="sound_water">水滴</string>
+    <string name="sound_marimba">木琴</string>
+    <string name="sound_glass">玻璃</string>
+    <string name="sound_felt">毛氈</string>
+    <string name="sound_penta">五聲</string>
+    <string name="sound_harmonic">泛音</string>
 </resources>

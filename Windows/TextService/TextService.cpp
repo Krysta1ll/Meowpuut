@@ -937,6 +937,14 @@ public:
     // From the taskbar's mode button.
     bool english() const { return english_; }
     bool simplified() const { return simplified_; }
+    void chooseCandidateTextSize(ui::CandidateTextSize size) {
+        ui::saveCandidateTextSize(size);
+        if (window_) {
+            auto options = window_->options();
+            options.textSize = size;
+            window_->setOptions(options);
+        }
+    }
     void switchEnglish() { toggleEnglish(active_ ? active_->context.get() : nullptr); }
     void chooseScript(bool simplified) {
         if (simplified != simplified_) toggleSimplified();
@@ -1262,6 +1270,14 @@ private:
         }
         ensureWindow();
         if (!window_ || !window_->valid()) return;
+        if (!window_->visible()) {
+            const auto stored = ui::loadCandidateTextSize();
+            if (stored != window_->options().textSize) {
+                auto options = window_->options();
+                options.textSize = stored;
+                window_->setOptions(options);
+            }
+        }
         ui::CandidateWindowState view;
         view.highlighted = s.highlighted;
         view.expanded = s.expanded;
@@ -1389,11 +1405,21 @@ HRESULT ModeButton::InitMenu(ITfMenu *menu) {
     const bool simplified = owner_->simplified();
     menu->AddMenuItem(1, simplified ? 0 : TF_LBMENUF_RADIOCHECKED, nullptr, nullptr, L"繁體中文", 4, nullptr);
     menu->AddMenuItem(2, simplified ? TF_LBMENUF_RADIOCHECKED : 0, nullptr, nullptr, L"简体中文", 4, nullptr);
+    menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
+    constexpr const wchar_t *sizes[] = {L"候選字級：小", L"候選字級：標準", L"候選字級：大"};
+    constexpr const wchar_t *simplifiedSizes[] = {L"候选字号：小", L"候选字号：标准", L"候选字号：大"};
+    const auto selectedSize = static_cast<UINT>(ui::loadCandidateTextSize());
+    for (UINT i = 0; i < 3; ++i) {
+        const auto label = simplified ? simplifiedSizes[i] : sizes[i];
+        menu->AddMenuItem(3 + i, i == selectedSize ? TF_LBMENUF_RADIOCHECKED : 0,
+                          nullptr, nullptr, label, static_cast<ULONG>(lstrlenW(label)), nullptr);
+    }
     return S_OK;
 }
 HRESULT ModeButton::OnMenuSelect(UINT id) {
     try {
         if (owner_ && (id == 1 || id == 2)) owner_->chooseScript(id == 2);
+        if (owner_ && id >= 3 && id <= 5) owner_->chooseCandidateTextSize(static_cast<ui::CandidateTextSize>(id - 3));
     } catch (...) {
     }
     return S_OK;

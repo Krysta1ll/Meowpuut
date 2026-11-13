@@ -6,7 +6,7 @@ VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/C
 BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")
 LABEL="${MEOWPUUT_RELEASE_LABEL:-Sill-$BUILD}"
 ARCH=$(uname -m)
-OUT="$PWD/.build/releases"
+OUT="${MEOWPUUT_RELEASE_DIR:-$PWD/.build/releases}"
 STAGE="$(mktemp -d "$PWD/.build/package-stage.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 codesign --verify --strict "$APP"

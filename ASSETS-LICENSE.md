@@ -19,7 +19,7 @@
 - `assets/screenshots/`
 - `assets/festivals/`
 - `Resources/Cats/`、`Resources/Festivals/`
-- `iOS/Keyboard/Cats.xcassets/`、`iOS/Festivals.xcassets/`
+- `iOS/Keyboard/Cats.xcassets/`、`iOS/MobileSkinArt.xcassets/`、`iOS/Festivals.xcassets/`
 - `Android/app/src/main/res/drawable-nodpi/` 裡的 `cat_*`、`ic_launcher_*`，以及 `Android/app/src/main/assets/festivals/` 裡的圖片
 - `Windows/UI/Assets/` 裡的圖片（含 `festivals/`）
 - 建置時從上面這些檔案產生的圖片（各平台的 App 圖示、安裝程式裡的標誌等）

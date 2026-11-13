@@ -87,10 +87,12 @@ struct LayoutLimits {
     float maxWidth = 960;  // the monitor work area, in DIPs
 };
 
+enum class CandidateTextSize { Small, Standard, Large };
+
 // The desktop numbers of docs/DESIGN.md §5; what differs on Windows is listed there.
 struct Metrics {
-    float font = 15, numberFont = 11, headerFont = 12;
-    float barHeight = 38;                         // the body band candidates sit in
+    float font = 16, numberFont = 12, headerFont = 12;
+    float barHeight = 39;                         // the body band candidates sit in
     float cellPad = 9, numberGap = 5, pawGap = 3, cellGap = 2;
     float pawRatio = 0.45f;                       // paw mark size, in font sizes
     float pillRatio = 0.70f;
@@ -102,8 +104,10 @@ struct Metrics {
     float longCandidateMax = 440, ellipsisRatio = 0.70f;
     // Expanded panel
     float panelCorner = 18, panelMinWidth = 320, panelMaxWidth = 560;
-    float gridCellHeight = 30, gridRowGap = 4, gridColumnGap = 4, gridMinCell = 108;
+    float gridCellHeight = 32, gridRowGap = 4, gridColumnGap = 4, gridMinCell = 108;
     float headerHeight = 24, footerHeight = 30;
+
+    static Metrics forTextSize(CandidateTextSize size);
 };
 
 struct CandidateCell {

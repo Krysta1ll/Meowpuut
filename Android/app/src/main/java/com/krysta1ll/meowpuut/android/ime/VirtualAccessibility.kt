@@ -20,7 +20,16 @@ class VirtualAccessibility(
     private val activate: (Int) -> Unit,
 ) : AccessibilityNodeProvider() {
     /** [bounds] are in the host view's pixels. */
-    class Item(val id: Int, val bounds: Rect, val label: String, val selected: Boolean = false, val enabled: Boolean = true)
+    class Item(
+        val id: Int,
+        val bounds: Rect,
+        val label: String,
+        val selected: Boolean = false,
+        val enabled: Boolean = true,
+        val longClick: LongClick? = null,
+    )
+
+    class LongClick(val label: String, val perform: () -> Unit)
 
     private var focused = View.NO_ID
     private var hovered = View.NO_ID
@@ -57,6 +66,10 @@ class VirtualAccessibility(
         info.addAction(if (focused == virtualViewId) AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS
                        else AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS)
         if (item.enabled) info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
+        if (item.enabled && item.longClick != null) {
+            info.isLongClickable = true
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, item.longClick.label))
+        }
         return info
     }
 
@@ -80,6 +93,11 @@ class VirtualAccessibility(
                 if (items().none { it.id == virtualViewId && it.enabled }) return false
                 activate(virtualViewId)
                 send(virtualViewId, AccessibilityEvent.TYPE_VIEW_CLICKED)
+                return true
+            }
+            AccessibilityNodeInfo.ACTION_LONG_CLICK -> {
+                val longClick = items().firstOrNull { it.id == virtualViewId && it.enabled }?.longClick ?: return false
+                longClick.perform()
                 return true
             }
         }

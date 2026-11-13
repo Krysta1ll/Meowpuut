@@ -4,6 +4,11 @@ plugins {
 
 // The repository root: Android/ sits next to Engine/ and scripts/.
 val repoRoot: File = rootDir.parentFile
+val soundAssets = layout.buildDirectory.dir("generated/keySoundAssets")
+val prepareKeySounds = tasks.register<Sync>("prepareKeySounds") {
+    from(repoRoot.resolve("assets/key-sounds")) { include("**/*.wav"); into("key-sounds") }
+    into(soundAssets)
+}
 
 android {
     namespace = "com.krysta1ll.meowpuut.android"
@@ -50,8 +55,10 @@ android {
 
     // The lexicon is mapped straight out of the APK, so it must stay uncompressed.
     androidResources {
-        noCompress += "bin"
+        noCompress += listOf("bin", "wav")
     }
+
+    sourceSets.getByName("main").assets.srcDir(soundAssets.get().asFile)
 
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -73,5 +80,5 @@ val prepareEngine = tasks.register<Exec>("prepareEngine") {
 }
 
 tasks.named("preBuild") {
-    dependsOn(prepareEngine)
+    dependsOn(prepareEngine, prepareKeySounds)
 }

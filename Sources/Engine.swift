@@ -72,6 +72,14 @@ final class Preferences: ObservableObject {
     /// Where the cats sit: `CatSchedule.daily`, or one arrangement's id.
     @Published var catPlacement: String { didSet { defaults.set(catPlacement, forKey: "catPlacement") } }
     @Published var candidateTone: CandidateTone { didSet { defaults.set(candidateTone.rawValue, forKey: "candidateTone") } }
+    #if os(macOS)
+    @Published var candidateTextSize: CandidateTextSize = .standard {
+        didSet { defaults.set(candidateTextSize.rawValue, forKey: "candidateTextSize") }
+    }
+    @Published var candidateWindowSize: CandidateWindowSize = .standard {
+        didSet { defaults.set(candidateWindowSize.rawValue, forKey: "candidateWindowSize") }
+    }
+    #endif
     @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
     @Published var candidatePalette: CandidatePalette { didSet { defaults.set(candidatePalette.rawValue, forKey: "candidatePalette") } }
     @Published var glassShape: GlassShape { didSet { defaults.set(glassShape.rawValue, forKey: "glassShape") } }
@@ -103,6 +111,10 @@ final class Preferences: ObservableObject {
         festivalOutfits = defaults.object(forKey: "festivalOutfits") as? Bool ?? true
         festivalsSkipped = defaults.stringArray(forKey: "festivalsSkipped") ?? []
         candidateTone = CandidateTone(rawValue: defaults.string(forKey: "candidateTone") ?? "") ?? .system
+        #if os(macOS)
+        candidateTextSize = defaults.string(forKey: "candidateTextSize").flatMap(CandidateTextSize.init(rawValue:)) ?? .standard
+        candidateWindowSize = defaults.string(forKey: "candidateWindowSize").flatMap(CandidateWindowSize.init(rawValue:)) ?? .standard
+        #endif
         glassStrength = GlassStrength(rawValue: defaults.string(forKey: "glassStrength") ?? "") ?? .balanced
         candidatePalette = CandidatePalette(rawValue: defaults.string(forKey: "candidatePalette") ?? "") ?? .rose
         simplified = defaults.bool(forKey: "simplified")
@@ -111,33 +123,7 @@ final class Preferences: ObservableObject {
         pins = defaults.dictionary(forKey: "candidatePins") as? [String: String] ?? [:]
         reload()
     }
-    #if os(iOS)
-    func applySharedSettings() {
-        guard let settings = SharedKeyboardSettings.read() else { return }
-        if let value = settings.inputMode, let mode = InputMode(rawValue: value) { inputMode = mode }
-        if let value = settings.simplified {
-            let marker = settings.simplifiedRevision ?? (value ? "simplified" : "traditional")
-            if marker != defaults.string(forKey: "appliedSimplifiedRevision") {
-                defaults.set(marker, forKey: "appliedSimplifiedRevision")
-                if simplified != value { simplified = value }
-            }
-        }
-        if let value = settings.catGlassSkin, catGlassSkin != value { catGlassSkin = value }
-        if let value = settings.catPlacement, catPlacement != value { catPlacement = value }
-        if let value = settings.rememberChoices, rememberChoices != value { rememberChoices = value }
-        if let value = settings.candidateTone, let tone = CandidateTone(rawValue: value), candidateTone != tone { candidateTone = tone }
-        if let value = settings.glassStrength, let strength = GlassStrength(rawValue: value), glassStrength != strength { glassStrength = strength }
-        if let value = settings.candidatePalette, let palette = CandidatePalette(rawValue: value), candidatePalette != palette { candidatePalette = palette }
-        if let value = settings.glassShape, let shape = GlassShape(rawValue: value), glassShape != shape { glassShape = shape }
-        if let value = settings.festivals, festivalOutfits != value { festivalOutfits = value }
-        if let value = settings.festivalsSkipped, festivalsSkipped != value { festivalsSkipped = value }
-        if let request = settings.clearMemoryRequest, request != defaults.string(forKey: "lastClearMemoryRequest") {
-            ChoiceMemory.shared.clear()
-            Kaomoji.forgetRecent()
-            if ChoiceMemory.shared.flush() { defaults.set(request, forKey: "lastClearMemoryRequest") }
-        }
-    }
-    #endif
+
     func reload() {
         do {
             try FileManager.default.createDirectory(at: moduleDirectory, withIntermediateDirectories: true)
@@ -178,7 +164,8 @@ final class Engine: ObservableObject {
             let isChinese = !selection.text.isEmpty && selection.text.unicodeScalars.allSatisfy { (0x3400...0x9fff).contains($0.value) }
             guard isChinese else { learningTail = nil; continue }
             let now = Date().timeIntervalSince1970
-            let prefix = reading.hasPrefix("py:") ? String(reading.prefix(5)) : String(reading.prefix(2))
+            let modePrefixLength = reading.hasPrefix("py:") || reading.hasPrefix("t9:") ? 5 : 2
+            let prefix = String(reading.prefix(modePrefixLength))
             if let previous = learningTail, now - previous.time < 20, previous.reading.hasPrefix(prefix), previous.text.count + selection.text.count <= 8 {
                 records.append(("ctx|" + previous.text + "|" + reading, selection.text))
                 records.append((previous.reading + reading.dropFirst(prefix.count), previous.text + selection.text))
@@ -192,6 +179,7 @@ final class Engine: ObservableObject {
     @Published var snapshot = Snapshot()
     @Published var predictions: [String] = []
     private(set) var predictionContext = ""
+    private var predictionWordLimit = 8
     /// The emoji and kaomoji that lead `predictions`, and the word they are for.
     private(set) var predictionSymbols: Symbols.Found?
     @Published var english = false
@@ -252,6 +240,7 @@ final class Engine: ObservableObject {
         switch inputMode {
         case .zhuyin: return script + snapshot.input
         case .pinyin: return "py:" + script + snapshot.input.lowercased()
+        case .nineKey: return "t9:" + script + snapshot.input
         case .japanese: return "ja:" + snapshot.input
         }
     }
@@ -261,7 +250,8 @@ final class Engine: ObservableObject {
     var modeLabel: String {
         if english { return "ABC" }
         if inputMode == .japanese { return "あ" }
-        return (inputMode == .pinyin ? "拼 · " : "") + (Preferences.shared.simplified ? "简" : "繁")
+        let prefix = inputMode == .nineKey ? "九 · " : inputMode == .pinyin ? "拼 · " : ""
+        return prefix + (Preferences.shared.simplified ? "简" : "繁")
     }
     func isPinned(_ text: String) -> Bool { !snapshot.input.isEmpty && Preferences.shared.pins[pinKey] == text }
     func pin(_ index: Int) {
@@ -304,19 +294,24 @@ final class Engine: ObservableObject {
     /// not pay for opening the word database.
     static func makeBackend(mode: InputMode, warm: Bool = false) throws -> InputBackend {
         let next: InputBackend
-        #if os(macOS)
-        next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: false, emojiCell: false)
-        #else
-        if mode == .japanese {
-            let japanese = try JapaneseBackend()
-            japanese.symbolCells = true
-            next = japanese
+        if mode == .nineKey {
+            next = try NativeBackend(mode: mode)
         } else {
-            next = try ChineseWithJapaneseBackend(mode: mode)
+            #if os(macOS)
+            next = mode == .japanese ? try JapaneseBackend() : try ChineseWithJapaneseBackend(mode: mode, literalSpaceAddsSpace: false, emojiCell: false)
+            #else
+            if mode == .japanese {
+                let japanese = try JapaneseBackend()
+                japanese.symbolCells = true
+                next = japanese
+            } else {
+                next = try ChineseWithJapaneseBackend(mode: mode)
+            }
+            #endif
         }
-        #endif
         if warm {
-            for scalar in (mode == .zhuyin ? "su3" : "ni").unicodeScalars { _ = next.key(Int32(scalar.value), modifiers: 0) }
+            let reading = mode == .nineKey ? "64" : mode == .zhuyin ? "su3" : "ni"
+            for scalar in reading.unicodeScalars { _ = next.key(Int32(scalar.value), modifiers: 0) }
             _ = next.snapshot()
             _ = next.candidates(limit: 32)
             next.clear()
@@ -388,6 +383,12 @@ final class Engine: ObservableObject {
             predictions = []
         }
     }
+    func setPredictionWordLimit(_ limit: Int) {
+        guard limit != predictionWordLimit else { return }
+        predictionWordLimit = limit
+        if !predictionContext.isEmpty { updatePredictions(context: predictionContext) }
+    }
+
     func updatePredictions(context: String) {
         let clean = String(context.suffix(8)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !english, snapshot.preedit.isEmpty, let backend, !clean.isEmpty else {
@@ -404,10 +405,11 @@ final class Engine: ObservableObject {
         var merged = predictionSymbols.map { Array($0.emoji.prefix(leading)) } ?? []
         let later = predictionSymbols.map { Array($0.emoji.dropFirst(leading).prefix(2 - leading) + $0.kaomoji.prefix(1)) } ?? []
         let lead = merged.count
-        let limit = 8 + lead + later.count
+        let limit = predictionWordLimit + lead + later.count
         if inputMode != .japanese,
            clean.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) || (0x20000...0x323af).contains($0.value) }) {
-            for item in ChoiceMemory.shared.contextualPredictions(after: clean, limit: 3) + backend.predict(context: clean, limit: 8)
+            for item in ChoiceMemory.shared.contextualPredictions(after: clean, limit: 3)
+                + backend.predict(context: clean, limit: predictionWordLimit)
             where !merged.contains(item) {
                 merged.append(item)
             }
@@ -420,7 +422,11 @@ final class Engine: ObservableObject {
         let next = Array(merged.prefix(limit))
         if predictions != next { predictions = next }
     }
-    func takeCommit() -> String { let text = snapshot.commit; snapshot.commit = ""; return text }
+    func takeCommit() -> String {
+        let text = snapshot.commit
+        if !text.isEmpty { snapshot.commit = "" }
+        return text
+    }
     func clear() {
         moduleBuffer = nil
         if let previous = moduleEnglishMode { english = previous; moduleEnglishMode = nil }

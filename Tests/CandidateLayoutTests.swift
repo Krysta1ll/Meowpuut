@@ -17,10 +17,41 @@ func runCandidateWindowChecks(_ h: inout SmokeHarness) {
     checkKeys(&h)
     checkPlacement(&h)
     checkPanel(&h)
+    checkCandidateSizes(&h)
     checkAnnouncements(&h)
     checkAppearance(&h)
     checkFestivals(&h)
     checkCats(&h)
+}
+
+private func checkCandidateSizes(_ h: inout SmokeHarness) {
+    let preferences = Preferences.shared
+    let saved = (preferences.candidateWindowSize, preferences.candidateTextSize, preferences.glassShape)
+    defer { (preferences.candidateWindowSize, preferences.candidateTextSize, preferences.glassShape) = saved }
+    let engine = Engine(mode: .pinyin)
+    engine.snapshot = Snapshot(preedit: "nihao", candidates: ["你好", "妳好", "你好呀", "擬好"], lastPage: false, input: "nihao")
+    var fits = true, sized = true
+    for shape in GlassShape.allCases {
+        preferences.glassShape = shape
+        for text in CandidateTextSize.allCases {
+            preferences.candidateTextSize = text
+            var previous = CGSize.zero
+            for size in CandidateWindowSize.allCases {
+                preferences.candidateWindowSize = size
+                let frame = fittingSize(engine, cats: true, expanded: false)
+                let stage = Desk.stage(width: 360, shape: shape, chevron: true, textSize: text, windowSize: size)
+                fits = fits && stage.glass.contains(stage.row) && size.pill(text) > text.font && size.gridRow(text) > size.pill(text)
+                sized = sized && frame.height > previous.height && frame.width > previous.width
+                previous = frame
+            }
+        }
+    }
+    h.check(fits && sized, "三種字級搭配三種候選窗尺寸，三種外形都可用且留白遞增")
+    let defaults = UserDefaults(suiteName: "app.meowpuut.smoke")!
+    h.check(applyAppearance("window-size:compact") && applyAppearance("text-size:large") &&
+            preferences.candidateWindowSize == .compact && preferences.candidateTextSize == .large &&
+            defaults.string(forKey: "candidateWindowSize") == "compact" && defaults.string(forKey: "candidateTextSize") == "large" &&
+            !applyAppearance("window-size:unknown"), "候選窗尺寸和字級獨立儲存")
 }
 
 private func fittingSize(_ engine: Engine, cats: Bool, expanded: Bool, maxHeight: CGFloat = .greatestFiniteMagnitude,
@@ -60,6 +91,13 @@ private func checkOneLine(_ h: inout SmokeHarness) {
             "展開的長句每個候選一行")
     h.check(expandedCandidateWidth(sentences) == Desk.gridMaxWidth && expandedCandidateWidth(sentences, limit: 300) == 300,
             "展開寬度不超過上限")
+    let short = ["你好", "再見", "晚安"]
+    let medium = ["候選窗", "鍵盤聲", "手感"]
+    let narrowLimit = candidateGridWidthLimit(176)
+    h.check([short, medium].allSatisfy { words in
+        expandedCandidateWidth(words, limit: narrowLimit, textSize: .large) <= 160 &&
+            expandedCandidateRows(words, limit: narrowLimit, textSize: .large).flatMap { $0 } == Array(words.indices)
+    }, "窄螢幕大字模式的候選網格不超出可用寬度")
     engine.snapshot = huge
     for cats in [false, true] {
         let size = fittingSize(engine, cats: cats, expanded: true, maxHeight: 190)

@@ -15,6 +15,7 @@ std::string numberLabel(std::size_t index, bool shift) {
 }
 
 struct Measured {
+    std::size_t index = 0;
     std::string number;
     float numberWidth = 0;
     std::string full;    // the candidate as given
@@ -38,6 +39,7 @@ std::vector<Measured> measureAll(const CandidateViewModel &model, TextMeasurer &
     cells.reserve(model.candidates.size());
     for (std::size_t i = 0; i < model.candidates.size(); ++i) {
         Measured c;
+        c.index = i;
         c.number = numberLabel(i, model.shiftNumbers);
         c.numberWidth = std::ceil(measurer.measure(c.number, m.numberFont, false));
         c.full = c.text = model.candidates[i];
@@ -430,6 +432,25 @@ std::string ellipsizeMiddle(std::string_view text, float maxWidth, float size, b
     return best;
 }
 
+Metrics Metrics::forTextSize(CandidateTextSize size) {
+    Metrics metrics;
+    switch (size) {
+    case CandidateTextSize::Small:
+        metrics.font = 14;
+        metrics.numberFont = 11;
+        break;
+    case CandidateTextSize::Standard:
+        break;
+    case CandidateTextSize::Large:
+        metrics.font = 19;
+        metrics.numberFont = 14;
+        metrics.barHeight = 44;
+        metrics.gridCellHeight = 36;
+        break;
+    }
+    return metrics;
+}
+
 CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &measurer,
                                  const LayoutLimits &limits, const Metrics &m) {
     CandidateLayout L;
@@ -455,25 +476,36 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
 
     if (!model.expanded) {
         const float rightZone = deco ? m.chevronWidth - BarFrame::arrowInset + wr + m.padRight : m.chevronWidth + 10 + m.padRight;
-        const float maxRow = std::max(m.minRow, limits.maxWidth - rowStart - rightZone);
+        const float maxRow = std::max(1.0f, limits.maxWidth - rowStart - rightZone);
         // A squeezed candidate keeps at least one character and the ellipsis.
         const float floor = std::ceil(measurer.measure("\xE6\xB0\xB8\xE2\x80\xA6", m.font, true));
         const float cap = std::max(floor, std::min(m.longCandidateMax, m.ellipsisRatio * maxRow));
         for (auto &c : cells) c.allowed = std::min(c.allowed, cap);
+        // On a narrow monitor keep a readable range around the keyboard
+        // selection. The expand button still opens the full page.
+        const auto minimumWidth = [&] {
+            float width = m.cellGap * static_cast<float>(cells.size() - 1);
+            for (const auto &c : cells) width += overhead(m, c) + std::min(c.allowed, floor);
+            return width;
+        };
+        const std::size_t selected = cells.empty() ? 0 : std::min(model.highlighted, cells.back().index);
+        while (cells.size() > 1 && minimumWidth() > maxRow) {
+            if (cells.back().index != selected) cells.pop_back();
+            else cells.erase(cells.begin());
+        }
         waterFill(cells, m, maxRow, floor);
         applyEllipsis(cells, measurer, m);
         useSpareWidth(cells, measurer, m, maxRow, cap);
 
         const float pillHeight = std::round(G * m.pillRatio);
         float x = rowStart;
-        for (std::size_t i = 0; i < cells.size(); ++i) {
-            const float w = cellWidth(m, cells[i]);
-            L.cells.push_back(placeCell(m, cells[i], i, x, w, bodyTop, G, pillHeight));
-            L.cells.back().truncated = cells[i].allowed + 0.5f < cells[i].natural;
+        for (const auto &c : cells) {
+            const float w = cellWidth(m, c);
+            L.cells.push_back(placeCell(m, c, c.index, x, w, bodyTop, G, pillHeight));
             x += w + m.cellGap;
         }
         float rowEnd = cells.empty() ? rowStart : x - m.cellGap;
-        rowEnd = std::max(rowEnd, rowStart + m.minRow);
+        rowEnd = std::max(rowEnd, rowStart + std::min(m.minRow, maxRow));
         L.chevron = {rowEnd + 2, bodyTop, m.chevronWidth, G};
         const float rightBoxX = L.chevron.right() - BarFrame::arrowInset;
         const float glassRight = deco ? rightBoxX + wr - 2 : L.chevron.right() + 8;
@@ -501,18 +533,19 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
     // Expanded grid --------------------------------------------------------
     const float insetX = 14;
     const float panelLeft = glassLeft;
-    const float chromeRight = m.padRight;
+    const float chromeRight = m.padRight + (deco ? 2 : 0);
     float maxNatural = 0;
     for (const auto &c : cells) maxNatural = std::max(maxNatural, overhead(m, c) + c.natural);
     std::size_t cols = maxNatural <= 150 ? 3 : maxNatural <= 240 ? 2 : 1;
     cols = std::max<std::size_t>(1, std::min(cols, std::max<std::size_t>(1, cells.size())));
-    const float maxInner = std::max(m.panelMinWidth, std::min(m.panelMaxWidth, limits.maxWidth - panelLeft - chromeRight)) - 2 * insetX;
-    const float minInner = m.panelMinWidth - 2 * insetX;
+    const float maxInner = std::min(m.panelMaxWidth, limits.maxWidth - panelLeft - chromeRight) - 2 * insetX;
+    const float minInner = std::min(m.panelMinWidth - 2 * insetX, maxInner);
+    while (cols > 1 && static_cast<float>(cols) * m.gridMinCell + static_cast<float>(cols - 1) * m.gridColumnGap > maxInner) --cols;
     // One column takes the longest candidate whole, up to the panel's maximum.
     const float widest = cols == 1 ? maxNatural : std::min(maxNatural, 220.0f);
     const float wanted = static_cast<float>(cols) * std::max(m.gridMinCell, widest) +
                          static_cast<float>(cols - 1) * m.gridColumnGap;
-    const float inner = std::clamp(wanted, minInner, std::max(minInner, maxInner));
+    const float inner = std::clamp(wanted, minInner, maxInner);
     const float colWidth = (inner - static_cast<float>(cols - 1) * m.gridColumnGap) / static_cast<float>(cols);
     const float panelRight = panelLeft + inner + 2 * insetX;
     const float rightBoxX = deco ? panelRight + 2 - wr : panelRight;
@@ -560,10 +593,10 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
     const float centerX = panelLeft + (panelRight - panelLeft) / 2;
     L.pageLabel = std::to_string(model.page + 1);
     L.pageLabelCenter = {centerX, footerMid};
-    const float buttonWidth = 78;
+    L.chevron = {panelRight - insetX - m.chevronWidth + 6, footerTop, m.chevronWidth, m.footerHeight};
+    const float buttonWidth = std::min(78.0f, L.chevron.x - centerX - 22);
     L.prevPage = {centerX - 18 - buttonWidth, footerTop, buttonWidth, m.footerHeight};
     L.nextPage = {centerX + 18, footerTop, buttonWidth, m.footerHeight};
-    L.chevron = {panelRight - insetX - m.chevronWidth + 6, footerTop, m.chevronWidth, m.footerHeight};
     const float panelBottom = footerTop + m.footerHeight + 6;
     // The swell and the bumps keep the size they have on the collapsed bar.
     const float barBox = glassBox(model.shape, 0, 1, 0, G).height;

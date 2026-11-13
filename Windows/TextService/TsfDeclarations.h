@@ -69,6 +69,9 @@ struct ITfLangBarItemButton : public ITfLangBarItem {
 #define TF_LBMENUF_CHECKED 0x1
 #define TF_LBMENUF_RADIOCHECKED 0x8
 #endif
+#ifndef TF_LBMENUF_SEPARATOR
+#define TF_LBMENUF_SEPARATOR 0x4
+#endif
 
 namespace meowpuut::tsf {
 // Interface and category identifiers, spelled out because libuuid lacks some.

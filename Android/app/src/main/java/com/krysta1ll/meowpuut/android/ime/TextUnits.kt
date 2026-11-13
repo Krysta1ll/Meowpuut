@@ -1,6 +1,7 @@
 package com.krysta1ll.meowpuut.android.ime
 
 import java.text.BreakIterator
+import java.util.Locale
 import kotlin.math.max
 
 /**
@@ -9,14 +10,27 @@ import kotlin.math.max
  * sequence is one character and Chinese is split into words.
  */
 object TextUnits {
+    private val characters = ThreadLocal.withInitial { BreakIterator.getCharacterInstance(Locale.ROOT) }
+
     /** One user-perceived character. */
     fun lastGrapheme(text: CharSequence): Int {
         if (text.isEmpty()) return 0
-        val iterator = BreakIterator.getCharacterInstance()
+        val iterator = checkNotNull(characters.get())
         iterator.setText(text.toString())
         val end = iterator.last()
         val start = iterator.previous()
+        iterator.setText("")
         return if (start == BreakIterator.DONE) text.length else end - start
+    }
+
+    fun graphemeCount(text: String): Int {
+        if (text.length == 1 || text.all { it.code < 128 && it != '\r' }) return text.length
+        val iterator = checkNotNull(characters.get())
+        iterator.setText(text)
+        var count = 0
+        while (iterator.next() != BreakIterator.DONE) count++
+        iterator.setText("")
+        return count
     }
 
     /** Trailing spaces and the word before them (a Chinese word, not one character). */

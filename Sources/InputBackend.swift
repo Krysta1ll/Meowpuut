@@ -8,12 +8,30 @@ enum InputBackendKind: String, CaseIterable, Identifiable {
 
 enum InputMode: String, CaseIterable, Identifiable {
     case zhuyin, pinyin, japanese
+    case nineKey = "nine-key"
+    static var allCases: [Self] {
+        #if os(iOS)
+        [.zhuyin, .pinyin, .japanese, .nineKey]
+        #else
+        [.zhuyin, .pinyin, .japanese]
+        #endif
+    }
     var id: Self { self }
     var title: String {
-        switch self { case .zhuyin: return "注音"; case .pinyin: return "拼音"; case .japanese: return "日本語 · ローマ字" }
+        switch self {
+        case .zhuyin: return "注音"
+        case .pinyin: return "拼音"
+        case .nineKey: return Preferences.shared.simplified ? "九键拼音" : "九鍵拼音"
+        case .japanese: return "日本語 · ローマ字"
+        }
     }
     var schema: String {
-        switch self { case .zhuyin: return "bopomofo"; case .pinyin: return "meowpuut_pinyin"; case .japanese: return "jaroomaji" }
+        switch self {
+        case .zhuyin: return "bopomofo"
+        case .pinyin: return "meowpuut_pinyin"
+        case .nineKey: return "meowpuut_nine_key"
+        case .japanese: return "jaroomaji"
+        }
     }
 }
 
@@ -114,14 +132,14 @@ final class NativeBackend: InputBackend {
         lock.lock()
         defer { lock.unlock() }
         let lexicon: OpaquePointer?
-        if mode == .pinyin {
+        if mode == .pinyin || mode == .nineKey {
             if pinyinLexicon == nil { pinyinLexicon = load("native-pinyin", pinyin: true).map(withPairs) }
             lexicon = pinyinLexicon
         } else {
             if zhuyinLexicon == nil { zhuyinLexicon = load("native-zhuyin", pinyin: false).map(withPairs) }
             lexicon = zhuyinLexicon
         }
-        return lexicon.flatMap { mpn_session_create($0) }
+        return lexicon.flatMap { mode == .nineKey ? mpn_nine_key_session_create($0) : mpn_session_create($0) }
     }
     /// Heap held by the lexicons that are loaded now (memory diagnostics).
     static var loadedLexiconHeapBytes: Int {
@@ -132,7 +150,7 @@ final class NativeBackend: InputBackend {
     static func releaseInactiveLexicons(keeping activeMode: InputMode?) {
         lock.lock()
         defer { lock.unlock() }
-        if activeMode != .pinyin, let lex = pinyinLexicon {
+        if activeMode != .pinyin, activeMode != .nineKey, let lex = pinyinLexicon {
             mpn_lexicon_destroy(lex)
             pinyinLexicon = nil
         }
@@ -152,14 +170,8 @@ final class NativeBackend: InputBackend {
         #endif
         guard let handle = Self.makeSession(for: mode) else { throw CocoaError(.fileReadCorruptFile) }
         session = handle
-        if mode == .pinyin {
-            for word in JapaneseBackend.mixedWords {
-                word.reading.withCString { reading in
-                    word.text.withCString { text in
-                        _ = mpn_add_japanese_word(handle, reading, text, Int32(word.weight))
-                    }
-                }
-            }
+        if mode == .pinyin || mode == .nineKey, let japanese = JapaneseLexicon.shared {
+            _ = mpn_session_add_japanese_mixed(handle, japanese)
         }
     }
 
@@ -170,21 +182,35 @@ final class NativeBackend: InputBackend {
         let count = mpn_candidate_count(session)
         let start = page * size
         let end = min(count, start + size)
-        let visible = (start..<end).map { candidate($0) }
+        let input = String(cString: mpn_input(session))
+        let bytes = Array(input.utf8)
+        let visible = (start..<end).map { candidate($0, bytes: bytes) }
+        var japanese: [String] = []
+        var weights: [String: Int] = [:]
+        if mode == .nineKey {
+            var info = MPNCandidateInfo()
+            for index in 0..<count {
+                guard mpn_candidate_info(session, index, &info, MemoryLayout<MPNCandidateInfo>.size) != 0,
+                      info.consumed_bytes == UInt64(bytes.count) else { continue }
+                let text = String(cString: mpn_candidate(session, index))
+                if info.kind == MPN_CANDIDATE_JAPANESE.rawValue { japanese.append(text) }
+                else { weights[text] = Int((info.score * 700).rounded()) }
+            }
+        }
         let committed = String(cString: mpn_committed(session)) + punctuation
         punctuation = ""
         mpn_clear_commit(session)
         return Snapshot(preedit: String(cString: mpn_preedit(session)), commit: committed,
                         candidates: visible.map(\.text), candidateDetails: visible, page: page, lastPage: end == count,
-                        input: String(cString: mpn_input(session)), pageSize: size)
+                        input: input, pageSize: size, candidateWeights: weights, japaneseCandidates: japanese,
+                        preferredCompleteMixed: visible.first.flatMap { $0.source == 1 ? $0.text : nil })
     }
     func candidates(limit: Int) -> [IndexedCandidate] {
-        (0..<min(max(0, limit), mpn_candidate_count(session))).map { candidate($0) }
+        let bytes = Array(String(cString: mpn_input(session)).utf8)
+        return (0..<min(max(0, limit), mpn_candidate_count(session))).map { candidate($0, bytes: bytes) }
     }
-    private func candidate(_ index: Int) -> IndexedCandidate {
+    private func candidate(_ index: Int, bytes: [UInt8]) -> IndexedCandidate {
         let text = String(cString: mpn_candidate(session, index))
-        let input = String(cString: mpn_input(session))
-        let bytes = Array(input.utf8)
         var info = MPNCandidateInfo()
         var metadata: CandidateMetadata?
         if mpn_candidate_info(session, index, &info, MemoryLayout<MPNCandidateInfo>.size) != 0,
@@ -196,7 +222,8 @@ final class NativeBackend: InputBackend {
                                          consumedBytes: consumed, remainingOffsetBytes: offset,
                                          remainingInput: String(decoding: bytes.dropFirst(offset), as: UTF8.self))
         }
-        return IndexedCandidate(index: index, text: text, backendIndex: index, source: 0, metadata: metadata)
+        let japanese = mode == .nineKey && info.kind == MPN_CANDIDATE_JAPANESE.rawValue
+        return IndexedCandidate(index: index, text: text, backendIndex: index, source: japanese ? 1 : 0, metadata: metadata)
     }
     func consumedInputBytes(_ index: Int) -> Int {
         guard index >= 0 else { return 0 }
@@ -247,7 +274,7 @@ final class WordEvidence {
     private var db: OpaquePointer?
     private init() {
         guard let path = Bundle.main.path(forResource: "language-evidence", ofType: "sqlite") else { return }
-        if sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) != SQLITE_OK {
+        if sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) != SQLITE_OK {
             sqlite3_close(db); db = nil
         }
     }

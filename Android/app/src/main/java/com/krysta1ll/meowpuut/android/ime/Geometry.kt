@@ -38,17 +38,6 @@ enum class Idiom {
 }
 
 /**
- * The bar's frame was laid out around the earlier cats: one behind the
- * glass's left end, one with her chin on its right end. The bar's design is
- * kept exactly as it was, so their proportions stay here as layout constants.
- * The cats drawn now are seated on this frame by CatStage.kt.
- */
-private object BarFrame {
-    const val LEFT_ASPECT = 0.9135f
-    const val RIGHT_ASPECT = 1.0543f
-}
-
-/**
  * The candidate region above the keys: the glass bar, the candidate row and
  * the expand key. 米米莫 and 莫莫 sit on the glass's top edge ([stage]).
  * [rim] is where the shape's upper rim sits below the top of the glass
@@ -56,7 +45,8 @@ private object BarFrame {
  * amplitude, the cloud's base). The expand key lines up with the band the
  * candidates sit in.
  */
-class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean = true, val rim: Float = 0f) {
+class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean = true, val rim: Float = 0f,
+                            val edgeHuggingCats: Boolean = false) {
     val width: Float = if (rawWidth.isFinite() && rawWidth > 1f) rawWidth else 320f
     val scale: Float
     val height: Float
@@ -71,27 +61,21 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
         val s: Float
         val regionHeight: Float
         val glassHeight: Float
-        // Heights of the earlier cats (see BarFrame).
-        val leftHeight: Float
-        val rightHeight: Float
         val font: Float
         when (idiom) {
             Idiom.PHONE -> {
                 s = min(1.15f, max(0.9f, width / 393f))
                 regionHeight = 82 * s; glassHeight = 46 * s
-                leftHeight = 62 * s; rightHeight = 54 * s
                 font = min(21f, max(19f, 20 * s))
             }
             Idiom.PHONE_LANDSCAPE -> {
                 s = 1f
                 regionHeight = 63f; glassHeight = 36f
-                leftHeight = 46f; rightHeight = 40f
                 font = 18f
             }
             Idiom.TABLET -> {
                 s = 1.15f
                 regionHeight = 94f; glassHeight = 53f
-                leftHeight = 71f; rightHeight = 62f
                 font = 21f
             }
         }
@@ -109,22 +93,19 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
             height = regionHeight.roundToInt().toFloat()
             val glassBottom = height - 2 * s
             val top = glassBottom - glassHeight
-            // Where the left figure began and ended, and where the right one began.
-            val leftStart = 2 * s
-            val leftWidth = leftHeight * BarFrame.LEFT_ASPECT
-            val rightStart = width - 4 * s - rightHeight * BarFrame.RIGHT_ASPECT
-            val glassLeft = leftStart + 0.24f * leftWidth
-            glass = Box(glassLeft, top, max(1f, width - 6 * s - glassLeft), glassHeight)
-            val chevronWidth = 34 * s
-            val chevronY = glass.centerY + rimY / 2 + 2 * s
+            val margin = 5 * s
+            val left = if (edgeHuggingCats) 15 * s else margin
+            glass = Box(left, top, max(1f, width - left - margin), glassHeight)
+            val chevronWidth = 44f
+            val chevronY = glass.centerY + rimY / 2
             val chevronHeight = min(min(44f, glassHeight), 2 * (height - chevronY))
-            chevron = Box(rightStart - 6 * s - chevronWidth / 2, chevronY - chevronHeight / 2, chevronWidth, chevronHeight)
-            val rowLeft = leftStart + leftWidth + 2 * s
+            chevron = Box(glass.right - 3 * s - chevronWidth, chevronY - chevronHeight / 2, chevronWidth, chevronHeight)
+            val rowLeft = glass.left + glassHeight / 2 + 5 * s
             row = Box(rowLeft, glass.top, max(1f, chevron.left - rowLeft), glassHeight)
         } else {
             height = (glassHeight + 12 * s).roundToInt().toFloat()
             glass = Box(4 * s, (height - glassHeight) / 2, max(1f, width - 8 * s), glassHeight)
-            val chevronWidth = 40 * s
+            val chevronWidth = 44f
             val chevronHeight = min(44f, glassHeight)
             val chevronY = min(glass.centerY + rimY / 2, height - chevronHeight / 2)
             chevron = Box(glass.right - 6 * s - chevronWidth, chevronY - chevronHeight / 2, chevronWidth, chevronHeight)
@@ -134,7 +115,18 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
     }
 
     /** Longest a single candidate may be before it is shortened in the middle. */
-    val maximumCandidateWidth: Float get() = max(60f, row.width * 0.70f)
+    fun maximumCandidateWidth(row: Box): Float = max(60f, row.width * 0.70f)
+
+    fun candidateTarget(row: Box): Box {
+        val targetHeight = max(row.height, 48f).coerceAtMost(height)
+        val top = (row.centerY - targetHeight / 2).coerceIn(0f, height - targetHeight)
+        return Box(row.left, top, row.width, targetHeight)
+    }
+
+    fun expandTarget(button: Box): Box {
+        val top = min(button.top, height - 44f).coerceAtLeast(0f)
+        return Box(button.left, top, button.width, height - top)
+    }
 
     /**
      * The bar as the cats see it (CatStage.kt). They take the height above
@@ -150,6 +142,7 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
             width, height, glass, shape, unit = scale, room = glass.top - 1.5f,
             row = Box(row.left, middle - pillHeight / 2, row.width, pillHeight),
             arrow = Box(chevron.centerX - arrowWidth / 2, middle - arrowHeight / 2, arrowWidth, arrowHeight),
+            arrowTouch = expandTarget(chevron),
         )
     }
 
@@ -157,6 +150,40 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
         /** Width of the expand key's arrow; it is half as tall. */
         const val ARROW_WIDTH = 11f
     }
+}
+
+enum class KeyboardTextSize(val key: String, val scale: Float) {
+    SMALL("small", 0.85f), STANDARD("standard", 1f), LARGE("large", 1.2f);
+
+    fun fontSize(base: Float, systemScale: Float): Float = base * scale * systemScale.coerceIn(0.85f, 1.15f)
+
+    companion object {
+        fun of(key: String?) = entries.firstOrNull { it.key == key } ?: STANDARD
+    }
+}
+
+enum class KeyboardHeight(val key: String, val offset: Float) {
+    COMPACT("compact", -4f), STANDARD("standard", 0f), TALL("tall", 5f);
+
+    companion object {
+        fun of(key: String?) = entries.firstOrNull { it.key == key } ?: STANDARD
+    }
+}
+
+object PanelAdjustment {
+    const val MIN_HEIGHT = -10
+    const val MAX_HEIGHT = 14
+    const val MAX_BOTTOM_GAP = 72
+
+    // Reserve some of the editor on short displays. System navigation is
+    // accounted for by the IME in addition to this optional spacing.
+    fun availableHeight(screenHeight: Float, idiom: Idiom, navigationInset: Float): Float {
+        val editor = if (idiom == Idiom.PHONE_LANDSCAPE) 80f else 144f
+        return (screenHeight - editor - navigationInset).coerceAtLeast(0f)
+    }
+
+    fun bottomGap(requested: Int, available: Float, contentHeight: Float): Float =
+        min(requested.coerceIn(0, MAX_BOTTOM_GAP).toFloat(), (available - contentHeight).coerceAtLeast(0f))
 }
 
 /** Key metrics in the proportions of Apple's keyboard (DESIGN.md §5). */
@@ -183,8 +210,8 @@ data class KeyMetrics(
                         sideMargin = 3f, keyGap = 6f,
                         keyHeight = ((if (dense) 37f else 42f) * s).roundToInt().toFloat(),
                         rowGap = if (dense) 7.5f else 11f,
-                        topPadding = if (dense) 6f else 8f, bottomPadding = 4f,
-                        cornerRadius = 8.5f, letterFont = if (dense) 21f else 23f, utilityFont = 15f,
+                        topPadding = if (dense) 4f else 5f, bottomPadding = 4f,
+                        cornerRadius = if (dense) 10f else 12f, letterFont = if (dense) 21f else 23f, utilityFont = 15f,
                     )
                 }
                 Idiom.PHONE_LANDSCAPE -> KeyMetrics(
@@ -192,14 +219,14 @@ data class KeyMetrics(
                     keyHeight = if (dense) 28f else 32f,
                     rowGap = if (dense) 5f else 6f,
                     topPadding = 5f, bottomPadding = 3f,
-                    cornerRadius = 7f, letterFont = if (dense) 19f else 21f, utilityFont = 14f,
+                    cornerRadius = 9f, letterFont = if (dense) 19f else 21f, utilityFont = 14f,
                 )
                 Idiom.TABLET -> KeyMetrics(
                     sideMargin = 6f, keyGap = 9f,
                     keyHeight = if (dense) 46f else 52f,
                     rowGap = if (dense) 8f else 10f,
                     topPadding = 8f, bottomPadding = 6f,
-                    cornerRadius = 9f, letterFont = if (dense) 23f else 25f, utilityFont = 17f,
+                    cornerRadius = if (dense) 13f else 15f, letterFont = if (dense) 23f else 25f, utilityFont = 17f,
                 )
             }
         }
@@ -210,10 +237,25 @@ data class KeyMetrics(
          * too, so changing pages never makes the keyboard jump. What does not
          * divide evenly goes below the last row, where it still answers touches.
          */
-        fun fitted(idiom: Idiom, width: Float, rows: Int, baseRows: Int): KeyMetrics {
+        fun fitted(
+            idiom: Idiom, width: Float, rows: Int, baseRows: Int,
+            height: KeyboardHeight = KeyboardHeight.STANDARD, panelHeightDelta: Int? = null,
+            availableHeight: Float = Float.POSITIVE_INFINITY,
+        ): KeyMetrics {
+            val base = of(idiom, width, baseRows)
+            val custom = panelHeightDelta?.coerceIn(PanelAdjustment.MIN_HEIGHT, PanelAdjustment.MAX_HEIGHT)?.toFloat()
+            val landscape = idiom == Idiom.PHONE_LANDSCAPE
+            val offset = when {
+                !landscape -> custom ?: height.offset
+                custom != null -> custom / 2f
+                else -> min(0f, height.offset / 2f)
+            }
+            val minimum = if (landscape) 26f else 32f
+            val maxHeightPerRow = floor((availableHeight - base.areaHeight(baseRows) + baseRows * base.keyHeight) / baseRows)
+            val sized = base.copy(keyHeight = min(maxHeightPerRow.coerceAtLeast(minimum), (base.keyHeight + offset).coerceAtLeast(minimum)))
+            if (rows == baseRows) return sized
             val own = of(idiom, width, rows)
-            if (rows == baseRows) return own
-            val area = of(idiom, width, baseRows).areaHeight(baseRows)
+            val area = sized.areaHeight(baseRows)
             val gaps = max(0, rows - 1) * own.rowGap
             val keyHeight = floor(max(1f, (area - own.topPadding - own.bottomPadding - gaps) / rows))
             val used = own.topPadding + rows * keyHeight + gaps
@@ -323,13 +365,15 @@ object KeyBalloon {
      * the middle of the keyboard; on the right half the options run right to
      * left, so the first one is always the one nearest the finger.
      */
-    fun alternates(key: Box, count: Int, keyboardWidth: Float): AlternatesStrip {
+    fun alternates(key: Box, count: Int, keyboardWidth: Float, keepOnScreen: Boolean = false): AlternatesStrip {
         val options = max(1, count)
-        val cell = max(30f, min(key.width, (keyboardWidth - 8) / options))
+        val cell = min(max(30f, key.width), max(1f, keyboardWidth - 4f - 2 * AlternatesStrip.PADDING) / options)
         val width = cell * options + 2 * AlternatesStrip.PADDING
         val leftHalf = key.centerX < keyboardWidth / 2
         val x = min(max(2f, if (leftHalf) key.left - 4 else key.right + 4 - width), keyboardWidth - 2 - width)
-        return AlternatesStrip(Box(x, key.top - 50f - 4, width, 50f), cell, options, mirrored = !leftHalf)
+        val above = key.top - 54f
+        val y = if (keepOnScreen && above < 2f) key.bottom + 4f else above
+        return AlternatesStrip(Box(x, y, width, 50f), cell, options, mirrored = !leftHalf)
     }
 }
 
