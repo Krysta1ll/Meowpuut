@@ -7,6 +7,7 @@
 <p align="center">
   <a href="#下載">下載</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
+  <a href="docs/VERSIONS.md">版本怎麼看</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a>
 </p>
 
@@ -141,7 +142,7 @@ bash scripts/package-macos.sh
 - Android：見 [Android/README.md](Android/README.md)。
 - Windows：見 [Windows/README.md](Windows/README.md)。
 
-選字和詞庫怎麼做的，見[引擎與詞庫](docs/ENGINE.md)。
+選字和詞庫怎麼做的，見[引擎與詞庫](docs/ENGINE.md)。[Meowpuut-Core](https://github.com/Krysta1ll/Meowpuut-Core) 保存早期 C++ 核心。現行 Rust 核心在這個倉庫的 [`crates/`](crates/)。[倉庫拆分提案](docs/REPOSITORIES.md)
 
 ## 授權
 
@@ -151,7 +152,7 @@ bash scripts/package-macos.sh
 
 ## 回報問題
 
-到 [Issues](https://github.com/Krysta1ll/Meowpuut/issues) 留言。最有用的回報只要幾行：哪個平台和版本、哪個模式、按了哪些鍵、想打什麼、實際出現什麼。附截圖前先遮掉私人內容。
+到 [Issues](https://github.com/Krysta1ll/Meowpuut/issues/new/choose) 回報。請把平台、喵撲的完整版本、系統版本和操作寫在一起。從哪裡安裝也有幫助，尤其是想比對舊版和新版時。附截圖前先遮掉私人內容。
 
 還在改進的地方：長句斷詞、一個簡體字對應幾個繁體字的情況、在不同 App 裡候選列的位置。日文詞表裡不收的詞是程式自動判定的，還沒有給日語母語者看過。
 
