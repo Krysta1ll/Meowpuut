@@ -4,8 +4,8 @@
 #
 #   MINGW_BIN=/path/to/llvm-mingw/bin bash scripts/package-windows.sh
 #
-#   .build/windows-package/Meowpuut-Windows-<version>-x64.zip
-#   .build/windows-package/Meowpuut-Windows-<version>-arm64.zip
+#   .build/windows-package/Meowpuut-Porch-<build>-x64.zip
+#   .build/windows-package/Meowpuut-Porch-<build>-arm64.zip
 #   .build/windows-package/SHA256SUMS.txt
 #
 # Needs llvm-mingw (both architectures) and a generated lexicon folder with
@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-VERSION=Porch-2
+BUILD_ID=26A002
 : "${MINGW_BIN:?set MINGW_BIN to the bin directory of llvm-mingw}"
 TOOLCHAIN=$(cd "$MINGW_BIN/.." && pwd)
 LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"
@@ -39,7 +39,7 @@ for ARCH in x64 arm64; do
     arm64) TRIPLE=aarch64-w64-mingw32; RUST_TARGET=aarch64-pc-windows-gnullvm; WHO="Arm64 的 Windows 11" ;;
   esac
   MINGW_BIN="$MINGW_BIN" bash scripts/build-windows-ime.sh "${ARCH}" "$OUT/build/${ARCH}"
-  NAME="Meowpuut-Windows-${VERSION}-${ARCH}"
+  NAME="Meowpuut-Porch-${BUILD_ID}-${ARCH}"
   STAGE="$OUT/$NAME"
   mkdir -p "$STAGE/lexicon"
   cp "$OUT/build/${ARCH}/MeowpuutTextService.dll" "$STAGE/"
@@ -66,9 +66,9 @@ Arm64 版只在 Arm64 的程式裡有作用（記事本、Edge、檔案總管、
   fi
   {
     cat <<EOF
-# 喵撲 Windows 門廊 · ${VERSION#Porch-}（${ARCH}）
+# 喵撲 Windows 門廊 · ${BUILD_ID}（${ARCH}）
 
-給 ${WHO}。這是 alpha 版。
+適用於 ${WHO}。
 ${ARM_NOTE}
 ## 安裝與移除
 

@@ -1,6 +1,7 @@
 // Version and icon of MeowpuutTextService.dll. The build passes
-// MEOWPUUT_VERSION ("Porch 2") and MEOWPUUT_VERSION_NUMBERS (0,9,0,2)
+// MEOWPUUT_VERSION ("門廊 · 26A002") and MEOWPUUT_VERSION_NUMBERS (0,9,0,2)
 // and puts Meowpuut.ico, made from assets/brand/AppIcon.png, on the include path.
+#pragma code_page(65001)
 #include <winver.h>
 
 1 ICON "Meowpuut.ico"
