@@ -131,9 +131,9 @@ if [ "$mode" = "--release" ]; then
       "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias meowpuut --ks-pass env:MEOWPUUT_KS_PASS \
       --out "$OUTDIR/app-release.apk" "$OUTDIR/app-release-unsigned.apk"
     "$APKSIGNER" verify "$OUTDIR/app-release.apk"
-    version=$("$SDK/build-tools/37.0.0/aapt" dump badging "$OUTDIR/app-release.apk" | sed -n "s/^package: .*versionName='\([0-9][0-9.]*\)'.*/\1/p")
-    [ -n "$version" ] || { echo "error: no numeric versionName in signed APK" >&2; exit 1; }
-    release="$OUTDIR/Meowpuut-Android-$version.apk"
+    build=$("$SDK/build-tools/37.0.0/aapt" dump badging "$OUTDIR/app-release.apk" | sed -n "s/^package: .*versionCode='\([0-9]*\)'.*/\1/p")
+    [ -n "$build" ] || { echo "error: no versionCode in signed APK" >&2; exit 1; }
+    release="$OUTDIR/Meowpuut-Android-Prism-$build.apk"
     cp "$OUTDIR/app-release.apk" "$release"
     echo "signed: Android/$release"
   else
