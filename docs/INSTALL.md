@@ -1,6 +1,6 @@
 # 安裝喵撲 Meowpuut
 
-iPhone、iPad 的版本與名額以 [TestFlight](https://testflight.apple.com/join/kfMVXAC6) 顯示為準。Mac、Android、Windows 的測試版是 [0.9.0 Alpha 1](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.9.0-alpha.1)。
+iPhone、iPad 的版本與名額以 [TestFlight](https://testflight.apple.com/join/kfMVXAC6) 顯示為準。Mac、Windows 的測試版是 0.9.0 Alpha 1，Android 是 0.9.1。安裝檔集中在 [發行頁](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.9.0-alpha.1)。
 
 - [iPhone、iPad](#iphoneipad)
 - [Mac](#mac)
@@ -27,14 +27,14 @@ iPhone、iPad 的版本與名額以 [TestFlight](https://testflight.apple.com/jo
 
 下面兩種選一種下載就好：
 
-- [Meowpuut-0.9.0-alpha.1-macos-arm64.dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.dmg)：紙箱安裝盤，裡面也有一份「安裝或更新.pkg」。
+- [Meowpuut-0.9.0-alpha.1-macos-arm64.dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.dmg)：紙箱安裝盤，適合首次安裝。
 - [Meowpuut-0.9.0-alpha.1-macos-arm64.pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.pkg)：安裝套件。
 
 ### 用安裝盤
 
 打開 `.dmg`，把紙箱裡的 **Meowpuut** 拖到右邊的「輸入法」。這個捷徑指向 `/Library/Input Methods`，不是「應用程式」。Finder 可能要你輸入管理員密碼。如果系統的輸入法資料夾還不存在，改用安裝套件，它會建立資料夾。
 
-**更新舊版時請用「安裝或更新.pkg」**：Finder 不能覆蓋正在使用的輸入法。
+**更新舊版時請下載上方的獨立 PKG**。Finder 無法覆蓋正在使用的輸入法。
 
 ### 用安裝套件
 
@@ -71,7 +71,7 @@ iPhone、iPad 的版本與名額以 [TestFlight](https://testflight.apple.com/jo
 3. 打開下載的 APK。系統可能會先要你允許瀏覽器或檔案 App 安裝未知來源的 App。
 4. 打開喵撲 App，照首頁的兩個按鈕：到系統的鍵盤設定開啟「喵撲」（通常在「設定 → 系統 → 鍵盤 → 螢幕鍵盤」，各家手機的位置不太一樣），再用輸入法切換鈕選喵撲。首頁也可以直接試打。
 
-從 0.8.0 發布版更新時，可以直接安裝新 APK。
+從 0.8.0 或 0.9.0 發布版更新時，可直接安裝新 APK。
 
 ## Windows
 
