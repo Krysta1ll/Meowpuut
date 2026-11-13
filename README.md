@@ -25,16 +25,16 @@
 
 | 平台 | 版本 | 下載 |
 | --- | --- | --- |
-| iPhone、iPad（iOS 17 以上） | 正式版與測試版 | [App Store](https://apps.apple.com/app/id6832432299) · [TestFlight](https://testflight.apple.com/join/kfMVXAC6) |
-| Mac（macOS 27 以上，Apple 晶片） | 窗臺 · 32 | [安裝盤 .dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-32/Meowpuut-macOS-Sill-32-arm64.dmg) · [安裝套件 .pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-32/Meowpuut-macOS-Sill-32-arm64.pkg) |
-| Android（8.0 以上） | 稜鏡 · 12 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-12/Meowpuut-Android-Prism-12.apk) |
-| Windows 10、11 | 門廊 · 2 | [x64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-2/Meowpuut-Windows-Porch-2-x64.zip) · [Arm64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-2/Meowpuut-Windows-Porch-2-arm64.zip) |
+| iPhone、iPad（iOS 17 以上） | 正式版 | [App Store](https://apps.apple.com/app/id6832432299) |
+| Mac（macOS 27 以上，Apple 晶片） | 0.9.0 Alpha 1 | [安裝盤 .dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.dmg) · [安裝套件 .pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.pkg) |
+| Android（8.0 以上） | 0.9.1 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-android.apk) |
+| Windows 10、11 | 0.9.0 Alpha 1 | [x64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-windows-x64.zip) · [Arm64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-windows-arm64.zip) |
 
-更新說明和 SHA-256 校驗檔：[Mac](https://github.com/Krysta1ll/Meowpuut/releases/tag/macos-sill-32) · [Android](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-prism-12) · [Windows](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-porch-2)。[歷史版本](https://github.com/Krysta1ll/Meowpuut/releases)。
+下載的檔案可以用 [SHA256SUMS.txt](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/SHA256SUMS.txt) 核對。這版改了什麼，見 [0.9.0 Alpha 1 版本說明](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.9.0-alpha.1)。舊版本在 [Releases](https://github.com/Krysta1ll/Meowpuut/releases)。
 
-- **iPhone、iPad**：可從 [App Store](https://apps.apple.com/app/id6832432299) 安裝。想試新版，可以用 [TestFlight](https://testflight.apple.com/join/kfMVXAC6)。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
+- **iPhone、iPad**：從 [App Store](https://apps.apple.com/app/id6832432299) 安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
 - **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好要登出再登入，再到系統設定加入輸入法。
-- **Android**：0.8.0、0.9.0 和 0.9.1 發布版可直接更新。裝過 0.1.0 的話，Android 會要求先移除舊版。
+- **Android**：0.8.0 和 0.9.0 發布版可直接更新。裝過 0.1.0 的話，Android 會要求先移除舊版。
 - **Windows**：沒有簽署的測試版，Windows 可能會先跳出警告。一般電腦用 x64；Arm 處理器的電腦（例如 Snapdragon 筆電）用 Arm64，它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機，在模擬執行的 x64 程式裡打不出中文。安裝步驟見[安裝說明](docs/INSTALL.md#windows)。
 
 各平台的安裝、更新和移除見[安裝說明](docs/INSTALL.md)。
@@ -126,9 +126,9 @@ iPhone 鍵盤的按鍵也是玻璃，跟著配色走。iOS 26 起用系統的液
 
 ## 隱私
 
-- iPhone 鍵盤可離線打字，自訂按鍵聲和可選的 iCloud 選詞同步需要「允許完整取用」。Android 鍵盤不需要網路權限。
+- iPhone 鍵盤可離線打字，自訂按鍵聲和支援 iCloud 選詞同步的版本需要「允許完整取用」。Android 鍵盤不需要網路權限。
 - 不收集任何資料，沒有帳號、廣告和分析工具。
-- 選詞記憶預設留在這台裝置；Android 可以在設定裡關閉、清除，或匯出和匯入選詞記錄。
+- 選詞記憶預設只存在這台裝置。
 
 完整的說明在[隱私政策](docs/PRIVACY.md)。
 
