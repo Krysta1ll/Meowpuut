@@ -13,7 +13,7 @@ Android 版是一個輸入法（`InputMethodService`）加一個設定 App。中
 ```sh
 bash scripts/build-android.sh            # Android/app/build/outputs/apk/debug/app-debug.apk
 bash scripts/build-android.sh --test     # 同上，再跑 JVM 單元測試
-bash scripts/build-android.sh --release  # Android/app/build/outputs/apk/release/app-release-unsigned.apk
+bash scripts/build-android.sh --release  # 輸出到 Android/app/build/outputs/apk/release/
 ```
 
 其他 Gradle 參數放在 `MEOWPUUT_GRADLE_ARGS`，例如 `MEOWPUUT_GRADLE_ARGS="--offline --max-workers=4"`。檢查程式碼用 `cd Android && ./gradlew lintDebug`。

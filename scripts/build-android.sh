@@ -2,7 +2,7 @@
 # Builds the Android input method in Android/.
 #
 #   bash scripts/build-android.sh             -> Android/app/build/outputs/apk/debug/app-debug.apk
-#   bash scripts/build-android.sh --release   -> Android/app/build/outputs/apk/release/app-release-unsigned.apk
+#   bash scripts/build-android.sh --release   -> Android/app/build/outputs/apk/release/
 #   bash scripts/build-android.sh --test      -> the debug APK and the JVM unit tests
 #   bash scripts/build-android.sh --prepare   -> only the Rust engine and the lexicon assets
 #                                                (Gradle's preBuild runs this)
@@ -129,7 +129,11 @@ if [ "$mode" = "--release" ]; then
       "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias meowpuut --ks-pass env:MEOWPUUT_KS_PASS \
       --out "$OUTDIR/app-release.apk" "$OUTDIR/app-release-unsigned.apk"
     "$APKSIGNER" verify "$OUTDIR/app-release.apk"
-    echo "signed: Android/$OUTDIR/app-release.apk"
+    build=$("$SDK/build-tools/37.0.0/aapt" dump badging "$OUTDIR/app-release.apk" | sed -n "s/^package: .*versionCode='\([0-9]*\)'.*/\1/p")
+    [ -n "$build" ] || { echo "error: no versionCode in signed APK" >&2; exit 1; }
+    release="$OUTDIR/Meowpuut-Android-Prism-$build.apk"
+    cp "$OUTDIR/app-release.apk" "$release"
+    echo "signed: Android/$release"
   else
     echo "no release key at $KEYSTORE: Android/$OUTDIR/app-release-unsigned.apk is unsigned"
   fi
