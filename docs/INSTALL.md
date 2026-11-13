@@ -1,6 +1,6 @@
 # 安裝喵撲 Meowpuut
 
-iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id6832432299)。Mac、Windows 的測試版是 0.9.0 Alpha 1，Android 是 0.9.1。安裝檔集中在 [發行頁](https://github.com/Krysta1ll/Meowpuut/releases/tag/v0.9.0-alpha.1)。
+iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id6832432299)。其他平台的正式版與更新說明見 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases)。
 
 - [iPhone、iPad](#iphoneipad)
 - [Mac](#mac)
@@ -26,8 +26,8 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 下面兩種選一種下載就好：
 
-- [Meowpuut-0.9.0-alpha.1-macos-arm64.dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.dmg)：紙箱安裝盤，適合首次安裝。
-- [Meowpuut-0.9.0-alpha.1-macos-arm64.pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-macos-arm64.pkg)：安裝套件。
+- [Meowpuut-Sill-26A032-arm64.dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-26a032/Meowpuut-Sill-26A032-arm64.dmg)：紙箱安裝盤，適合首次安裝。
+- [Meowpuut-Sill-26A032-arm64.pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-26a032/Meowpuut-Sill-26A032-arm64.pkg)：安裝套件。
 
 ### 用安裝盤
 
@@ -49,7 +49,7 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 ### 沒有公證
 
-這個測試版沒有用 Developer ID 簽署，也沒有經過 Apple 公證，App 只有本機的 ad-hoc 簽署。從瀏覽器下載後，macOS 可能不讓你打開。
+這個安裝包沒有用 Developer ID 簽署，也沒有經過 Apple 公證，App 只有本機的 ad-hoc 簽署。從瀏覽器下載後，macOS 可能不讓你打開。
 
 請先用 `SHA256SUMS.txt` 核對檔案（見[下面](#核對下載的檔案)）。決定要試的話，照 [Apple 的說明](https://support.apple.com/en-hk/102445)在系統設定的「隱私權與安全性」允許這一次打開。不要關掉整台電腦的 Gatekeeper 或 SIP。系統還是拒絕的話，請把完整的提示回報給我們；也可以自己從原始碼建置。
 
@@ -65,21 +65,21 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 需要 Android 8.0 以上的 64 位元手機或平板。
 
-1. 下載 [Meowpuut-0.9.0-alpha.1-android.apk](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-android.apk)。
+1. 下載 [Meowpuut-Prism-26A012.apk](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-26a012/Meowpuut-Prism-26A012.apk)。
 2. **裝過 0.1.0 的話，先把舊的喵撲移除。** 0.8.0 換了簽署用的金鑰，Android 不會讓新的蓋過舊的。
 3. 打開下載的 APK。系統可能會先要你允許瀏覽器或檔案 App 安裝未知來源的 App。
 4. 打開喵撲 App，照首頁的兩個按鈕：到系統的鍵盤設定開啟「喵撲」（通常在「設定 → 系統 → 鍵盤 → 螢幕鍵盤」，各家手機的位置不太一樣），再用輸入法切換鈕選喵撲。首頁也可以直接試打。
 
-從 0.8.0 或 0.9.0 發布版更新時，可直接安裝新 APK。
+從 0.8.0、0.9.0 或 0.9.1 發布版更新時，可直接安裝新 APK。
 
 ## Windows
 
 需要 Windows 10 或 11。
 
-- 一般的電腦（Intel、AMD）：下載 [Meowpuut-0.9.0-alpha.1-windows-x64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-windows-x64.zip)。
-- Arm 處理器的電腦（例如 Snapdragon 筆電）：下載 [Meowpuut-0.9.0-alpha.1-windows-arm64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/v0.9.0-alpha.1/Meowpuut-0.9.0-alpha.1-windows-arm64.zip)。它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機；在模擬執行的 x64 程式裡打不出中文。
+- 一般的電腦（Intel、AMD）：下載 [Meowpuut-Porch-26A002-x64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-26a002/Meowpuut-Porch-26A002-x64.zip)。
+- Arm 處理器的電腦（例如 Snapdragon 筆電）：下載 [Meowpuut-Porch-26A002-arm64.zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-26a002/Meowpuut-Porch-26A002-arm64.zip)。它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機；在模擬執行的 x64 程式裡打不出中文。
 
-整個解壓縮後執行 `Install.cmd`，同意系統要的管理員權限。裝好後按 Windows 鍵＋空白鍵切到「喵撲拼音」或「喵撲注音」。移除用同一個資料夾裡的 `Uninstall.cmd`。這個測試版沒有簽署，Windows 可能會先跳出警告。
+整個解壓縮後執行 `Install.cmd`，同意系統要的管理員權限。裝好後按 Windows 鍵＋空白鍵切到「喵撲拼音」或「喵撲注音」。移除用同一個資料夾裡的 `Uninstall.cmd`。這個安裝包沒有簽署，Windows 可能會先跳出警告。
 
 裝錯版本時，安裝程式會先停下來告訴你該下載哪一個。
 
@@ -94,5 +94,5 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 ```powershell
 # Windows：把算出來的值和 SHA256SUMS.txt 裡同名的那一行比對
-certutil -hashfile Meowpuut-0.9.0-alpha.1-windows-x64.zip SHA256
+certutil -hashfile Meowpuut-Porch-26A002-x64.zip SHA256
 ```
