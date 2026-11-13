@@ -22,7 +22,7 @@ android {
         targetSdk = 37
         val buildNumber = 12
         versionCode = buildNumber
-        versionName = "稜鏡 · $buildNumber"
+        versionName = "稜鏡 · AND-" + buildNumber.toString().padStart(3, '0')
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
