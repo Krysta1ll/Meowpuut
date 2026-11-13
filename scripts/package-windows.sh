@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-VERSION=1.0.0
+VERSION=Porch-2
 : "${MINGW_BIN:?set MINGW_BIN to the bin directory of llvm-mingw}"
 TOOLCHAIN=$(cd "$MINGW_BIN/.." && pwd)
 LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"
@@ -66,9 +66,9 @@ Arm64 版只在 Arm64 的程式裡有作用（記事本、Edge、檔案總管、
   fi
   {
     cat <<EOF
-# 喵撲 Windows · ${VERSION}（${ARCH}）
+# 喵撲 Windows 門廊 · ${VERSION#Porch-}（${ARCH}）
 
-適用於 ${WHO}。
+給 ${WHO}。這是 alpha 版。
 ${ARM_NOTE}
 ## 安裝與移除
 

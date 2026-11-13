@@ -14,8 +14,8 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 ARCH="${1:?usage: build-windows-ime.sh x64|arm64 [output directory]}"
 OUT="${2:-.build/windows-ime/$ARCH}"
-VERSION=1.0.0
-VERSION_NUMBERS=1,0,0,2
+VERSION="Porch 2"
+VERSION_NUMBERS=0,9,0,2
 if [ -n "${MINGW_BIN:-}" ]; then export PATH="$MINGW_BIN:$PATH"; fi
 
 case "$ARCH" in

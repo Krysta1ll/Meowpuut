@@ -8,8 +8,8 @@ import subprocess
 import dmgbuild
 root = Path(__file__).resolve().parent.parent
 app = root / '.build/Meowpuut.app'
-version = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString']
-label = os.environ.get('MEOWPUUT_RELEASE_LABEL', version)
+build = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleVersion']
+label = os.environ.get('MEOWPUUT_RELEASE_LABEL', f'Sill-{build}')
 out = Path(os.environ.get('MEOWPUUT_RELEASE_DIR', root / '.build/releases')).resolve()
 package = out / f'Meowpuut-macOS-{label}-arm64.pkg'
 assert package.is_file(), 'Build the fallback package first'
