@@ -280,8 +280,7 @@ struct Studio: View {
     }
 
     private var version: String {
-        guard let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return "" }
-        return t("窗臺", "窗台") + " · " + build
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
     var body: some View {
@@ -302,7 +301,7 @@ struct Studio: View {
                     .accessibilityAddTraits(section == item ? .isSelected : [])
                 }
                 Spacer()
-                Text((version.isEmpty ? "" : version + " ") + t("測試版", "测试版")).font(.caption2).foregroundStyle(.secondary)
+                Text(version).font(.caption2).foregroundStyle(.secondary)
             }.padding(20).navigationSplitViewColumnWidth(220)
         } detail: {
             ScrollView {

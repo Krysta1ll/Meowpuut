@@ -32,7 +32,7 @@ swiftc -j "${MEOWPUUT_JOBS:-4}" $(bash scripts/build.sh --sources) scripts/Glass
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>app.meowpuut.GlassPreview</string><key>CFBundleExecutable</key><string>GlassPreview</string><key>CFBundleName</key><string>GlassPreview</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><false/></dict></plist>
 PLIST
-/usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Resources/Info.plist)" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)" "$APP/Contents/Info.plist"
 if [ "${1:-}" = "--snapshot" ]; then
   [ -n "${2:-}" ] || { echo "usage: $0 --snapshot DIR [--festivals DIR] [--only NAME]" >&2; exit 2; }
   # Exits on its own: 0 when every sheet was written.

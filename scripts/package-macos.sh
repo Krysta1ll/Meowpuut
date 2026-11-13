@@ -3,8 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="$PWD/.build/Meowpuut.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")
-LABEL="${MEOWPUUT_RELEASE_LABEL:-Sill-$BUILD}"
+LABEL="${MEOWPUUT_RELEASE_LABEL:-$VERSION}"
 ARCH=$(uname -m)
 OUT="${MEOWPUUT_RELEASE_DIR:-$PWD/.build/releases}"
 STAGE="$(mktemp -d "$PWD/.build/package-stage.XXXXXX")"
@@ -25,7 +24,7 @@ pkgbuild --root "$STAGE" --component-plist scripts/components.plist --scripts sc
 cat > "$OUT/Distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>喵撲 Meowpuut · 窗臺 $BUILD</title>
+  <title>喵撲 Meowpuut · $VERSION</title>
   <welcome file="Welcome.html"/>
   <conclusion file="Conclusion.html"/>
   <options customize="never" require-scripts="false" hostArchitectures="$ARCH"/>

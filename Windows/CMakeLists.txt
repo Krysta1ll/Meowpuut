@@ -54,7 +54,7 @@ if(WIN32)
     add_library(MeowpuutTextService SHARED TextService/TextService.cpp TextService/TextService.def TextService/TextService.rc)
     target_link_libraries(MeowpuutTextService PRIVATE MeowpuutWindowsSession MeowpuutCandidateWindow oleaut32)
     target_compile_definitions(MeowpuutTextService PRIVATE
-        MEOWPUUT_VERSION="Porch 2" MEOWPUUT_VERSION_NUMBERS=0,9,0,2)
+        MEOWPUUT_VERSION="1.0.0" MEOWPUUT_VERSION_NUMBERS=1,0,0,2)
     target_include_directories(MeowpuutTextService PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_options(MeowpuutTextService PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/utf-8 /W4>)
 
