@@ -189,7 +189,7 @@ bash scripts/build-windows-check.sh
 分四段，輸出在 `.build/windows-check/`：
 
 1. 排版測試：標準庫邊界檢查版和 UndefinedBehaviorSanitizer 版。設 `MEOWPUUT_ASAN=1` 另跑 AddressSanitizer。
-2. `session_test`：用本機的 Rust 函式庫和 `iOS/Generated` 的詞庫（可用 `MEOWPUUT_LEXICON_DIR` 改）。沒有詞庫時跳過。
+2. `session_test`：用本機的 Rust 函式庫和 `Engine/.build/lexicon` 的詞庫（可用 `MEOWPUUT_LEXICON_DIR` 改）。沒有詞庫時跳過。
 3. 快照：用 Core Text 量字，輸出各造型、色調和狀態的 SVG，再用 `rsvg-convert` 轉成 PNG，放在 `previews/`。檔名帶 `-on-page` 的是疊在一頁文字上的樣子。
 4. 交叉編譯：Rust 核心、候選窗、預覽程式、排版測試和 x64 的文字服務 DLL，警告視為錯誤。結果在 `mingw/` 和 `mingw-ime/`。
 
@@ -233,7 +233,7 @@ bash scripts/windows-vm.sh create
 日常使用：
 
 ```sh
-MEOWPUUT_LEXICON_DIR=iOS/Generated bash scripts/build-windows-check.sh
+MEOWPUUT_LEXICON_DIR=Engine/.build/lexicon bash scripts/build-windows-check.sh
 bash scripts/windows-vm.sh start                 # 開機，等到桌面出現
 bash scripts/windows-vm.sh deploy                # 複製 mingw/ 的 exe、Assets 和詞庫到 C:\meow\preview
 bash scripts/windows-vm.sh run 'C:\meow\preview\meowpuut_layout_test.exe'

@@ -26,7 +26,6 @@ Measured and written:
                                      cut and the paws of every sprite
 
 To the clients (the edge poses, which are the ones on the candidate bar):
-  iOS/Keyboard/Cats.xcassets         @2x/@3x image sets
   Resources/Cats                     macOS @1x/@2x PNGs
   Android/app/src/main/res/drawable-nodpi/cat_*.png   3 px per point
   Windows/UI/Assets/*.png            3 px per point
@@ -388,26 +387,15 @@ def cpp_data(metrics):
     return "\n".join(lines)
 
 
-def imageset_contents(name):
-    images = [{"filename": f"{name}@{scale}x.png", "idiom": "universal", "scale": f"{scale}x"} for scale in (2, 3)]
-    return json.dumps({"images": images, "info": {"author": "xcode", "version": 1}}, indent=2) + "\n"
-
-
 def collect_platforms(out, metrics):
     sprites = os.path.join(cats_dir(), "sprites")
     out.add("assets/brand/cats/cats.json", json.dumps(metrics, indent=2, ensure_ascii=False) + "\n")
 
-    catalog = "iOS/Keyboard/Cats.xcassets"
-    out.own(catalog)
-    out.add(f"{catalog}/Contents.json", json.dumps({"info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
     out.own("Resources/Cats")
     # Android and Windows keep other files in these folders: only the cats are replaced.
     out.own("Android/app/src/main/res/drawable-nodpi", keep=lambda name: not name.startswith("cat_"))
     out.own("Windows/UI/Assets", keep=lambda name: not re.fullmatch(r"(mimimo|momo)_[a-z_]+\.png", name))
     for name in EDGE_SPRITES:
-        out.add(f"{catalog}/{name}.imageset/Contents.json", imageset_contents(name))
-        for scale in (2, 3):
-            out.copy(f"{catalog}/{name}.imageset/{name}@{scale}x.png", os.path.join(sprites, f"{name}@{scale}x.png"))
         out.copy(f"Resources/Cats/{name}.png", os.path.join(sprites, f"{name}@1x.png"))
         out.copy(f"Resources/Cats/{name}@2x.png", os.path.join(sprites, f"{name}@2x.png"))
         out.copy(f"Android/app/src/main/res/drawable-nodpi/cat_{name}.png", os.path.join(sprites, f"{name}@3x.png"))
@@ -451,7 +439,7 @@ def self_test():
             stop("self-test: a second run finds differences")
         for name in EDGE_SPRITES:
             sprite = metrics["sprites"][name]
-            for path, scale in ((f"iOS/Keyboard/Cats.xcassets/{name}.imageset/{name}@3x.png", 3), (f"Resources/Cats/{name}.png", 1),
+            for path, scale in ((f"Resources/Cats/{name}.png", 1),
                                 (f"Android/app/src/main/res/drawable-nodpi/cat_{name}.png", 3), (f"Windows/UI/Assets/{name}.png", 3)):
                 if Image.open(os.path.join(scratch, path)).size != (sprite["size"][0] * scale, sprite["size"][1] * scale):
                     stop(f"self-test: {path} has the wrong size")
@@ -508,7 +496,7 @@ def main():
         print(f"PASS: {len(metrics['sprites'])} sprites measured; {len(out.files)} client files match the import")
         return
     out.write()
-    print(f"cats written for iOS, macOS, Android and Windows ({len(out.files)} files)")
+    print(f"cats written for macOS, Android and Windows ({len(out.files)} files)")
 
 
 if __name__ == "__main__":

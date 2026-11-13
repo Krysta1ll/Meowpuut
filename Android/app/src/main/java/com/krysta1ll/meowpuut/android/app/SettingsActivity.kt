@@ -145,6 +145,13 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             setOnClickListener { showLicenses() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(20) })
 
+        packageManager.getPackageInfo(packageName, 0).versionName?.let { version ->
+            column.addView(TextView(this).apply {
+                text = version
+                textSize = 12f
+                alpha = 0.72f
+            })
+        }
         setContentView(scroll)
     }
 

@@ -271,7 +271,10 @@ struct Studio: View {
         t = text
     }
 
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "" }
+    private var version: String {
+        guard let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String else { return "" }
+        return t("窗臺", "窗台") + " · " + build
+    }
 
     var body: some View {
         NavigationSplitView {

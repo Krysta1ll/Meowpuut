@@ -18,7 +18,7 @@
 
 ## 清單檔
 
-`scripts/import_festivals.py` 產生，同一份放在 `assets/festivals/`、`iOS/Festivals/`、`Resources/Festivals/`、Android 的 `assets/festivals/` 和 Windows 的 `UI/Assets/festivals/`（測試會檢查五份相同）。不要手改，改了下次匯入會被蓋掉。
+`scripts/import_festivals.py` 產生，同一份放在 `assets/festivals/`、`Resources/Festivals/`、Android 的 `assets/festivals/` 和 Windows 的 `UI/Assets/festivals/`。iOS 的資源由私人倉庫維護。不要手改，改了下次匯入會被蓋掉。
 
 ```json
 {
@@ -94,6 +94,7 @@
 2026-11-12 到 2027-12-31 每天穿哪套：`docs/festivals/calendar-2026-11-12-to-2027-12-31.txt`。2026 到 2030 年每一天的結果（全開，以及關掉四套）在 `Android/app/src/test/resources/festivals/worn-2026-2030.txt`。三個平台的測試都逐日比對這個檔，所以規則不會在某個平台走樣。故意改了規則或日期之後，用下面的指令重寫它，再看差異是不是預期的：
 
 ```sh
+# 在 iOS 私人倉庫執行
 FESTIVALS_WRITE_WORN=1 bash scripts/test-ios.sh --only Festivals
 ```
 
@@ -135,7 +136,7 @@ python3 scripts/import_festivals.py ~/…/Meowpuut_Festivals_24_Collection ~/…
 
 1. 在 `DAYS` 寫五年的日期（附上算法和來源的註解），在 `NAMES` 寫簡體、日文、英文名稱。腳本會檢查包裡的主題和這兩張表完全對得上。
 2. 執行匯入。腳本對照 `SHA256SUMS.txt`、檢查尺寸、透明邊、腳的位置，量出 `rim`，從主色算出膠囊顏色，寫出各平台的清單和圖。
-3. 執行 `bash scripts/test-ios.sh --only Festivals`，用上面的指令重寫逐日對照檔，看新節日落在哪些日子、有沒有擠掉別的節日的正日。
+3. 在 iOS 私人倉庫執行 `bash scripts/test-ios.sh --only Festivals`，用上面的指令重寫逐日對照檔，看新節日落在哪些日子、有沒有擠掉別的節日的正日。
 4. 用 Lab 看每一套：`bash scripts/ios-keyboard-shots.sh <模擬器> <資料夾> "名稱:-inputMode pinyin -type nihao -festivalTheme <id>"`，淺色和深色、三種造型都看過再提交。
 
 各平台只拿到要畫的圖（兩隻貓和剪下的裝飾），整張飾邊只留在 `assets/festivals/` 當紀錄。iOS 是 @2x 和 @3x 的 asset catalog，只放在鍵盤擴充裡，App 從內嵌的擴充讀（不放 @1x，App Store 只給裝置需要的那一組）；macOS 是 @1x 和 @2x；Android 和 Windows 是 @3x 一張，大小由程式按清單算。

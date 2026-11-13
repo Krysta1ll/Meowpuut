@@ -4,24 +4,27 @@
 #
 #   MINGW_BIN=/path/to/llvm-mingw/bin bash scripts/package-windows.sh
 #
-#   .build/windows-package/Meowpuut-<version>-windows-x64.zip
-#   .build/windows-package/Meowpuut-<version>-windows-arm64.zip
+#   .build/windows-package/Meowpuut-Windows-<version>-x64.zip
+#   .build/windows-package/Meowpuut-Windows-<version>-arm64.zip
 #   .build/windows-package/SHA256SUMS.txt
 #
 # Needs llvm-mingw (both architectures) and a generated lexicon folder with
 # mimo_base.bin, mimo_pairs.bin and the native-*.tsv tables
-# (MEOWPUUT_LEXICON_DIR, default iOS/Generated). The packages are not signed.
+# (MEOWPUUT_LEXICON_DIR, default Engine/.build/lexicon). The packages are not signed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-VERSION=0.8.0-alpha.1
+VERSION=Porch-2
 : "${MINGW_BIN:?set MINGW_BIN to the bin directory of llvm-mingw}"
 TOOLCHAIN=$(cd "$MINGW_BIN/.." && pwd)
-LEX="${MEOWPUUT_LEXICON_DIR:-iOS/Generated}"
+LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"
 OUT=.build/windows-package
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+if [ -z "${MEOWPUUT_LEXICON_DIR:-}" ] && [ ! -f "$LEX/mimo_base.bin" ]; then
+  bash Engine/scripts/build-lexicon.sh
+fi
 python3 scripts/export-windows-lexicon.py "$LEX" "$OUT/export" >/dev/null
 COMMIT=$(git rev-parse HEAD)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -36,7 +39,7 @@ for ARCH in x64 arm64; do
     arm64) TRIPLE=aarch64-w64-mingw32; RUST_TARGET=aarch64-pc-windows-gnullvm; WHO="Arm64 的 Windows 11" ;;
   esac
   MINGW_BIN="$MINGW_BIN" bash scripts/build-windows-ime.sh "${ARCH}" "$OUT/build/${ARCH}"
-  NAME="Meowpuut-${VERSION}-windows-${ARCH}"
+  NAME="Meowpuut-Windows-${VERSION}-${ARCH}"
   STAGE="$OUT/$NAME"
   mkdir -p "$STAGE/lexicon"
   cp "$OUT/build/${ARCH}/MeowpuutTextService.dll" "$STAGE/"
@@ -63,7 +66,7 @@ Arm64 版只在 Arm64 的程式裡有作用（記事本、Edge、檔案總管、
   fi
   {
     cat <<EOF
-# 喵撲 Windows ${VERSION}（${ARCH}）
+# 喵撲 Windows 門廊 · ${VERSION#Porch-}（${ARCH}）
 
 給 ${WHO}。這是 alpha 版。
 ${ARM_NOTE}
@@ -82,6 +85,7 @@ DLL 和安裝腳本都沒有數位簽章。SmartScreen 可能先擋下 \`Install
 - 原始碼：commit \`${COMMIT}\`（分支 \`${BRANCH}\`），建置時未提交的修改：${CHANGES}
 - 在 macOS 上交叉編譯：\`MINGW_BIN=…/llvm-mingw/bin bash scripts/package-windows.sh\`
 - C++：${CLANG}（llvm-mingw $(basename "$TOOLCHAIN" | sed -E 's/^llvm-mingw-([0-9]+).*/\1/')），目標 \`${TRIPLE}\`，靜態連結 libc++、libunwind
+- 核心與詞庫：\`$(git -C Engine rev-parse HEAD)\`
 - Rust：${RUSTC}，目標 \`${RUST_TARGET}\`
 - 詞庫：\`scripts/export-windows-lexicon.py\` 匯出；Windows 用 \`mimo_base.bin\`、\`mimo_pairs.bin\`（直接映射檔案，不複製到記憶體）和 \`native-japanese.tsv\`
 - 建置日期：$(date -u +%Y-%m-%d)

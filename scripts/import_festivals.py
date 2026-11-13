@@ -13,8 +13,6 @@ cats' foot anchor, measures where each trim's rim runs, derives the capsule
 colours from the accent, and writes the manifest and images for each client:
 
     assets/festivals/festivals.json and <id>/   the @3x images (the record)
-    iOS/Festivals/festivals.json                 manifest for the keyboard and app
-    iOS/Festivals.xcassets                       @2x and @3x image sets
     Resources/Festivals                          macOS: manifest, @1x and @2x
     Android/app/src/main/assets/festivals        manifest and @3x (nodpi) images
     Windows/UI/Assets/festivals                  manifest and @3x images
@@ -471,29 +469,6 @@ def main():
             shutil.copyfile(images[(name, 3)], os.path.join(record, t["id"], name + ".png"))
         for end in t["ends"].values():
             derived[(end["image"], 3)].save(os.path.join(record, t["id"], end["image"] + ".png"), optimize=True)
-
-    # iOS: the manifest in the Festivals folder, the art in an asset catalog
-    # so the App Store hands each device only its own scale.
-    fresh(os.path.join(ROOT, "iOS", "Festivals"))
-    catalog = os.path.join(ROOT, "iOS", "Festivals.xcassets")
-    if os.path.isdir(catalog):
-        shutil.rmtree(catalog)
-    os.makedirs(catalog)
-    info = {"info": {"author": "xcode", "version": 1}}
-    with open(os.path.join(catalog, "Contents.json"), "w") as f:
-        json.dump(info, f, indent=2)
-        f.write("\n")
-    for t in themes:
-        for name in shipped(t):
-            folder = os.path.join(catalog, name + ".imageset")
-            os.makedirs(folder)
-            entries = []
-            for scale in (2, 3):
-                write(name, scale, os.path.join(folder, f"{name}@{scale}x.png"))
-                entries.append({"filename": f"{name}@{scale}x.png", "idiom": "universal", "scale": f"{scale}x"})
-            with open(os.path.join(folder, "Contents.json"), "w") as f:
-                json.dump({"images": entries, **info}, f, indent=2)
-                f.write("\n")
 
     # macOS: @1x and @2x next to the manifest.
     mac = os.path.join(ROOT, "Resources", "Festivals")
