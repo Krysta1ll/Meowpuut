@@ -64,7 +64,7 @@ from PIL import Image
 Image.open('assets/brand/AppIcon.png').convert('RGBA').save(
     sys.argv[1], sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48), (64, 64), (256, 256)])
 EOF
-"$WINDRES" -I "$OUT/obj" -DMEOWPUUT_VERSION="\\\"$VERSION\\\"" -DMEOWPUUT_VERSION_NUMBERS="$VERSION_NUMBERS" \
+"$WINDRES" --codepage=65001 -I "$OUT/obj" -DMEOWPUUT_VERSION="\\\"$VERSION\\\"" -DMEOWPUUT_VERSION_NUMBERS="$VERSION_NUMBERS" \
   Windows/TextService/TextService.rc -O coff -o "$OUT/obj/TextService.res.o"
 
 # shellcheck disable=SC2086 # RUST_NATIVE is a list of -l flags
