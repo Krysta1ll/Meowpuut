@@ -3,7 +3,7 @@ package com.krysta1ll.meowpuut.android.engine
 import kotlin.math.min
 
 /** What an action did: whether it was used, and text to insert into the editor. */
-data class Edit(val handled: Boolean, val commit: String = "")
+data class Edit(val handled: Boolean, val commit: String = "", val confirmedReading: String = "")
 
 /**
  * One composition over an engine session. Pinyin and Zhuyin go through the
@@ -11,6 +11,13 @@ data class Edit(val handled: Boolean, val commit: String = "")
  * the main thread.
  */
 class Composer {
+    internal var choiceMemory: ChoiceMemory? = null
+    var rememberChoices = false
+        set(value) {
+            if (field == value) return
+            field = value
+            refreshChoices()
+        }
     var japaneseWords: JapaneseWords = JapaneseWords.EMPTY
     var symbolsAllowed = true
     var symbols: SymbolAssociations = SymbolAssociations.EMPTY
@@ -144,8 +151,8 @@ class Composer {
         if (raw.isEmpty()) return Edit(false)
         return when (mode) {
             // A reading with no candidates is typed as its symbols rather than left stuck.
-            InputMode.ZHUYIN -> if (raw.last() in TONES) chooseHighlighted() else typeZhuyin(' ')
-            InputMode.PINYIN, InputMode.NINE_KEY -> if (candidates.isNotEmpty()) chooseHighlighted() else Edit(true, takeLiteral() + " ")
+            InputMode.ZHUYIN -> if (raw.last() in TONES) chooseHighlighted(confirm = true) else typeZhuyin(' ')
+            InputMode.PINYIN, InputMode.NINE_KEY -> if (candidates.isNotEmpty()) chooseHighlighted(confirm = true) else Edit(true, takeLiteral() + " ")
             InputMode.JAPANESE -> chooseHighlighted()
         }
     }
@@ -167,16 +174,18 @@ class Composer {
         return Edit(true)
     }
 
-    fun chooseHighlighted(): Edit = choose(highlighted.coerceIn(0, (candidates.size - 1).coerceAtLeast(0)))
+    fun chooseHighlighted(confirm: Boolean = false): Edit =
+        choose(highlighted.coerceIn(0, (candidates.size - 1).coerceAtLeast(0)), confirm)
 
-    fun choose(index: Int): Edit {
+    fun choose(index: Int, confirm: Boolean = false): Edit {
         val c = candidates.getOrNull(index) ?: return if (raw.isEmpty()) Edit(false) else Edit(true, takeLiteral())
         if (c.coreIndex >= 0) {
+            val reading = if (confirm && rememberChoices) ChoiceMemory.selectionReading(raw, c) else ""
             if (session == 0L || !NativeEngine.choose(session, c.coreIndex)) return Edit(false)
             val text = NativeEngine.takeCommitted(session)
             keepSuffix(NativeEngine.input(session))
             rebuild()
-            return Edit(true, text)
+            return Edit(true, text, reading)
         }
         if (c.kind == CandidateKind.MIXED_PREFIX) {
             val rest = raw.substring(min(c.consumed, raw.length))
@@ -200,6 +209,10 @@ class Composer {
     private fun rawLiteral(): String = if (mode == InputMode.NINE_KEY) raw.filterNot { it == '\'' }.toString() else raw.toString()
 
     fun clear() = resetCore()
+
+    fun refreshChoices() {
+        if (composing) rebuild()
+    }
 
     /** Appends the next batch of the engine's candidates (for the expanded panel). */
     fun loadMore(batch: Int = 96): Boolean {
@@ -264,6 +277,17 @@ class Composer {
         }
     }
 
+    private fun firstCoreBatch(preferred: Map<String, Int>): List<CoreCandidate> {
+        coreTotal = NativeEngine.candidateCount(session)
+        coreFetched = 0
+        val first = fetchCore(0, FIRST_BATCH)
+        if (coreFetched >= coreTotal || preferred.keys.all { text ->
+                first.any { it.text == text && it.consumed == raw.length && !it.japanese }
+            }) return first
+        // A word picked from a later page can still move to the front.
+        return first + fetchCore(coreFetched, coreTotal - coreFetched)
+    }
+
     private fun rebuild() {
         highlighted = 0
         if (raw.isEmpty()) {
@@ -273,12 +297,13 @@ class Composer {
             coreFetched = 0
             return
         }
+        val preferred = if (rememberChoices && mode != InputMode.JAPANESE) {
+            choiceMemory?.preferred(mode, simplified, raw.toString()).orEmpty()
+        } else emptyMap()
         when (mode) {
             InputMode.PINYIN -> {
                 preedit = raw.toString()
-                coreTotal = NativeEngine.candidateCount(session)
-                coreFetched = 0
-                val chinese = fetchCore(0, FIRST_BATCH)
+                val chinese = firstCoreBatch(preferred)
                 val lower = raw.toString().lowercase()
                 val reading = lower.replace("'", "")
                 val japanese = japaneseWords.words(reading)
@@ -291,9 +316,7 @@ class Composer {
             }
             InputMode.ZHUYIN, InputMode.NINE_KEY -> {
                 preedit = NativeEngine.preedit(session)
-                coreTotal = NativeEngine.candidateCount(session)
-                coreFetched = 0
-                val choices = fetchCore(0, FIRST_BATCH).map { it.choice() }
+                val choices = firstCoreBatch(preferred).map { it.choice() }
                 candidates = if (mode == InputMode.NINE_KEY) choices else choices.distinctBy { it.text }
             }
             InputMode.JAPANESE -> {
@@ -313,6 +336,7 @@ class Composer {
                 candidates = list.distinctBy { it.text }
             }
         }
+        candidates = ChoiceMemory.rank(candidates, raw.length, preferred)
         if (symbolsAllowed) candidates = CandidateMerge.withSymbols(candidates, symbols, raw.length)
     }
 

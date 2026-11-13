@@ -1,5 +1,6 @@
 package com.krysta1ll.meowpuut.android.app
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
@@ -37,6 +38,7 @@ import android.widget.TextView
 import com.krysta1ll.meowpuut.android.R
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
+import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.ime.CandidateBarView
 import com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout
@@ -85,21 +87,27 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private val ink get() = if (dark) 0xfff3ece9.toInt() else 0xff292124.toInt()
     private val quietInk get() = if (dark) 0xffc5b8bf.toInt() else 0xff705e66.toInt()
     private val accentInk get() = if (dark) 0xffebbac2.toInt() else 0xff85515d.toInt()
-    private val cardFill get() = if (dark) 0xff272428.toInt() else 0xfffffaf4.toInt()
-    private val outline get() = if (dark) 0xff423941.toInt() else 0xffebdfd8.toInt()
+    private val cardFill get() = if (dark) 0xff28242c.toInt() else 0xfffffaf4.toInt()
+    private val outline get() = if (dark) 0xff443b48.toInt() else 0xffe7dce5.toInt()
     private val effectNames = listOf(R.string.effects_lightweight, R.string.effects_standard, R.string.effects_full, R.string.effects_ultra)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        val column = LinearLayout(this).apply {
+        val column = object : LinearLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val width = minOf(View.MeasureSpec.getSize(widthMeasureSpec), dp(680))
+                super.onMeasure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), heightMeasureSpec)
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             isFocusableInTouchMode = true
-            setPadding(dp(16), dp(16), dp(16), dp(20))
+            setPadding(dp(20), dp(16), dp(20), dp(28))
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(column)
+            addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+            isVerticalScrollBarEnabled = false
             setOnApplyWindowInsetsListener { v, insets ->
                 if (Build.VERSION.SDK_INT >= 30) {
                     val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
@@ -113,29 +121,33 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             }
         }
 
-        column.addView(LinearLayout(this).apply {
+        val masthead = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = glassSurface(24, hero = true)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+        }
+        masthead.addView(LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(14))
+            isBaselineAligned = false
             addView(LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(textView(27f).apply {
+                addView(textView(28f).apply {
                     setText(R.string.app_name)
-                    typeface = Typeface.create("serif", Typeface.BOLD)
+                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
                     if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
                 })
-                addView(textView(14f, accentInk).apply {
+                addView(textView(13f, quietInk).apply {
                     text = "Meowpuut"
-                    typeface = Typeface.create("serif", Typeface.ITALIC)
-                    letterSpacing = 0.12f
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 })
             }, weighted())
-            for (cat in intArrayOf(R.drawable.cat_classic_mimimo_open, R.drawable.cat_classic_momo_open)) {
-                addView(ImageView(this@SettingsActivity).apply {
-                    setImageResource(cat)
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }, LinearLayout.LayoutParams(dp(42), dp(48)).apply { marginStart = -dp(4) })
-            }
+            addView(mascot("米米莫", R.drawable.cat_classic_mimimo_open, R.drawable.cat_classic_mimimo_blink, 1.5f, 450),
+                LinearLayout.LayoutParams(dp(54), dp(58)))
+            addView(mascot("莫莫", R.drawable.cat_classic_momo_open, R.drawable.cat_classic_momo_happy, 4f, 650),
+                LinearLayout.LayoutParams(dp(49), dp(54)))
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        column.addView(masthead, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         preview = BarPreview(this, prefs)
         val look = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -149,18 +161,29 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             look.visibility = if (look.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             if (look.visibility == View.VISIBLE) look.post { scroll.smoothScrollTo(0, look.top - dp(8)) }
         }
-        column.addView(gallery)
+        column.addView(gallery, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(20)
+        })
         column.addView(look, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         gallery.render(prefs.skin, prefs::isSkinUnlocked)
 
         val setup = section(column, R.string.setup_title)
-        status = textView(14f, quietInk).apply { setPadding(dp(14), dp(12), dp(14), dp(2)) }
+        status = textView(14f, quietInk).apply { setPadding(dp(16), dp(12), dp(16), dp(2)) }
         setup.addView(status)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         buttons.addView(action(R.string.setup_open_settings) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }, weighted())
         buttons.addView(action(R.string.setup_pick) { getSystemService(InputMethodManager::class.java).showInputMethodPicker() }, weighted())
         setup.addView(buttons)
 
+        val shortcuts = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            isBaselineAligned = false
+            background = glassSurface(14)
+            clipToOutline = true
+        }
+        column.addView(shortcuts, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(16)
+        })
         val input = section(column, R.string.input_title)
         choice(input, R.string.input_mode, Prefs.MODE, listOf(
             R.string.mode_zhuyin to InputMode.ZHUYIN,
@@ -171,6 +194,18 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         choice(input, R.string.script, Prefs.SIMPLIFIED, listOf(R.string.script_traditional to false, R.string.script_simplified to true),
             { prefs.simplified }) { prefs.simplified = it }
         note(input, R.string.script_note)
+        toggle(input, R.string.remember_choices, prefs.rememberChoices) { prefs.rememberChoices = it }
+        note(input, R.string.remember_choices_note)
+        input.addView(action(R.string.clear_choice_memory) {
+            AlertDialog.Builder(this)
+                .setMessage(R.string.clear_choice_memory_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.clear_choice_memory) { _, _ ->
+                    ChoiceMemory(this).clear()
+                    prefs.store.edit().putLong(Prefs.CLEAR_CHOICE_MEMORY, System.nanoTime()).apply()
+                }
+                .show()
+        })
 
         sectionTitle(column, R.string.try_title)
         column.addView(EditText(this).apply {
@@ -255,6 +290,16 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             updateSound()
             volumeSlider.isEnabled = prefs.keySound.isCustom
         }
+        listOf(R.string.input_title to input, R.string.look_title to display, R.string.feedback_title to feedback)
+            .forEach { (label, card) ->
+                shortcuts.addView(action(label) {
+                    val heading = column.getChildAt(column.indexOfChild(card) - 1)
+                    scroll.smoothScrollTo(0, (heading.top - dp(8)).coerceAtLeast(0))
+                }.apply {
+                    setTextColor(ink)
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                }, weighted())
+            }
         column.addView(action(R.string.licenses, ::showLicenses), LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
 
@@ -399,6 +444,45 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         setTextColor(color)
     }
 
+    private fun glassSurface(radius: Int, hero: Boolean = false) = GradientDrawable(
+        GradientDrawable.Orientation.TOP_BOTTOM,
+        if (dark) {
+            if (hero) intArrayOf(0xff413649.toInt(), 0xff27232e.toInt())
+            else intArrayOf(0xff3a3341.toInt(), cardFill)
+        } else {
+            if (hero) intArrayOf(0xfffffcf6.toInt(), 0xffe8dfee.toInt())
+            else intArrayOf(0xfffffdf9.toInt(), 0xfff1e9f2.toInt())
+        }
+    ).apply {
+        cornerRadius = dp(radius).toFloat()
+        setStroke(dp(1), outline)
+    }
+
+    private fun mascot(name: String, idle: Int, response: Int, lift: Float, duration: Long) = ImageView(this).apply {
+        contentDescription = name
+        isFocusable = true
+        setPadding(dp(2), dp(4), dp(2), 0)
+        setImageResource(idle)
+        accessibilityDelegate = object : View.AccessibilityDelegate() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: android.view.accessibility.AccessibilityNodeInfo) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.className = Button::class.java.name
+            }
+        }
+        val settle = Runnable {
+            setImageResource(idle)
+            if (translationY != 0f) animate().translationY(0f).setDuration(180).start()
+        }
+        setOnClickListener {
+            removeCallbacks(settle)
+            setImageResource(response)
+            if (ValueAnimator.areAnimatorsEnabled()) {
+                animate().translationY(-lift * density).setDuration(160).start()
+            }
+            postDelayed(settle, duration)
+        }
+    }
+
     private fun surface(radius: Int) = GradientDrawable().apply {
         setColor(cardFill)
         setStroke(dp(1), outline)
@@ -418,17 +502,17 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     private fun sectionTitle(parent: LinearLayout, title: Int) {
-        parent.addView(textView(15f, quietInk).apply {
+        parent.addView(textView(16f).apply {
             setText(title)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(4), dp(16), dp(4), dp(6))
+            setPadding(dp(2), dp(20), dp(2), dp(8))
             if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
         })
     }
 
     private fun card(parent: LinearLayout) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = surface(16)
+        background = surface(18)
         clipToOutline = true
         parent.addView(this, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
@@ -448,7 +532,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private fun settingLine(label: Int, value: TextView) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(14), dp(8), dp(14), dp(8))
+        setPadding(dp(16), dp(8), dp(16), dp(8))
         addView(textView(16f).apply { setText(label) }, weighted())
         addView(value, weighted().apply { marginStart = dp(8) })
     }
@@ -761,8 +845,14 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
         val idiom = idiom
         val available = if (dockedPanel) PanelAdjustment.availableHeight(resources.configuration.screenHeightDp.toFloat(), idiom,
             navigationPreview.toFloat()) else Float.POSITIVE_INFINITY
-        val metrics = if (dockedPanel) KeyMetrics.fitted(idiom, widthDp, rows, rows, heightPreset, heightDelta,
-            available - region.height) else KeyMetrics.of(Idiom.PHONE_LANDSCAPE, widthDp, rows)
+        val metrics = if (dockedPanel) {
+            KeyMetrics.fitted(idiom, widthDp, rows, rows, heightPreset, heightDelta, available - region.height)
+        } else {
+            KeyMetrics.of(Idiom.PHONE_LANDSCAPE, widthDp, rows).copy(
+                sideMargin = 7f, keyHeight = if (rows >= 5) 26f else 30f,
+                rowGap = 5f, letterFont = if (rows >= 5) 17f else 19f, utilityFont = 13f,
+            )
+        }
         val sampleWidth = (sampleKeys.layoutWidth(widthDp) * density).roundToInt()
         val keysHeight = (metrics.areaHeight(rows) * density).roundToInt()
         keypad.setKeys(sampleKeys, metrics, idiom)
@@ -789,10 +879,8 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
         val current = bar.region
         val idiom = idiom
         val rim = GlassOutline.contentBand(bar.look.shape, 1f).first
-        val edgeHuggingCats = bar.look.edgeHuggingCats
-        if (current.width == widthDp && current.idiom == idiom && current.cats == cats && current.rim == rim &&
-            current.edgeHuggingCats == edgeHuggingCats) return current
-        return CandidateRegionLayout(widthDp, idiom, cats, rim, edgeHuggingCats = edgeHuggingCats).also { bar.region = it }
+        if (current.width == widthDp && current.idiom == idiom && current.cats == cats && current.rim == rim) return current
+        return CandidateRegionLayout(widthDp, idiom, cats, rim).also { bar.region = it }
     }
 
     private fun sampleKeys() = KeyBuilder.build(KeyContext(

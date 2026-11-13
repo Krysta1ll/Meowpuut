@@ -14,6 +14,7 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -51,32 +52,34 @@ internal class SkinGallery(
         orientation = VERTICAL
         addView(TextView(context).apply {
             text = title
-            textSize = 20f
+            textSize = 19f
             setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            includeFontPadding = false
             if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
-        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(10) })
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
 
         addView(preview, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = dp(10)
+            bottomMargin = dp(8)
         })
         addView(LinearLayout(context).apply {
             orientation = HORIZONTAL
             tiles.values.forEachIndexed { index, tile ->
                 addView(tile, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
-                    if (index > 0) marginStart = dp(6)
+                    if (index > 0) marginStart = dp(8)
                 })
             }
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         addView(TextView(context).apply {
             text = detailLabel
-            textSize = 14f
+            textSize = 13f
             setTextColor(accent)
-            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
             minimumHeight = dp(48)
             isFocusable = true
-            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setPadding(dp(10), dp(4), dp(4), dp(4))
             setOnClickListener { onCustomize() }
             accessibilityDelegate = object : View.AccessibilityDelegate() {
                 override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
@@ -102,7 +105,11 @@ internal class SkinGallery(
         private val label = TextView(context).apply {
             text = option.title
             textSize = 13f
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            includeFontPadding = false
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
             setTextColor(ink)
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -111,14 +118,13 @@ internal class SkinGallery(
             orientation = VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(5), dp(5), dp(5), dp(7))
-            minimumHeight = dp(85)
             isFocusable = true
             val selectable = TypedValue()
             if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, selectable, true)) {
                 foreground = context.getDrawable(selectable.resourceId)
             }
-            addView(swatch, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
-            addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+            addView(swatch, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
+            addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
             setOnClickListener { onSkin(option.skin) }
             accessibilityDelegate = object : View.AccessibilityDelegate() {
                 override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
@@ -138,7 +144,6 @@ internal class SkinGallery(
                 setStroke(dp(1), if (active) accent else outline)
             }
             label.setTextColor(if (active) accent else ink)
-            label.setTypeface(label.typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
             contentDescription = if (locked) context.getString(R.string.skin_unlock_title, option.title) else option.title
             swatch.render(active, locked)
         }

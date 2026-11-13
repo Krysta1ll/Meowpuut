@@ -1,8 +1,11 @@
 package com.krysta1ll.meowpuut.android
 
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.CandidateMerge
+import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.CoreCandidate
 import com.krysta1ll.meowpuut.android.engine.InputMode
@@ -25,6 +28,7 @@ import com.krysta1ll.meowpuut.android.ime.KeyBuilder
 import com.krysta1ll.meowpuut.android.ime.KeyContext
 import com.krysta1ll.meowpuut.android.ime.KeyStyle
 import com.krysta1ll.meowpuut.android.ime.Look
+import com.krysta1ll.meowpuut.android.ime.MeowpuutIME
 import com.krysta1ll.meowpuut.android.ime.ShiftState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -35,6 +39,29 @@ import java.time.LocalDate
 import kotlin.math.abs
 
 class LogicTest {
+    @Test
+    fun memoryPreservesCandidateSlotsAndLearnsOnlyConsumedReading() {
+        val lead = Candidate("你好", CandidateKind.CHINESE, 4, 5)
+        val alternate = lead.copy(text = "擬好", coreIndex = 81)
+        val prefix = lead.copy(text = "你", coreIndex = 5, consumed = 2)
+        val japanese = Candidate("に", CandidateKind.KANA, consumed = 5)
+        val choices = listOf(lead, japanese, prefix, alternate)
+        assertEquals(listOf(alternate, japanese, prefix, lead),
+            ChoiceMemory.rank(choices, 5, mapOf("擬好" to 2, "你" to 8)))
+        assertEquals("ni", ChoiceMemory.selectionReading("NIhaox", prefix))
+        assertEquals("", ChoiceMemory.selectionReading("nihao", japanese))
+        assertEquals("", ChoiceMemory.selectionReading("nihao", alternate.copy(consumed = 6)))
+        assertEquals("", ChoiceMemory.selectionReading("nihao", alternate.copy(text = "nihao")))
+    }
+
+    @Test
+    fun memoryIgnoresPrivateEditors() {
+        val text = InputType.TYPE_CLASS_TEXT
+        assertTrue(MeowpuutIME.allowsChoiceMemory(text, 0))
+        assertTrue(!MeowpuutIME.allowsChoiceMemory(text, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING))
+        assertTrue(!MeowpuutIME.allowsChoiceMemory(text or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, 0))
+        assertTrue(!MeowpuutIME.allowsChoiceMemory(InputType.TYPE_NULL, 0))
+    }
     @Test
     fun associatedSymbolsKeepTheLeadAndCoreIndicesAndFitCollapsed() {
         val associations = SymbolAssociations.parse(File("../../Engine/Resources/Lexicon/associations.json").readText())

@@ -22,6 +22,7 @@ import android.view.inputmethod.InputMethodManager
 import com.krysta1ll.meowpuut.android.engine.CandidateMerge
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
+import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.Edit
 import com.krysta1ll.meowpuut.android.engine.InputMode
@@ -42,6 +43,7 @@ class MeowpuutIME : InputMethodService(),
     private lateinit var keySounds: KeySounds
     private lateinit var keyHaptics: KeyHaptics
     private lateinit var catAffinity: LocalCatAffinity
+    private lateinit var choiceMemory: ChoiceMemory
     private val composer = Composer()
     private val catSchedule = CatSchedule()
     private var keyboardWindowVisible = false
@@ -70,6 +72,7 @@ class MeowpuutIME : InputMethodService(),
     private var expanded = false
     private var emojiOpen = false
     private var predictions: List<String> = emptyList()
+    private var editorAllowsLearning = false
     private val pending = ArrayList<Int>()
     private var loading = false
     private var lexiconFailed = false
@@ -90,6 +93,8 @@ class MeowpuutIME : InputMethodService(),
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        choiceMemory = ChoiceMemory(this)
+        composer.choiceMemory = choiceMemory
         catAffinity = LocalCatAffinity(this)
         keySounds = KeySounds(this)
         keySounds.setVolume(prefs.keySoundVolume)
@@ -177,6 +182,8 @@ class MeowpuutIME : InputMethodService(),
         composer.clear()
         val inputType = attribute?.inputType ?: InputType.TYPE_NULL
         val variation = inputType and InputType.TYPE_MASK_VARIATION
+        editorAllowsLearning = allowsChoiceMemory(inputType, attribute?.imeOptions ?: 0)
+        composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
         composer.symbolsAllowed = when (inputType and InputType.TYPE_MASK_CLASS) {
             InputType.TYPE_CLASS_TEXT -> variation != InputType.TYPE_TEXT_VARIATION_PASSWORD &&
                 variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD &&
@@ -232,6 +239,8 @@ class MeowpuutIME : InputMethodService(),
         pending.clear()
         lastSpaceAt = 0
         composer.clear()
+        editorAllowsLearning = false
+        composer.rememberChoices = false
         expanded = false
         emojiOpen = false
         super.onFinishInput()
@@ -294,6 +303,9 @@ class MeowpuutIME : InputMethodService(),
                 composer.simplified = prefs.simplified
                 predictions = emptyList()
             }
+            Prefs.REMEMBER_CHOICES ->
+                composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
+            Prefs.CLEAR_CHOICE_MEMORY -> composer.refreshChoices()
             Prefs.HAPTICS, Prefs.HAPTIC_STRENGTH -> {
                 keyboard?.setKeyboardHaptics(prefs.haptics)
                 keyHaptics.update(prefs.haptics, prefs.hapticStrength)
@@ -343,23 +355,27 @@ class MeowpuutIME : InputMethodService(),
 
     private fun applyEdit(edit: Edit, wasComposing: Boolean, resetPanel: Boolean = false) {
         val ic = currentInputConnection
+        var committed = false
         if (ic != null) {
             if (composer.composing && edit.commit.isNotEmpty()) {
                 // A partial selection replaces the old reading and installs its remainder.
                 ic.beginBatchEdit()
                 try {
-                    commit(edit.commit, ic)
+                    committed = commit(edit.commit, ic)
                     ic.setComposingText(composer.preedit, 1)
                 } finally {
                     ic.endBatchEdit()
                 }
             } else if (edit.commit.isNotEmpty()) {
-                commit(edit.commit, ic)
+                committed = commit(edit.commit, ic)
             } else if (composer.composing) {
                 ic.setComposingText(composer.preedit, 1)
             } else if (wasComposing) {
                 ic.commitText("", 1)
             }
+        }
+        if (committed && edit.confirmedReading.isNotEmpty() && composer.rememberChoices) {
+            choiceMemory.remember(composer.mode, composer.simplified, edit.confirmedReading, edit.commit)
         }
         if (!composer.composing) {
             expanded = false
@@ -386,9 +402,10 @@ class MeowpuutIME : InputMethodService(),
         if (composer.composing) applyEdit(Edit(true, composer.takeLiteral()), true)
     }
 
-    private fun commit(text: String, connection: InputConnection? = currentInputConnection) {
-        if (text.isEmpty()) return
-        if (connection?.commitText(text, 1) == true) catAffinity.committed(text)
+    private fun commit(text: String, connection: InputConnection? = currentInputConnection): Boolean {
+        if (text.isEmpty() || connection?.commitText(text, 1) != true) return false
+        catAffinity.committed(text)
+        return true
     }
 
     private fun updatePredictions() {
@@ -573,6 +590,11 @@ class MeowpuutIME : InputMethodService(),
     }
 
     private fun typeSymbol(text: String) {
+        if (text == "ー" && !english && mode == InputMode.JAPANESE && composer.composing) {
+            page = 0
+            typeEngine('-'.code, null, asTyped = true)
+            return
+        }
         finishComposition()
         commit(text)
         if (mode == InputMode.NINE_KEY) lastSpaceAt = 0
@@ -626,7 +648,7 @@ class MeowpuutIME : InputMethodService(),
 
     private fun enter() {
         if (composer.composing) {
-            applyEdit(composer.chooseHighlighted(), true)
+            applyEdit(composer.chooseHighlighted(confirm = true), true)
             return
         }
         val ic = currentInputConnection ?: return
@@ -756,7 +778,7 @@ class MeowpuutIME : InputMethodService(),
             return
         }
         val wasComposing = composer.composing
-        val edit = composer.choose(index)
+        val edit = composer.choose(index, confirm = true)
         if (edit.handled) {
             onTick()
             keySounds.play(AudioManager.FX_KEYPRESS_STANDARD, pick = true)
@@ -998,6 +1020,13 @@ class MeowpuutIME : InputMethodService(),
     }
 
     companion object {
+        internal fun allowsChoiceMemory(inputType: Int, imeOptions: Int): Boolean {
+            if (inputType and InputType.TYPE_MASK_CLASS != InputType.TYPE_CLASS_TEXT ||
+                imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0
+            ) return false
+            return inputType and InputType.TYPE_MASK_VARIATION !in LATIN_VARIATIONS
+        }
+
         private const val ZHUYIN_KEYS = "1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/-"
         private val QUICK_MARKS = listOf("，", "。", "？", "！", "、")
         private val EMOJI = listOf(

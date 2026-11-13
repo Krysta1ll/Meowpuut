@@ -14,6 +14,9 @@ class Prefs(context: Context) {
     var simplified: Boolean
         get() = store.getBoolean(SIMPLIFIED, false)
         set(value) = store.edit().putBoolean(SIMPLIFIED, value).apply()
+    var rememberChoices: Boolean
+        get() = store.getBoolean(REMEMBER_CHOICES, true)
+        set(value) = store.edit().putBoolean(REMEMBER_CHOICES, value).apply()
     var shape: GlassShape
         get() = GlassShape.of(store.getString(SHAPE, null))
         set(value) = store.edit().putString(SHAPE, value.key).apply()
@@ -124,6 +127,8 @@ class Prefs(context: Context) {
     companion object {
         const val MODE = "mode"
         const val SIMPLIFIED = "simplified"
+        const val REMEMBER_CHOICES = "rememberChoices"
+        const val CLEAR_CHOICE_MEMORY = "clearChoiceMemory"
         const val SHAPE = "shape"
         const val TONE = "tone"
         const val PALETTE = "palette"

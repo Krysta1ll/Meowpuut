@@ -66,10 +66,7 @@ class CatSprites(private val resources: Resources) {
                     drawable to CatSprite(name, 44f, 44f, 0.5f, 0.92f, 0.07f, 0.035f, 0.965f, 1f, 0.18f, 0.82f,
                         listOf(floatArrayOf(0.32f, 0.12f, 0.075f), floatArrayOf(0.68f, 0.12f, 0.075f)))
                 }
-                cat == Cat.MIMIMO -> R.drawable.cat_classic_mimimo_open to
-                    CatSprite(name, 56.6f, 62f, 0.51f, 0.92f, 0f, 0.066f, 0.977f, 1f, 0.27f, 0.79f, emptyList())
-                else -> R.drawable.cat_classic_momo_open to
-                    CatSprite(name, 56.9f, 54f, 0.5f, 0.88f, 0f, 0f, 0.959f, 0.948f, 0.2f, 0.82f, emptyList())
+                else -> (if (cat == Cat.MIMIMO) R.drawable.cat_classic_mimimo_open else R.drawable.cat_classic_momo_open) to cat.classicSprite()
             }
             Art(sprite, decode(id))
         }

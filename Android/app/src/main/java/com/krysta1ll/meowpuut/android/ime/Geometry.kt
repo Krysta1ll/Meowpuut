@@ -45,8 +45,7 @@ enum class Idiom {
  * amplitude, the cloud's base). The expand key lines up with the band the
  * candidates sit in.
  */
-class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean = true, val rim: Float = 0f,
-                            val edgeHuggingCats: Boolean = false) {
+class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean = true, val rim: Float = 0f) {
     val width: Float = if (rawWidth.isFinite() && rawWidth > 1f) rawWidth else 320f
     val scale: Float
     val height: Float
@@ -94,8 +93,7 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
             val glassBottom = height - 2 * s
             val top = glassBottom - glassHeight
             val margin = 5 * s
-            val left = if (edgeHuggingCats) 15 * s else margin
-            glass = Box(left, top, max(1f, width - left - margin), glassHeight)
+            glass = Box(margin, top, max(1f, width - 2 * margin), glassHeight)
             val chevronWidth = 44f
             val chevronY = glass.centerY + rimY / 2
             val chevronHeight = min(min(44f, glassHeight), 2 * (height - chevronY))
@@ -118,7 +116,7 @@ class CandidateRegionLayout(rawWidth: Float, val idiom: Idiom, val cats: Boolean
     fun maximumCandidateWidth(row: Box): Float = max(60f, row.width * 0.70f)
 
     fun candidateTarget(row: Box): Box {
-        val targetHeight = max(row.height, 48f).coerceAtMost(height)
+        val targetHeight = max(row.height, 56f).coerceAtMost(height)
         val top = (row.centerY - targetHeight / 2).coerceIn(0f, height - targetHeight)
         return Box(row.left, top, row.width, targetHeight)
     }

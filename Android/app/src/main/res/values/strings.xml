@@ -58,6 +58,10 @@
     <string name="try_hint">在這裡試打</string>
 
     <string name="input_title">輸入</string>
+    <string name="remember_choices">記住選詞</string>
+    <string name="remember_choices_note">常選的中文詞會往前排。記錄只存在這台裝置。</string>
+    <string name="clear_choice_memory">清除選詞記錄</string>
+    <string name="clear_choice_memory_confirm">要清除這台裝置上的選詞記錄嗎？</string>
     <string name="input_mode">輸入方式</string>
     <string name="mode_zhuyin">注音</string>
     <string name="mode_pinyin">全鍵拼音</string>

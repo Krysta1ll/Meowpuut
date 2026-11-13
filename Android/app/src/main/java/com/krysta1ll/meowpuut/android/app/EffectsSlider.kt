@@ -24,6 +24,7 @@ internal class EffectsSlider(context: Context, private val dark: Boolean) : Seek
     private val density = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val track = RectF()
+    private val fill = RectF()
     private val visible = Rect()
     private val trackHalf = 13.5f * density
     private val thumbRadius = 18f * density
@@ -51,7 +52,7 @@ internal class EffectsSlider(context: Context, private val dark: Boolean) : Seek
             if (animate && tier > 0 && !contrast && accessibility?.isTouchExplorationEnabled != true &&
                 ValueAnimator.areAnimatorsEnabled() && isShown && getLocalVisibleRect(visible)) {
                 animator = ValueAnimator.ofFloat(1f, 0f).apply {
-                    duration = 360
+                    duration = 520
                     interpolator = DecelerateInterpolator()
                     addUpdateListener {
                         shine = it.animatedValue as Float
@@ -105,22 +106,13 @@ internal class EffectsSlider(context: Context, private val dark: Boolean) : Seek
         paint.shader = null
         paint.color = if (dark) 0xff4a414c.toInt() else 0xffe8dfe9.toInt()
         canvas.drawRoundRect(track, trackHalf, trackHalf, paint)
-        if (!contrast) {
-            paint.shader = gradient
-            paint.alpha = if (dark) 52 else 37
-            canvas.drawRoundRect(track, trackHalf, trackHalf, paint)
-            paint.shader = null
-        }
-
         if (progress > 0) {
-            canvas.save()
-            canvas.clipRect(track.left, track.top, x, track.bottom)
+            fill.set(track.left, track.top, x, track.bottom)
             paint.shader = if (contrast) null else gradient
             paint.color = palettes[tier].colors.last()
-            canvas.drawRoundRect(track, trackHalf, trackHalf, paint)
+            canvas.drawRoundRect(fill, trackHalf, trackHalf, paint)
             paint.shader = null
             if (!contrast) drawGlints(canvas, y)
-            canvas.restore()
         }
 
         paint.color = if (dark) 0x28000000 else 0x260b0920
@@ -137,11 +129,15 @@ internal class EffectsSlider(context: Context, private val dark: Boolean) : Seek
         val count = palettes[tier].glints
         for (index in 0 until count) {
             val fraction = (index + 1f) / (count + 1f)
-            val alpha = (105 + 70 * shine - 18 * (index % 3)).roundToInt()
+            val alpha = (163 + 82 * shine - 20 * (index % 3)).roundToInt()
             paint.color = (alpha shl 24) or (Color.WHITE and 0x00ffffff)
             val offset = ((index * 5) % 9 - 4) * 1.25f * density
-            val radius = (0.65f + (index % 3) * 0.22f) * density
-            canvas.drawCircle(track.left + track.width() * fraction, y + offset, radius, paint)
+            val radius = (0.85f + (index % 3) * 0.28f) * density
+            val x = fill.left + (fill.width() - 12f * density).coerceAtLeast(0f) * fraction + 6f * density
+            paint.alpha = alpha / 4
+            canvas.drawCircle(x, y + offset, radius * 2f, paint)
+            paint.alpha = alpha
+            canvas.drawCircle(x, y + offset, radius, paint)
         }
     }
 

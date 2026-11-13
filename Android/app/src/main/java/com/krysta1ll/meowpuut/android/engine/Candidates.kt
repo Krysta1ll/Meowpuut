@@ -56,7 +56,7 @@ object CandidateMerge {
         val list = ArrayList<Candidate>(chinese.size + 6)
         val seen = HashSet<String>()
         for (c in chinese) {
-            if (c.text.isNotEmpty() && seen.add(c.text)) list += Candidate(c.text, CandidateKind.CHINESE, c.index, c.consumed)
+            if (c.text.isNotEmpty() && seen.add(c.text)) list += c.choice()
         }
         val top = chinese.firstOrNull()
         // "sushi": 蘇軾 is an exact word and stays first; 寿司 still shows up front.

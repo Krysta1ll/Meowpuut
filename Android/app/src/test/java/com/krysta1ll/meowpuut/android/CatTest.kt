@@ -22,6 +22,7 @@ import com.krysta1ll.meowpuut.android.ime.PathSink
 import com.krysta1ll.meowpuut.android.ime.TextUnits
 import com.krysta1ll.meowpuut.android.ime.catLiftProgress
 import com.krysta1ll.meowpuut.android.ime.catLiftRise
+import com.krysta1ll.meowpuut.android.ime.classicSprite
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -197,6 +198,25 @@ class CatTest {
         assertEquals(preview.glass.right - 6f * preview.unit, previewFit.arrowTouch.right, 0.001f)
         assertEquals(previewFit.arrowTouch.top, petTarget.bottom, 0.001f)
         assertTrue(petTarget.height >= pair.last().touch(preview).height - 8f)
+    }
+
+    @Test
+    fun classicCloudKeepsTheCandidateWidthOfOtherSkins() {
+        val shape = GlassShape.CLOUD
+        val rim = GlassOutline.contentBand(shape, 1f).first
+        for ((width, idiom) in listOf(260f to Idiom.PHONE, 568f to Idiom.PHONE_LANDSCAPE, 600f to Idiom.TABLET)) {
+            val stage = CandidateRegionLayout(width, idiom, rim = rim).stage(shape)
+            val classic = checkNotNull(CatSeats.ends(stage, Cat.MIMIMO.classicSprite(), Cat.MOMO.classicSprite()))
+            val current = checkNotNull(CatSeats.ends(stage, CatPose.PEEK.sprite(Cat.MIMIMO), CatPose.PEEK.sprite(Cat.MOMO)))
+            val fitted = checkNotNull(stage.fitting(classic))
+
+            assertEquals(checkNotNull(stage.fitting(current)).row.width, fitted.row.width, 1f)
+            assertEquals(44f, fitted.arrowTouch.width, 0f)
+            for (cat in classic) {
+                assertFalse(fitted.petTarget(cat).intersects(fitted.row))
+                assertFalse(fitted.petTarget(cat).intersects(fitted.arrowTouch))
+            }
+        }
     }
 
     @Test

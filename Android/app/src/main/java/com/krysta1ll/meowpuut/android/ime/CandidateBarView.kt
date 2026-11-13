@@ -455,9 +455,10 @@ class CandidateBarView(
         val glass = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val glassCanvas = Canvas(glass)
         glassCanvas.scale(density, density)
-        if (look.edgeHuggingCats && look.skin.catArtwork == SkinCatArtwork.LEGACY &&
-            look.cats && region.cats && !look.opaque) {
-            val black = classicPlace(Cat.MIMIMO).frame
+        val black = if (look.edgeHuggingCats && look.skin.catArtwork == SkinCatArtwork.LEGACY && !look.opaque) {
+            seats().firstOrNull { it.actor.id == Cat.MIMIMO }?.place?.frame
+        } else null
+        if (black != null) {
             val frost = sprites.classicFrost()
             glassCanvas.save()
             glassCanvas.clipPath(glassPath)
@@ -589,47 +590,10 @@ class CandidateBarView(
         invalidate()
     }
 
-    private fun classicPlace(cat: Cat): CatPlacement {
-        val black = cat == Cat.MIMIMO
-        val s = region.scale
-        val glass = region.glass
-        val art = sprites.art(cat, CatPose.PEEK, look.skin.catArtwork)
-        val maxHeight = glass.height * if (black) 1.35f else 1.17f
-        val height = min(maxHeight, region.height * 0.88f)
-        val width = height * art.sprite.width / art.sprite.height
-        val left = if (black) 2 * s else region.width - 4 * s - width
-        // Seat the lower eye just above the cloud rim. The body still
-        // disappears behind the glass and the tail follows its lower edge.
-        val rim = glass.top + GlassOutline.contentBand(look.shape, glass.height).first
-        val top = if (black) max(1f, rim - height * 0.538f - 2f * s) else max(1f, glass.top - height * 0.38f)
-        val anchor = if (black) top + height * art.sprite.anchorY else top + height * 0.85f
-        val frame = Box(left, top, width, height)
-        return CatPlacement(cat, art.sprite, frame, frame.centerX, anchor)
-    }
-
-    private fun classicSeat(cat: Cat): Seat {
-        val place = classicPlace(cat)
-        val frame = place.frame
-        val left = frame.left
-        val black = cat == Cat.MIMIMO
-        val art = sprites.art(cat, CatPose.PEEK, look.skin.catArtwork)
-        val touch = Box(if (black) 0f else left, 0f, if (black) frame.right else region.width - left, place.anchorY)
-        return Seat(actor(cat), place, touch, art.bitmap, Path(), null, true)
-    }
-
     private fun seatCats(): List<Seat> {
         if (!(region.cats && look.cats)) {
             setTargets(region.row, region.chevron)
             return emptyList()
-        }
-        if (look.edgeHuggingCats) {
-            val black = classicSeat(Cat.MIMIMO)
-            val cream = classicSeat(Cat.MOMO)
-            val left = black.place.visible.right + 5f * region.scale
-            val right = cream.place.visible.left - 4f * region.scale - region.chevron.width
-            setTargets(Box(left, region.row.top, max(1f, right - left), region.row.height),
-                region.chevron.offset(right - region.chevron.left, 0f))
-            return listOf(black, cream)
         }
         val stage = region.stage(look.shape)
         val artwork = look.skin.catArtwork
@@ -641,8 +605,12 @@ class CandidateBarView(
         }
         val mimimo = if (sculpted) japaneseMimimo ?: festival?.mimimo else null
         val momo = if (sculpted) festival?.momo else null
-        val places = place(mimimo, momo) ?: if (japaneseMimimo != null && momo != null) place(mimimo, null) else null
-        val chosen = places ?: place(null, null).orEmpty()
+        val chosen = if (look.edgeHuggingCats) {
+            CatSeats.ends(stage, Cat.MIMIMO.classicSprite(), Cat.MOMO.classicSprite()).orEmpty()
+        } else {
+            val themed = place(mimimo, momo) ?: if (japaneseMimimo != null && momo != null) place(mimimo, null) else null
+            themed ?: place(null, null).orEmpty()
+        }
         val ornament = if (look.skin.supportsFestivals) festival?.theme?.right else null
         val fitted = stage.fitting(chosen, ornament) ?: stage.fitting(chosen) ?: stage
         setTargets(Box(fitted.row.left, region.row.top, fitted.row.width, region.row.height),
@@ -1181,9 +1149,11 @@ class CandidateBarView(
                         // The note hides the row: a tap only puts the row back.
                         toast = null
                     } else {
-                        val n = itemAt(x)
-                        if (n >= 0 && n == pressedItem && candidateTouch.contains(x, y) &&
-                            seats().none { it.touch.contains(x, y) }) activateItem(items[n])
+                        val pressed = items.getOrNull(pressedItem)
+                        if (pressed != null && candidateTouch.contains(x, y) && seats().none { it.touch.contains(x, y) }) {
+                            val stayedNearDown = abs(x - downX) <= touchSlop && abs(y - downY) <= touchSlop
+                            if (itemAt(x) == pressedItem || (pressed.kind != 2 && stayedNearDown)) activateItem(pressed)
+                        }
                     }
                     TARGET_CHEVRON -> if (onExpandHit(x, y)) listener?.onToggleExpanded()
                     TARGET_CAT -> {

@@ -6,7 +6,9 @@ import android.content.pm.ApplicationInfo
 import android.graphics.Canvas
 import android.graphics.ComposeShader
 import android.graphics.LinearGradient
+import android.graphics.Outline
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.RadialGradient
@@ -18,6 +20,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowInsets
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -40,6 +43,9 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     private val density = resources.displayMetrics.density
     private val background = Paint()
     private val light = Paint()
+    private val seam = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val seamRim = Path()
+    private val topRadius = (12f * density).roundToInt().toFloat()
     private val experimentalGlass = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     private var backgroundHeight = 0
     private var backgroundWidth = 0
@@ -48,6 +54,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         set(value) {
             if (field == value) return
             field = value
+            clipToOutline = !value && !look.usesSteppedMaterial
             backgroundHeight = 0
             requestLayout()
         }
@@ -56,6 +63,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             if (field == value) return
             val shapeChanged = field.shape != value.shape || field.skin != value.skin
             field = value
+            clipToOutline = !floating && !value.usesSteppedMaterial
             bar.look = value
             keys.look = value
             panel.look = value
@@ -88,6 +96,13 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     init {
         setWillNotDraw(false)
         clipChildren = false
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                // The bottom stays flush against the navigation area.
+                outline.setRoundRect(0, 0, view.width, view.height + topRadius.toInt(), topRadius)
+            }
+        }
+        clipToOutline = true
         addView(bar)
         addView(keys)
         addView(panel)
@@ -209,9 +224,8 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     private fun regionFor(widthDp: Float, idiom: Idiom): CandidateRegionLayout {
         val current = bar.region
         val rim = GlassOutline.contentBand(look.shape, 1f).first
-        if (current.width == widthDp && current.idiom == idiom && current.cats == cats &&
-            current.rim == rim && current.edgeHuggingCats == look.edgeHuggingCats) return current
-        return CandidateRegionLayout(widthDp, idiom, cats, rim, edgeHuggingCats = look.edgeHuggingCats).also { bar.region = it }
+        if (current.width == widthDp && current.idiom == idiom && current.cats == cats && current.rim == rim) return current
+        return CandidateRegionLayout(widthDp, idiom, cats, rim).also { bar.region = it }
     }
 
     /** The panel covers the key rows above the bottom row. */
@@ -241,15 +255,15 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
                 LinearGradient(0f, 0f, 0f, height.toFloat(), intArrayOf(look.keyboardTop, look.keyboardMiddle, look.keyboardBottom)
                     .map { Look.withAlpha(it, opacity) }.toIntArray(),
                     floatArrayOf(0f, 0.37f, 1f), Shader.TileMode.CLAMP)
-            if (glass) {
+            val wash = if (glass) {
                 // One continuous wash behind the candidate strip and keys.
                 val glow = Look.withAlpha(Color.WHITE, if (look.dark) 0.065f else 0.35f)
                 val reflected = Look.withAlpha(look.tint, if (look.tintedGlass) 0.11f else if (look.dark) 0.085f else 0.045f)
-                light.shader = LinearGradient(0f, 0f, 0f, height.toFloat(), intArrayOf(glow, Color.TRANSPARENT, reflected),
+                LinearGradient(0f, 0f, 0f, height.toFloat(), intArrayOf(glow, Color.TRANSPARENT, reflected),
                     floatArrayOf(0f, 0.52f, 1f), Shader.TileMode.CLAMP)
-            }
+            } else null
+            light.shader = wash
             val ground = background.shader
-            val wash = light.shader.takeIf { glass }
             if (experimentalGlass && Build.VERSION.SDK_INT >= 33 && isHardwareAccelerated && !floating &&
                 look.effects == EffectsLevel.ULTRA && look.shape == GlassShape.CAPSULE && ground != null && wash != null) {
                 // Give the lens the same continuous field painted under the keys. The offset
@@ -266,9 +280,32 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
                 bar.lensBackdrop = null
                 keys.usesLensKeycaps = false
             }
+            updateSeam(rim)
         }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
-        if (glass && light.shader != null) canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), light)
+        if (light.shader != null) canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), light)
+        if (seam.shader != null) canvas.drawPath(seamRim, seam)
+    }
+
+    private fun updateSeam(rim: Float) {
+        seam.shader = null
+        if (floating || look.usesSteppedMaterial || look.opaque || look.effects == EffectsLevel.LIGHTWEIGHT) return
+        val inset = density / 2
+        val radius = topRadius - inset
+        val right = width - inset
+        val depth = minOf(8f * density, maxOf(3f * density, rim * 0.48f))
+        // A narrow reflection at the lip, then a softer highlight on the deck.
+        seam.shader = LinearGradient(0f, inset, 0f, inset + depth,
+            intArrayOf(Look.withAlpha(Color.WHITE, if (look.dark) 0.43f else 0.85f),
+                Look.withAlpha(if (look.dark) 0xFFEBDBED.toInt() else Color.WHITE, if (look.dark) 0.13f else 0.50f),
+                Color.TRANSPARENT),
+            floatArrayOf(0f, 0.20f, 1f), Shader.TileMode.CLAMP)
+        seamRim.rewind()
+        seamRim.moveTo(inset, topRadius)
+        seamRim.arcTo(inset, inset, inset + 2 * radius, inset + 2 * radius, 180f, 90f, false)
+        seamRim.lineTo(right - radius, inset)
+        seamRim.arcTo(right - 2 * radius, inset, right, inset + 2 * radius, 270f, 90f, false)
+        seamRim.close()
     }
 
     override fun onVisibilityAggregated(isVisible: Boolean) {

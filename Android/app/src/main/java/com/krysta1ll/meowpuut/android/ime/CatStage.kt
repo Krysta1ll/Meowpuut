@@ -11,6 +11,11 @@ import kotlin.math.min
 
 enum class Cat(val key: String) { MIMIMO("mimimo"), MOMO("momo") }
 
+internal fun Cat.classicSprite(): CatSprite = when (this) {
+    Cat.MIMIMO -> CatSprite("LEGACY_$key", 55.7f, 61f, 0.51f, 0.92f, 0f, 0.066f, 0.977f, 1f, 0.27f, 0.79f, emptyList())
+    Cat.MOMO -> CatSprite("LEGACY_$key", 56.9f, 54f, 0.5f, 0.88f, 0f, 0f, 0.959f, 0.948f, 0.2f, 0.82f, emptyList())
+}
+
 enum class CatPose(val key: String) {
     PEEK("peek"), REST("rest"), LOUNGE("lounge");
 

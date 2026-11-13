@@ -60,7 +60,7 @@ class GeometryTest {
             for (cats in listOf(true, false)) {
                 val region = CandidateRegionLayout(width, idiom, cats, rim = 0.16f)
                 val target = region.candidateTarget(region.row)
-                assertTrue(target.height >= 48f || target.height == region.height)
+                assertEquals(minOf(56f, region.height), target.height, 0.001f)
                 assertTrue(target.top <= region.row.top && target.bottom >= region.row.bottom)
                 assertTrue(target.top >= 0f && target.bottom <= region.height)
                 assertTrue(!target.intersects(region.expandTarget(region.chevron)))
