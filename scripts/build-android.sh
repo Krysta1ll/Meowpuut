@@ -133,7 +133,7 @@ if [ "$mode" = "--release" ]; then
     "$APKSIGNER" verify "$OUTDIR/app-release.apk"
     build=$("$SDK/build-tools/37.0.0/aapt" dump badging "$OUTDIR/app-release.apk" | sed -n "s/^package: .*versionCode='\([0-9]*\)'.*/\1/p")
     [ -n "$build" ] || { echo "error: no versionCode in signed APK" >&2; exit 1; }
-    release="$OUTDIR/Meowpuut-Prism-AND-$(printf '%03d' "$build").apk"
+    release="$OUTDIR/Meowpuut-Prism-26A$(printf '%03d' "$build").apk"
     cp "$OUTDIR/app-release.apk" "$release"
     echo "signed: Android/$release"
   else
