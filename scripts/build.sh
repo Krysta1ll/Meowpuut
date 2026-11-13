@@ -6,9 +6,9 @@
 #   bash scripts/build.sh --sources  print the Swift files shared with scripts/preview-glass.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# Engine, appearance and candidate window. iOS/InterfaceText.swift is the
+# Engine, appearance and candidate window. Sources/InterfaceText.swift is the
 # Traditional/Simplified text helper both Apple clients use.
-SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift iOS/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
+SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift Sources/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
 if [ "${1:-}" = "--sources" ]; then
   echo "$SOURCES"
   exit 0
@@ -22,35 +22,10 @@ rm -rf "$APP/Contents/Resources"
 # A failed compile must not leave an older binary behind.
 rm -f "$APP/Contents/MacOS/Meowpuut"
 mkdir -p .build "$APP/Contents/MacOS" "$APP/Contents/Resources/Modules"
-swiftc scripts/ConvertScript.swift -o .build/convert-script
-python3 scripts/compile-native-lexicon.py "$APP/Contents/Resources" "$PWD/.build/convert-script"
-mkdir -p "$APP/Contents/Resources/Licenses"
-cp LICENSE "$APP/Contents/Resources/Licenses/Meowpuut-MIT.txt"
+bash Engine/scripts/build-lexicon.sh "$APP/Contents/Resources"
 cp ASSETS-LICENSE.md "$APP/Contents/Resources/Licenses/Meowpuut-Artwork.txt"
-cp DataSources/mimo-tc/LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-tc-MIT.txt"
-cp DataSources/mimo-tc/OPENCC-LICENSE.txt "$APP/Contents/Resources/Licenses/OpenCC-Apache-2.0.txt"
-cp DataSources/mimo-tc/JIEBA-LICENSE.txt "$APP/Contents/Resources/Licenses/jieba-MIT.txt"
-cp DataSources/mimo-tc/SOURCE.json "$APP/Contents/Resources/Licenses/mimo-tc-SOURCE.json"
-cp DataSources/mimo-sc/LICENSE "$APP/Contents/Resources/Licenses/mimo-sc-MIT.txt"
-cp DataSources/mimo-sc/SOURCE.json "$APP/Contents/Resources/Licenses/mimo-sc-SOURCE.json"
-cp DataSources/mimo-jp/LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-jp-derived-BSD.txt"
-cp DataSources/mimo-jp/BSD.txt "$APP/Contents/Resources/Licenses/mimo-jp-BSD.txt"
-cp DataSources/mimo-jp/COPYING.txt "$APP/Contents/Resources/Licenses/mimo-jp-COPYING.txt"
-cp DataSources/mimo-jp/SOURCE.json "$APP/Contents/Resources/Licenses/mimo-jp-SOURCE.json"
-cp DataSources/cldr-emoji/LICENSE.txt "$APP/Contents/Resources/Licenses/CLDR-Unicode-3.0.txt"
-cp DataSources/cldr-emoji/SOURCE.json "$APP/Contents/Resources/Licenses/cldr-emoji-SOURCE.json"
-cp DataSources/mimo-jp/MOZC-LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-jp-Mozc-BSD.txt"
-cp DataSources/mimo-jp/UNICODE-LICENSE.txt "$APP/Contents/Resources/Licenses/mimo-jp-Unicode-3.0.txt"
-cp DataSources/mimo-pairs/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-pairs-SOURCE.json
-cp DataSources/mimo-pairs/Apache-2.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-Apache-2.0.txt
-cp DataSources/mimo-pairs/CC-BY-4.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-CC-BY-4.0.txt
-cp DataSources/mimo-names/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-names-SOURCE.json
-cp DataSources/mimo-phrases/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-phrases-SOURCE.json
-cp DataSources/mimo-pairs/CC-BY-2.0-FR.html "$APP/Contents/Resources/Licenses"/mimo-pairs-Tatoeba-CC-BY-2.0-FR.html
-cp DataSources/mimo-pairs/CC0-1.0.txt "$APP/Contents/Resources/Licenses"/mimo-pairs-CommonVoice-CC0-1.0.txt
-cp DataSources/mimo-latin/SOURCE.json "$APP/Contents/Resources/Licenses"/mimo-latin-SOURCE.json
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp -R Resources/*.lproj Resources/Lexicon Resources/Festivals "$APP/Contents/Resources/"
+cp -R Resources/*.lproj Engine/Resources/Lexicon Resources/Festivals "$APP/Contents/Resources/"
 # 米米莫 and 莫莫 (scripts/render_cats.py); NSImage pairs name.png with name@2x.png.
 cp Resources/Cats/*.png "$APP/Contents/Resources/"
 cp Modules/*.json "$APP/Contents/Resources/Modules/"
@@ -74,8 +49,8 @@ if [ "${1:-}" = "--test" ]; then
   MEOWPUUT_GOLDEN_CHECK=1 "$APP/Contents/MacOS/Meowpuut" --smoke
   # Lexicon checks on the bundled files: Japanese image and gate, Chinese goldens, old Japanese
   # outputs, mixed sentences in the core.
-  python3 scripts/check-mimo-jp.py "$APP/Contents/Resources" --probe
-  python3 scripts/check-chinese-golden.py --resources "$APP/Contents/Resources"
-  python3 scripts/check-japanese-lexicon.py "$APP/Contents/Resources"
-  python3 scripts/check-mixed-core.py
+  python3 Engine/scripts/check-mimo-jp.py "$APP/Contents/Resources" --probe
+  python3 Engine/scripts/check-chinese-golden.py --resources "$APP/Contents/Resources"
+  python3 Engine/scripts/check-japanese-lexicon.py "$APP/Contents/Resources"
+  python3 Engine/scripts/check-mixed-core.py "$APP/Contents/Resources"
 fi

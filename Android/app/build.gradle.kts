@@ -2,7 +2,7 @@ plugins {
     id("com.android.application")
 }
 
-// The repository root: Android/ sits next to crates/ and scripts/.
+// The repository root: Android/ sits next to Engine/ and scripts/.
 val repoRoot: File = rootDir.parentFile
 
 android {
@@ -15,8 +15,9 @@ android {
         applicationId = "com.krysta1ll.meowpuut.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.8.0"
+        val buildNumber = 12
+        versionCode = buildNumber
+        versionName = "稜鏡 · $buildNumber"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }

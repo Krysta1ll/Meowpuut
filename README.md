@@ -7,6 +7,7 @@
 <p align="center">
   <a href="#下載">下載</a> ·
   <a href="docs/INSTALL.md">安裝說明</a> ·
+  <a href="docs/VERSIONS.md">版本怎麼看</a> ·
   <a href="https://github.com/Krysta1ll/Meowpuut/issues">回報問題</a>
 </p>
 
@@ -128,20 +129,20 @@ iPhone 鍵盤的按鍵也是玻璃，跟著配色走。iOS 26 起用系統的液
 Mac 版需要含 macOS 27 SDK 的完整 Xcode、Python 3 和 Rust。建置腳本預設用 `/Applications/Xcode.app`，其他位置可以設 `MEOWPUUT_XCODE_DIR`。
 
 ```sh
-git clone https://github.com/Krysta1ll/Meowpuut.git
+git clone --recurse-submodules https://github.com/Krysta1ll/Meowpuut.git
 cd Meowpuut
 bash scripts/build.sh
 .build/Meowpuut.app/Contents/MacOS/Meowpuut --smoke
 bash scripts/package-macos.sh
 ```
 
-詞庫的快照跟原始碼放在一起，建置時不用另外下載。`--smoke` 的測試用獨立的偏好設定，不會動到你平常的選詞記錄。安裝檔輸出在 `.build/releases/`。
+`Engine` 子模組固定了引擎與詞庫的版本。已有 clone 可執行 `git submodule update --init Engine`。`--smoke` 的測試用獨立的偏好設定，不會動到你平常的選詞記錄。安裝檔輸出在 `.build/releases/`。
 
-- iPhone、iPad：另外需要 XcodeGen，見 [iOS/README.md](iOS/README.md)。
+- iPhone、iPad：由獨立的私人客戶端倉庫維護。
 - Android：見 [Android/README.md](Android/README.md)。
 - Windows：見 [Windows/README.md](Windows/README.md)。
 
-選字和詞庫怎麼做的，見[引擎與詞庫](docs/ENGINE.md)。
+選字和詞庫怎麼做的，見[引擎與詞庫](docs/ENGINE.md)。[Meowpuut-Core](https://github.com/Krysta1ll/Meowpuut-Core) 收錄 Rust 核心、詞庫和測試。[倉庫分工](docs/REPOSITORIES.md)
 
 ## 授權
 
@@ -151,7 +152,7 @@ bash scripts/package-macos.sh
 
 ## 回報問題
 
-到 [Issues](https://github.com/Krysta1ll/Meowpuut/issues) 留言。最有用的回報只要幾行：哪個平台和版本、哪個模式、按了哪些鍵、想打什麼、實際出現什麼。附截圖前先遮掉私人內容。
+到 [Issues](https://github.com/Krysta1ll/Meowpuut/issues/new/choose) 回報。請把平台、喵撲的完整版本、系統版本和操作寫在一起。從哪裡安裝也有幫助，尤其是想比對舊版和新版時。附截圖前先遮掉私人內容。
 
 還在改進的地方：長句斷詞、一個簡體字對應幾個繁體字的情況、在不同 App 裡候選列的位置。日文詞表裡不收的詞是程式自動判定的，還沒有給日語母語者看過。
 

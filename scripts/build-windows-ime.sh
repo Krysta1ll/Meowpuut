@@ -14,8 +14,8 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
 ARCH="${1:?usage: build-windows-ime.sh x64|arm64 [output directory]}"
 OUT="${2:-.build/windows-ime/$ARCH}"
-VERSION=0.8.0-alpha.1
-VERSION_NUMBERS=0,8,0,1
+VERSION="Porch 2"
+VERSION_NUMBERS=0,9,0,2
 if [ -n "${MINGW_BIN:-}" ]; then export PATH="$MINGW_BIN:$PATH"; fi
 
 case "$ARCH" in
@@ -37,9 +37,9 @@ WINDRES="$TRIPLE-windres"
 rustup target list --installed | grep -qx "$RUST_TARGET" || rustup target add "$RUST_TARGET"
 
 echo "== $ARCH: $("$CXX" --version | head -1), Rust $RUST_TARGET"
-cargo rustc --quiet --release -p meowpuut-ffi --target "$RUST_TARGET" --crate-type staticlib
+cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --target "$RUST_TARGET" --crate-type staticlib
 RUST_LIB="target/$RUST_TARGET/release/libmeowpuut_ffi.a"
-RUST_NATIVE=$(cargo rustc --quiet --release -p meowpuut-ffi --target "$RUST_TARGET" --crate-type staticlib -- --print native-static-libs 2>&1 \
+RUST_NATIVE=$(cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --target "$RUST_TARGET" --crate-type staticlib -- --print native-static-libs 2>&1 \
   | sed -n 's/.*native-static-libs: //p' | tail -1)
 
 rm -rf "$OUT"

@@ -1,15 +1,11 @@
 # 參與喵撲
 
-修一個常用字的排序，和寫一個新功能一樣有價值。
+一組能重現的按鍵，或一張候選框的草圖，都可以拿來討論。
 
-回報輸入問題時請包含：
-- macOS／iOS 版本、喵撲版本與發生問題的應用。
-- 注音或拼音模式、繁體或簡體輸出。
-- 原始按鍵、預期文字、實際候選及選取後結果。
-- 如有截圖，先遮掉私人內容。
+回報問題時，請附上裝置型號、系統版本、喵撲的完整版本和安裝來源。若問題只在某個 App 發生，也請寫下 App 名稱。輸入問題可附模式、繁簡、原始按鍵、預期和實際候選。聲音或震動問題可附相關開關，以及最後一個正常版本。截圖請先遮掉私人內容。[回報問題](https://github.com/Krysta1ll/Meowpuut/issues/new/choose)
 
-詞庫新增與修訂請放在 Resources/Lexicon/chinese.tsv；日語在 japanese.tsv，表情符號在 emoji.tsv，顏文字在 kaomoji.tsv（改完執行 scripts/build-emoji-associations.py，它會產生 associations.json）。請提供讀音與使用例，勿複製沒有明確授權的商業詞庫。修改後執行 build.sh 和 --smoke，為排序問題留下能重現的測試。
+詞庫修訂提交到 [Meowpuut-Core](https://github.com/Krysta1ll/Meowpuut-Core) 的 `Resources/Lexicon/`。提交時附上讀音和使用例，改動候選排序時也請附一個可以重現的例子。[引擎與詞庫](docs/ENGINE.md)
 
-Core 是 C++17 中文核心；Sources 是共享輸入邏輯與 macOS 介面；iOS 是平台鍵盤接入。避免把 AppKit 或 UIKit 依賴帶入 Core。
+在 Meowpuut-Core 裡，Rust 引擎在 `crates/meowpuut-core`，C 介面在 `crates/meowpuut-ffi`，詞庫建置工具在 `crates/meowpuut-lexicon` 和 `scripts/`。按鍵事件、候選窗和系統整合由各客戶端處理。改共用引擎可先執行 `bash scripts/build-lexicon.sh`，再執行 `cargo test --locked --workspace`，改客戶端則參照各平台的建置說明。
 
-提交請說清楚「什麼輸入原先失敗，現在變成什麼」。一個 PR 解決一組相關問題即可。貢獻的原創內容依專案的 MIT 授權提供；第三方資料仍須附上來源，而且只收註明出處即可的授權（MIT、BSD、Apache-2.0、Unicode、CC0、CC BY）。GPL、相同方式分享（CC BY-SA）、非商業或禁止改作的資料不收。
+一個 PR 處理一組相關問題。程式及詞庫修訂依專案 MIT 授權提供，第三方內容請附來源與授權。皮膚或角色素材若要納入正式版，先和作者確認署名與使用範圍。[程式授權](LICENSE) · [第三方來源](THIRD_PARTY.md) · [美術素材](ASSETS-LICENSE.md)

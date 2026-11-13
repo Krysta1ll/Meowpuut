@@ -6,7 +6,7 @@
 # 1. Layout tests (bounds-checked standard library, UndefinedBehaviorSanitizer;
 #    AddressSanitizer with MEOWPUUT_ASAN=1).
 # 2. session_test against the host Rust library and a generated lexicon
-#    (MEOWPUUT_LEXICON_DIR, default iOS/Generated), when the lexicon exists.
+#    (MEOWPUUT_LEXICON_DIR, default Engine/.build/lexicon), when the lexicon exists.
 # 3. SVG snapshots of every shape, tone and state, converted to PNG
 #    (macOS: text is measured with Core Text; needs rsvg-convert).
 # 4. MinGW-w64 cross build of the Rust engine, the candidate window, the
@@ -49,9 +49,9 @@ if [ "${MEOWPUUT_ASAN:-0}" = 1 ]; then
 fi
 
 echo "== session test"
-LEX="${MEOWPUUT_LEXICON_DIR:-iOS/Generated}"
+LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"
 if [ -f "$LEX/native-pinyin.tsv" ] && [ -f "$LEX/native-zhuyin.tsv" ] && [ -f "$LEX/native-japanese.tsv" ]; then
-  cargo rustc --quiet --release -p meowpuut-ffi --crate-type staticlib
+  cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --crate-type staticlib
   "$CXX" -std=c++17 -O2 Windows/Session.cpp Windows/Keyboard.cpp Windows/tests/session_test.cpp \
     target/release/libmeowpuut_ffi.a -o "$OUT/session_test"
   BASE=()
@@ -94,10 +94,10 @@ echo "compiler: $("$MCXX" --version | head -1)"
 WINDRES=x86_64-w64-mingw32-windres
 TARGET="${RUST_WINDOWS_TARGET:-x86_64-pc-windows-gnu}"
 rustup target list --installed | grep -qx "$TARGET" || rustup target add "$TARGET"
-cargo rustc --quiet --release -p meowpuut-ffi --target "$TARGET" --crate-type staticlib
+cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --target "$TARGET" --crate-type staticlib
 RUST_LIB="target/$TARGET/release/libmeowpuut_ffi.a"
 # Libraries the Rust standard library needs on this target.
-RUST_NATIVE=$(cargo rustc --quiet --release -p meowpuut-ffi --target "$TARGET" --crate-type staticlib -- --print native-static-libs 2>&1 \
+RUST_NATIVE=$(cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --target "$TARGET" --crate-type staticlib -- --print native-static-libs 2>&1 \
   | sed -n 's/.*native-static-libs: //p' | tail -1)
 MW="$OUT/mingw"
 rm -rf "$MW"

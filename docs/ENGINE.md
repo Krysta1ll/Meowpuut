@@ -1,5 +1,7 @@
 # 引擎與詞庫
 
+本頁的 `crates/`、`DataSources/` 和詞庫編譯工具位於 [Meowpuut-Core](https://github.com/Krysta1ll/Meowpuut-Core)。
+
 ## 三層
 
 中文解碼、斷詞與排序由本專案以 Rust 寫成的核心完成（`crates/`），詞表以陣列結構體（SoA，Structure-of-Arrays）排列。除了 C ABI 那一層（`meowpuut-ffi`：整個 crate 禁止 `unsafe`，只在個別項目重新允許，每個 `unsafe` 區塊只有一個操作並附 `SAFETY` 說明），其他 crate 都是 `#![forbid(unsafe_code)]`。詞庫分三層：

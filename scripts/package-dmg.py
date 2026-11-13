@@ -7,12 +7,12 @@ import plistlib
 import dmgbuild
 root = Path(__file__).resolve().parent.parent
 app = root / '.build/Meowpuut.app'
-version = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleShortVersionString']
-label = os.environ.get('MEOWPUUT_RELEASE_LABEL', version + '-alpha.1')
+build = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleVersion']
+label = os.environ.get('MEOWPUUT_RELEASE_LABEL', f'Sill-{build}')
 out = root / '.build/releases'
-package = out / f'Meowpuut-{label}-macos-arm64.pkg'
+package = out / f'Meowpuut-macOS-{label}-arm64.pkg'
 assert package.is_file(), 'Build the fallback package first'
-dmg = out / f'Meowpuut-{label}-macos-arm64.dmg'
+dmg = out / f'Meowpuut-macOS-{label}-arm64.dmg'
 dmgbuild.build_dmg(str(dmg), '喵撲 Meowpuut', settings={
     'files': [str(app), (str(package), '安裝或更新.pkg')],
     'symlinks': {'輸入法': '/Library/Input Methods'},

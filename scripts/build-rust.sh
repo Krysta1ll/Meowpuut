@@ -26,7 +26,7 @@ case "$mode" in
   iphoneos) platform="iphoneos"; archs="arm64" ;;
   iphonesimulator) platform="iphonesimulator"; archs="arm64 x86_64" ;;
   windows)
-    cargo rustc --release -p meowpuut-ffi --target x86_64-pc-windows-msvc --crate-type staticlib
+    cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --release -p meowpuut-ffi --target x86_64-pc-windows-msvc --crate-type staticlib
     exit 0 ;;
   *) echo "usage: $0 macos|iphoneos|iphonesimulator|xcode|windows" >&2; exit 2 ;;
 esac
@@ -55,7 +55,7 @@ libs=()
 for arch in $archs; do
   triple="$(triple_for "$arch")"
   rustup target list --installed | grep -qx "$triple" || rustup target add "$triple"
-  cargo rustc --profile "$profile" -p meowpuut-ffi --target "$triple" --crate-type staticlib
+  cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --profile "$profile" -p meowpuut-ffi --target "$triple" --crate-type staticlib
   libs+=("target/$triple/$profile/libmeowpuut_ffi.a")
 done
 if [ "${#libs[@]}" -gt 1 ]; then

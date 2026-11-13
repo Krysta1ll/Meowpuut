@@ -2,7 +2,7 @@
 # Builds the Android input method in Android/.
 #
 #   bash scripts/build-android.sh             -> Android/app/build/outputs/apk/debug/app-debug.apk
-#   bash scripts/build-android.sh --release   -> Android/app/build/outputs/apk/release/app-release-unsigned.apk
+#   bash scripts/build-android.sh --release   -> Android/app/build/outputs/apk/release/
 #   bash scripts/build-android.sh --test      -> the debug APK and the JVM unit tests
 #   bash scripts/build-android.sh --prepare   -> only the Rust engine and the lexicon assets
 #                                                (Gradle's preBuild runs this)
@@ -55,7 +55,7 @@ build_rust() {
     export "CARGO_TARGET_${upper}_LINKER=$TOOLCHAIN/${triple}${API}-clang"
     export "CC_${triple//-/_}=$TOOLCHAIN/${triple}${API}-clang"
     export "AR_${triple//-/_}=$TOOLCHAIN/llvm-ar"
-    cargo rustc --release -p meowpuut-ffi --target "$triple" --crate-type staticlib
+    cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --release -p meowpuut-ffi --target "$triple" --crate-type staticlib
     out=".build/rust/android/$abi"
     mkdir -p "$out"
     # Replace only when changed so the native build is not redone needlessly.
@@ -68,9 +68,7 @@ build_rust() {
 # What the keyboard reads: the Chinese lexicon, its word-pair table and the mimo-jp word list.
 LEXICON_FILES="mimo_base.bin mimo_pairs.bin native-japanese.tsv"
 # Everything scripts/compile-native-lexicon.py reads.
-LEXICON_SOURCES="DataSources Resources/Lexicon scripts/compile-native-lexicon.py scripts/mimo_pipeline.py scripts/mimo_binary.py scripts/mimo_pairs.py scripts/mimo_jp_compile.py scripts/mimo_jp_binary.py scripts/japanese_readings.py scripts/ConvertScript.swift"
-
-# True when a directory holds the lexicon files and no source is newer than them.
+LEXICON_SOURCES="Engine/DataSources Engine/Resources/Lexicon Engine/scripts"
 lexicon_current() {
   local file
   for file in $LEXICON_FILES; do
@@ -81,16 +79,9 @@ lexicon_current() {
 }
 
 stage_assets() {
-  # iOS/Generated (scripts/prepare-ios.sh) is reused while it is current;
-  # otherwise the same compiler writes a copy for Android.
-  local generated="$ROOT/iOS/Generated"
-  if ! lexicon_current "$generated"; then
-    generated="$ROOT/.build/android-lexicon"
-    if ! lexicon_current "$generated"; then
-      mkdir -p "$generated"
-      swiftc scripts/ConvertScript.swift -o .build/convert-script
-      python3 scripts/compile-native-lexicon.py "$generated" "$ROOT/.build/convert-script"
-    fi
+  local generated="$ROOT/Engine/.build/lexicon"
+  if ! lexicon_current "$generated" || [ ! -f "$generated/Licenses/Meowpuut-MIT.txt" ]; then
+    bash Engine/scripts/build-lexicon.sh
   fi
   local assets="$ROOT/Android/app/src/main/assets"
   rm -rf "$assets/licenses"
@@ -99,29 +90,9 @@ stage_assets() {
   for file in $LEXICON_FILES; do
     cmp -s "$generated/$file" "$assets/lexicon/$file" || cp "$generated/$file" "$assets/lexicon/$file"
   done
-  # The same notices as the macOS, iOS and Windows bundles.
-  cp LICENSE "$assets/licenses/Meowpuut-MIT.txt"
+  cp "$generated"/Licenses/* "$assets/licenses/"
   cp ASSETS-LICENSE.md "$assets/licenses/Meowpuut-Artwork.txt"
-  cp DataSources/mimo-tc/LICENSE.txt "$assets/licenses/mimo-tc-MIT.txt"
-  cp DataSources/mimo-tc/OPENCC-LICENSE.txt "$assets/licenses/OpenCC-Apache-2.0.txt"
-  cp DataSources/mimo-tc/JIEBA-LICENSE.txt "$assets/licenses/jieba-MIT.txt"
-  cp DataSources/mimo-tc/SOURCE.json "$assets/licenses/mimo-tc-SOURCE.json"
-  cp DataSources/mimo-sc/LICENSE "$assets/licenses/mimo-sc-MIT.txt"
-  cp DataSources/mimo-sc/SOURCE.json "$assets/licenses/mimo-sc-SOURCE.json"
-  cp DataSources/mimo-jp/LICENSE.txt "$assets/licenses/mimo-jp-derived-BSD.txt"
-  cp DataSources/mimo-jp/BSD.txt "$assets/licenses/mimo-jp-BSD.txt"
-  cp DataSources/mimo-jp/COPYING.txt "$assets/licenses/mimo-jp-COPYING.txt"
-  cp DataSources/mimo-jp/SOURCE.json "$assets/licenses/mimo-jp-SOURCE.json"
-  cp DataSources/mimo-jp/MOZC-LICENSE.txt "$assets/licenses/mimo-jp-Mozc-BSD.txt"
-  cp DataSources/mimo-jp/UNICODE-LICENSE.txt "$assets/licenses/mimo-jp-Unicode-3.0.txt"
-  cp DataSources/mimo-pairs/SOURCE.json "$assets/licenses/mimo-pairs-SOURCE.json"
-  cp DataSources/mimo-pairs/Apache-2.0.txt "$assets/licenses/mimo-pairs-Apache-2.0.txt"
-  cp DataSources/mimo-pairs/CC-BY-4.0.txt "$assets/licenses/mimo-pairs-CC-BY-4.0.txt"
-  cp DataSources/mimo-names/SOURCE.json "$assets/licenses/mimo-names-SOURCE.json"
-  cp DataSources/mimo-phrases/SOURCE.json "$assets/licenses/mimo-phrases-SOURCE.json"
-  cp DataSources/mimo-pairs/CC-BY-2.0-FR.html "$assets/licenses/mimo-pairs-Tatoeba-CC-BY-2.0-FR.html"
-  cp DataSources/mimo-pairs/CC0-1.0.txt "$assets/licenses/mimo-pairs-CommonVoice-CC0-1.0.txt"
-  cp DataSources/mimo-latin/SOURCE.json "$assets/licenses/mimo-latin-SOURCE.json"
+
 }
 
 build_rust
@@ -158,7 +129,11 @@ if [ "$mode" = "--release" ]; then
       "$APKSIGNER" sign --ks "$KEYSTORE" --ks-key-alias meowpuut --ks-pass env:MEOWPUUT_KS_PASS \
       --out "$OUTDIR/app-release.apk" "$OUTDIR/app-release-unsigned.apk"
     "$APKSIGNER" verify "$OUTDIR/app-release.apk"
-    echo "signed: Android/$OUTDIR/app-release.apk"
+    build=$("$SDK/build-tools/37.0.0/aapt" dump badging "$OUTDIR/app-release.apk" | sed -n "s/^package: .*versionCode='\([0-9]*\)'.*/\1/p")
+    [ -n "$build" ] || { echo "error: no versionCode in signed APK" >&2; exit 1; }
+    release="$OUTDIR/Meowpuut-Android-Prism-$build.apk"
+    cp "$OUTDIR/app-release.apk" "$release"
+    echo "signed: Android/$release"
   else
     echo "no release key at $KEYSTORE: Android/$OUTDIR/app-release-unsigned.apk is unsigned"
   fi

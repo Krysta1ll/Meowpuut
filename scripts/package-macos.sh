@@ -3,7 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="$PWD/.build/Meowpuut.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-LABEL="${MEOWPUUT_RELEASE_LABEL:-$VERSION-alpha.1}"
+BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")
+LABEL="${MEOWPUUT_RELEASE_LABEL:-Sill-$BUILD}"
 ARCH=$(uname -m)
 OUT="$PWD/.build/releases"
 STAGE="$(mktemp -d "$PWD/.build/package-stage.XXXXXX")"
@@ -24,7 +25,7 @@ pkgbuild --root "$STAGE" --component-plist scripts/components.plist --scripts sc
 cat > "$OUT/Distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-  <title>喵撲 Meowpuut $LABEL</title>
+  <title>喵撲 Meowpuut · 窗臺 $BUILD</title>
   <welcome file="Welcome.html"/>
   <conclusion file="Conclusion.html"/>
   <options customize="never" require-scripts="false" hostArchitectures="$ARCH"/>
@@ -35,7 +36,7 @@ cat > "$OUT/Distribution.xml" <<XML
   <pkg-ref id="app.meowpuut.inputmethod.pkg" version="$VERSION" onConclusion="RequireLogout">Meowpuut-component.pkg</pkg-ref>
 </installer-gui-script>
 XML
-NAME="Meowpuut-$LABEL-macos-$ARCH.pkg"
+NAME="Meowpuut-macOS-$LABEL-$ARCH.pkg"
 productbuild --distribution "$OUT/Distribution.xml" --resources "$PWD/.build/installer-resources" --package-path "$OUT" "$OUT/$NAME"
 (cd "$OUT" && shasum -a 256 "$NAME" > SHA256SUMS.txt)
 echo "$OUT/$NAME"
