@@ -9,10 +9,10 @@ import com.krysta1ll.meowpuut.android.R
 enum class KeySound(val label: Int) {
     OFF(R.string.sound_off), SYSTEM(R.string.sound_system),
     WATER(R.string.sound_water), MARIMBA(R.string.sound_marimba), GLASS(R.string.sound_glass),
-    FELT(R.string.sound_felt), PENTA(R.string.sound_penta), HARMONIC(R.string.sound_harmonic);
+    FELT(R.string.sound_felt), PENTA(R.string.sound_penta), HARMONIC(R.string.sound_harmonic),
+    TAP(R.string.sound_tap);
 
     val key: String get() = name.lowercase()
-    val isCustom get() = this != OFF && this != SYSTEM
 }
 
 class KeySounds(private val context: Context) {
@@ -32,7 +32,7 @@ class KeySounds(private val context: Context) {
         if (value == preset) return
         release()
         preset = value
-        if (!value.isCustom) return
+        if (value == KeySound.OFF || value == KeySound.SYSTEM) return
         val folder = "key-sounds/${value.key}"
         val files = context.assets.list(folder).orEmpty().sorted()
         val player = SoundPool.Builder().setMaxStreams(4)
@@ -53,12 +53,12 @@ class KeySounds(private val context: Context) {
     }
 
     fun play(effect: Int, fraction: Float = 0.5f, pick: Boolean = false) {
-        if (preset == KeySound.OFF || audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        if (preset == KeySound.OFF || volume == 0f || audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
         if (preset == KeySound.SYSTEM) {
-            audio.playSoundEffect(effect)
+            // The keyboard has its own sound setting, separate from Android's touch sounds.
+            audio.playSoundEffect(effect, volume)
             return
         }
-        if (volume == 0f) return
         val role = when {
             pick -> "pick"
             effect == AudioManager.FX_KEYPRESS_SPACEBAR -> "space"

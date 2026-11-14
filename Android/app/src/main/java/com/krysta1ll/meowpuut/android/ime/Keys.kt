@@ -57,6 +57,7 @@ data class KeySet(
     val referenceColumns: Int,
     val page: Int = 0,
     val maximumWidth: Float? = null,
+    val toleratesKeyDrift: Boolean = false,
 ) {
     fun layoutWidth(available: Float) = min(available, maximumWidth ?: available)
 }
@@ -303,6 +304,7 @@ object KeyBuilder {
                 bottom.second,
             ),
             referenceColumns = 10,
+            toleratesKeyDrift = true,
         )
     }
 
@@ -324,6 +326,7 @@ object KeyBuilder {
                 bottom.second,
             ),
             referenceColumns = 11,
+            toleratesKeyDrift = true,
         )
     }
 

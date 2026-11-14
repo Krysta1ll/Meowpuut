@@ -58,6 +58,7 @@
     <string name="try_hint">在这里试打</string>
 
     <string name="input_title">输入</string>
+    <string name="english_auto_caps">英文自动大写</string>
     <string name="remember_choices">记住选词</string>
     <string name="remember_choices_note">常选的中文词会往前排。记录只保存在这台设备上。</string>
     <string name="clear_choice_memory">清除选词记录</string>
@@ -102,7 +103,7 @@
     <string name="haptic_strength">振动强度</string>
     <string name="haptic_soft">轻柔</string>
     <string name="haptic_strong">强</string>
-    <string name="sound_volume">自定义音效音量</string>
+    <string name="sound_volume">按键音量</string>
     <string name="sound">按键声</string>
 
     <string name="licenses">第三方授权</string>
@@ -117,4 +118,5 @@
     <string name="sound_felt">毛毡</string>
     <string name="sound_penta">五声</string>
     <string name="sound_harmonic">泛音</string>
+    <string name="sound_tap">轻敲</string>
 </resources>

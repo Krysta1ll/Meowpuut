@@ -34,7 +34,7 @@ object Romaji {
         putAll(extra)
     }
 
-    fun reading(raw: String): String {
+    fun reading(raw: String, editing: Boolean = false): String {
         val input = raw.lowercase()
         val out = StringBuilder()
         var position = 0
@@ -45,10 +45,13 @@ object Romaji {
             if (key == '\'') { position++; continue }
             if (key == 'n') {
                 if (next == '\'') { out.append('ん'); position += 2; continue }
-                if (next == null) { out.append('ん'); position++; continue }
+                if (next == null) { out.append(if (editing) 'n' else 'ん'); position++; continue }
                 if (next == 'n') {
                     out.append('ん')
-                    position += if (position + 2 == input.length) 2 else 1
+                    val following = input.getOrNull(position + 2)
+                    // Keep common spellings such as konnichiha. An explicit nn before
+                    // another consonant (or a third n) already accounts for the ん.
+                    position += if (following == null || (editing && following !in "aiueoy'")) 2 else 1
                     continue
                 }
                 if (next !in "aiueoy") { out.append('ん'); position++; continue }

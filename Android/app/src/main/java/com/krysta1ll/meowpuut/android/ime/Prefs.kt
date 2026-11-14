@@ -14,6 +14,9 @@ class Prefs(context: Context) {
     var simplified: Boolean
         get() = store.getBoolean(SIMPLIFIED, false)
         set(value) = store.edit().putBoolean(SIMPLIFIED, value).apply()
+    var englishAutoCaps: Boolean
+        get() = store.getBoolean(ENGLISH_AUTO_CAPS, true)
+        set(value) = store.edit().putBoolean(ENGLISH_AUTO_CAPS, value).apply()
     var rememberChoices: Boolean
         get() = store.getBoolean(REMEMBER_CHOICES, true)
         set(value) = store.edit().putBoolean(REMEMBER_CHOICES, value).apply()
@@ -127,6 +130,7 @@ class Prefs(context: Context) {
     companion object {
         const val MODE = "mode"
         const val SIMPLIFIED = "simplified"
+        const val ENGLISH_AUTO_CAPS = "englishAutoCaps"
         const val REMEMBER_CHOICES = "rememberChoices"
         const val CLEAR_CHOICE_MEMORY = "clearChoiceMemory"
         const val SHAPE = "shape"

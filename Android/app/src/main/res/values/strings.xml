@@ -58,6 +58,7 @@
     <string name="try_hint">在這裡試打</string>
 
     <string name="input_title">輸入</string>
+    <string name="english_auto_caps">英文自動大寫</string>
     <string name="remember_choices">記住選詞</string>
     <string name="remember_choices_note">常選的中文詞會往前排。記錄只存在這台裝置。</string>
     <string name="clear_choice_memory">清除選詞記錄</string>
@@ -102,7 +103,7 @@
     <string name="haptic_strength">震動強度</string>
     <string name="haptic_soft">輕柔</string>
     <string name="haptic_strong">強</string>
-    <string name="sound_volume">自訂音效音量</string>
+    <string name="sound_volume">按鍵音量</string>
     <string name="sound_volume_percent">%1$d%%</string>
     <string name="sound">按鍵聲</string>
 
@@ -119,4 +120,5 @@
     <string name="sound_felt">毛氈</string>
     <string name="sound_penta">五聲</string>
     <string name="sound_harmonic">泛音</string>
+    <string name="sound_tap">輕敲</string>
 </resources>

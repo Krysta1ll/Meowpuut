@@ -65,7 +65,7 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 需要 Android 8.0 以上的 64 位元手機或平板。
 
-1. 下載 [Meowpuut-Prism-26A012.apk](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-26a012/Meowpuut-Prism-26A012.apk)。
+1. 下載 [Meowpuut-Prism-26A013.apk](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-26a013/Meowpuut-Prism-26A013.apk)。
 2. **裝過 0.1.0 的話，先把舊的喵撲移除。** 0.8.0 換了簽署用的金鑰，Android 不會讓新的蓋過舊的。
 3. 打開下載的 APK。系統可能會先要你允許瀏覽器或檔案 App 安裝未知來源的 App。
 4. 打開喵撲 App，照首頁的兩個按鈕：到系統的鍵盤設定開啟「喵撲」（通常在「設定 → 系統 → 鍵盤 → 螢幕鍵盤」，各家手機的位置不太一樣），再用輸入法切換鈕選喵撲。首頁也可以直接試打。

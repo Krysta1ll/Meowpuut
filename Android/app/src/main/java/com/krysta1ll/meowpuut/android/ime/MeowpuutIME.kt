@@ -303,6 +303,10 @@ class MeowpuutIME : InputMethodService(),
                 composer.simplified = prefs.simplified
                 predictions = emptyList()
             }
+            Prefs.ENGLISH_AUTO_CAPS -> {
+                updateAutoCaps()
+                return
+            }
             Prefs.REMEMBER_CHOICES ->
                 composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
             Prefs.CLEAR_CHOICE_MEMORY -> composer.refreshChoices()
@@ -665,8 +669,11 @@ class MeowpuutIME : InputMethodService(),
         } else if (multiline && ic.commitText("\n", 1)) {
             // The next word starts a line. There is no need to block on a
             // host query while the key is lifting; selection updates reconcile it.
-            if (english) caps.applyAutomatic(inputType and (InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
-                InputType.TYPE_TEXT_FLAG_CAP_WORDS or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0)
+            if (english && prefs.englishAutoCaps) {
+                val capsFlags = InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
+                    InputType.TYPE_TEXT_FLAG_CAP_WORDS or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                caps.applyAutomatic(inputType and capsFlags != 0)
+            }
         } else {
             sendKeyChar('\n')
         }
@@ -729,7 +736,8 @@ class MeowpuutIME : InputMethodService(),
     private fun updateAutoCaps() {
         val before = shift
         val info = currentInputEditorInfo
-        val wanted = english && info != null && (currentInputConnection?.getCursorCapsMode(info.inputType) ?: 0) != 0
+        val wanted = english && prefs.englishAutoCaps && info != null &&
+            (currentInputConnection?.getCursorCapsMode(info.inputType) ?: 0) != 0
         caps.applyAutomatic(wanted)
         if (shift != before) refresh()
     }

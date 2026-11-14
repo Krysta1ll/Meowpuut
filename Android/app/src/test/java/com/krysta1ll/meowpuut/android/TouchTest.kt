@@ -258,6 +258,47 @@ class TouchTest {
     }
 
     @Test
+    fun smallLetterBoundaryDriftKeepsOverlappingTapsInOrder() {
+        val b = Board()
+        val q = b.rows[0][0].hitFrame
+        val seam = q.right
+        b.touches.down(0, seam - 1f, q.centerY)
+        b.touches.move(0, seam + 1f, q.centerY)
+        assertEquals("q", b.host.balloons[0])
+        // The next finger lands at the same point but gets a fresh hit test.
+        b.touches.down(1, seam + 1f, q.centerY)
+        assertEquals(listOf("q"), b.typed)
+        assertEquals("w", b.host.balloons[1])
+        b.touches.up(0, seam + 1f, q.centerY)
+        b.touches.up(1, seam + 1f, q.centerY)
+        assertEquals(listOf("q", "w"), b.typed)
+    }
+
+    @Test
+    fun zhuyinBoundaryDriftStillAllowsDeliberateSlides() {
+        val b = Board(mode = InputMode.ZHUYIN)
+        val first = b.rows[0][0].hitFrame
+        val seam = first.bottom
+        b.touches.down(0, first.centerX, seam - 1f)
+        b.touches.move(0, first.centerX, seam + 1f)
+        assertEquals("ㄅ", b.host.balloons[0])
+        b.touches.move(0, first.centerX, seam + 3f)
+        assertEquals("ㄆ", b.host.balloons[0])
+        b.touches.up(0, first.centerX, seam + 3f)
+        assertEquals(listOf("ㄆ"), b.typed)
+    }
+
+    @Test
+    fun nineKeySlidesStillFollowTheHitBoundary() {
+        val b = Board(mode = InputMode.NINE_KEY)
+        val abc = b.rows[0][2].hitFrame
+        b.touches.down(0, abc.right - 1f, abc.centerY)
+        b.touches.move(0, abc.right + 1f, abc.centerY)
+        b.touches.up(0, abc.right + 1f, abc.centerY)
+        assertEquals(listOf("DEF"), b.typed)
+    }
+
+    @Test
     fun spaceRollsOverToo() {
         val b = Board()
         b.down(0, b.frame(KeyAction.Space))

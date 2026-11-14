@@ -320,14 +320,15 @@ class Composer {
                 candidates = if (mode == InputMode.NINE_KEY) choices else choices.distinctBy { it.text }
             }
             InputMode.JAPANESE -> {
-                val reading = Romaji.reading(raw.toString())
-                preedit = reading
+                val typed = raw.toString()
+                // Leave a final single n pending in the editor, with kana available in the list.
+                preedit = Romaji.reading(typed, editing = true)
+                val reading = if (preedit.endsWith('n')) preedit.dropLast(1) + 'ん' else preedit
                 val katakana = Romaji.katakana(reading)
                 val list = ArrayList<Candidate>()
-                japaneseWords.words(raw.toString().lowercase()).forEach { list += Candidate(it, CandidateKind.JAPANESE_WORD, consumed = raw.length) }
+                japaneseWords.words(typed.lowercase()).forEach { list += Candidate(it, CandidateKind.JAPANESE_WORD, consumed = raw.length) }
                 list += Candidate(reading, CandidateKind.KANA, consumed = raw.length)
                 list += Candidate(katakana, CandidateKind.KANA, consumed = raw.length)
-                val typed = raw.toString()
                 if (typed.any { it.isLetter() } && typed == typed.uppercase()) {
                     // All capitals asks for katakana first.
                     list.removeAll { it.text == katakana }

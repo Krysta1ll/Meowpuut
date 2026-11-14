@@ -186,6 +186,12 @@ class KeyTouches(private val host: Host) {
             Mode.KEY -> {
                 // A finger may slide to another character key before lifting.
                 if (p.committed || !p.key.isCharacter) return
+                // A small drift across the seam keeps the active key. New taps hit the full grid.
+                if (p.key.action is KeyAction.Engine && keySet?.toleratesKeyDrift == true) {
+                    val hit = placements.getOrNull(p.row)?.getOrNull(p.column)?.hitFrame
+                    if (hit != null && x >= hit.left - KEY_DRIFT_DP && x < hit.right + KEY_DRIFT_DP &&
+                        y >= hit.top - KEY_DRIFT_DP && y < hit.bottom + KEY_DRIFT_DP) return
+                }
                 val (row, column) = keyAt(x, y) ?: return
                 if (row == p.row && column == p.column) return
                 val next = keyOf(row, column) ?: return
@@ -405,6 +411,7 @@ class KeyTouches(private val host: Host) {
     }
 
     companion object {
+        private const val KEY_DRIFT_DP = 2f
         const val ALTERNATES_DELAY = 450L
         const val CURSOR_DELAY = 400L
         const val CURSOR_STEP = 9f

@@ -126,6 +126,37 @@ class LogicTest {
     }
 
     @Test
+    fun romajiLeavesASingleFinalNPendingWhileEditing() {
+        val composer = Composer()
+        composer.attach(InputMode.JAPANESE, 0)
+        for (key in "mon") assertTrue(composer.type(key.code).handled)
+        assertEquals("もn", composer.preedit)
+        assertTrue(composer.candidates.any { it.text == "もん" })
+        composer.type('n'.code)
+        assertEquals("もん", composer.preedit)
+        composer.backspace()
+        assertEquals("もn", composer.preedit)
+        composer.type('a'.code)
+        assertEquals("もな", composer.preedit)
+        assertEquals("もんだい", Romaji.reading("mondai", editing = true))
+        assertEquals("もんだい", Romaji.reading("monndai", editing = true))
+        assertEquals("こんにちは", Romaji.reading("konnichiha", editing = true))
+        assertEquals("こんにちは", Romaji.reading("konnnichiha", editing = true))
+    }
+
+    @Test
+    fun romajiOffersSmallKanaWithXAndLAliases() {
+        assertEquals("ぁぃぅぇぉゃゅょっっゎ", Romaji.reading("xaxixuxexoxyaxyuxyoxtsuxtuxwa", editing = true))
+        assertEquals("ぁぃぅぇぉゃゅょっっゎ", Romaji.reading("lalilulelolyalyulyoltsultulwa", editing = true))
+        assertEquals("キャッ", Romaji.katakana(Romaji.reading("kixyaxtsu")))
+        val composer = Composer()
+        composer.attach(InputMode.JAPANESE, 0)
+        for (key in "xaxyuxtsu") assertTrue(composer.type(key.code).handled)
+        assertEquals("ぁゅっ", composer.preedit)
+        assertEquals("ぁゅっ", composer.chooseHighlighted(confirm = true).commit)
+    }
+
+    @Test
     fun japaneseWordListKeepsTheStrongestFirst() {
         // A column after the weight is ignored; a line without a weight is skipped.
         val words = JapaneseWords.parse("# test\nsushi|寿司|9000\nsushi,susi|すし|7000\nneko|猫|8000|noun\nbad line\ninu|犬\n")

@@ -194,6 +194,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         choice(input, R.string.script, Prefs.SIMPLIFIED, listOf(R.string.script_traditional to false, R.string.script_simplified to true),
             { prefs.simplified }) { prefs.simplified = it }
         note(input, R.string.script_note)
+        toggle(input, R.string.english_auto_caps, prefs.englishAutoCaps) { prefs.englishAutoCaps = it }
         toggle(input, R.string.remember_choices, prefs.rememberChoices) { prefs.rememberChoices = it }
         note(input, R.string.remember_choices_note)
         input.addView(action(R.string.clear_choice_memory) {
@@ -211,7 +212,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         column.addView(EditText(this).apply {
             setHint(R.string.try_hint)
             gravity = Gravity.TOP or Gravity.START
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             minLines = 2
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             setTextColor(ink)
@@ -281,14 +282,14 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             prefs.keySound = it
         }
         val volumeSlider = feedbackSlider(
-            feedback, R.string.sound_volume, 100, prefs.keySoundVolume, prefs.keySound.isCustom,
+            feedback, R.string.sound_volume, 100, prefs.keySoundVolume, prefs.keySound != KeySound.OFF,
             label = { getString(R.string.sound_volume_percent, it) },
             change = { prefs.keySoundVolume = it },
         )
 
         updateChoices[Prefs.KEY_SOUND] = {
             updateSound()
-            volumeSlider.isEnabled = prefs.keySound.isCustom
+            volumeSlider.isEnabled = prefs.keySound != KeySound.OFF
         }
         listOf(R.string.input_title to input, R.string.look_title to display, R.string.feedback_title to feedback)
             .forEach { (label, card) ->
