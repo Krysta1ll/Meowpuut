@@ -40,7 +40,6 @@ import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.InputMode
-import com.krysta1ll.meowpuut.android.engine.SkinNative
 import com.krysta1ll.meowpuut.android.ime.CandidateBarView
 import com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout
 import com.krysta1ll.meowpuut.android.ime.Cat
@@ -186,7 +185,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             visibility = View.GONE
         }
         column.addView(customSkinNote)
-        if (SkinNative.hasTrustedRoots()) {
+        if (CustomSkinLoader.supported(this)) {
             column.addView(action(R.string.cs_open) { startActivity(Intent(this, RedeemActivity::class.java)) },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                     gravity = Gravity.END

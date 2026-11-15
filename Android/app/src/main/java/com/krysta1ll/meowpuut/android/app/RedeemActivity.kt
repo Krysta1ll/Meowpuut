@@ -26,6 +26,7 @@ import android.widget.Toast
 import com.krysta1ll.meowpuut.android.R
 import com.krysta1ll.meowpuut.android.engine.SkinCore
 import com.krysta1ll.meowpuut.android.engine.SkinNative
+import com.krysta1ll.meowpuut.android.ime.CustomSkinLoader
 import com.krysta1ll.meowpuut.android.ime.Prefs
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -57,7 +58,7 @@ class RedeemActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!SkinNative.hasTrustedRoots()) {
+        if (!CustomSkinLoader.supported(this)) {
             finish()
             return
         }
@@ -138,6 +139,7 @@ class RedeemActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (!::redeemer.isInitialized) return
         setIntent(intent)
         SkinDebugHooks.handle(this, intent)
         handleIncoming(intent)
@@ -146,7 +148,7 @@ class RedeemActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        renderInstalled()
+        if (::redeemer.isInitialized) renderInstalled()
     }
 
     override fun onDestroy() {

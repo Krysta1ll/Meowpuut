@@ -76,11 +76,14 @@ class CustomSkinLoader(context: Context) {
 
         fun debuggable(context: Context) = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
+        fun supported(context: Context): Boolean = SkinNative.hasTrustedRoots() &&
+            SkinOverlay.trustAllowed(debuggable(context), SkinNative.acceptsTestKeys())
+
         /** Blocking: verifies, then reads. Null on any failure. */
         fun loadNow(context: Context, customSkin: String): LoadedSkin? {
             val ref = SkinRef.parse(customSkin) ?: return reject("name")
             // A release build never trusts a skin signed by a test key, even if the library were built to.
-            if (!SkinOverlay.trustAllowed(debuggable(context), SkinNative.acceptsTestKeys())) return reject("test keys")
+            if (!supported(context)) return reject("trust")
             val vault = SkinKeystore.vault(context)
             val skins = SkinKeystore.skinsDir(context)
             val state = vault.state()
