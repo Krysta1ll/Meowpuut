@@ -39,7 +39,10 @@ data class Key(
     val fontSize: Float? = null,
     val spoken: String = label,
     val digit: String? = null,
+    /** Return while composing Zhuyin: a long press commits the symbols as written. */
+    val holdLabel: String? = null,
 ) {
+    val holdsRaw get() = holdLabel != null
     val isCharacter get() = action is KeyAction.Engine || action is KeyAction.Text
 
     /**
@@ -78,8 +81,12 @@ data class KeyContext(
     val expanded: Boolean = false,
     val emoji: Boolean = false,
     val composing: Boolean = false,
+    /** Zhuyin is being composed: a long press on Return sends the Zhuyin text itself. */
+    val rawOnHold: Boolean = false,
+    /** English on the nine-key pad: the keypad stays and its digits spell English words (not in URL, e-mail or password fields). */
+    val nineKeyEnglish: Boolean = false,
 ) {
-    val showsNineKey get() = mode == InputMode.NINE_KEY && !english && page == 0
+    val showsNineKey get() = mode == InputMode.NINE_KEY && page == 0 && (!english || nineKeyEnglish)
 }
 
 object KeyBuilder {
@@ -195,6 +202,7 @@ object KeyBuilder {
         KeyAction.Return, context.returnTitle,
         style = if (context.returnAccent) KeyStyle.ACCENT else KeyStyle.UTILITY,
         preview = false, enabled = context.returnEnabled, fontSize = 16f, spoken = context.returnTitle,
+        holdLabel = if (context.rawOnHold) Words(context.simplified)("送出注音原文", "发送注音原文") else null,
     )
 
     private fun utilityPage(page: Int, label: String, spoken: String = label) =
@@ -227,27 +235,29 @@ object KeyBuilder {
     }
 
     private fun nineKeySet(context: KeyContext, t: Words): KeySet {
-        val segment = Key(KeyAction.Segment, t("分詞", "分词"), alternates = listOf("1"),
+        val segment = if (context.english) {
+            Key(KeyAction.Segment, "'", alternates = listOf("1"), preview = false, spoken = "1, apostrophe", digit = "1")
+        } else Key(KeyAction.Segment, t("分詞", "分词"), alternates = listOf("1"),
             preview = false, spoken = t("1，分詞", "1，分词"), digit = "1")
         val digits = listOf("ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ").mapIndexed { index, group ->
             val digit = index + 2
             Key(KeyAction.Engine('0'.code + digit), group, alternates = listOf(digit.toString()),
                 spoken = "$digit $group", digit = digit.toString())
         }
-        val marks = listOf("！", "。", "？").map { mark ->
-            punctuationKey(mark, (punctuationAlternates(mark) + listOf("，", "、", "；")).distinct())
+        val marks = (if (context.english) listOf("!", ".", "?") else listOf("！", "。", "？")).map { mark ->
+            punctuationKey(mark, (punctuationAlternates(mark) + (if (context.english) listOf(",", ";", ":") else listOf("，", "、", "；"))).distinct())
         }
         val side = listOf(
             deleteKey(t),
-            Key(KeyAction.ClearComposition, t("重輸", "重输"), style = KeyStyle.UTILITY, preview = false,
-                enabled = context.composing, spoken = t("清除目前拼音", "清除当前拼音")),
+            Key(KeyAction.ClearComposition, if (context.english) "clear" else t("重輸", "重输"), style = KeyStyle.UTILITY, preview = false,
+                enabled = context.composing, spoken = if (context.english) "Clear the digits" else t("清除目前拼音", "清除当前拼音")),
             Key(KeyAction.Text("0"), "0", style = KeyStyle.UTILITY, fontSize = 18f),
         )
         val rows = (listOf(segment) + digits).chunked(3).mapIndexed { index, middle ->
             listOf(marks[index]) + middle + side[index]
         }
-        val bottom = nineKeyBottom(context, t, utilityPage(1, t("符號", "符号")),
-            utilityPage(NUMERIC_PAGE, "123", t("數字鍵盤", "数字键盘")))
+        val bottom = nineKeyBottom(context, t, utilityPage(1, if (context.english) "sym" else t("符號", "符号")),
+            utilityPage(NUMERIC_PAGE, "123", if (context.english) "Number pad" else t("數字鍵盤", "数字键盘")))
         return KeySet(rows + listOf(bottom.first), listOf(nineKeyRow, nineKeyRow, nineKeyRow, bottom.second),
             referenceColumns = 10, maximumWidth = 460f)
     }
@@ -265,7 +275,8 @@ object KeyBuilder {
         val rows = ('1'..'9').map(::number).chunked(3).mapIndexed { index, middle ->
             listOf(marks[index]) + middle + side[index]
         }
-        val bottom = listOf(utilityPage(0, t("九鍵", "九键"), t("回到九鍵拼音", "回到九键拼音")),
+        val bottom = listOf(
+            if (context.english) utilityPage(0, "ABC", "Back to the keypad") else utilityPage(0, t("九鍵", "九键"), t("回到九鍵拼音", "回到九键拼音")),
             punctuationKey(","), number('0'), punctuationKey("."), returnKey(context))
         return KeySet(rows + listOf(bottom), List(4) { nineKeyRow },
             referenceColumns = 10, page = NUMERIC_PAGE, maximumWidth = 460f)
@@ -370,7 +381,7 @@ object KeyBuilder {
             KeyAction.Text(text), text, alternates = punctuationAlternates(text),
             fontSize = if (text.length > 1) 16f else 21f, spoken = text,
         )
-        val nine = context.mode == InputMode.NINE_KEY && !context.english
+        val nine = context.mode == InputMode.NINE_KEY && (!context.english || context.nineKeyEnglish)
         val other = if (page == 1) utilityPage(2, "#+=", t("更多符號", "更多符号"))
             else utilityPage(if (nine) NUMERIC_PAGE else 1, "123", t("數字", "数字"))
         val lettersLabel = when {

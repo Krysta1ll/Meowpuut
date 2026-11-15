@@ -29,3 +29,25 @@ enum CandidatePalette: String, CaseIterable, Identifiable {
         case .lavender: "霧紫"; case .amber: "琥珀蜜"; case .graphite: "石墨"
     } }
 }
+
+/// Typing sounds (docs/SOUNDS.md). The Mac has no system key click, so it
+/// offers 關閉 and the built-in sets.
+enum KeySound: String, CaseIterable {
+    case off, system, water, marimba, glass, felt, penta, harmonic, tap
+
+    var isCustom: Bool { self != .off && self != .system }
+
+    func title(_ t: (String, String) -> String) -> String {
+        switch self {
+        case .off: t("關閉", "关闭")
+        case .system: t("系統", "系统")
+        case .water: "水滴"
+        case .marimba: "木琴"
+        case .glass: "玻璃"
+        case .felt: t("毛氈", "毛毡")
+        case .penta: t("五聲", "五声")
+        case .harmonic: "泛音"
+        case .tap: t("輕敲", "轻敲")
+        }
+    }
+}

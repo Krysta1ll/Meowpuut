@@ -25,6 +25,7 @@ import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.Edit
+import com.krysta1ll.meowpuut.android.engine.EnglishSuggestions
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.engine.Lexicons
 import kotlin.math.abs
@@ -41,8 +42,12 @@ class MeowpuutIME : InputMethodService(),
     private lateinit var lexicons: Lexicons
     private lateinit var sprites: CatSprites
     private lateinit var keySounds: KeySounds
+    private lateinit var skinLoader: CustomSkinLoader
+    /** The applied custom skin once verified (CustomSkinLoader); null while it loads, or when it fails: the built-in skin then. */
+    private var customSkin: LoadedSkin? = null
     private lateinit var keyHaptics: KeyHaptics
     private lateinit var catAffinity: LocalCatAffinity
+    private lateinit var moments: CatMoments
     private lateinit var choiceMemory: ChoiceMemory
     private val composer = Composer()
     private val catSchedule = CatSchedule()
@@ -72,11 +77,25 @@ class MeowpuutIME : InputMethodService(),
     private var expanded = false
     private var emojiOpen = false
     private var predictions: List<String> = emptyList()
+    /**
+     * English suggestions for the text before the cursor (docs/PRIVACY.md): the core's completions, correction and
+     * next words. They are recomputed from the editor's text after each change, in memory only, and nothing
+     * changes in the editor until one is tapped.
+     */
+    private var englishPlan = NO_SUGGESTIONS
+    /** Not a password, e-mail or address field, and the editor wants suggestions. */
+    private var suggestionsAllowed = false
+    /** A password, e-mail or address field: English there is always the letter keyboard. */
+    private var latinField = false
+    private var selectionEmpty = true
+    /** The last insertion was a tapped suggestion and its space. */
+    private var suggestionSpace = false
     private var editorAllowsLearning = false
     private val pending = ArrayList<Int>()
     private var loading = false
     private var lexiconFailed = false
     private var opening: InputMode? = null
+    private var openingMixed = true
     private var sessionMode: InputMode? = null
     private var lastSpaceAt = 0L
     private var globe = false
@@ -89,6 +108,9 @@ class MeowpuutIME : InputMethodService(),
     private val words get() = Words(prefs.simplified)
     private val mode get() = prefs.mode
     private val chineseActive get() = !english && mode != InputMode.JAPANESE
+    /** English on the nine-key pad: its digits spell English words from the core. */
+    private val keypadEnglish get() = english && mode == InputMode.NINE_KEY && !latinField && !numericField &&
+        composer.englishKeypad != null
 
     override fun onCreate() {
         super.onCreate()
@@ -100,10 +122,14 @@ class MeowpuutIME : InputMethodService(),
         keySounds.setVolume(prefs.keySoundVolume)
         keySounds.update(prefs.keySound)
         keyHaptics = KeyHaptics(this).apply { update(prefs.haptics, prefs.hapticStrength) }
+        moments = CatMoments(catAffinity, prefs, keyHaptics) { keyboard?.bar }
         prefs.store.registerOnSharedPreferenceChangeListener(this)
         lexicons = Lexicons(this)
         sprites = CatSprites(resources)
+        skinLoader = CustomSkinLoader(this)
+        reloadCustomSkin()
         composer.simplified = prefs.simplified
+        composer.mixedJapanese = prefs.mixedJapanese
         openLexicon()
         lexicons.loadSymbols {
             composer.symbols = it
@@ -113,7 +139,8 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onDestroy() {
         prefs.store.unregisterOnSharedPreferenceChangeListener(this)
-        catAffinity.flush()
+        moments.release()
+        skinLoader.shutdown()
         keySounds.release()
         composer.detach()
         lexicons.shutdown()
@@ -125,7 +152,7 @@ class MeowpuutIME : InputMethodService(),
         view.keys.listener = this
         view.bar.listener = this
         view.bar.onDismissKeyboard = { cat ->
-            if (cat != null) catAffinity.fall(cat)
+            if (cat != null) moments.dropped(cat)
             requestHideSelf(0)
         }
         view.panel.listener = this
@@ -160,13 +187,14 @@ class MeowpuutIME : InputMethodService(),
         super.onWindowShown()
         if (!keyboardWindowVisible) {
             keyboardWindowVisible = true
-            keyboard?.bar?.newPresentation()
+            keyboard?.bar?.let(moments::appear)
         }
     }
 
     override fun onWindowHidden() {
         super.onWindowHidden()
         keyboardWindowVisible = false
+        moments.hidden()
         keyboard?.bar?.endPresentation()
     }
 
@@ -184,6 +212,12 @@ class MeowpuutIME : InputMethodService(),
         val variation = inputType and InputType.TYPE_MASK_VARIATION
         editorAllowsLearning = allowsChoiceMemory(inputType, attribute?.imeOptions ?: 0)
         composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
+        latinField = inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT && variation in LATIN_VARIATIONS
+        suggestionsAllowed = inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT && !latinField &&
+            inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS == 0
+        selectionEmpty = attribute?.let { it.initialSelStart == it.initialSelEnd } ?: true
+        englishPlan = NO_SUGGESTIONS
+        suggestionSpace = false
         composer.symbolsAllowed = when (inputType and InputType.TYPE_MASK_CLASS) {
             InputType.TYPE_CLASS_TEXT -> variation != InputType.TYPE_TEXT_VARIATION_PASSWORD &&
                 variation != InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD &&
@@ -200,6 +234,7 @@ class MeowpuutIME : InputMethodService(),
         super.onStartInputView(info, restarting)
         if (!restarting) {
             predictions = emptyList()
+            englishPlan = NO_SUGGESTIONS
             page = 0
             english = false
             val inputClass = info.inputType and InputType.TYPE_MASK_CLASS
@@ -216,7 +251,9 @@ class MeowpuutIME : InputMethodService(),
         caps.reset()
         shiftHeld = false
         globe = needsGlobe()
+        syncKeypad()
         updateAutoCaps()
+        updateEnglish()
         configureWindow()
         applyLook()
         refresh()
@@ -243,11 +280,14 @@ class MeowpuutIME : InputMethodService(),
         composer.rememberChoices = false
         expanded = false
         emojiOpen = false
+        englishPlan = NO_SUGGESTIONS
+        suggestionsAllowed = false
         super.onFinishInput()
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        selectionEmpty = newSelStart == newSelEnd
         if (composer.composing) {
             // The editor reports where the composing text is. A cursor outside
             // it means the user moved it away. Updates without a composing
@@ -263,6 +303,8 @@ class MeowpuutIME : InputMethodService(),
             }
         } else if (english) {
             updateAutoCaps()
+            // The cursor moved or the text changed from outside: the suggestions follow it.
+            if (updateEnglish()) refresh()
         }
     }
 
@@ -276,8 +318,10 @@ class MeowpuutIME : InputMethodService(),
         // In the background the lexicon is given back; the next field loads it again.
         if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && !isInputViewShown) {
             composer.detach()
+            composer.englishKeypad = null
             sessionMode = null
             lexicons.release()
+            lexicons.releaseEnglish()
         }
     }
 
@@ -292,12 +336,26 @@ class MeowpuutIME : InputMethodService(),
                 emojiOpen = false
                 expanded = false
                 predictions = emptyList()
+                englishPlan = NO_SUGGESTIONS
+                syncKeypad()
                 caps.reset()
                 shiftHeld = false
                 // Keys typed while the new lexicon loads are queued, not sent to the old one.
                 composer.detach()
                 sessionMode = null
                 openLexicon()
+            }
+            Prefs.MIXED_JAPANESE -> {
+                // The next composition uses the new setting: the engine session is rebuilt without
+                // (or with) the Japanese words, and what is being typed ends here.
+                finishComposition()
+                pending.clear()
+                composer.mixedJapanese = prefs.mixedJapanese
+                if (mode != InputMode.JAPANESE) {
+                    composer.detach()
+                    sessionMode = null
+                    openLexicon()
+                }
             }
             Prefs.SIMPLIFIED -> {
                 composer.simplified = prefs.simplified
@@ -310,6 +368,14 @@ class MeowpuutIME : InputMethodService(),
             Prefs.REMEMBER_CHOICES ->
                 composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
             Prefs.CLEAR_CHOICE_MEMORY -> composer.refreshChoices()
+            Prefs.PET_MOMENTS -> {
+                moments.settingChanged()
+                return
+            }
+            Prefs.CLEAR_PETS -> {
+                moments.clear()
+                return
+            }
             Prefs.HAPTICS, Prefs.HAPTIC_STRENGTH -> {
                 keyboard?.setKeyboardHaptics(prefs.haptics)
                 keyHaptics.update(prefs.haptics, prefs.hapticStrength)
@@ -323,6 +389,10 @@ class MeowpuutIME : InputMethodService(),
                 keySounds.setVolume(prefs.keySoundVolume)
                 return
             }
+            Prefs.CUSTOM_SKIN, Prefs.CUSTOM_SKIN_EPOCH -> {
+                reloadCustomSkin()
+                return
+            }
             else -> applyLook()
         }
         refresh()
@@ -333,13 +403,17 @@ class MeowpuutIME : InputMethodService(),
     /** Loads the lexicon for the current mode unless it is loaded or on its way. */
     private fun openLexicon() {
         val target = mode
-        if (opening == target || (sessionMode == target && composer.ready)) return
+        val mixed = prefs.mixedJapanese
+        // A load already on its way with the other mixed-typing setting is replaced (Lexicons drops it).
+        if (opening == target && (target == InputMode.JAPANESE || openingMixed == mixed)) return
+        if (sessionMode == target && composer.ready) return
         // Opening frees the session of the mode before; the composer lets go of it first.
         if (sessionMode != target) composer.detach()
         opening = target
+        openingMixed = mixed
         loading = target != InputMode.JAPANESE
         lexiconFailed = false
-        lexicons.open(target) { session ->
+        lexicons.open(target, mixed) { session ->
             opening = null
             loading = false
             lexiconFailed = target != InputMode.JAPANESE && session == 0L
@@ -386,8 +460,8 @@ class MeowpuutIME : InputMethodService(),
             if (edit.commit.isNotEmpty()) {
                 updatePredictions()
                 if (wasComposing) keyboard?.bar?.committed()
-            }
-        }
+            } else if (english) updateEnglish()
+        } else if (english) updateEnglish()
         refresh(resetPanel)
     }
 
@@ -396,7 +470,7 @@ class MeowpuutIME : InputMethodService(),
         if (!composer.composing) return
         var guard = 0
         while (composer.composing && guard++ < 32) {
-            val edit = composer.chooseHighlighted()
+            val edit = composer.chooseHighlighted(trailingSpace = false)
             if (!edit.handled) {
                 applyEdit(Edit(true, composer.takeLiteral()), true)
                 break
@@ -408,15 +482,90 @@ class MeowpuutIME : InputMethodService(),
 
     private fun commit(text: String, connection: InputConnection? = currentInputConnection): Boolean {
         if (text.isEmpty() || connection?.commitText(text, 1) != true) return false
-        catAffinity.committed(text)
+        moments.committed(text)
         return true
     }
 
     private fun updatePredictions() {
+        if (english) {
+            updateEnglish()
+            return
+        }
         predictions = if (chineseActive) {
             val before = currentInputConnection?.getTextBeforeCursor(8, 0)?.toString().orEmpty()
             composer.predictions(before)
         } else emptyList()
+    }
+
+    /** The English the engine's lexicon list is read for: the pad's source, set while English runs on the nine-key pad. */
+    private fun syncKeypad() {
+        val wanted = if (english && mode == InputMode.NINE_KEY && !latinField && !numericField) lexicons.english() else null
+        if (composer.englishKeypad !== wanted) {
+            composer.englishKeypad = wanted
+            composer.englishContext = {
+                val before = currentInputConnection?.getTextBeforeCursor(CONTEXT_CHARS, 0) ?: ""
+                EnglishSuggestions.context(before, 0) to englishFlags()
+            }
+        }
+    }
+
+    private fun englishFlags() = EnglishSuggestions.flags(shift == ShiftState.ONCE, shift == ShiftState.LOCKED)
+
+    /**
+     * Recomputes the English suggestions from the text before the cursor; true when they changed. Only the
+     * last two words go to the core (see [EnglishSuggestions.context]); nothing is stored.
+     */
+    private fun updateEnglish(): Boolean {
+        var next = NO_SUGGESTIONS
+        if (english && suggestionsAllowed && selectionEmpty && !composer.composing) {
+            val source = lexicons.english()
+            val before = currentInputConnection?.getTextBeforeCursor(CONTEXT_CHARS, 0)
+            if (source != null && before != null) next = EnglishSuggestions.plan(source, before, englishFlags())
+        }
+        if (next == englishPlan) return false
+        englishPlan = next
+        return true
+    }
+
+    /**
+     * A tapped English suggestion: it replaces the word before the cursor (or follows the space) and adds a space.
+     * A list made for text that has since changed does nothing.
+     */
+    private fun chooseEnglish(choice: String) {
+        val ic = currentInputConnection ?: return
+        val plan = englishPlan
+        val word = plan.word
+        val before = if (word.isEmpty()) "" else ic.getTextBeforeCursor(word.length, 0)?.toString()
+        if (choice !in plan.words || before != word) {
+            if (updateEnglish()) refresh()
+            return
+        }
+        val edit = EnglishSuggestions.apply(plan, choice)
+        ic.beginBatchEdit()
+        try {
+            if (edit.deleteBefore > 0) ic.deleteSurroundingText(edit.deleteBefore, 0)
+            commit(edit.insert, ic)
+        } finally {
+            ic.endBatchEdit()
+        }
+        suggestionSpace = true
+        lastSpaceAt = 0
+        updateAutoCaps()
+        updateEnglish()
+        refresh()
+    }
+
+    /** A key of the pad in English: digits compose a word; the apostrophe key types an apostrophe. */
+    private fun typeKeypad(code: Int) {
+        if (code.toChar() !in '2'..'9') {
+            finishComposition()
+            commit(code.toChar().toString())
+            updateEnglish()
+            refresh()
+            return
+        }
+        val wasComposing = composer.composing
+        applyEdit(composer.type(code), wasComposing)
     }
 
     /**
@@ -440,10 +589,16 @@ class MeowpuutIME : InputMethodService(),
             val followsDigit = pending.lastOrNull()?.toChar()?.let { it in '2'..'9' } ?: composer.canSeparateNineKey
             if (!followsDigit) return
         }
+        suggestionSpace = false
+        if (keypadEnglish) {
+            typeKeypad(c)
+            return
+        }
         if (english) {
             commit(c.toChar().toString())
             letterTyped()
             updateAutoCaps()
+            if (updateEnglish()) refresh()
             return
         }
         if (!composer.ready) {
@@ -479,10 +634,12 @@ class MeowpuutIME : InputMethodService(),
 
     /**
      * A physical keyboard types into the same composition: letters (and the
-     * Zhuyin keys) compose, Space and Enter choose, digits pick a candidate
-     * in Pinyin (Shift+digit in Zhuyin), Esc cancels.
+     * Zhuyin keys) compose, Space and Enter choose (Shift+Enter in Zhuyin
+     * sends the symbols as written), digits pick a candidate in Pinyin
+     * (Shift+digit in Zhuyin), Esc cancels.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        moments.pulse.keys++
         if (emojiOpen && keyCode == KeyEvent.KEYCODE_ESCAPE) {
             setEmoji(false)
             consumedKeys += keyCode
@@ -494,7 +651,12 @@ class MeowpuutIME : InputMethodService(),
         val composing = composer.composing
         val handled = when (keyCode) {
             KeyEvent.KEYCODE_SPACE -> composing.also { if (it) space() }
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> composing.also { if (it) enter() }
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> composing.also {
+                if (it) {
+                    // As on desktop: Shift+Enter sends the Zhuyin as written, Enter accepts the candidate.
+                    if (event.isShiftPressed && mode == InputMode.ZHUYIN && !english) commitRawZhuyin() else enter()
+                }
+            }
             KeyEvent.KEYCODE_DEL -> (composing || pending.isNotEmpty()).also { if (it) onDelete(false) }
             KeyEvent.KEYCODE_ESCAPE -> clearComposition()
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> composing.also { if (it) moveHighlight(if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1) }
@@ -537,7 +699,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     private fun visibleCandidates(): List<Int> {
-        return CandidateMerge.collapsed(composer.candidates, limitJapanese = mode.pinyinBased)
+        return CandidateMerge.collapsed(composer.candidates, limitJapanese = mode.pinyinBased && prefs.mixedJapanese)
     }
 
     private fun moveHighlight(delta: Int) {
@@ -551,6 +713,7 @@ class MeowpuutIME : InputMethodService(),
     // ---------------------------------------------------------------- keys
 
     override fun onKeyDown(key: Key, fraction: Float) {
+        moments.pulse.keys++
         val view = keyboard ?: return
         keyHaptics.play(view, HapticFeedbackConstants.KEYBOARD_TAP)
         val effect = when (key.action) {
@@ -589,6 +752,16 @@ class MeowpuutIME : InputMethodService(),
         refresh()
     }
 
+    /** Long-press on 確認 while composing Zhuyin: the symbols as written (ㄋㄧˇㄏㄠˇ). */
+    override fun onKeyHold(key: Key) {
+        if (key.action == KeyAction.Return) commitRawZhuyin()
+    }
+
+    private fun commitRawZhuyin() {
+        if (mode != InputMode.ZHUYIN || english || !composer.composing) return
+        applyEdit(Edit(true, composer.takeLiteral()), true)
+    }
+
     override fun onTick() {
         keyboard?.let { keyHaptics.play(it, HapticFeedbackConstants.CLOCK_TICK) }
     }
@@ -600,10 +773,17 @@ class MeowpuutIME : InputMethodService(),
             return
         }
         finishComposition()
+        // The space a tapped suggestion added goes before a mark (because.), as on iOS.
+        if (english && suggestionSpace && text.length == 1 && text[0] in ".,?!:;") {
+            val ic = currentInputConnection
+            if (ic?.getTextBeforeCursor(1, 0)?.toString() == " ") ic.deleteSurroundingText(1, 0)
+        }
+        suggestionSpace = false
         commit(text)
         if (mode == InputMode.NINE_KEY) lastSpaceAt = 0
         if (page in 1..2 && !numericField && text in KeyBuilder.autoReturnMarks) page = 0
         predictions = emptyList()
+        updateEnglish()
         refresh()
     }
 
@@ -615,6 +795,7 @@ class MeowpuutIME : InputMethodService(),
         if (wasComposing) currentInputConnection?.commitText("", 1)
         expanded = false
         predictions = emptyList()
+        updateEnglish()
         refresh()
         return true
     }
@@ -631,8 +812,10 @@ class MeowpuutIME : InputMethodService(),
         }
         commit(" ")
         lastSpaceAt = now
+        suggestionSpace = false
         predictions = emptyList()
         updateAutoCaps()
+        updateEnglish()
         refresh()
     }
 
@@ -646,15 +829,18 @@ class MeowpuutIME : InputMethodService(),
         commit(if (english || before[0].code < 128) ". " else "。", ic)
         ic.endBatchEdit()
         updateAutoCaps()
+        updateEnglish()
         refresh()
         return true
     }
 
     private fun enter() {
         if (composer.composing) {
-            applyEdit(composer.chooseHighlighted(confirm = true), true)
+            // On the English pad Return keeps the word without a space after it.
+            applyEdit(composer.chooseHighlighted(confirm = true, trailingSpace = !keypadEnglish), true)
             return
         }
+        suggestionSpace = false
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
         val options = info?.imeOptions ?: 0
@@ -678,12 +864,14 @@ class MeowpuutIME : InputMethodService(),
             sendKeyChar('\n')
         }
         lastSpaceAt = 0
-        if (predictions.isEmpty() && shiftBefore == shift) return
+        val suggestionsChanged = english && updateEnglish()
+        if (predictions.isEmpty() && shiftBefore == shift && !suggestionsChanged) return
         predictions = emptyList()
         refresh()
     }
 
     override fun onDelete(word: Boolean) {
+        suggestionSpace = false
         if (pending.isNotEmpty()) {
             if (word) pending.clear() else pending.removeAt(pending.lastIndex)
             return
@@ -709,7 +897,10 @@ class MeowpuutIME : InputMethodService(),
         }
         val count = if (word) TextUnits.wordLength(before) else TextUnits.lastGrapheme(before)
         ic.deleteSurroundingText(count.coerceAtLeast(1), 0)
-        if (english) updateAutoCaps()
+        if (english) {
+            updateAutoCaps()
+            if (updateEnglish()) refresh()
+        }
     }
 
     override fun onShiftDown() {
@@ -762,7 +953,12 @@ class MeowpuutIME : InputMethodService(),
         page = 0
         caps.reset()
         predictions = emptyList()
+        englishPlan = NO_SUGGESTIONS
+        suggestionSpace = false
+        if (english) lexicons.warmEnglish()
+        syncKeypad()
         updateAutoCaps()
+        updateEnglish()
         refresh()
     }
 
@@ -797,6 +993,10 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onPrediction(text: String) {
         onTick()
+        if (english) {
+            chooseEnglish(text)
+            return
+        }
         commit(text)
         updatePredictions()
         refresh()
@@ -838,9 +1038,17 @@ class MeowpuutIME : InputMethodService(),
         refresh(resetPanel = true)
     }
 
+    // The cats' moments (docs/PETS.md); none of these is on the key path.
+    override fun onActivity() = moments.activity()
+    override fun onCatsWoke() = moments.catsWoke()
+    override fun onHold(cat: Cat) = moments.held(cat)
+    override fun onHoldEnd(cat: Cat, interrupted: Boolean) = moments.holdEnded(cat, interrupted)
+    override fun onSeat(cat: Cat) = moments.seatTouched(cat)
+    override fun onComposing(composing: Boolean) = moments.composing(composing)
+
     override fun onPet(cat: Cat) {
         val view = keyboard ?: return
-        catAffinity.pet(cat)
+        moments.tapped(cat)
         if (cat == Cat.MOMO && mode == InputMode.JAPANESE) {
             view.bar.playEasterEgg()
             return
@@ -873,6 +1081,32 @@ class MeowpuutIME : InputMethodService(),
 
     // ---------------------------------------------------------------- views
 
+    /**
+     * Applies or drops the custom skin named in the settings: verified off the main thread, then taken
+     * whole; until then, and on any failure, the built-in skin shows. Never called from a key press.
+     */
+    private fun reloadCustomSkin() {
+        val wanted = prefs.customSkin
+        if (wanted == null) {
+            skinLoader.cancel()
+            useCustomSkin(null)
+            applyLook()
+            return
+        }
+        skinLoader.load(wanted) { loaded ->
+            if (prefs.customSkin != wanted) return@load
+            useCustomSkin(loaded)
+            applyLook()
+            refresh()
+        }
+    }
+
+    private fun useCustomSkin(loaded: LoadedSkin?) {
+        customSkin = loaded
+        sprites.useSkin(loaded?.cats.orEmpty(), loaded?.end)
+        keySounds.useSkin(loaded?.sounds)
+    }
+
     private fun applyLook() {
         val dark = when (prefs.tone) {
             Tone.SYSTEM -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -880,18 +1114,20 @@ class MeowpuutIME : InputMethodService(),
             Tone.DARK -> true
         }
         // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
-        val skin = prefs.skin
+        val overlay = customSkin?.overlay
+        val skin = overlay?.base ?: prefs.skin
         val wardrobe = FestivalWardrobe(on = prefs.festivals)
         // FestivalOverride: debug builds only; the release build's always returns null.
         val today = java.time.LocalDate.now()
         festivalDay = today
-        val festival = if (skin.supportsFestivals) {
+        val festival = if (overlay?.festivalsAllowed ?: skin.supportsFestivals) {
             FestivalOverride.theme(this, festivals, wardrobe) ?: Festivals.theme(today, festivals, wardrobe)
         } else null
         val festivalPill = festival?.let { Look.parseColor((if (dark) it.colors.dark else it.colors.light).lastOrNull()) }
         if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
-        look = Look(dark, skin.shape(prefs.shape), prefs.palette, prefs.strength, prefs.cats, festivalPill,
-            wantsMoreContrast(this), prefs.effects, skin)
+        look = Look(dark, overlay?.shape(prefs.shape, prefs.hasShape) ?: skin.shape(prefs.shape), prefs.palette,
+            overlay?.strength ?: prefs.strength, prefs.cats, festivalPill,
+            wantsMoreContrast(this), prefs.effects, skin, overlay)
         keyboard?.let {
             it.look = look
             it.bar.festival = festivalArt
@@ -931,7 +1167,8 @@ class MeowpuutIME : InputMethodService(),
 
     private fun spaceTitle(): String {
         val t = words
-        if (!composer.composing) return if (english) "space" else "空格"
+        if (english) return "space"
+        if (!composer.composing) return "空格"
         return when (mode) {
             InputMode.PINYIN, InputMode.NINE_KEY -> if (composer.candidates.isNotEmpty()) t("選詞", "选词") else "原文＋空格"
             InputMode.JAPANESE -> t("選詞", "选词")
@@ -974,6 +1211,7 @@ class MeowpuutIME : InputMethodService(),
 
     private fun refresh(resetPanel: Boolean = false) {
         val view = keyboard ?: return
+        syncKeypad()
         // A keyboard left up past midnight takes the new day's theme, between words only.
         if (composer.input.isEmpty() && festivalDay != java.time.LocalDate.now()) applyLook()
         val (returnTitle, accent) = returnTitle()
@@ -992,6 +1230,8 @@ class MeowpuutIME : InputMethodService(),
             expanded = showPanel,
             emoji = emojiOpen,
             composing = mode == InputMode.NINE_KEY && (composer.composing || pending.isNotEmpty()),
+            rawOnHold = mode == InputMode.ZHUYIN && !english && composer.composing,
+            nineKeyEnglish = keypadEnglish,
         )
         // Most keystrokes change nothing about the keys; the last set is kept.
         val set = keySet?.takeIf { context == keyContext } ?: KeyBuilder.build(context).also {
@@ -1010,13 +1250,13 @@ class MeowpuutIME : InputMethodService(),
             candidates = if (emojiOpen) emptyList() else all,
             visible = if (emojiOpen) emptyList() else visible,
             highlighted = composer.highlighted,
-            predictions = if (composing || emojiOpen) emptyList() else predictions,
+            predictions = if (composing || emojiOpen) emptyList() else if (english) englishPlan.words else predictions,
             punctuation = if (!emojiOpen && !composing && predictions.isEmpty() && chineseActive && !loading) QUICK_MARKS else emptyList(),
             status = if (emojiOpen) words("表情符號", "表情符号") else status(),
             expanded = showPanel,
             canExpand = showPanel || (composing && all.isNotEmpty()),
             composing = composing,
-            japaneseMarks = mode.pinyinBased,
+            japaneseMarks = mode.pinyinBased && prefs.mixedJapanese && !english,
             emoji = emojiOpen,
             japaneseMode = mode == InputMode.JAPANESE,
             words = words,
@@ -1035,6 +1275,9 @@ class MeowpuutIME : InputMethodService(),
             return inputType and InputType.TYPE_MASK_VARIATION !in LATIN_VARIATIONS
         }
 
+        /** How much text before the cursor is read for the suggestions: the word being typed and two words before it. */
+        private const val CONTEXT_CHARS = 96
+        private val NO_SUGGESTIONS = EnglishSuggestions.Plan("", emptyList())
         private const val ZHUYIN_KEYS = "1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/-"
         private val QUICK_MARKS = listOf("，", "。", "？", "！", "、")
         private val EMOJI = listOf(

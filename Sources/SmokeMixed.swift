@@ -69,10 +69,18 @@ func runSmokeMixedAndLayout(_ h: inout SmokeHarness) {
     h.check(Symbols.of("手紙") == nil && Symbols.of("手紙", japanese: true)?.emoji.first == "✉️", "中文和日語的表情分開查")
     Preferences.shared.rememberChoices = false
     Preferences.shared.simplified = true
-    h.expect(.pinyin, "zhongguo", "中国")
+    h.expect(.pinyin, "dianying", "电影")
     h.expect(.zhuyin, "5j/4", "种")
     for (input, expected) in [("sushi", "寿司"), ("neko", "猫"), ("gakkou", "学校"), ("konnichiha", "こんにちは"), ("nihongo", "日本語"), ("ko-hi-", "コーヒー")] { h.expect(.japanese, input, expected) }
     for (input, expected) in [("konnichiha", "こんにちは"), ("shin'ya", "しんや"), ("gakkou", "がっこう"), ("kya", "きゃ"), ("xtsu", "っ"), ("n", "ん"), ("nn", "ん"), ("neko", "ねこ")] { h.check(Romaji.reading(input) == expected, "羅馬字 \(input)") }
+    engine.clear(); h.type("mon")
+    h.check(engine.snapshot.preedit == "もn" && engine.snapshot.candidates.contains("もん"), "詞尾單 n 保留組字與假名候選")
+    h.type("n")
+    h.check(engine.snapshot.preedit == "もん", "詞尾 nn 顯示 ん")
+    engine.clear(); h.type("mon"); engine.key(0xffc4)
+    h.check(engine.takeCommit() == "モン", "F7 將待定的 n 確認為片假名")
+    engine.clear(); h.type("xaxyuxtsu"); engine.key(0xff0d)
+    h.check(engine.takeCommit() == "ぁゅっ", "x 前綴輸入小假名")
     engine.clear(); h.type("neko"); engine.key(0xffc4); h.check(engine.takeCommit() == "ネコ", "F7 片假名")
     engine.clear(); h.type("neko"); engine.key(0xffc3); h.check(engine.takeCommit() == "ねこ", "F6 平假名")
     Preferences.shared.simplified = false
@@ -507,8 +515,9 @@ private func runJapaneseLexiconSmoke(_ h: inout SmokeHarness) {
     Preferences.shared.simplified = false; Preferences.shared.rememberChoices = false
     defer { Preferences.shared.simplified = savedSimplified; Preferences.shared.rememberChoices = savedRemember }
     let reviewed = JapaneseLexicon.reviewed
+    // 194 since 2026-11-14: six of these (totemo, ukeru, ichiban, motto, demo, taisetsu) became reviewed words.
     let unknown = derivedReadings.filter { JapaneseBackend.knownWord($0) == nil }
-    h.check(!reviewed.isEmpty && unknown.count == 200, "日語詞表：\(reviewed.count) 個已審讀音，\(unknown.count) 個大詞表讀音不算已審")
+    h.check(!reviewed.isEmpty && unknown.count == 194, "日語詞表：\(reviewed.count) 個已審讀音，\(unknown.count) 個大詞表讀音不算已審")
     h.check(JapaneseBackend.mixedWords.count <= 512 && JapaneseBackend.mixedWords.allSatisfy { reviewed[$0.reading] != nil }, "混打詞池只含已審詞")
     // Build checks compare the bundled binary with its separately generated source table.
     if let directory = ProcessInfo.processInfo.environment["MEOWPUUT_LEXICON_DIR"] {
@@ -545,7 +554,7 @@ private func runJapaneseLexiconSmoke(_ h: inout SmokeHarness) {
     for input in ["shi", "kan", "tai", "men", "gon", "sho"] {
         h.check(derived(input).isEmpty, "拼音不出大詞表日語詞 " + input)
     }
-    for input in ["tamen", "taiwan"] {
+    for input in ["tamen", "shuiguo"] {
         _ = run(pinyin, input)
         h.check(pinyin.compactJapanese().map { derived(input).contains($0.text) } != true, "收合列不出大詞表日語詞 " + input)
     }
@@ -569,7 +578,7 @@ private func runJapaneseLexiconSmoke(_ h: inout SmokeHarness) {
                 "xuexiao 簡體：学校只出現一次，是中文詞")
         // A pure-kanji alias of the large list on a Chinese reading: after every Chinese candidate, not in the collapsed row.
         var late = 0
-        for input in ["dushu", "tushuguan", "huishe", "taiwan", "shishi"] {
+        for input in ["dushu", "tushuguan", "huishe", "dianying", "shishi"] {
             let word = JapaneseLexicon.words(input, mode: JapaneseLexicon.pinyinMode, limit: 5)
                 .first { $0.flags & JapaneseLexicon.reviewedFlag == 0 && $0.kind == JapaneseLexicon.kanjiAliasKind }
             guard let word else { continue }
@@ -607,4 +616,86 @@ private func runJapaneseLexiconSmoke(_ h: inout SmokeHarness) {
     h.check(JapaneseLexicon.words("shi", mode: JapaneseLexicon.japaneseMode, limit: 64).count >= 5 && shi.state.japaneseCandidates.isEmpty &&
             collapsedCandidateIndices(shi.state).count > 1, "日語模式 shi：五個以上的詞，收合列不只一個")
     pinyin.clear(); japaneseMode.clear()
+}
+
+/// 中日混打 off: Pinyin and Zhuyin never show Japanese (no pool in the core, no paw candidate, no compact
+/// cell, no mixed sentence) and the Japanese mode is unchanged; on: the behaviour of every check above.
+func runMixSwitchSmoke(_ h: inout SmokeHarness) {
+    let engine = h.engine
+    let saved = Preferences.shared.mixJapanese
+    defer { Preferences.shared.mixJapanese = saved; engine.finishComposition(); engine.applyMixJapanese(); engine.clear() }
+    Preferences.shared.simplified = false
+    Preferences.shared.rememberChoices = false
+    func shown(_ input: String) -> (candidates: [String], marked: [String], compact: String?) {
+        engine.clear(); h.type(input)
+        let marked = engine.snapshot.japaneseCandidates, compact = engine.snapshot.compactJapanese?.text
+        var all = engine.snapshot.candidates
+        for _ in 0..<40 where !engine.snapshot.lastPage { engine.key(0xff56); all += engine.snapshot.candidates }
+        return (all, marked, compact)
+    }
+    engine.clear(); engine.selectMode(.pinyin); engine.english = false
+    // On: today's behaviour.
+    Preferences.shared.mixJapanese = true
+    engine.finishComposition(); engine.applyMixJapanese()
+    h.check(engine.backendMixJapanese == true, "中日混打開：引擎以開啟狀態建立")
+    var on = shown("sushi")
+    h.check(on.candidates.contains("寿司") && on.marked.contains("寿司"), "開：sushi 有貓爪日文候選")
+    on = shown("woyaoauni")
+    h.check(on.candidates.contains("我要会う你"), "開：中日混句照常")
+    on = shown("konnichiha")
+    h.check(on.candidates.contains("こんにちは"), "開：日文詞照常")
+    // Off: takes effect on the next composition, without a restart.
+    Preferences.shared.mixJapanese = false
+    engine.clear()
+    h.check(engine.mixJapaneseChanged && engine.applyMixJapanese() && engine.backendMixJapanese == false, "關閉後下一次組字使用新設定")
+    for input in ["sushi", "neko", "konnichiha", "woyaoauni", "arigatou", "koohii", "youhua"] {
+        let off = shown(input)
+        let kana = off.candidates.filter { $0.unicodeScalars.contains { (0x3040...0x30ff).contains($0.value) } }
+        h.check(off.marked.isEmpty && off.compact == nil && kana.isEmpty, "關：\(input) 沒有任何日文候選（\(kana)）")
+    }
+    let off = shown("sushi")
+    h.check(off.candidates.first == "蘇軾", "關：sushi 仍有中文候選")
+    // A composition in progress is not interrupted by the change.
+    engine.clear(); h.type("nihao")
+    Preferences.shared.mixJapanese = true
+    h.check(!engine.applyMixJapanese() && engine.snapshot.input == "nihao", "組字中不換引擎")
+    engine.clear()
+    h.check(Symbols.after("手紙", japanese: false, japaneseFallback: false) == nil && Symbols.after("手紙", japanese: false)?.emoji.first == "✉️", "關：中文送出後不查日文表情")
+    // Zhuyin never shows Japanese; the Japanese mode is unaffected by the switch.
+    Preferences.shared.mixJapanese = false
+    engine.selectMode(.zhuyin); engine.clear(); h.type("su3")
+    h.check(engine.snapshot.japaneseCandidates.isEmpty, "注音沒有日文候選")
+    engine.clear(); engine.selectMode(.japanese)
+    for (input, expected) in [("sushi", "寿司"), ("neko", "猫")] { h.expect(.japanese, input, expected) }
+    // No pool in the core when off.
+    if let native = try? NativeBackend(mode: .pinyin, mixJapanese: false) {
+        h.check(native.mixedPinyin("woyaoauni", simplified: false) == nil && native.mixedPinyinPrefix("aunihao", simplified: false) == nil, "關：核心沒有日語詞池")
+    } else { h.check(false, "關：引擎可載入") }
+    if let native = try? NativeBackend(mode: .pinyin, mixJapanese: true) {
+        h.check(native.mixedPinyin("woyaoauni", simplified: false) == "我要会う你", "開：核心有日語詞池")
+    } else { h.check(false, "開：引擎可載入") }
+    engine.clear(); engine.selectMode(.pinyin)
+}
+
+/// The first-run input mode and script: one table for the mapping, and the switch's migration rule.
+func runFirstRunSmoke(_ h: inout SmokeHarness) {
+    let zhuyin = FirstRunDefaults.Choice(inputMode: "zhuyin", simplified: false)
+    let pinyinS = FirstRunDefaults.Choice(inputMode: "pinyin", simplified: true)
+    let pinyinT = FirstRunDefaults.Choice(inputMode: "pinyin", simplified: false)
+    let table: [(String?, [String], FirstRunDefaults.Choice)] = [
+        ("TW", [], zhuyin), ("TW", ["zh-Hans-CN"], zhuyin), (nil, ["zh-Hant-TW"], zhuyin), ("US", ["zh-Hant-TW", "en-US"], zhuyin),
+        ("CN", [], pinyinS), ("SG", ["en-SG"], pinyinS), ("MY", ["ms-MY"], pinyinS), ("CN", ["zh-Hant-HK"], pinyinS),
+        (nil, ["zh-Hans-CN"], pinyinS), ("US", ["zh-Hans"], pinyinS),
+        ("HK", [], pinyinT), ("MO", ["en-MO"], pinyinT), ("US", ["zh-Hant-HK"], pinyinT), ("US", ["zh-Hant"], pinyinT),
+        ("US", ["zh-Hant-HK", "zh-Hans-CN"], pinyinT), ("US", ["zh-Hans-CN", "zh-Hant-HK"], pinyinS),
+        ("US", ["en-US"], pinyinS), ("JP", ["ja-JP"], pinyinS), (nil, [], pinyinS),
+    ]
+    let wrong = table.filter { FirstRunDefaults.choice(region: $0.0, languages: $0.1) != $0.2 }
+    h.check(wrong.isEmpty, "首次執行的輸入方式與字形對照表（\(table.count) 項）")
+    h.check([zhuyin, pinyinS, pinyinT].contains(FirstRunDefaults.current), "本機的首次執行預設是三種結果之一")
+    let mix = [(MixJapaneseDefault.resolve(stored: nil, existingInstall: false), false, true),
+               (MixJapaneseDefault.resolve(stored: nil, existingInstall: true), true, true),
+               (MixJapaneseDefault.resolve(stored: false, existingInstall: true), false, false),
+               (MixJapaneseDefault.resolve(stored: true, existingInstall: false), true, false)]
+    h.check(mix.allSatisfy { $0.0.value == $0.1 && $0.0.needsWrite == $0.2 }, "中日混打：新安裝關，舊安裝開並寫入一次，明確值不變")
 }

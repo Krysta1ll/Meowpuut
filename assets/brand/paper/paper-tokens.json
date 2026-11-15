@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "comment": "Single source of the app-page colour tokens (Kami-Biyori). Colours are #RRGGBB or #RRGGBBAA. Edit here, run scripts/render_paper_tokens.py, then scripts/check_palette_contrast.py must pass.",
+  "themes": [
+    "rose",
+    "ocean",
+    "sage",
+    "lavender",
+    "amber",
+    "graphite"
+  ],
+  "tapeAlpha": 0.8,
+  "modes": {
+    "light": {
+      "rose": {
+        "paper": "#FAF2E6",
+        "paper2": "#EFE0CE",
+        "ink": "#3A3334",
+        "inkSecondary": "#6B5F60",
+        "pill": "#8E6468",
+        "stamp": "#B82E1F",
+        "tapeA": "#E8B9B2",
+        "tapeB": "#F2DCA6",
+        "pillText": "#FFFFFF",
+        "grain": "#3A33340A",
+        "shadowWarm": "#4A2E221F"
+      },
+      "ocean": {
+        "paper": "#EEF2F2",
+        "paper2": "#DCE5E8",
+        "ink": "#22313B",
+        "inkSecondary": "#586873",
+        "pill": "#47688A",
+        "stamp": "#C0392B",
+        "tapeA": "#A8C8DA",
+        "tapeB": "#F1E4B6",
+        "pillText": "#FFFFFF",
+        "grain": "#22313B0A",
+        "shadowWarm": "#4A2E221F"
+      },
+      "sage": {
+        "paper": "#F2F1E3",
+        "paper2": "#E2E3D0",
+        "ink": "#2B382D",
+        "inkSecondary": "#5A675B",
+        "pill": "#4F6B57",
+        "stamp": "#B5432A",
+        "tapeA": "#B9CDB1",
+        "tapeB": "#F0D9A3",
+        "pillText": "#FFFFFF",
+        "grain": "#2B382D0A",
+        "shadowWarm": "#4A2E221F"
+      },
+      "lavender": {
+        "paper": "#F3EEF4",
+        "paper2": "#E4DCE8",
+        "ink": "#2E2838",
+        "inkSecondary": "#62586E",
+        "pill": "#765C98",
+        "stamp": "#B5352E",
+        "tapeA": "#D2C3E4",
+        "tapeB": "#F1E1A8",
+        "pillText": "#FFFFFF",
+        "grain": "#2E28380A",
+        "shadowWarm": "#4A2E221F"
+      },
+      "amber": {
+        "paper": "#F4E8D1",
+        "paper2": "#E7D5B5",
+        "ink": "#3A2D1D",
+        "inkSecondary": "#6A5A44",
+        "pill": "#7E5F32",
+        "stamp": "#B23A22",
+        "tapeA": "#E9C77E",
+        "tapeB": "#E2A99A",
+        "pillText": "#FFFFFF",
+        "grain": "#3A2D1D0A",
+        "shadowWarm": "#4A2E221F"
+      },
+      "graphite": {
+        "paper": "#EFEEEA",
+        "paper2": "#DEDDD8",
+        "ink": "#2A2D31",
+        "inkSecondary": "#586067",
+        "pill": "#59636F",
+        "stamp": "#B8392B",
+        "tapeA": "#C5CBD2",
+        "tapeB": "#EBDFB0",
+        "pillText": "#FFFFFF",
+        "grain": "#2A2D310A",
+        "shadowWarm": "#4A2E221F"
+      }
+    },
+    "dark": {
+      "rose": {
+        "paper": "#2A2326",
+        "paper2": "#201A1D",
+        "ink": "#F5EFE9",
+        "inkSecondary": "#B9AEAA",
+        "pill": "#8A6E6C",
+        "stamp": "#FF917A",
+        "tapeA": "#6E4D4C",
+        "tapeB": "#6E5E3C",
+        "pillText": "#FFFFFF",
+        "grain": "#FFF6E80A",
+        "shadowWarm": "#00000059"
+      },
+      "ocean": {
+        "paper": "#1E2830",
+        "paper2": "#161E25",
+        "ink": "#EAF1F5",
+        "inkSecondary": "#A9B8C2",
+        "pill": "#587894",
+        "stamp": "#FF9A86",
+        "tapeA": "#3F6075",
+        "tapeB": "#6A5F3E",
+        "pillText": "#FFFFFF",
+        "grain": "#FFF6E80A",
+        "shadowWarm": "#00000059"
+      },
+      "sage": {
+        "paper": "#222B25",
+        "paper2": "#192019",
+        "ink": "#EEF2E8",
+        "inkSecondary": "#AEBBAF",
+        "pill": "#5F7A64",
+        "stamp": "#FF9F7F",
+        "tapeA": "#44604A",
+        "tapeB": "#6B5F3C",
+        "pillText": "#FFFFFF",
+        "grain": "#FFF6E80A",
+        "shadowWarm": "#00000059"
+      },
+      "lavender": {
+        "paper": "#272230",
+        "paper2": "#1D1927",
+        "ink": "#F1ECF6",
+        "inkSecondary": "#B8AEC4",
+        "pill": "#7F6C9C",
+        "stamp": "#FF917A",
+        "tapeA": "#5E4C78",
+        "tapeB": "#6B5E3E",
+        "pillText": "#FFFFFF",
+        "grain": "#FFF6E80A",
+        "shadowWarm": "#00000059"
+      },
+      "amber": {
+        "paper": "#2C251C",
+        "paper2": "#211B14",
+        "ink": "#F7EDDA",
+        "inkSecondary": "#BDB09A",
+        "pill": "#8C714D",
+        "stamp": "#FF9A74",
+        "tapeA": "#7A5E2E",
+        "tapeB": "#74483D",
+        "pillText": "#FFFFFF",
+        "grain": "#FFF6E80A",
+        "shadowWarm": "#00000059"
+      },
+      "graphite": {
+        "paper": "#25272A",
+        "paper2": "#1B1D20",
+        "ink": "#ECEEF0",
+        "inkSecondary": "#AEB4BA",
+        "pill": "#68717C",
+        "stamp": "#FF917A",
+        "tapeA": "#4E5864",
+        "tapeB": "#645B3F",
+        "pillText": "#FFFFFF",
+        "grain": "#FFF6E80A",
+        "shadowWarm": "#00000059"
+      }
+    }
+  }
+}

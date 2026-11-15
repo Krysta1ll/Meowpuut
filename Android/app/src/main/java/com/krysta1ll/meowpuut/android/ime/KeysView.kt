@@ -66,6 +66,10 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pixelPaint = Paint()
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+    }
     private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 0.65f
@@ -215,7 +219,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         canvas.save()
         canvas.scale(density, density)
         val pixel = look.usesSteppedMaterial
-        val simple = look.effects == EffectsLevel.LIGHTWEIGHT || look.opaque || pixel
+        // A custom skin's keys are painted solid, like the high-contrast setting: its colours are validated as they are.
+        val simple = look.effects == EffectsLevel.LIGHTWEIGHT || look.opaque || pixel || look.overlay != null
         val full = look.effects.hasFullEffects && !simple
         val ultra = look.effects == EffectsLevel.ULTRA && !simple
         val glass = full || look.tintedGlass
@@ -267,6 +272,12 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                     rect.set(f.left, f.top + depth, f.right, f.bottom + depth)
                     canvas.drawRoundRect(rect, radius, radius, facePaint)
                     if (pressed) canvas.drawRoundRect(rect, radius, radius, pressPaint)
+                    if (look.keyRim && key.style != KeyStyle.ACCENT) {
+                        // `keys.rim`: the skin's keys are under 3:1 against its deck, so each gets an outline.
+                        outlinePaint.color = Look.withAlpha(look.keyText, 0.42f)
+                        rect.inset(0.5f, 0.5f)
+                        canvas.drawRoundRect(rect, radius - 0.5f, radius - 0.5f, outlinePaint)
+                    }
                 } else {
                     canvas.save()
                     canvas.translate(f.left, f.top + depth)
@@ -480,7 +491,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             if (f.top < coveredHeight) continue
             out += VirtualAccessibility.Item(r * 100 + placement.column,
                 Rect((f.left * density).toInt(), (f.top * density).toInt(), (f.right * density).toInt(), (f.bottom * density).toInt()),
-                key.spoken.ifEmpty { key.label }, enabled = key.enabled)
+                key.spoken.ifEmpty { key.label }, enabled = key.enabled,
+                longClick = if (key.holdLabel != null) VirtualAccessibility.LongClick(key.holdLabel!!) { touches.hold(r, placement.column) } else null)
         }
         return out
     }

@@ -22,6 +22,7 @@
 #include <olectl.h>
 #include <wchar.h>
 
+#include "../InputDefaults.h"
 #include "../Keyboard.h"
 #include "../Session.h"
 #include "../UI/CandidateWindow.h"
@@ -36,6 +37,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 #include <utility>
 
 using namespace meowpuut;
@@ -49,7 +51,11 @@ const CLSID kServiceId = {0x961c0ada, 0x4dc6, 0x488f, {0x95, 0x63, 0x4f, 0xc1, 0
 const GUID kPinyinProfile = {0x8fde097d, 0x3513, 0x486a, {0x9a, 0xb5, 0x2d, 0x1b, 0x2c, 0x67, 0xc3, 0x59}};
 const GUID kZhuyinProfile = {0x1f5d9d62, 0xf4af, 0x4aaf, {0x82, 0xa6, 0xa4, 0x82, 0xd7, 0xec, 0x3a, 0xe2}};
 const GUID kReadingAttribute = {0xaa6fa177, 0x4a76, 0x4191, {0xa2, 0xfe, 0x06, 0x18, 0xd6, 0xcc, 0x2f, 0x65}};
-const LANGID kLanguage = MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL); // zh-TW
+// The profiles are registered under both Chinese languages Windows offers for the two scripts (zh-TW,
+// 0x0404, and zh-CN, 0x0804), so nobody has to add a language they do not use to get the keyboards.
+// What the person types does not depend on the language: the script is the stored setting.
+const LANGID kLanguages[] = {MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL),
+                             MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED)};
 const wchar_t kSettingsKey[] = L"Software\\Meowpuut";
 
 struct Profile {
@@ -167,6 +173,81 @@ void storeSimplified(bool on) {
     RegCloseKey(key);
 }
 
+// Japanese words among Pinyin candidates (HKCU\\Software\\Meowpuut, MixedJapanese, DWORD 0 or 1).
+// The separate Japanese input does not exist on Windows, so this is the only place Japanese appears.
+bool storedMixedJapanese() {
+    DWORD value = 0, size = sizeof value;
+    return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"MixedJapanese", RRF_RT_REG_DWORD, nullptr, &value, &size) ==
+               ERROR_SUCCESS &&
+           value != 0;
+}
+
+void storeMixedJapanese(bool on) {
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) !=
+        ERROR_SUCCESS)
+        return;
+    const DWORD value = on ? 1 : 0;
+    RegSetValueExW(key, L"MixedJapanese", 0, REG_DWORD, reinterpret_cast<const BYTE *>(&value), sizeof value);
+    RegCloseKey(key);
+}
+
+std::string narrow(const std::wstring &w) {
+    if (w.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    std::string s(static_cast<std::size_t>(std::max(n, 0)), '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+// The system region (an ISO code such as the two letters of the user's geographic location) and
+// language list, read locally and only to pick a first-run script; never stored or sent.
+std::string systemRegion() {
+    using GetGeoName = int(WINAPI *)(wchar_t *, int);
+    if (HMODULE kernel = GetModuleHandleW(L"kernel32.dll"))
+        if (auto fn = reinterpret_cast<GetGeoName>(reinterpret_cast<void *>(GetProcAddress(kernel, "GetUserDefaultGeoName")))) {
+            wchar_t name[16] = {};
+            if (fn(name, 16) > 0) return narrow(name);
+        }
+    return {};
+}
+std::vector<std::string> systemLanguages() {
+    std::vector<std::string> tags;
+    wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
+    if (GetUserDefaultLocaleName(locale, LOCALE_NAME_MAX_LENGTH) > 0) tags.push_back(narrow(locale));
+    ULONG count = 0, size = 0;
+    if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, nullptr, &size) && size > 1) {
+        std::wstring buffer(size, L'\0');
+        if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, buffer.data(), &size)) {
+            for (const wchar_t *p = buffer.c_str(); *p; p += lstrlenW(p) + 1) tags.push_back(narrow(p));
+        }
+    }
+    return tags;
+}
+
+// Runs once per install, in whichever program loads the service first. Settings stored by an
+// earlier version mean an existing person: mixed Japanese stays on and the script is left alone.
+// A fresh install gets it off and, if no script is stored, the script its language and region
+// suggest. Only these values are written. Two programs racing write the same values.
+void firstRun() {
+    HKEY key = nullptr;
+    const LSTATUS opened = RegOpenKeyExW(HKEY_CURRENT_USER, kSettingsKey, 0, KEY_QUERY_VALUE, &key);
+    DWORD values = 0;
+    bool hasMixed = false, hasScript = false;
+    if (opened == ERROR_SUCCESS) {
+        RegQueryInfoKeyW(key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &values, nullptr, nullptr, nullptr, nullptr);
+        hasMixed = RegQueryValueExW(key, L"MixedJapanese", nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+        hasScript = RegQueryValueExW(key, L"Simplified", nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+        RegCloseKey(key);
+    } else if (opened != ERROR_FILE_NOT_FOUND) {
+        return; // not readable here (an app container): another program does it
+    }
+    if (hasMixed) return;
+    const auto plan = meowpuut::firstRun(values > 0, hasScript, systemRegion(), systemLanguages());
+    storeMixedJapanese(plan.mixedJapanese);
+    if (plan.storeScript) storeSimplified(plan.start.simplified);
+}
+
 // --- lexicons -----------------------------------------------------------------
 
 // A read-only view of a whole file. The engine reads mimo_base.bin and
@@ -224,12 +305,12 @@ SharedLexicon sharedLexicon(bool pinyin) {
     return lexicon;
 }
 
-std::unique_ptr<Session> makeSession(InputMode mode, bool simplified) {
+std::unique_ptr<Session> makeSession(InputMode mode, bool simplified, bool mixedJapanese) {
     const bool pinyin = mode == InputMode::Pinyin;
     auto lexicon = sharedLexicon(pinyin);
     if (!lexicon) return nullptr;
     auto session = std::make_unique<Session>(std::move(lexicon), pinyin);
-    if (pinyin) {
+    if (pinyin && mixedJapanese) {
         try {
             session->registerJapaneseWords(lexiconDirectory() / L"native-japanese.tsv");
         } catch (const std::exception &) {
@@ -334,6 +415,7 @@ struct ContextState {
     Ref<ITfContext> context;
     std::unique_ptr<Session> session;
     InputMode mode = InputMode::Pinyin;
+    bool builtWithJapanese = false; // the switch value the session was built for (not whether the word list loaded)
     Ref<ITfComposition> composition;
     std::wstring pending;  // committed text not yet in the document, oldest first
     std::wstring preedit;  // what the composition should show
@@ -668,6 +750,7 @@ public:
                 SUCCEEDED(profiles->GetActiveProfile(GUID_TFCAT_TIP_KEYBOARD, &profile)) &&
                 IsEqualCLSID(profile.clsid, kServiceId))
                 mode_ = IsEqualGUID(profile.guidProfile, kZhuyinProfile) ? InputMode::Zhuyin : InputMode::Pinyin;
+            firstRun();
             simplified_ = storedSimplified();
             langBar_ = query<ITfLangBarItemMgr>(threadMgr, IID_ITfLangBarItemMgr);
             button_ = Ref<ModeButton>::adopt(new ModeButton(this));
@@ -937,6 +1020,8 @@ public:
     // From the taskbar's mode button.
     bool english() const { return english_; }
     bool simplified() const { return simplified_; }
+    bool mixedJapanese() const { return storedMixedJapanese(); }
+    void toggleMixedJapanese() { storeMixedJapanese(!storedMixedJapanese()); }
     void chooseCandidateTextSize(ui::CandidateTextSize size) {
         ui::saveCandidateTextSize(size);
         if (window_) {
@@ -973,10 +1058,19 @@ private:
                 source->AdviseSink(kIidTextLayoutSink, static_cast<ITfTextLayoutSink *>(this), &found->second->layoutCookie);
         }
         ContextState &s = *found->second;
-        if (!s.session || s.mode != mode_) {
-            s.session = makeSession(mode_, simplified_);
-            s.mode = mode_;
-            s.last = {};
+        // The switch is read when no reading is open, so a change applies from the next composition
+        // in every program; a session keeps the Japanese words it was built with.
+        // The registry is read only when a session may be replaced: none yet, or no reading open.
+        const bool replaceable = !s.session || s.mode != mode_ || s.session->idle();
+        if (replaceable) {
+            const bool wantJapanese = mode_ == InputMode::Pinyin && storedMixedJapanese();
+            const bool stale = s.session && s.mode == mode_ && s.builtWithJapanese != wantJapanese;
+            if (!s.session || s.mode != mode_ || stale) {
+                s.session = makeSession(mode_, simplified_, wantJapanese);
+                s.mode = mode_;
+                s.builtWithJapanese = wantJapanese;
+                s.last = {};
+            }
         }
         return s.session ? &s : nullptr;
     }
@@ -999,7 +1093,7 @@ private:
             return p;
         }
         if (composing && vk == VK_RETURN && p.event.shift) {
-            // Shift+Enter sends the letters as typed (macOS does the same).
+            // Shift+Enter sends the letters as typed, Zhuyin as written (macOS does the same).
             p.act = Act::Literal;
             return p;
         }
@@ -1082,7 +1176,7 @@ private:
         case Act::Finish: finish(s); break;
         case Act::Insert: finish(s); break;
         case Act::Literal: {
-            const std::string typed(session.input());
+            const std::string typed(session.inputText());
             session.clear();
             deliver(state, widen(typed));
             return;
@@ -1406,6 +1500,8 @@ HRESULT ModeButton::InitMenu(ITfMenu *menu) {
     menu->AddMenuItem(1, simplified ? 0 : TF_LBMENUF_RADIOCHECKED, nullptr, nullptr, L"繁體中文", 4, nullptr);
     menu->AddMenuItem(2, simplified ? TF_LBMENUF_RADIOCHECKED : 0, nullptr, nullptr, L"简体中文", 4, nullptr);
     menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
+    menu->AddMenuItem(6, owner_->mixedJapanese() ? TF_LBMENUF_CHECKED : 0, nullptr, nullptr, L"中日混打", 4, nullptr);
+    menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
     constexpr const wchar_t *sizes[] = {L"候選字級：小", L"候選字級：標準", L"候選字級：大"};
     constexpr const wchar_t *simplifiedSizes[] = {L"候选字号：小", L"候选字号：标准", L"候选字号：大"};
     const auto selectedSize = static_cast<UINT>(ui::loadCandidateTextSize());
@@ -1419,6 +1515,7 @@ HRESULT ModeButton::InitMenu(ITfMenu *menu) {
 HRESULT ModeButton::OnMenuSelect(UINT id) {
     try {
         if (owner_ && (id == 1 || id == 2)) owner_->chooseScript(id == 2);
+        if (owner_ && id == 6) owner_->toggleMixedJapanese();
         if (owner_ && id >= 3 && id <= 5) owner_->chooseCandidateTextSize(static_cast<ui::CandidateTextSize>(id - 3));
     } catch (...) {
     }
@@ -1506,12 +1603,14 @@ HRESULT registerProfiles(bool install, const std::wstring &dll) {
     HRESULT result = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
                                       IID_ITfInputProcessorProfileMgr, profiles.putVoid());
     if (FAILED(result)) return result;
-    for (const Profile &profile : kProfiles) {
-        result = install ? profiles->RegisterProfile(kServiceId, kLanguage, *profile.guid, profile.name,
-                                                     static_cast<ULONG>(wcslen(profile.name)), dll.c_str(),
-                                                     static_cast<ULONG>(dll.size()), 0, nullptr, 0, TRUE, 0)
-                         : profiles->UnregisterProfile(kServiceId, kLanguage, *profile.guid, 0);
-        if (install && FAILED(result)) return result;
+    for (const LANGID language : kLanguages) {
+        for (const Profile &profile : kProfiles) {
+            result = install ? profiles->RegisterProfile(kServiceId, language, *profile.guid, profile.name,
+                                                         static_cast<ULONG>(wcslen(profile.name)), dll.c_str(),
+                                                         static_cast<ULONG>(dll.size()), 0, nullptr, 0, TRUE, 0)
+                             : profiles->UnregisterProfile(kServiceId, language, *profile.guid, 0);
+            if (install && FAILED(result)) return result;
+        }
     }
     Ref<ITfCategoryMgr> categories;
     result = CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, categories.putVoid());

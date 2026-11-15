@@ -85,6 +85,13 @@ if(BUILD_TESTING)
         add_test(NAME session COMMAND meowpuut_session_test "${MEOWPUUT_LEXICON_DIR}/native-pinyin.tsv" "${MEOWPUUT_LEXICON_DIR}/native-zhuyin.tsv" "${MEOWPUUT_LEXICON_DIR}/native-japanese.tsv")
     endif()
 
+    add_executable(meowpuut_input_defaults_test tests/input_defaults_test.cpp)
+    target_compile_features(meowpuut_input_defaults_test PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(meowpuut_input_defaults_test PRIVATE /utf-8 /W4)
+    endif()
+    add_test(NAME input_defaults COMMAND meowpuut_input_defaults_test)
+
     add_executable(meowpuut_layout_test UI/tests/layout_test.cpp)
     target_link_libraries(meowpuut_layout_test PRIVATE MeowpuutCandidateLayout)
     if(MSVC)

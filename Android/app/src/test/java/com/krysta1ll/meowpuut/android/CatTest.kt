@@ -66,7 +66,7 @@ class CatTest {
 
     @Test
     fun affinityCountsCommittedGraphemesAndEachCatsContacts() {
-        assertEquals(5, TextUnits.graphemeCount("中e\u0301👩‍💻🇭🇰\r\n"))
+        assertEquals(5, TextUnits.graphemeCount("中e\u0301👩‍💻🇫🇷\r\n"))
         assertEquals(3, TextUnits.graphemeCount("cat"))
         assertEquals(0, TextUnits.graphemeCount(""))
         val counts = CatAffinityCounters(199)

@@ -102,13 +102,24 @@ DAYS = {
 
 # Simplified Chinese, Japanese and English. The Traditional name is the
 # owner's, from the pack's manifest.
+# Display names without country labels (no-politics policy, 2026-11-15). The art pack's own
+# names carried a ・country suffix; these replace them on import.
+HANT_NAMES = {
+    "tanabata": "七夕・短冊",
+    "songkran": "潑水節",
+    "hinamatsuri": "女兒節",
+    "childrens_day": "兒童節・鯉魚旗",
+    "chuseok": "秋夕",
+    "midsummer": "仲夏節",
+}
+
 NAMES = {
     "spring_festival": ("春节", "春節", "Lunar New Year"),
     "lantern_festival": ("元宵", "元宵節", "Lantern Festival"),
     "dragon_boat": ("端午", "端午節", "Dragon Boat Festival"),
     "mid_autumn": ("中秋", "中秋節", "Mid-Autumn Festival"),
-    "tanabata": ("七夕・日本", "七夕", "Tanabata"),
-    "songkran": ("泼水节・泰国", "ソンクラーン", "Songkran"),
+    "tanabata": ("七夕・短册", "七夕", "Tanabata"),
+    "songkran": ("泼水节", "ソンクラーン", "Songkran"),
     "diwali": ("排灯节", "ディワリ", "Diwali"),
     "eid": ("开斋节", "イード・アル＝フィトル", "Eid al-Fitr"),
     "hanukkah": ("光明节", "ハヌカ", "Hanukkah"),
@@ -118,15 +129,15 @@ NAMES = {
     "new_year": ("新年", "お正月", "New Year"),
     "valentine": ("情人节", "バレンタインデー", "Valentine's Day"),
     "white_day": ("白色情人节", "ホワイトデー", "White Day"),
-    "hinamatsuri": ("女儿节・日本", "ひな祭り", "Hinamatsuri"),
-    "childrens_day": ("儿童节・日本", "こどもの日", "Children's Day (Japan)"),
+    "hinamatsuri": ("女儿节", "ひな祭り", "Hinamatsuri"),
+    "childrens_day": ("儿童节・鲤鱼旗", "こどもの日", "Children's Day (carp streamers)"),
     "qixi": ("七夕", "七夕（旧暦）", "Qixi Festival"),
     "double_ninth": ("重阳", "重陽の節句", "Double Ninth Festival"),
     "winter_solstice": ("冬至", "冬至", "Winter Solstice"),
     "holi": ("洒红节", "ホーリー", "Holi"),
     "nowruz": ("诺鲁孜节", "ノウルーズ", "Nowruz"),
-    "chuseok": ("秋夕・韩国", "チュソク", "Chuseok"),
-    "midsummer": ("仲夏节・瑞典", "夏至祭（スウェーデン）", "Midsummer (Sweden)"),
+    "chuseok": ("秋夕", "チュソク", "Chuseok"),
+    "midsummer": ("仲夏节", "夏至祭", "Midsummer"),
 }
 
 PARTS = ("mimimo", "momo", "frame")
@@ -422,7 +433,7 @@ def main():
 
         themes.append({
             "id": ident,
-            "names": {"hant": t["name"], "hans": hans, "ja": ja, "en": en},
+            "names": {"hant": HANT_NAMES.get(ident, t["name"]), "hans": hans, "ja": ja, "en": en},
             "mimimo": sprite("mimimo"),
             "momo": sprite("momo"),
             "trim": {

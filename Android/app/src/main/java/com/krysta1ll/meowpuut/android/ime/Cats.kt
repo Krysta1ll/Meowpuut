@@ -10,6 +10,7 @@ import android.graphics.RectF
 import com.krysta1ll.meowpuut.android.R
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
@@ -53,6 +54,16 @@ class CatSprites(private val resources: Resources) {
     class Art(val sprite: CatSprite, val bitmap: Bitmap)
 
     private val arts = HashMap<String, Art>()
+    /** A custom skin's decoded pictures, set once its files are verified (CustomSkinLoader); never read from disk here. */
+    private var skinArts: Map<String, Art> = emptyMap()
+    private var skinEnd: Pair<SkinEnd, Bitmap>? = null
+
+    fun useSkin(sprites: Map<String, Art>, end: Pair<SkinEnd, Bitmap>?) {
+        skinArts = sprites
+        skinEnd = end
+    }
+
+    fun endArt(end: SkinEnd): Bitmap? = skinEnd?.takeIf { it.first == end }?.second
     private val bodies = HashMap<Int, Bitmap>()
     private val held = arrayOfNulls<HeldCatArt>(Cat.entries.size)
 
@@ -86,7 +97,7 @@ class CatSprites(private val resources: Resources) {
     fun classicTail() = bodies.getOrPut(R.drawable.cat_classic_mimimo_tail) { decode(R.drawable.cat_classic_mimimo_tail) }
 
     /** Decode only the poses the keyboard has actually shown. */
-    fun art(sprite: CatSprite): Art = arts.getOrPut(sprite.name) {
+    fun art(sprite: CatSprite): Art = skinArts[sprite.name]?.takeIf { it.sprite === sprite } ?: arts.getOrPut(sprite.name) {
         val id = when (sprite.name) {
             "mimimo_edge_peek" -> R.drawable.cat_mimimo_edge_peek
             "mimimo_edge_rest" -> R.drawable.cat_mimimo_edge_rest
@@ -108,7 +119,9 @@ class CatSprites(private val resources: Resources) {
                 CatBodyPose.SLEEP -> R.drawable.cat_mimimo_sleep
             }
             Cat.MOMO -> when (pose) {
-                CatBodyPose.IDLE, CatBodyPose.SLEEP -> R.drawable.cat_momo_idle
+                CatBodyPose.IDLE -> R.drawable.cat_momo_idle
+                // TODO(momo_sleep): the user's clay sleeping pose does not exist yet; momo_happy stands in for it.
+                CatBodyPose.SLEEP -> R.drawable.cat_momo_happy
                 CatBodyPose.GREET -> R.drawable.cat_momo_wave
                 CatBodyPose.HAPPY -> R.drawable.cat_momo_happy
                 CatBodyPose.JUMP -> R.drawable.cat_momo_jump
@@ -231,14 +244,25 @@ class CatAffection {
  * A cat's answer to a pet: 米米莫 ducks and shakes his head, 莫莫 nuzzles.
  * The values turn and scale the sprite about its paw anchor. [timeScale] is
  * the system's animator duration scale when the motion began.
+ *
+ * The moments of docs/PETS.md (HELLO, HOLD, SINK, SURFACE, FOUND, DUET, HOP)
+ * are played from a plan of the pets core. They never rise above the cat's
+ * resting height: they squash, sink or change pose. A [fade] motion (Reduce
+ * Motion, or a skin without a glass seat) only cross-fades the pose, in at most
+ * 0.25 s. A motion allocates once; a frame allocates nothing.
  */
 class CatMotion(
     val cat: Cat,
     val start: Long,
     private val timeScale: Float = 1f,
     private val event: Event = Event.PET,
+    private val fade: Boolean = false,
+    /** SURFACE after typing: out within 0.18 s. */
+    private val quick: Boolean = false,
+    /** Wait for [start] showing the cat as it is (the second cat of a greeting). */
+    private val waits: Boolean = false,
 ) {
-    enum class Event { PET, CELEBRATE, WAKE, LOOK, COMMIT }
+    enum class Event { PET, CELEBRATE, WAKE, LOOK, COMMIT, HELLO, HOLD, SINK, SURFACE, FOUND, DUET, HOP }
 
     /** Filled by [pose]; one instance per motion, so a frame allocates nothing. */
     class Pose {
@@ -247,6 +271,14 @@ class CatMotion(
         var tilt = 0f
         var body: CatBodyPose? = null
         var bodyAlpha = 0f
+        /** 0 at rest, 1 sunk out of sight into the glass. */
+        var drop = 0f
+        /** Opacity of the whole cat (a fade moment). */
+        var alpha = 1f
+
+        fun reset() {
+            wide = 1f; tall = 1f; tilt = 0f; body = null; bodyAlpha = 0f; drop = 0f; alpha = 1f
+        }
     }
 
     private val span = when (event) {
@@ -254,12 +286,43 @@ class CatMotion(
         Event.WAKE -> 330f
         Event.LOOK -> 250f
         Event.COMMIT -> 280f
+        Event.HELLO -> HELLO_MS
+        Event.HOLD -> PURR_MS
+        Event.SINK -> if (fade) FADE_MS else SINK_MS
+        Event.SURFACE -> if (quick) YIELD_MS else if (fade) FADE_MS else SINK_MS
+        Event.FOUND -> FOUND_MS
+        Event.DUET -> DUET_MS
+        Event.HOP -> HOP_MS
     }
     private val current = Pose()
+    private var releasedAt = -1L
+    private var cutAt = -1L
+
+    /** A moment of the pets core rather than an everyday reaction. */
+    val isMoment: Boolean get() = event.isMoment
+
+    /** A sunk cat stays out of sight until a SURFACE or FOUND motion replaces this one; it needs no frames while it waits. */
+    fun settled(now: Long): Boolean = event == Event.SINK && (now - start).toFloat() / timeScale >= span
+
+    /** The finger left a purring cat: its pose fades out. */
+    fun release(now: Long) {
+        if (event == Event.HOLD && releasedAt < 0L) releasedAt = now
+    }
+
+    /** Typing: the moment ends within 0.15 s. */
+    fun cut(now: Long) {
+        if (cutAt < 0L && event != Event.SINK && event != Event.SURFACE) cutAt = now
+    }
 
     fun pose(now: Long): Pose? {
         val t = (now - start).toFloat() / timeScale
-        if (t < 0 || t > span) return null
+        if (t < 0f) {
+            if (!waits) return null
+            current.reset()
+            return current
+        }
+        if (event.isMoment) return momentPose(t, now)
+        if (t > span) return null
         current.body = when (event) {
             Event.WAKE -> CatBodyPose.IDLE
             Event.PET -> if (t < 150f) CatBodyPose.GREET else CatBodyPose.HAPPY
@@ -288,6 +351,72 @@ class CatMotion(
         return current
     }
 
+    private val Event.isMoment get() = ordinal >= Event.HELLO.ordinal
+
+    private fun momentPose(t: Float, now: Long): Pose? {
+        val p = current
+        p.reset()
+        // The held purr ends with the finger; the rest end with their span (SINK never does).
+        val end = if (event == Event.HOLD && releasedAt >= 0L) (releasedAt - start).toFloat() / timeScale + PURR_OUT_MS else span
+        if (event != Event.SINK && t > end) return null
+        var cutFactor = 1f
+        if (cutAt >= 0L) {
+            val c = (now - cutAt).toFloat() / timeScale
+            if (c >= CUT_MS) return null
+            cutFactor = 1f - c / CUT_MS
+        }
+        val fadeIn = if (fade) FADE_MS else 66f
+        val inOut = min(t / fadeIn, (end - t) / (if (fade) FADE_MS else 110f)).coerceIn(0f, 1f) * cutFactor
+        val direction = if (cat == Cat.MIMIMO) 1f else -1f
+        when (event) {
+            Event.HELLO -> {
+                // Momo waves; Mimimo reaches a beat later (the second motion waits to start).
+                p.body = CatBodyPose.GREET
+                p.bodyAlpha = inOut
+                if (!fade) {
+                    p.tall = 1f - 0.03f * sin(PI * t / span).toFloat()
+                    p.tilt = direction * 1.2f * sin(PI * t / span).toFloat()
+                }
+            }
+            Event.HOLD -> {
+                p.body = if (cat == Cat.MIMIMO) CatBodyPose.SLEEP else CatBodyPose.HAPPY
+                p.bodyAlpha = inOut
+                // Breathing every 2.6 s, only downward from the resting height.
+                if (!fade) p.tall = 1f - 0.022f * (0.5f - 0.5f * cos(2.0 * PI * t / BREATH_MS).toFloat())
+            }
+            Event.SINK -> {
+                val u = (t / span).coerceIn(0f, 1f)
+                val e = u * u * (3f - 2f * u)
+                if (fade) p.alpha = 1f - e else p.drop = e
+            }
+            Event.SURFACE -> {
+                val u = (t / span).coerceIn(0f, 1f)
+                val e = u * u * (3f - 2f * u)
+                if (fade) p.alpha = e else p.drop = 1f - e
+                p.alpha *= cutFactor.coerceAtLeast(0f)
+            }
+            Event.FOUND -> {
+                val u = (t / YIELD_MS).coerceIn(0f, 1f)
+                val e = u * u * (3f - 2f * u)
+                if (fade) p.alpha = e else p.drop = 1f - e
+                p.body = CatBodyPose.HAPPY
+                p.bodyAlpha = if (fade) inOut * e else inOut
+                if (!fade) p.tall = 1f - 0.04f * sin(PI * t / span).toFloat()
+            }
+            Event.DUET -> {
+                p.body = if (cat == Cat.MOMO) CatBodyPose.JUMP else CatBodyPose.HAPPY
+                p.bodyAlpha = inOut
+                if (!fade) p.tilt = direction * 1.5f * sin(2.0 * PI * t / 300f).toFloat()
+            }
+            Event.HOP -> {
+                // A cat without the poses squashes twice: it never rises above its seat.
+                if (!fade) p.tall = 1f - 0.07f * abs(sin(2.0 * PI * t / span).toFloat()) * cutFactor
+            }
+            else -> Unit
+        }
+        return p
+    }
+
     // Piecewise ease-in-out; the final segment of a sprung track overshoots slightly.
     private fun track(t: Float, durations: FloatArray, values: FloatArray, spring: Boolean): Float {
         var elapsed = 0f
@@ -308,17 +437,31 @@ class CatMotion(
         return values.last()
     }
 
-    private companion object {
+    companion object {
+        const val HELLO_MS = 900f
+        /** A purr lasts at most this long (4 s) and fades out 0.16 s after the finger leaves. */
+        const val PURR_MS = 4000f
+        const val PURR_OUT_MS = 160f
+        const val BREATH_MS = 2600f
+        const val SINK_MS = 280f
+        const val FADE_MS = 250f
+        const val FOUND_MS = 350f
+        const val DUET_MS = 600f
+        const val HOP_MS = 500f
+        /** Any moment gives way to typing within this long. */
+        const val YIELD_MS = 180f
+        const val CUT_MS = 150f
+
         // Segment lengths in ms and the values at their ends. Degrees are
         // clockwise; 莫莫 sits at the right end and leans toward the candidates.
-        val DUCK_TIMES = floatArrayOf(80f, 260f, 180f)
-        val DUCK_TALL = floatArrayOf(1f, 0.86f, 0.88f, 1f)
-        val DUCK_WIDE = floatArrayOf(1f, 1.05f, 1.04f, 1f)
-        val SHAKE_TIMES = floatArrayOf(80f, 100f, 100f, 90f, 150f)
-        val SHAKE = floatArrayOf(0f, -5f, 4.5f, -3f, 1.5f, 0f)
-        val LIFT_TIMES = floatArrayOf(170f, 220f, 170f)
-        val LIFT = floatArrayOf(1f, 1.05f, 1.04f, 1f)
-        val NUZZLE_TIMES = floatArrayOf(170f, 110f, 110f, 170f)
-        val NUZZLE = floatArrayOf(0f, -6f, -3.5f, -6f, 0f)
+        private val DUCK_TIMES = floatArrayOf(80f, 260f, 180f)
+        private val DUCK_TALL = floatArrayOf(1f, 0.86f, 0.88f, 1f)
+        private val DUCK_WIDE = floatArrayOf(1f, 1.05f, 1.04f, 1f)
+        private val SHAKE_TIMES = floatArrayOf(80f, 100f, 100f, 90f, 150f)
+        private val SHAKE = floatArrayOf(0f, -5f, 4.5f, -3f, 1.5f, 0f)
+        private val LIFT_TIMES = floatArrayOf(170f, 220f, 170f)
+        private val LIFT = floatArrayOf(1f, 1.05f, 1.04f, 1f)
+        private val NUZZLE_TIMES = floatArrayOf(170f, 110f, 110f, 170f)
+        private val NUZZLE = floatArrayOf(0f, -6f, -3.5f, -6f, 0f)
     }
 }

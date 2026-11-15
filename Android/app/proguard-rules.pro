@@ -2,3 +2,9 @@
 -keepclasseswithmembernames class com.krysta1ll.meowpuut.android.engine.NativeEngine {
     native <methods>;
 }
+-keepclasseswithmembernames class com.krysta1ll.meowpuut.android.engine.SkinNative {
+    native <methods>;
+}
+-keepclasseswithmembernames class com.krysta1ll.meowpuut.android.engine.NativeEnglish {
+    native <methods>;
+}

@@ -63,7 +63,7 @@ class TouchTest {
     }
 
     /** A keyboard that answers like the input method: pages, Shift labels, the return to letters. */
-    private class Board(val english: Boolean = false, val mode: InputMode = InputMode.PINYIN, val composing: Boolean = false) : KeyListener {
+    private class Board(val english: Boolean = false, val mode: InputMode = InputMode.PINYIN, val composing: Boolean = false, val rawOnHold: Boolean = false) : KeyListener {
         val host = FakeHost()
         val touches = KeyTouches(host)
         val events = ArrayList<String>()
@@ -84,7 +84,7 @@ class TouchTest {
 
         fun install(sameShape: Boolean, expanded: Boolean = false) {
             set = KeyBuilder.build(KeyContext(mode, english, page, shift, false, false, "空格", "換行", false, true, expanded,
-                composing = composing))
+                composing = composing, rawOnHold = rawOnHold))
             rows = KeyGrid.place(set.specs, width, set.referenceColumns, KeyMetrics.of(Idiom.PHONE, width, set.rows.size))
             touches.layout(set, rows, width, sameShape)
         }
@@ -144,6 +144,7 @@ class TouchTest {
         override fun onCursorMove(steps: Int) { events += "cursor:$steps" }
         override fun onCursorEnd() { events += "cursor-end" }
         override fun onTick() = Unit
+        override fun onKeyHold(key: Key) { events += "hold:${key.action}" }
     }
 
     @Test
@@ -356,6 +357,29 @@ class TouchTest {
         b.up(0, space, dx = 40f)
         assertEquals(listOf("space"), b.typed)
         assertTrue(b.events.none { it.startsWith("cursor") })
+    }
+
+    @Test
+    fun aHeldReturnSendsZhuyinTextAndATapStillConfirms() {
+        val b = Board(mode = InputMode.ZHUYIN, rawOnHold = true)
+        val enter = b.frame(KeyAction.Return)
+        b.down(0, enter)
+        b.host.advance(KeyTouches.ALTERNATES_DELAY)
+        b.up(0, enter)
+        assertEquals(listOf("hold:Return"), b.events)
+        b.events.clear()
+        b.tap(enter)
+        assertEquals(listOf("key:換行"), b.events)
+    }
+
+    @Test
+    fun aHeldReturnDoesNothingSpecialOutsideComposingZhuyin() {
+        val b = Board(mode = InputMode.ZHUYIN)
+        val enter = b.frame(KeyAction.Return)
+        b.down(0, enter)
+        b.host.advance(1000)
+        b.up(0, enter)
+        assertEquals(listOf("key:換行"), b.events)
     }
 
     @Test

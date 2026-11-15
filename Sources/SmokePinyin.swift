@@ -349,5 +349,20 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
     h.expect(.pinyin, "youhua", "優化")
     engine.clear(); h.type("youhua")
     h.check(engine.snapshot.candidates.first == "優化", "少量舊選詞不壓過高頻正確詞")
+    // Next-word predictions learned from the person's own choices skip the never-volunteer list; the
+    // reading-to-word choices stay. The list here is a neutral stand-in, not the shipped one.
+    let shippedList = NeverVolunteer.shared
+    NeverVolunteer.shared = NeverVolunteer(text: "[zh]\n测试词 =整词\n[zh-keep]\n测试词典\n[emoji-key]\n测试键\n")
+    h.check(NeverVolunteer.shared.blocks("整詞") && !NeverVolunteer.shared.blocks("整詞典") && !NeverVolunteer.shared.blocks("測試詞典"), "整詞條目只比對整段；保留詞不擋")
+    ChoiceMemory.shared.forget("ctx|今天|py:t:ceshi"); ChoiceMemory.shared.forget("ctx|今天|py:t:ceshi2")
+    for _ in 0..<2 {
+        ChoiceMemory.shared.remember([("ctx|今天|py:t:ceshi", "測試詞"), ("ctx|今天|py:t:ceshi2", "測試")])
+    }
+    h.check(ChoiceMemory.shared.contextualPredictions(after: "今天") == ["測試"], "學到的接續預測不給名單裡的詞（繁體寫法也比對）")
+    h.check(ChoiceMemory.shared.preferred(for: "py:t:ceshi", context: "今天") == ["測試詞"], "同讀音的個人選詞照舊")
+    h.check(NeverVolunteer.shared.blocksSymbols(for: "测试键") && !NeverVolunteer.isNeverSymbol("🌈") && NeverVolunteer.isNeverSymbol("\u{1F1EB}\u{1F1F7}"), "表情查詢略過名單鍵和旗幟")
+    ChoiceMemory.shared.forget("ctx|今天|py:t:ceshi"); ChoiceMemory.shared.forget("ctx|今天|py:t:ceshi2")
+    NeverVolunteer.shared = shippedList
+    h.check(!shippedList.isEmpty, "出貨的名單有載入（never-volunteer.txt 在 App 資源裡）")
     Preferences.shared.rememberChoices = false
 }

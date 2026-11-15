@@ -101,29 +101,50 @@ data class Look(
     /** The system asks for more contrast: the glass is painted solid (DESIGN.md §3). */
     val opaque: Boolean = false,
     val effects: EffectsLevel = EffectsLevel.STANDARD,
+    /** For a custom skin, its base: the overlay below is laid over this built-in definition. */
     val skin: KeyboardSkin = KeyboardSkin.CURRENT,
+    /** A verified custom skin (CustomSkin.kt), or null. Its colours replace the palette's. */
+    val overlay: SkinOverlay? = null,
 ) {
     val usesSteppedMaterial get() = skin.material == SkinMaterial.PIXEL
-    val edgeHuggingCats get() = skin.catSeating == CatSeating.EDGE_HUGGING
+    /** The classic skin's edge-hugging cats; an overlay asks for them only where the base has that artwork. */
+    val edgeHuggingCats get() = if (overlay != null) overlay.seatingEdges && skin.catArtwork == SkinCatArtwork.LEGACY
+        else skin.catSeating == CatSeating.EDGE_HUGGING
+    val supportsFestivals get() = overlay?.festivalsAllowed ?: skin.supportsFestivals
+    private val colors: SkinPalette? = overlay?.palette(dark)
+    private val keyColors: SkinKeys? = overlay?.keys(dark)
     val tintedGlass get() = skin.material == SkinMaterial.GLASS && skin.optics == GlassOptics.TINTED &&
         !opaque && effects != EffectsLevel.LIGHTWEIGHT
-    val tint = palette.color(dark)
+    val tint = colors?.stamp ?: palette.color(dark)
+    /** Under an overlay the deck is the skin's `paper` over `paper2`, tinted by `glass.deckTint`. */
+    private val deckTint get() = overlay?.deckTint ?: 0f
     val keyboardTop = when {
+        colors != null -> blend(colors.paper, tint, deckTint)
         usesSteppedMaterial -> blend(if (dark) 0xFF29243C.toInt() else 0xFFECE5F0.toInt(), tint, 0.10f)
         tintedGlass -> blend(if (dark) 0xFF29272C.toInt() else 0xFFF0EBEE.toInt(), tint, if (dark) 0.095f else 0.075f)
         else -> blend(if (dark) 0xFF29272C.toInt() else 0xFFF0EEF3.toInt(), tint, if (dark) 0.045f else 0.025f)
     }
     val keyboardMiddle = when {
+        colors != null -> blend(blend(colors.paper, colors.paper2, 0.5f), tint, deckTint)
         usesSteppedMaterial -> keyboardTop
         tintedGlass -> blend(if (dark) 0xFF242226.toInt() else 0xFFE7E2E5.toInt(), tint, if (dark) 0.075f else 0.035f)
         else -> blend(if (dark) 0xFF242226.toInt() else 0xFFE8E5EC.toInt(), tint, if (dark) 0.03f else 0.015f)
     }
-    val keyboardBottom = if (usesSteppedMaterial) keyboardTop else if (dark) 0xFF1C1B1F.toInt() else 0xFFDCD9E1.toInt()
-    val keyFaceTop get() = if (dark) 0xFF57565E.toInt() else 0xFFF9F7FA.toInt()
-    val keyFaceBottom get() = if (dark) 0xFF4B4A52.toInt() else 0xFFF1EFF4.toInt()
-    val keyUtility get() = if (dark) 0xFF3C3B40.toInt() else 0xFFCFCED8.toInt()
-    val keyUtilityTop = blend(if (dark) 0xFF46444D.toInt() else 0xFFEBE8EF.toInt(), tint, 0.035f)
-    val keyUtilityBottom = blend(if (dark) 0xFF3B3941.toInt() else 0xFFDEDBE4.toInt(), tint, 0.035f)
+    val keyboardBottom = if (colors != null) blend(colors.paper2, tint, deckTint)
+        else if (usesSteppedMaterial) keyboardTop else if (dark) 0xFF1C1B1F.toInt() else 0xFFDCD9E1.toInt()
+    // An overlay's key colours are the validated ones (text against them is checked at 4.5:1), so its keys are
+    // painted solid: KeysView takes the same path as the high-contrast setting. `keys.tint` leans them to the stamp colour.
+    val keyFaceTop get() = keyColors?.let { blend(it.character, tint, overlay!!.keyTint) } ?: if (dark) 0xFF57565E.toInt() else 0xFFF9F7FA.toInt()
+    val keyFaceBottom get() = keyColors?.let { darken(blend(it.character, tint, overlay!!.keyTint), 0.03f) }
+        ?: if (dark) 0xFF4B4A52.toInt() else 0xFFF1EFF4.toInt()
+    val keyUtility get() = keyColors?.let { blend(it.utility, tint, overlay!!.keyTint) } ?: if (dark) 0xFF3C3B40.toInt() else 0xFFCFCED8.toInt()
+    val keyUtilityTop = if (keyColors != null) keyUtility else blend(if (dark) 0xFF46444D.toInt() else 0xFFEBE8EF.toInt(), tint, 0.035f)
+    val keyUtilityBottom = if (keyColors != null) darken(keyUtility, 0.03f) else blend(if (dark) 0xFF3B3941.toInt() else 0xFFDEDBE4.toInt(), tint, 0.035f)
+    /** Keys that would be under 3:1 against the deck get an outline (the validator makes the skin say so). */
+    val keyRim get() = overlay?.keyRim == true
+    /** The ripple where a cat sank (docs/PETS.md A2): soft rings on glass, a thin opaque line under Reduce Transparency. */
+    val rippleSoft get() = 0xFFFFFFFF.toInt()
+    val rippleLine get() = if (dark) 0xFFFFFFFF.toInt() else 0xFF3A3846.toInt()
     /** Pale material on top of the keyboard's own tinted deck. */
     fun keyGlassTone(utility: Boolean): Int {
         val neutral = when {
@@ -141,36 +162,49 @@ data class Look(
         } else if (dark) 0.075f else 0.035f
         return blend(neutral, tint, amount)
     }
-    val keyGlassReflection = lighten(palette.color(dark = true), if (dark) 0.28f else 0.46f)
+    val keyGlassReflection = lighten(overlay?.palette(true)?.stamp ?: palette.color(dark = true), if (dark) 0.28f else 0.46f)
     val keyShadow get() = if (dark) 0x35000000 else 0x16000000
-    val keyText get() = if (dark) 0xFFFFFFFF.toInt() else 0xFF18181B.toInt()
+    val keyText get() = keyColors?.text ?: if (dark) 0xFFFFFFFF.toInt() else 0xFF18181B.toInt()
     val keyTextDisabled get() = if (dark) 0x66FFFFFF else 0x5518181B
-    val candidateText get() = if (dark) 0xFFF5EFE9.toInt() else 0xFF3A3334.toInt()
-    val candidateSecondary get() = if (dark) 0xFFCCC2BA.toInt() else 0xFF7A7072.toInt()
-    val balloonFace get() = if (dark) 0xFF6B6A70.toInt() else 0xFFFFFFFF.toInt()
-    val pixelSurface = blend(if (dark) 0xFF3B3352.toInt() else 0xFFFFF8F5.toInt(), tint, 0.06f)
-    val pixelUtility = blend(if (dark) 0xFF4F4165.toInt() else 0xFFF1E3EA.toInt(), tint, 0.10f)
-    val pixelEdge = if (dark) 0xFFAC95CE.toInt() else 0xFF72617F.toInt()
-    val pixelAccent = blend(if (dark) 0xFF5E487B.toInt() else 0xFF674874.toInt(), tint, 0.14f)
+    val candidateText get() = colors?.ink ?: if (dark) 0xFFF5EFE9.toInt() else 0xFF3A3334.toInt()
+    val candidateSecondary get() = colors?.inkSecondary ?: if (dark) 0xFFCCC2BA.toInt() else 0xFF7A7072.toInt()
+    /** The text on the selected candidate's capsule: white, or the overlay's own `pillText`. */
+    val pillText: Int get() = when {
+        colors == null || pillOverride != null -> 0xFFFFFFFF.toInt()
+        opaque -> 0xFFFFFFFF.toInt()
+        else -> colors.pillText
+    }
+    val balloonFace get() = keyColors?.character ?: if (dark) 0xFF6B6A70.toInt() else 0xFFFFFFFF.toInt()
+    val pixelSurface = if (keyColors != null) keyColors.character else blend(if (dark) 0xFF3B3352.toInt() else 0xFFFFF8F5.toInt(), tint, 0.06f)
+    val pixelUtility = if (keyColors != null) keyColors.utility else blend(if (dark) 0xFF4F4165.toInt() else 0xFFF1E3EA.toInt(), tint, 0.10f)
+    val pixelEdge = colors?.inkSecondary ?: if (dark) 0xFFAC95CE.toInt() else 0xFF72617F.toInt()
+    val pixelAccent = colors?.accent ?: blend(if (dark) 0xFF5E487B.toInt() else 0xFF674874.toInt(), tint, 0.14f)
     val pixelAccentPress = darken(pixelAccent, 0.22f)
-    val pixelPress = if (dark) 0xFF685481.toInt() else 0xFFDBC7E2.toInt()
+    val pixelPress = if (keyColors != null) darken(keyColors.character, 0.12f) else if (dark) 0xFF685481.toInt() else 0xFFDBC7E2.toInt()
 
-    val pill: Pair<Int, Int> = pillOverride?.let { lighten(it, 0.14f) to it } ?: palette.pill(dark)
-    val selectedPill = darken(pill.first, 0.20f) to darken(pill.second, 0.10f)
+    /** A festival's colour first, then (for an overlay) its capsule, or `contrastPill` when the system asks for more contrast. */
+    val pill: Pair<Int, Int> = when {
+        pillOverride != null -> lighten(pillOverride, 0.14f) to pillOverride
+        colors != null -> if (opaque) overlay!!.contrastPill to overlay.contrastPill else colors.pillTop to colors.pillBottom
+        else -> palette.pill(dark)
+    }
+    /** An overlay's capsule is drawn as validated (pillText is checked against it), not darkened. */
+    val selectedPill = if (colors != null && pillOverride == null) pill else darken(pill.first, 0.20f) to darken(pill.second, 0.10f)
 
     /** Accent for the return key when it performs an action (search, send…). */
-    val accent get() = if (tintedGlass) selectedPill.second else pill.second
+    val accent get() = colors?.accent ?: if (tintedGlass) selectedPill.second else pill.second
 
     /** Emulated glass body (no live backdrop blur on Android), DESIGN.md §3. */
     val glassFill: Int
         get() {
+            if (colors != null && opaque) return colors.paper
             if (opaque) return if (dark) 0xFF2B2729.toInt() else 0xFFF4F2F6.toInt()
             val alpha = when (strength) {
                 GlassStrength.SOFT -> if (dark) 0.74f else 0.60f
                 GlassStrength.BALANCED -> if (dark) 0.62f else 0.46f
                 GlassStrength.VIVID -> if (dark) 0.50f else 0.32f
             }
-            val rgb = if (dark) 0x353137 else 0xFFFFFF
+            val rgb = if (colors != null) colors.paper and 0xFFFFFF else if (dark) 0x353137 else 0xFFFFFF
             val transmission = if (effects == EffectsLevel.ULTRA) 0.78f else 1f
             return ((alpha * transmission * 255).toInt() shl 24) or rgb
         }

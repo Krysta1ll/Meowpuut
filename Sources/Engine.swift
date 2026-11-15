@@ -68,6 +68,9 @@ final class Preferences: ObservableObject {
     @Published var simplified: Bool { didSet { defaults.set(simplified, forKey: "simplified") } }
     @Published var modulesEnabled: Bool { didSet { defaults.set(modulesEnabled, forKey: "modulesEnabled") } }
     @Published var rememberChoices: Bool { didSet { defaults.set(rememberChoices, forKey: "rememberChoices") } }
+    /// 中日混打: Japanese words inside Zhuyin-free Chinese typing (Pinyin and nine-key). Off for a new
+    /// install; an install that predates the switch keeps its old behaviour (on), written once.
+    @Published var mixJapanese: Bool { didSet { defaults.set(mixJapanese, forKey: "mixJapanese") } }
     @Published var catGlassSkin: Bool { didSet { defaults.set(catGlassSkin, forKey: "catGlassSkin") } }
     /// Where the cats sit: `CatSchedule.daily`, or one arrangement's id.
     @Published var catPlacement: String { didSet { defaults.set(catPlacement, forKey: "catPlacement") } }
@@ -87,6 +90,9 @@ final class Preferences: ObservableObject {
     @Published var festivalOutfits: Bool { didSet { defaults.set(festivalOutfits, forKey: "festivalOutfits") } }
     @Published var festivalsSkipped: [String] { didSet { defaults.set(festivalsSkipped, forKey: "festivalsSkipped") } }
     var festivalWardrobe: FestivalWardrobe { FestivalWardrobe(on: festivalOutfits, skipped: Set(festivalsSkipped)) }
+    /// Typing sounds: off by default, as the Mac's own keyboard already makes a sound.
+    @Published var keySound: KeySound { didSet { defaults.set(keySound.rawValue, forKey: "keySound") } }
+    @Published var keySoundVolume: Int { didSet { defaults.set(keySoundVolume, forKey: "keySoundVolume") } }
     var inputMode: InputMode {
         get { InputMode(rawValue: defaults.string(forKey: "inputMode") ?? "") ?? .zhuyin }
         set { defaults.set(newValue.rawValue, forKey: "inputMode") }
@@ -103,13 +109,42 @@ final class Preferences: ObservableObject {
         : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(enginePreview ? "Meowpuut Engine Preview" : "Meowpuut")
     var moduleDirectory: URL { Self.directory.appendingPathComponent("Modules") }
+    private static let earlierSettingKeys = ["simplified", "inputMode", "modulesEnabled", "rememberChoices", "catGlassSkin",
+        "catPlacement", "candidateTone", "candidateTextSize", "candidateWindowSize", "glassStrength", "effectsLevel", "keySound",
+        "keySoundVolume", "candidatePalette", "glassShape", "festivalOutfits", "festivalsSkipped", "keyboardBackend", "candidatePins"]
+    /// Whether an earlier version has run here: stored settings, its modules folder (made on the first run
+    /// of every version before this one) or, on iOS, the app's settings file. Must be asked before this
+    /// version writes anything.
+    private static func hasEarlierSettings(_ defaults: UserDefaults) -> Bool {
+        if earlierSettingKeys.contains(where: { defaults.object(forKey: $0) != nil }) { return true }
+        #if os(iOS)
+        if SharedKeyboardSettings.read() != nil { return true }
+        #endif
+        return !testing && FileManager.default.fileExists(atPath: directory.appendingPathComponent("Modules").path)
+    }
     private init() {
+        let earlier = Self.hasEarlierSettings(defaults)
+        if !earlier {
+            // First run: the input mode and script of the system language and region. Only the result is stored.
+            let first = FirstRunDefaults.current
+            defaults.set(first.inputMode, forKey: "inputMode")
+            defaults.set(first.simplified, forKey: "simplified")
+        }
+        var storedMix = defaults.object(forKey: "mixJapanese") as? Bool
+        #if os(iOS)
+        if storedMix == nil { storedMix = SharedKeyboardSettings.read()?.mixJapanese }
+        #endif
+        let mix = MixJapaneseDefault.resolve(stored: storedMix, existingInstall: earlier)
+        mixJapanese = mix.value
+        if mix.needsWrite { defaults.set(mix.value, forKey: "mixJapanese") }
         // 米米莫 and 莫莫 are the default on every platform.
         catGlassSkin = defaults.object(forKey: "catGlassSkin") as? Bool ?? true
         catPlacement = defaults.string(forKey: "catPlacement") ?? CatSchedule.daily
         glassShape = GlassShape(rawValue: defaults.string(forKey: "glassShape") ?? "") ?? .capsule
         festivalOutfits = defaults.object(forKey: "festivalOutfits") as? Bool ?? true
         festivalsSkipped = defaults.stringArray(forKey: "festivalsSkipped") ?? []
+        keySound = defaults.string(forKey: "keySound").flatMap(KeySound.init(rawValue:)).flatMap { $0.isCustom ? $0 : nil } ?? .off
+        keySoundVolume = min(100, max(0, defaults.object(forKey: "keySoundVolume") as? Int ?? 100))
         candidateTone = CandidateTone(rawValue: defaults.string(forKey: "candidateTone") ?? "") ?? .system
         #if os(macOS)
         candidateTextSize = defaults.string(forKey: "candidateTextSize").flatMap(CandidateTextSize.init(rawValue:)) ?? .standard
@@ -319,6 +354,21 @@ final class Engine: ObservableObject {
         }
         return next
     }
+    /// The 中日混打 setting the current backend was made with; nil where it makes no difference
+    /// (Japanese and Zhuyin typing never show Japanese words from the Chinese engine).
+    var backendMixJapanese: Bool? {
+        guard inputMode == .pinyin || inputMode == .nineKey else { return nil }
+        return (backend as? ChineseWithJapaneseBackend)?.mixJapanese ?? (backend as? NativeBackend)?.mixJapanese
+    }
+    /// The setting was changed after the backend was made. It takes effect with the next composition.
+    var mixJapaneseChanged: Bool { backendMixJapanese.map { $0 != Preferences.shared.mixJapanese } ?? false }
+    /// Makes a new backend for the changed setting, when nothing is being composed.
+    @discardableResult func applyMixJapanese() -> Bool {
+        guard isReady, moduleBuffer == nil, snapshot.preedit.isEmpty, mixJapaneseChanged,
+              let next = try? Self.makeBackend(mode: inputMode) else { return false }
+        install(next, kind: backendKind, mode: inputMode)
+        return true
+    }
     /// Makes a backend from `makeBackend` the current one (main thread).
     func install(_ next: InputBackend, kind: InputBackendKind = .meowpuut, mode: InputMode) {
         clear(); learningTail = nil
@@ -400,7 +450,7 @@ final class Engine: ObservableObject {
         // kaomoji come after the third word that may follow, so the next words stay in reach.
         // After a single character (有, 上, typed one by one) nothing leads: 🈶 or 👆 in the
         // first cell would only push the next words away.
-        predictionSymbols = Symbols.after(clean, japanese: inputMode == .japanese)
+        predictionSymbols = Symbols.after(clean, japanese: inputMode == .japanese, japaneseFallback: Preferences.shared.mixJapanese)
         let leading = clean.count > 1 ? 1 : 0
         var merged = predictionSymbols.map { Array($0.emoji.prefix(leading)) } ?? []
         let later = predictionSymbols.map { Array($0.emoji.dropFirst(leading).prefix(2 - leading) + $0.kaomoji.prefix(1)) } ?? []

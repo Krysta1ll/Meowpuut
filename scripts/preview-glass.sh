@@ -17,11 +17,14 @@ rm -rf "$APP/Contents/Resources"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Cats/*.png assets/brand/MeowpuutMark.png "$APP/Contents/Resources/"
 cp -R Resources/Festivals "$APP/Contents/Resources/"
+cp assets/brand/paper/grain.png "$APP/Contents/Resources/paper_grain.png"
+mkdir -p "$APP/Contents/Resources/Fonts"
+cp Resources/Fonts/* "$APP/Contents/Resources/Fonts/"
 # The preview types through the real engine, so it needs the lexicon that
 # scripts/build.sh compiles into the app.
 LEXICON="$PWD/.build/Meowpuut.app/Contents/Resources"
 [ -f "$LEXICON/mimo_base.bin" ] || bash scripts/build.sh
-for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin associations.json language-evidence.sqlite; do
+for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin associations.json never-volunteer.txt language-evidence.sqlite; do
   if [ -e "$LEXICON/$file" ]; then cp -c "$LEXICON/$file" "$APP/Contents/Resources/" 2>/dev/null || cp "$LEXICON/$file" "$APP/Contents/Resources/"; fi
 done
 bash scripts/build-rust.sh macos

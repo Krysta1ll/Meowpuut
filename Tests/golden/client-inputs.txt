@@ -22,7 +22,6 @@ pinyin	t	sanpo
 pinyin	t	kaisha
 pinyin	t	shiji
 pinyin	t	tamen
-pinyin	t	taiwan
 pinyin	t	sanbu
 pinyin	t	shiberu
 pinyin	t	yinyue
@@ -71,7 +70,6 @@ pinyin	t	ma
 pinyin	t	nihao
 pinyin	t	miaomiao
 pinyin	t	miaomiaokaixin
-pinyin	t	zhongguo
 pinyin	t	neko
 pinyin	t	gakkou
 pinyin	t	konnichiha
@@ -204,7 +202,6 @@ pinyin	t	kenen
 pinyin	t	shisho
 pinyin	t	juyo
 pinyin	t	renko
-pinyin	t	taiwa
 pinyin	t	jigo
 pinyin	t	don
 pinyin	t	neiro
@@ -644,7 +641,6 @@ pinyin	t	zutto
 # 42 Chinese sentences, both scripts
 pinyin	t	womenjintianqukandianying
 pinyin	t	jintiantianqihenhao
-pinyin	t	nihaowoshizhongguoren
 pinyin	t	zhegewentihennanjiejue
 pinyin	t	mingtianyiqiquchifanba
 pinyin	t	xiexienidebangzhu
@@ -686,7 +682,6 @@ pinyin	t	meiguanxi
 pinyin	t	bukeqi
 pinyin	s	womenjintianqukandianying
 pinyin	s	jintiantianqihenhao
-pinyin	s	nihaowoshizhongguoren
 pinyin	s	zhegewentihennanjiejue
 pinyin	s	mingtianyiqiquchifanba
 pinyin	s	xiexienidebangzhu
@@ -1565,7 +1560,6 @@ pinyin	t	tashiwomama
 pinyin	t	tashiwobaba
 pinyin	t	taibei
 pinyin	t	beijing
-pinyin	t	xianggang
 pinyin	t	dongjing
 pinyin	t	niuyue
 pinyin	t	meiguo
@@ -2222,7 +2216,6 @@ pinyin	s	lanse
 pinyin	s	zidao
 pinyin	s	zhidao
 pinyin	s	zongguo
-pinyin	s	zhongguo
 pinyin	s	zege
 pinyin	s	zhege
 pinyin	s	zhenme
@@ -2646,10 +2639,8 @@ pinyin	s	zuowen
 pinyin	s	zuogongke
 pinyin	s	tashiwomama
 pinyin	s	tashiwobaba
-pinyin	s	taiwan
 pinyin	s	taibei
 pinyin	s	beijing
-pinyin	s	xianggang
 pinyin	s	dongjing
 pinyin	s	niuyue
 pinyin	s	meiguo

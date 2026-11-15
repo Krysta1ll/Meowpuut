@@ -48,6 +48,10 @@ if [ "${MEOWPUUT_ASAN:-0}" = 1 ]; then
   run_test "$OUT/layout_test_asan"
 fi
 
+echo "== first-run defaults test"
+"$CXX" -std=c++17 "${WARN[@]}" -O1 -g Windows/tests/input_defaults_test.cpp -o "$OUT/input_defaults_test"
+run_test "$OUT/input_defaults_test"
+
 echo "== session test"
 LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"
 if [ -f "$LEX/native-pinyin.tsv" ] && [ -f "$LEX/native-zhuyin.tsv" ] && [ -f "$LEX/native-japanese.tsv" ]; then

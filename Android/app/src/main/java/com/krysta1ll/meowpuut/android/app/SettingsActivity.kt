@@ -44,6 +44,8 @@ import com.krysta1ll.meowpuut.android.ime.CandidateBarView
 import com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout
 import com.krysta1ll.meowpuut.android.ime.Cat
 import com.krysta1ll.meowpuut.android.ime.CatSprites
+import com.krysta1ll.meowpuut.android.ime.CustomSkinLoader
+import com.krysta1ll.meowpuut.android.ime.LoadedSkin
 import com.krysta1ll.meowpuut.android.ime.EffectsLevel
 import com.krysta1ll.meowpuut.android.ime.GlassOutline
 import com.krysta1ll.meowpuut.android.ime.GlassShape
@@ -54,6 +56,8 @@ import com.krysta1ll.meowpuut.android.ime.KeyBuilder
 import com.krysta1ll.meowpuut.android.ime.KeyContext
 import com.krysta1ll.meowpuut.android.ime.KeyMetrics
 import com.krysta1ll.meowpuut.android.ime.KeySound
+import com.krysta1ll.meowpuut.android.ime.LocalCatAffinity
+import com.krysta1ll.meowpuut.android.ime.PetMoments
 import com.krysta1ll.meowpuut.android.ime.KeysView
 import com.krysta1ll.meowpuut.android.ime.KeyboardHeight
 import com.krysta1ll.meowpuut.android.ime.KeyboardTextSize
@@ -76,6 +80,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private lateinit var status: TextView
     private lateinit var preview: BarPreview
     private lateinit var gallery: SkinGallery
+    private lateinit var customSkinNote: TextView
     private lateinit var shapeRow: View
     private lateinit var glassRow: View
     private lateinit var catsSwitch: Switch
@@ -84,16 +89,21 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private val updateChoices = mutableMapOf<String, () -> Unit>()
     private val density get() = resources.displayMetrics.density
     private val dark get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    private val ink get() = if (dark) 0xfff3ece9.toInt() else 0xff292124.toInt()
-    private val quietInk get() = if (dark) 0xffc5b8bf.toInt() else 0xff705e66.toInt()
-    private val accentInk get() = if (dark) 0xffebbac2.toInt() else 0xff85515d.toInt()
-    private val cardFill get() = if (dark) 0xff28242c.toInt() else 0xfffffaf4.toInt()
-    private val outline get() = if (dark) 0xff443b48.toInt() else 0xffe7dce5.toInt()
+    // Paper colours (assets/brand/paper/paper-tokens.json) for the chosen colour system. Read when the page opens.
+    private lateinit var ui: PaperUi
+    private lateinit var stamp: StampToast
+    private val ink get() = ui.p.ink
+    private val quietInk get() = ui.p.inkSecondary
+    private val accentInk get() = ui.p.stamp
+    private val cardFill get() = ui.p.paper2
+    private val outline get() = ui.line
     private val effectNames = listOf(R.string.effects_lightweight, R.string.effects_standard, R.string.effects_full, R.string.effects_ultra)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        ui = PaperUi(this, PaperTheme.fromKey(prefs.palette.key), dark)
+        stamp = StampToast(this, ui)
         val column = object : LinearLayout(this) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val width = minOf(View.MeasureSpec.getSize(widthMeasureSpec), dp(680))
@@ -106,16 +116,19 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
+            background = ui.background()
             addView(column, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
             isVerticalScrollBarEnabled = false
             setOnApplyWindowInsetsListener { v, insets ->
                 if (Build.VERSION.SDK_INT >= 30) {
                     val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
                     v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                    stamp.translationY = bars.top.toFloat()
                 } else {
                     @Suppress("DEPRECATION")
                     v.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
                         insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                    stamp.translationY = insets.systemWindowInsetTop.toFloat()
                 }
                 insets
             }
@@ -133,12 +146,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 orientation = LinearLayout.VERTICAL
                 addView(textView(28f).apply {
                     setText(R.string.app_name)
-                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                    typeface = PaperFonts.title(this@SettingsActivity)
                     if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
                 })
-                addView(textView(13f, quietInk).apply {
+                addView(textView(16f, quietInk).apply {
                     text = "Meowpuut"
-                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    typeface = PaperFonts.wordmark(this@SettingsActivity)
                 })
             }, weighted())
             addView(mascot("米米莫", R.drawable.cat_classic_mimimo_open, R.drawable.cat_classic_mimimo_blink, 1.5f, 450),
@@ -147,6 +160,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 LinearLayout.LayoutParams(dp(49), dp(54)))
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         column.addView(masthead, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        column.addView(ui.stitch(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply { topMargin = dp(10) })
 
         preview = BarPreview(this, prefs)
         val look = LinearLayout(this).apply {
@@ -155,7 +169,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             clipToOutline = true
             visibility = View.GONE
         }
-        gallery = SkinGallery(this, preview, getString(R.string.skin_wardrobe),
+        gallery = SkinGallery(this, ui, preview, getString(R.string.skin_wardrobe),
             KeyboardSkin.entries.map { SkinGallery.Option(it, getString(it.title)) },
             getString(R.string.skin_customize), ::selectSkin) {
             look.visibility = if (look.visibility == View.VISIBLE) View.GONE else View.VISIBLE
@@ -166,6 +180,15 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         })
         column.addView(look, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         gallery.render(prefs.skin, prefs::isSkinUnlocked)
+        customSkinNote = textView(13f, quietInk).apply {
+            setPadding(dp(14), dp(4), dp(14), dp(2))
+            visibility = View.GONE
+        }
+        column.addView(customSkinNote)
+        column.addView(action(R.string.cs_open) { startActivity(Intent(this, RedeemActivity::class.java)) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.END
+            })
 
         val setup = section(column, R.string.setup_title)
         status = textView(14f, quietInk).apply { setPadding(dp(16), dp(12), dp(16), dp(2)) }
@@ -194,9 +217,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         choice(input, R.string.script, Prefs.SIMPLIFIED, listOf(R.string.script_traditional to false, R.string.script_simplified to true),
             { prefs.simplified }) { prefs.simplified = it }
         note(input, R.string.script_note)
+        toggle(input, R.string.mixed_japanese, prefs.mixedJapanese) { prefs.mixedJapanese = it }
+        note(input, R.string.mixed_japanese_note)
         toggle(input, R.string.english_auto_caps, prefs.englishAutoCaps) { prefs.englishAutoCaps = it }
         toggle(input, R.string.remember_choices, prefs.rememberChoices) { prefs.rememberChoices = it }
         note(input, R.string.remember_choices_note)
+        val memoryEmpty = note(input, R.string.choice_memory_empty).apply { visibility = View.GONE }
         input.addView(action(R.string.clear_choice_memory) {
             AlertDialog.Builder(this)
                 .setMessage(R.string.clear_choice_memory_confirm)
@@ -204,6 +230,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 .setPositiveButton(R.string.clear_choice_memory) { _, _ ->
                     ChoiceMemory(this).clear()
                     prefs.store.edit().putLong(Prefs.CLEAR_CHOICE_MEMORY, System.nanoTime()).apply()
+                    memoryEmpty.visibility = View.VISIBLE
+                    stamp.show(getString(R.string.stamp_ok), getString(R.string.stamp_memory_cleared))
                 }
                 .show()
         })
@@ -265,6 +293,19 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         catsSwitch = toggle(look, R.string.cats, prefs.cats) { prefs.cats = it }
         festivalSwitch = toggle(look, R.string.festivals, prefs.festivals) { prefs.festivals = it }
         festivalHint = note(look, R.string.festivals_note)
+        choice(look, R.string.pet_moments, Prefs.PET_MOMENTS, PetMoments.entries.map { it.label to it }, { prefs.petMoments }) { prefs.petMoments = it }
+        note(look, R.string.pet_moments_note)
+        look.addView(action(R.string.clear_pets) {
+            AlertDialog.Builder(this)
+                .setMessage(R.string.clear_pets_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.clear_pets) { _, _ ->
+                    LocalCatAffinity.deleteFile(this)
+                    // A keyboard that is running clears its own copy, so it cannot write the old counts back.
+                    prefs.store.edit().putLong(Prefs.CLEAR_PETS, System.nanoTime()).apply()
+                }
+                .show()
+        })
         refreshSkin()
 
         val feedback = section(column, R.string.feedback_title)
@@ -311,7 +352,11 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 alpha = 0.72f
             })
         }
-        setContentView(scroll)
+        setContentView(FrameLayout(this).apply {
+            addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(stamp, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(12) })
+        })
         prefs.store.registerOnSharedPreferenceChangeListener(this)
     }
 
@@ -333,7 +378,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     override fun onSharedPreferenceChanged(store: SharedPreferences?, key: String?) {
         val setting = prefs.appearanceSetting(key)
         if (setting != null) updateChoices[setting]?.invoke()
-        if (setting == Prefs.SKIN || setting == Prefs.CATS) refreshSkin()
+        if (setting == Prefs.SKIN || setting == Prefs.CATS || key == Prefs.CUSTOM_SKIN) refreshSkin()
+        if (key == Prefs.CUSTOM_SKIN || key == Prefs.CUSTOM_SKIN_EPOCH) preview.refresh()
         when (setting) {
             Prefs.MODE, Prefs.SIMPLIFIED, Prefs.TONE, Prefs.SHAPE, Prefs.PALETTE, Prefs.STRENGTH,
             Prefs.CATS, Prefs.EFFECTS, Prefs.KEYBOARD_HEIGHT, Prefs.CANDIDATE_TEXT_SIZE, Prefs.KEY_TEXT_SIZE, Prefs.SKIN -> preview.refresh()
@@ -342,14 +388,22 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun selectSkin(skin: KeyboardSkin) {
         if (!prefs.isSkinUnlocked(skin)) showPixelQuiz(skin)
-        else prefs.skin = skin
+        else {
+            // Choosing a built-in skin drops any applied custom skin.
+            prefs.customSkin = null
+            prefs.skin = skin
+        }
     }
 
     private fun refreshSkin() {
         gallery.render(prefs.skin, prefs::isSkinUnlocked)
         val skin = prefs.skin
-        shapeRow.visibility = if (skin.fixedShape == null) View.VISIBLE else View.GONE
-        glassRow.visibility = if (skin.material == SkinMaterial.GLASS) View.VISIBLE else View.GONE
+        // A custom skin brings its own palette and glass strength; the person's shape still applies unless it locks one.
+        val custom = prefs.customSkin
+        customSkinNote.text = if (custom == null) "" else getString(R.string.cs_in_use_note, custom)
+        customSkinNote.visibility = if (custom == null) View.GONE else View.VISIBLE
+        shapeRow.visibility = if (custom != null || skin.fixedShape == null) View.VISIBLE else View.GONE
+        glassRow.visibility = if (custom == null && skin.material == SkinMaterial.GLASS) View.VISIBLE else View.GONE
         festivalSwitch.visibility = if (skin.supportsFestivals) View.VISIBLE else View.GONE
         festivalHint.visibility = festivalSwitch.visibility
         for (key in listOf(Prefs.TONE, Prefs.PALETTE, Prefs.STRENGTH)) updateChoices[key]?.invoke()
@@ -409,7 +463,11 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                     typeface = Typeface.MONOSPACE
                     setOnClickListener {
                         dialog.dismiss()
-                        if (answer == question.answers.first()) prefs.unlockSkin(skin)
+                        if (answer == question.answers.first()) {
+                            prefs.customSkin = null
+                            prefs.unlockSkin(skin)
+                            stamp.show(getString(R.string.stamp_pass), getString(R.string.stamp_skin_unlocked))
+                        }
                         else AlertDialog.Builder(this@SettingsActivity)
                             .setMessage(R.string.skin_pixel_try_again)
                             .setPositiveButton(R.string.skin_pixel_retry) { _, _ -> showPixelQuiz(skin, question) }
@@ -447,13 +505,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun glassSurface(radius: Int, hero: Boolean = false) = GradientDrawable(
         GradientDrawable.Orientation.TOP_BOTTOM,
-        if (dark) {
-            if (hero) intArrayOf(0xff413649.toInt(), 0xff27232e.toInt())
-            else intArrayOf(0xff3a3341.toInt(), cardFill)
-        } else {
-            if (hero) intArrayOf(0xfffffcf6.toInt(), 0xffe8dfee.toInt())
-            else intArrayOf(0xfffffdf9.toInt(), 0xfff1e9f2.toInt())
-        }
+        if (hero) intArrayOf(ui.p.paper, ui.p.paper2) else intArrayOf(ui.p.paper2, ui.p.paper2),
     ).apply {
         cornerRadius = dp(radius).toFloat()
         setStroke(dp(1), outline)
@@ -503,11 +555,10 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     private fun sectionTitle(parent: LinearLayout, title: Int) {
-        parent.addView(textView(16f).apply {
-            setText(title)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(2), dp(20), dp(2), dp(8))
-            if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
+        parent.addView(ui.labelStrip(getString(title)), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(22)
+            bottomMargin = dp(8)
         })
     }
 
@@ -594,8 +645,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             refreshSample()
         }
         for (slider in listOf(height, lift)) {
-            slider.progressTintList = ColorStateList.valueOf(accentInk)
-            slider.thumbTintList = ColorStateList.valueOf(accentInk)
+            slider.progressTintList = ColorStateList.valueOf(ui.p.pill)
+            slider.thumbTintList = ColorStateList.valueOf(ui.p.pill)
         }
         note(fields, R.string.panel_adjustment_hint).setPadding(dp(14), dp(6), dp(14), dp(4))
         refreshSample()
@@ -647,8 +698,11 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         return (effects ?: SeekBar(this)).apply {
             max = steps
             progress = value
-            if (effects == null) minimumHeight = dp(48)
-            else valueText.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            if (effects == null) {
+                minimumHeight = dp(48)
+                progressTintList = ColorStateList.valueOf(ui.p.pill)
+                thumbTintList = ColorStateList.valueOf(ui.p.pill)
+            } else valueText.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             isEnabled = enabled
             fun describe(position: Int, animate: Boolean = false) {
                 val valueLabel = label(position)
@@ -742,6 +796,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             setText(label)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTextColor(ink)
+            ui.tint(this)
             minHeight = dp(50)
             isChecked = current
             setPadding(dp(14), dp(8), dp(14), dp(8))
@@ -755,7 +810,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 /** The candidate bar and, for nine-key Pinyin, a sample row of the chosen keypad. */
 @SuppressLint("ViewConstructor")
 private class BarPreview(context: Context, private val prefs: Prefs, private val dockedPanel: Boolean = false) : FrameLayout(context) {
-    private val bar = CandidateBarView(context, CatSprites(context.resources))
+    private val sprites = CatSprites(context.resources)
+    private val bar = CandidateBarView(context, sprites)
+    private val skinLoader = CustomSkinLoader(context)
+    /** The applied custom skin once verified, as the keyboard would show it. */
+    private var custom: LoadedSkin? = null
+    private var customFor: String? = null
     private val keypad = KeysView(context, PreviewOverlay(context)).apply {
         isEnabled = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
@@ -806,12 +866,38 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
             Tone.LIGHT -> false
             Tone.DARK -> true
         }
-        val skin = prefs.skin
-        return Look(dark, skin.shape(prefs.shape), prefs.palette, prefs.strength, prefs.cats,
-            opaque = wantsMoreContrast(context), effects = effects, skin = skin)
+        val overlay = custom?.overlay
+        val skin = overlay?.base ?: prefs.skin
+        return Look(dark, overlay?.shape(prefs.shape, prefs.hasShape) ?: skin.shape(prefs.shape), prefs.palette,
+            overlay?.strength ?: prefs.strength, prefs.cats,
+            opaque = wantsMoreContrast(context), effects = effects, skin = skin, overlay = overlay)
+    }
+
+    /** Verifies and reads the applied custom skin off the main thread, then shows it; the built-in skin shows meanwhile. */
+    private fun syncCustomSkin() {
+        val wanted = prefs.customSkin
+        if (wanted == customFor) return
+        customFor = wanted
+        if (wanted == null) {
+            custom = null
+            sprites.useSkin(emptyMap(), null)
+            return
+        }
+        skinLoader.load(wanted) { loaded ->
+            if (prefs.customSkin != wanted) return@load
+            custom = loaded
+            sprites.useSkin(loaded?.cats.orEmpty(), loaded?.end)
+            refresh()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        skinLoader.shutdown()
+        super.onDetachedFromWindow()
     }
 
     fun refresh(effects: EffectsLevel = prefs.effects) {
+        syncCustomSkin()
         val appearance = look(effects)
         bar.look = appearance
         bar.candidateTextSize = prefs.candidateTextSize

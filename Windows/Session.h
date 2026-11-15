@@ -33,6 +33,11 @@ public:
     // Optional independently authored source TSV: reading aliases|text|weight.
     // Register once before typing; returns the number of accepted readings.
     std::size_t registerJapaneseWords(const std::filesystem::path &dictionary);
+    // Whether Japanese words are registered with this session's core. Registration cannot be
+    // undone, so a session built while mixed typing was off or on is replaced, not changed.
+    bool japaneseRegistered() const { return japaneseRegistered_; }
+    // No composition and nothing waiting to be committed: the session can be replaced safely.
+    bool idle() const { return pending_.empty() && !hasComposition(); }
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
     bool key(std::int32_t key);
@@ -40,6 +45,8 @@ public:
     bool canChooseOnPage(std::size_t index) const;
     bool hasComposition() const;
     std::string_view input() const;
+    // The input as written, for Shift+Enter: Zhuyin as ㄋㄧˇㄏㄠˇ, Pinyin as typed.
+    std::string_view inputText() const;
     // A copy of the current composition's short-lived Chinese context.
     std::string segmentContext() const;
     bool commitLiteralWithSpace();

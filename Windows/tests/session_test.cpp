@@ -197,6 +197,7 @@ int main(int argc, char **argv) {
         require(committed.committed == u8"你好" && py.takeSnapshot().committed.empty(), "commit exactly once");
         require(saved.input == "nihao", "snapshot retains its own strings");
         type(zy, "su3cl3");
+        require(zy.inputText() == u8"ㄋㄧˇㄏㄠˇ" && py.inputText().empty(), "zhuyin input as written");
         auto zhuyin = zy.takeSnapshot();
         require(zy.chooseOnPage(indexOf(zhuyin, u8"你好")), "zhuyin choice");
         require(zy.takeSnapshot().committed == u8"你好", "zhuyin commit");
@@ -260,7 +261,16 @@ int main(int argc, char **argv) {
         require(py.takeSnapshot().committed.empty(), "clear discards pending literal");
         py.clear(); type(py, "nihao");
         const auto chineseBefore = py.takeSnapshot();
+        // Mixed typing off: no registration, so no Japanese candidate and no mixed sentence.
+        require(!py.japaneseRegistered(), "no Japanese words before registration");
+        py.clear(); type(py, "wosukinihao");
+        const auto off = py.takeSnapshot();
+        require(std::none_of(off.japaneseCandidates.begin(), off.japaneseCandidates.end(), [](bool j) { return j; }) &&
+                std::find(off.candidates.begin(), off.candidates.end(), u8"我好き你好") == off.candidates.end(),
+                "no Japanese candidates while mixed typing is off");
+        py.clear(); type(py, "nihao");
         require(py.registerJapaneseWords(argv[3]) > 0, "Japanese words registered");
+        require(py.japaneseRegistered() && !py.idle(), "registered session reports it");
         require(py.registerJapaneseWords(argv[3]) == 0, "registration must not duplicate words");
         auto chineseAfter = py.takeSnapshot();
         require(chineseBefore.candidates == chineseAfter.candidates, "pure Chinese ordering unchanged");

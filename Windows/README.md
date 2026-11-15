@@ -1,11 +1,11 @@
 # Windows 輸入法
 
-從 0.8.0-alpha.1 起，Windows 又有可以安裝的喵撲。`TextService/` 是 TSF 文字服務 `MeowpuutTextService.dll`，在「中文（台灣）」底下提供「喵撲拼音」和「喵撲注音」兩個鍵盤。它用這個資料夾的會話層（`Session`、`Keyboard`）、Rust 核心（`meowpuut-ffi`）和 `UI/` 的候選窗。發佈包在 macOS 上交叉編譯，分 x64 和 Arm64 兩份，沒有數位簽章。
+從 0.8.0-alpha.1 起，Windows 又有可以安裝的喵撲。`TextService/` 是 TSF 文字服務 `MeowpuutTextService.dll`，在中文（繁體、简体）語言底下提供「喵撲拼音」和「喵撲注音」兩個鍵盤。它用這個資料夾的會話層（`Session`、`Keyboard`）、Rust 核心（`meowpuut-ffi`）和 `UI/` 的候選窗。發佈包在 macOS 上交叉編譯，分 x64 和 Arm64 兩份，沒有數位簽章。
 
 ## 安裝與移除
 
 1. 下載 `Meowpuut-0.9.0-alpha.1-windows-x64.zip`（Arm64 的電腦下載 `-windows-arm64.zip`），整個解壓。
-2. 雙擊 `Install.cmd`。Windows 會要求系統管理員權限。檔案複製到 `C:\Program Files\Meowpuut\<DLL 雜湊的前 12 碼>`，用 `regsvr32` 註冊，再把兩個鍵盤加進目前使用者的「中文（台灣）」。
+2. 雙擊 `Install.cmd`。Windows 會要求系統管理員權限。檔案複製到 `C:\Program Files\Meowpuut\<DLL 雜湊的前 12 碼>`，用 `regsvr32` 註冊，再把兩個鍵盤加進目前使用者的中文語言（優先用已經有的中文語言，沒有才新增一個）。新安裝依系統地區和語言清單決定預設鍵盤是注音還是拼音（規則在 `InputDefaults.h`，只用一次、不存地區）。
 3. 按 Windows 鍵 + 空白鍵切到「喵撲拼音」或「喵撲注音」。已經開著的程式要重新開啟才會載入。
 
 移除：雙擊同一個資料夾裡的 `Uninstall.cmd`。它把兩個鍵盤從使用者的語言清單拿掉、取消註冊、刪除 `C:\Program Files\Meowpuut` 和 `HKCU\Software\Meowpuut`。還有程式載著 DLL 時那個資料夾刪不掉，腳本會印出路徑；關掉那些程式或重新開機後再手動刪。
@@ -23,7 +23,7 @@
 | 數字（拼音 `1`–`8`；注音 Shift + `1`–`7`） | 選這一頁的候選 |
 | 空白鍵 | 拼音：選反白的候選。注音：第一聲；已經打了聲調時選反白的候選，並送出整段 |
 | Enter | 選反白的候選；沒有候選時送出讀音原文 |
-| Shift + Enter | 送出打的字母原文 |
+| Shift + Enter | 送出打的字母原文；注音送出注音符號（ㄋㄧˇㄏㄠˇ） |
 | ← →、Tab、Shift + Tab | 移動反白 |
 | ↓ ／ ↑ | 展開／收起候選面板（展開時 ↓ 移動反白） |
 | Page Up ／ Page Down | 翻頁 |
@@ -36,7 +36,7 @@
 
 滑鼠：點候選選取，滾輪翻頁，右端箭頭展開成格狀面板，連點莫莫五下切換繁體、簡體。
 
-工作列的輸入指示顯示「中」或「英」，點一下切換；右鍵選單可選繁體或簡體，候選字級有小、標準、大三檔。字級會保存在本機，其他程式下次顯示候選窗時套用。繁簡存在 `HKCU\Software\Meowpuut` 的 `Simplified`，每個程式開始新的一段讀音時讀一次，所以在一個程式切換，其他程式的下一段也會跟著換。造型、色系和色調在 Windows 上還沒有設定的地方，固定是膠囊、玫瑰、跟隨系統的淺深色；節日裝扮照日曆自動換（規則同其他平台，見 `UI/Festival.h`）。
+工作列的輸入指示顯示「中」或「英」，點一下切換；右鍵選單可選繁體或簡體，候選字級有小、標準、大三檔。字級會保存在本機，其他程式下次顯示候選窗時套用。繁簡存在 `HKCU\Software\Meowpuut` 的 `Simplified`（右鍵選單裡還有「中日混打」開關，見「會話層」），每個程式開始新的一段讀音時讀一次，所以在一個程式切換，其他程式的下一段也會跟著換。造型、色系和色調在 Windows 上還沒有設定的地方，固定是膠囊、玫瑰、跟隨系統的淺深色；節日裝扮照日曆自動換（規則同其他平台，見 `UI/Festival.h`）。
 
 讀音是 TSF 組字，也就是文件裡有底線的文字，候選窗在它下方。焦點換到別的欄位時，讀音留在原來的欄位，回去再打字會接著用；程式自己結束組字（例如點到別處）時，讀音照原樣留在文件裡。切換鍵盤、切到英文、拼音注音互換時，先送出反白的候選。
 
@@ -44,9 +44,9 @@
 
 ## 在 Windows 上檢查過的
 
-2026-11-12 在 Mac 上的 Windows 11 Arm64 虛擬機（zh-TW，`scripts/windows-vm.sh`，見下面）從乾淨的快照開始，用 Arm64 的 zip 跑過：
+2026-11-12 在 Mac 上的 Windows 11 Arm64 虛擬機（繁體中文介面，`scripts/windows-vm.sh`，見下面）從乾淨的快照開始，用 Arm64 的 zip 跑過：
 
-- `Install.cmd`：註冊、兩個鍵盤加進「中文（台灣）」；Windows 鍵 + 空白鍵切到喵撲拼音、喵撲注音。
+- `Install.cmd`：註冊、兩個鍵盤加進中文語言；Windows 鍵 + 空白鍵切到喵撲拼音、喵撲注音。
 - 記事本（Arm64 原生）：`nihao` 有底線的讀音和候選窗（兩隻貓在玻璃上）；按 `1`、空白鍵、→ 加 Enter、滑鼠點第二個候選都送出對的字；↓ 展開面板、↑ 收起；Page Down 翻頁；`,` 打出「，」；Shift + Enter 送出字母原文；組字中按 Ctrl + End 先送出候選再移動游標。
 - 單按 Shift 切到英文（工作列顯示「英」），再按一次回中文；按住 Shift 用滑鼠選字不會切換。
 - 喵撲注音：`su3cl3` 顯示 ㄋㄧˇㄏㄠˇ，Shift + 1 送出「你好」；`ji3` 加空白鍵送出「我」。
@@ -65,6 +65,8 @@
 
 `Keyboard.h` 提供鍵盤事件轉換：拼音數字選詞、Shift 加大千聲調鍵輸入拼音聲調，拼音組字時空格保留原文並加入空格；注音的數字留給聲調而 Shift 加數字選詞。翻頁與編輯鍵在組字時交給會話。呼叫端需傳入當次事件的虛擬鍵、鍵盤配置產生的 ASCII 字元及修飾鍵狀態，忽略 key-up 和死鍵，並自行處理單按 Shift 切換中英。文字服務在這層之前先處理空白鍵、Enter、方向鍵和標點（見上面的「打字」）。Ctrl、Alt、Windows 組合鍵保留給系統或應用程式。這個轉換層不會安裝鍵盤攔截器或註冊 TSF。
 
+中日混打是一個開關，新安裝預設關閉；舊版已安裝的人升級後維持開啟（`Install.ps1` 發現已安裝的版本時，在新版第一次執行前寫入 `MixedJapanese=1`，並把沒存過的 `Simplified` 寫成 0，所以沒動過設定的人也一樣）。Windows 沒有設定 App：開關是 `HKCU\Software\Meowpuut` 的 `MixedJapanese`（DWORD，0 或 1），也在工作列輸入指示的右鍵選單裡（「中日混打」）。文字服務在開始新的一段讀音時讀它，所以改了之後下一段就生效，各程式都一樣；關閉時不向核心註冊日語詞，也就沒有帶貓爪的候選和中日混合的整句。第一次執行時，繁簡依系統語言和地區決定（`InputDefaults.h`，只在沒有存過 `Simplified` 的新安裝使用，只存結果、不存地區）；拼音和注音兩個鍵盤都會裝；`Install.ps1` 對新安裝依同一張表（地區 TW 或帶 TW 的繁體語言先注音，其他先拼音）把預設的那個排在語言的鍵盤清單最前面，之後使用者可以在 Windows 的鍵盤清單自己選。`Install.ps1` 的 `Get-Start` 和 `chooseStart` 要一起改。
+
 拼音會話可在輸入前呼叫 `registerJapaneseWords(path)`，從生成的 mimo 詞庫目錄載入 `native-japanese.tsv`；它是審過的小型日語詞表（`Resources/Lexicon/japanese.tsv` 與 `japanese-reviewed.tsv`），格式為 `讀音|詞|權重`；macOS、iOS 改讀約 46,000 詞的 `mimo_jp.bin`，Windows 尚未改。未呼叫時保持純中文核心行為。混合中文與日語的完整句和前半段透過跨平台 C 核心產生，選取前半段後會保留未轉換的輸入。快照的 `japaneseCandidates` 與候選一一對應：每頁最多一個中日混合候選，排在該頁中文之後；額外候選放下一頁。第一頁可能有七個中文及一個額外的中日候選，拼音可用數字 1–8 選取。候選窗按快照的實際數量顯示，日語候選後面加貓爪記號。
 
 生成詞庫後，可執行 `python3 scripts/export-windows-lexicon.py <生成詞庫目錄> <新的輸出目錄>` 匯出 Windows 使用的三份資料表與 `Licenses` 聲明目錄。發佈 Windows 二進位時須一併附上該目錄；`scripts/package-windows.sh` 從匯出結果取文字服務需要的三個檔案和 `Licenses`。
@@ -80,7 +82,7 @@ TSF 的 [`OnTestKeyDown`](https://learn.microsoft.com/en-us/windows/win32/api/ms
 `TextService/`：
 
 - `TextService.cpp`：COM 伺服器（`DllGetClassObject`、`DllRegisterServer` 等）和 TSF 文字服務。TSF 為每個有鍵盤輸入的執行緒建立一個 `Service`；每個收到按鍵的 `ITfContext` 有自己的 `ContextState`（會話、組字、待上屏佇列、反白、面板展開）。`OnTestKeyDown` 和 `OnKeyDown` 用同一個沒有副作用的 `plan()` 決定要不要吃下按鍵，再由 `perform()` 執行。文字一律在 `TF_ES_ASYNCDONTCARE | TF_ES_READWRITE` 的編輯工作階段裡寫入，寫入時讀當下的狀態，所以排隊中的工作階段不會寫進舊內容。候選窗的位置來自 `ITfContextView::GetTextExt`，用 `LogicalToPhysicalPointForPerMonitorDPI` 換成實體像素；拿不到時（`TS_E_NOLAYOUT`）先用系統游標，等程式透過 `ITfTextLayoutSink` 通知版面變了再重讀一次。
-- 註冊：`ITfInputProcessorProfileMgr::RegisterProfile` 在 zh-TW（0x0404）下註冊兩個設定檔，`ITfCategoryMgr` 註冊鍵盤、顯示屬性、immersive 和 systray 類別。類別 GUID `{961C0ADA-4DC6-488F-9563-4FC144EFAE27}`、拼音設定檔 `{8FDE097D-3513-486A-9AB5-2D1B2C67C359}` 沿用 0.1.x；注音設定檔是 `{1F5D9D62-F4AF-4AAF-82A6-A482D7EC3AE2}`。
+- 註冊：`ITfInputProcessorProfileMgr::RegisterProfile` 在 zh-TW（0x0404）和 zh-CN（0x0804）兩個語言下各註冊兩個設定檔（兩個語言都註冊，使用者不必為了用喵撲新增不用的語言），`ITfCategoryMgr` 註冊鍵盤、顯示屬性、immersive 和 systray 類別。類別 GUID `{961C0ADA-4DC6-488F-9563-4FC144EFAE27}`、拼音設定檔 `{8FDE097D-3513-486A-9AB5-2D1B2C67C359}` 沿用 0.1.x；注音設定檔是 `{1F5D9D62-F4AF-4AAF-82A6-A482D7EC3AE2}`。
 - `TsfDeclarations.h`：MinGW 的 `msctf.h` 缺的介面（`ITfTextInputProcessorEx`、`ITfDisplayAttributeProvider`、`ITfLangBarItemButton`、`ITfMenu`）和幾個 GUID。
 - `Install.ps1`、`Install.cmd`、`Uninstall.cmd`：安裝與移除，見上面。
 - `TextService.def`、`TextService.rc`：匯出表、版本資訊和圖示（建置時由 `assets/brand/AppIcon.png` 產生 `Meowpuut.ico`）。

@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
+        android:name=".MeowpuutApp"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -20,6 +21,36 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The custom-skins page. Its filters name only our own MIME types and file extensions (never */* or
+             application/octet-stream); only content:// is read, with a size cap, and a package must still be
+             signed by the developer and issued for this phone (plans/custom-skins.md §8.3). The in-app file
+             picker is the way in for a file whose sender gave it a generic type. -->
+        <activity
+            android:name=".app.RedeemActivity"
+            android:exported="true"
+            android:label="@string/cs_title"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/vnd.meowpuut.skin" />
+                <data android:mimeType="application/vnd.meowpuut.skin-revoke" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:host="*" android:pathPattern=".*\\.mpskin" />
+                <data android:pathPattern=".*\\.mprevoke" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.meowpuut.skin" />
+                <data android:mimeType="application/vnd.meowpuut.skin-revoke" />
             </intent-filter>
         </activity>
 

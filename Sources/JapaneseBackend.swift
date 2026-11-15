@@ -26,7 +26,7 @@ enum Romaji {
         return result
     }()
 
-    static func reading(_ raw: String) -> String {
+    static func reading(_ raw: String, editing: Bool = false) -> String {
         let input = Array(raw.lowercased())
         var result = "", position = 0
         while position < input.count {
@@ -36,10 +36,16 @@ enum Romaji {
             if key == "'" { position += 1; continue }
             if key == "n" {
                 if next == "'" { result += "ん"; position += 2; continue }
-                if next == nil { result += "ん"; position += 1; continue }
+                if next == nil { result += editing ? "n" : "ん"; position += 1; continue }
                 if next == "n" {
                     result += "ん"
-                    position += position + 2 == input.count ? 2 : 1
+                    // Keep common spellings such as konnichiha. An explicit nn before
+                    // another consonant (or a third n) already accounts for the ん.
+                    if position + 2 == input.count || (editing && !"aiueoy'".contains(input[position + 2])) {
+                        position += 2
+                    } else {
+                        position += 1
+                    }
                     continue
                 }
                 if let next, !"aiueoy".contains(next) { result += "ん"; position += 1; continue }
@@ -53,6 +59,10 @@ enum Romaji {
             if !matched { result.append(key); position += 1 }
         }
         return result
+    }
+
+    static func finalize(_ preedit: String) -> String {
+        preedit.hasSuffix("n") ? String(preedit.dropLast()) + "ん" : preedit
     }
 }
 
@@ -159,7 +169,10 @@ final class JapaneseBackend: InputBackend {
     }
     private func refresh() {
         guard !raw.isEmpty else { clear(); return }
-        let reading = Romaji.reading(raw)
+        // A final single n can still start the next kana. Keep the completed
+        // reading available for candidates while showing what's pending.
+        let preedit = Romaji.reading(raw, editing: !pinyinSide)
+        let reading = Romaji.finalize(preedit)
         choices = JapaneseLexicon.words(raw, mode: pinyinSide ? JapaneseLexicon.pinyinMode : JapaneseLexicon.japaneseMode,
                                         limit: pinyinSide ? 5 : 64).map(\.text)
         let katakana = reading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? reading
@@ -182,7 +195,7 @@ final class JapaneseBackend: InputBackend {
             choices += rest
         }
         // Japanese mode: nothing is flagged, so the collapsed row shows every word, not one.
-        state = Snapshot(preedit: reading, input: raw, japaneseCandidates: pinyinSide ? choices : [])
+        state = Snapshot(preedit: preedit, input: raw, japaneseCandidates: pinyinSide ? choices : [])
         page(0)
     }
     func key(_ key: Int32, modifiers: Int32) -> Bool {

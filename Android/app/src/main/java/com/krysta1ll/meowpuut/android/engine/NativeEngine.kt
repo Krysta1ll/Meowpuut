@@ -17,6 +17,8 @@ object NativeEngine {
 
     @JvmStatic external fun lexiconFromFd(fd: Int, offset: Long, length: Long, pinyin: Boolean): Long
     @JvmStatic external fun attachPairsFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
+    /** Pinyin lexicons only, before any session: English words inside pinyin and nine-key Chinese. */
+    @JvmStatic external fun attachEnglishFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
     @JvmStatic external fun lexiconDestroy(lexicon: Long)
     @JvmStatic external fun lexiconHeapBytes(lexicon: Long): Long
     @JvmStatic external fun sessionCreate(lexicon: Long): Long
@@ -28,6 +30,7 @@ object NativeEngine {
     @JvmStatic external fun clear(session: Long)
     @JvmStatic external fun choose(session: Long, index: Int): Boolean
     @JvmStatic external fun input(session: Long): String
+    @JvmStatic external fun inputText(session: Long): String
     @JvmStatic external fun preedit(session: Long): String
     @JvmStatic external fun takeCommitted(session: Long): String
     @JvmStatic external fun candidateCount(session: Long): Int

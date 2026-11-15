@@ -98,6 +98,8 @@ func runIndependentSmoke() -> Never {
     h.check(invalid == nil && queried == [2, 1], "座標無效時保留先前錨點")
     Preferences.shared.simplified = false
     Preferences.shared.rememberChoices = false
+    // The mixed-typing checks below are for 中日混打 on; the switch has its own checks (runMixSwitchSmoke).
+    Preferences.shared.mixJapanese = true
     Preferences.shared.pins = [:]
     let appearanceDefaults = UserDefaults(suiteName: "app.meowpuut.smoke")!
     Preferences.shared.candidateTone = .light
@@ -107,6 +109,21 @@ func runIndependentSmoke() -> Never {
     h.check(appearanceDefaults.string(forKey: "candidateTone") == "light" && appearanceDefaults.string(forKey: "candidatePalette") == "sage", "深淺色調與色系分開持久儲存")
     Preferences.shared.catGlassSkin = true
     h.check(Preferences.shared.candidateTone == .light && Preferences.shared.candidatePalette == .sage, "切換皮膚保留共用配色")
+    for sound in KeySound.allCases where sound.isCustom {
+        let folder = KeySoundPlayer.folder(sound)
+        let roles = ["key", "space", "delete", "return", "pick"].map { $0 == "key" && sound == .penta ? "key0" : $0 }
+        h.check(roles.allSatisfy { role in folder.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("\(role)-1.wav").path) } ?? false },
+                "按鍵聲「\(sound.title { a, _ in a })」已打包")
+    }
+    Preferences.shared.keySound = .tap
+    Preferences.shared.keySoundVolume = 40
+    h.check(appearanceDefaults.string(forKey: "keySound") == "tap" && appearanceDefaults.integer(forKey: "keySoundVolume") == 40, "按鍵聲與音量會儲存")
+    Preferences.shared.keySound = .off
+    h.check(KeySoundPlayer.role(for: h.layoutEvent(0, "a")) == .key && KeySoundPlayer.role(for: h.layoutEvent(49, " ")) == .space
+            && KeySoundPlayer.role(for: h.layoutEvent(51, "\u{7f}")) == .delete && KeySoundPlayer.role(for: h.layoutEvent(36, "\r")) == .returnKey
+            && KeySoundPlayer.role(for: h.layoutEvent(123, "\u{f702}")) == nil, "按鍵對應的按鍵聲")
+    h.check(KeySoundPlayer.pentaNote(12) == 0 && KeySoundPlayer.pentaNote(35) == 5 && KeySoundPlayer.pentaNote(0) == 0 && KeySoundPlayer.pentaNote(46) == 4
+            && KeySoundPlayer.pentaNote(nil) == 3, "五聲照 QWERTY 位置選音")
     let engine = h.engine
     h.check(engine.isReady, "自研注音核心載入")
     let azerty = h.layoutEvent(0, "q")
@@ -124,7 +141,7 @@ func runIndependentSmoke() -> Never {
     h.check(engine.takeCommit() == "你好", "小鍵盤 Enter 實際確認中文")
     engine.clear()
     for (input, expected) in [("su3cl3", "你好"), ("sucl", "你好"), ("5j/4", "重")] { h.expect(.zhuyin, input, expected) }
-    for (input, expected) in [("nihao", "你好"), ("nvhai", "女孩"), ("xi'an", "西安"), ("nh", "你好"), ("sushi", "蘇軾"), ("zhongguo", "中國"), ("woxianghekafei", "我想喝咖啡")] { h.expect(.pinyin, input, expected) }
+    for (input, expected) in [("nihao", "你好"), ("nvhai", "女孩"), ("xi'an", "西安"), ("nh", "你好"), ("sushi", "蘇軾"), ("pengyou", "朋友"), ("woxianghekafei", "我想喝咖啡")] { h.expect(.pinyin, input, expected) }
     h.expect(.zhuyin, "c04y4", "漢字")
     h.expect(.zhuyin, "ji3ap7rup wu0 fm4d042u04u/3", "我們今天去看電影")
     h.expect(.zhuyin, "rup wu0 wu0 fu4cp3cl3ji3vu;3fm4ej/ m06n041j4", "今天天氣很好我想去公園散步")
@@ -136,6 +153,11 @@ func runIndependentSmoke() -> Never {
     engine.key(0xff0d)
     h.check(engine.takeCommit() == String(repeating: "你好", count: 16), "32字長句回車上屏")
     h.expect(.zhuyin, "su3cl3", "你好")
+    for (input, written) in [("su3cl3", "ㄋㄧˇㄏㄠˇ"), ("2k7", "ㄉㄜ˙")] {
+        engine.clear(); engine.selectMode(.zhuyin); h.type(input)
+        engine.key(0xff0d, modifiers: 1)
+        h.check(engine.takeCommit() == written, "Shift+Enter 保留注音原文 \(written)")
+    }
     engine.clear(); engine.selectMode(.pinyin); h.type("shi")
     for _ in 0..<4 { engine.key(0xff56) }
     h.check(engine.snapshot.page == 4 && !engine.snapshot.candidates.isEmpty, "候選可翻到第29項之後")
@@ -150,7 +172,8 @@ func runIndependentSmoke() -> Never {
     let limit = Int(mpn_max_input_bytes())
     let zhuyinSymbols: [Character: String] = ["s": "ㄋ", "u": "ㄧ", "3": "ˇ", "c": "ㄏ", "l": "ㄠ"]
     let originalPrefix = overflowReading.prefix(limit).map { zhuyinSymbols[$0] ?? String($0) }.joined()
-    h.check(overflowText.hasPrefix(originalPrefix) && overflowText.hasSuffix(String(overflowReading.suffix(8))),
+    let originalSuffix = overflowReading.suffix(8).map { zhuyinSymbols[$0] ?? String($0) }.joined()
+    h.check(overflowText.hasPrefix(originalPrefix) && overflowText.hasSuffix(originalSuffix),
           "超出上限保留原注音並接收後續按鍵")
 
     do {
@@ -327,6 +350,8 @@ func runIndependentSmoke() -> Never {
     runSmokePinyinAndMemory(&h)
     runSmokeMixedAndLayout(&h)
     runCandidateWindowChecks(&h)
+    runMixSwitchSmoke(&h)
+    runFirstRunSmoke(&h)
 
     ChoiceMemory.shared.clear()
     ChoiceMemory.shared.flush()

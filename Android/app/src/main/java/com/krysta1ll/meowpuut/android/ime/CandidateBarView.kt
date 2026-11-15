@@ -30,6 +30,7 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.OverScroller
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
+import com.krysta1ll.meowpuut.android.engine.NativePets
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
@@ -57,6 +58,18 @@ class CandidateBarView(
         fun onPunctuationTick() {}
         fun onToggleExpanded()
         fun onPet(cat: Cat)
+        /** The cats were touched, typed over or woken: the pets' idle timer starts again. */
+        fun onActivity() {}
+        /** A dozing cat woke up. */
+        fun onCatsWoke() {}
+        /** A finger stayed on a cat for 0.5 s without moving: it purrs until [onHoldEnd]. */
+        fun onHold(cat: Cat) {}
+        /** The finger lifted ([interrupted] false) or began to drag the cat ([interrupted] true). */
+        fun onHoldEnd(cat: Cat, interrupted: Boolean) {}
+        /** A composition began or ended: typing makes every moment give way. */
+        fun onComposing(composing: Boolean) {}
+        /** A tap on the seat of a cat that is hiding in the glass. */
+        fun onSeat(cat: Cat) {}
     }
 
     /** What the row shows; set as a whole by the keyboard. */
@@ -116,7 +129,8 @@ class CandidateBarView(
                 cancelTouch()
                 leanAnimator?.cancel()
                 lean = 0f
-                for (cat in actors) cat.motion = null
+                for (cat in actors) { cat.motion = null; cat.hidden = false }
+                rippleStart = -1L
                 particles.clear()
             }
             if (effectsChanged || catsChanged || skinChanged) scheduleCatSleep()
@@ -236,6 +250,9 @@ class CandidateBarView(
         var motion: CatMotion? = null
         var pressed = false
         var sleeping = false
+        var sleepStart = 0L
+        /** Sunk into the glass (a peekaboo): its seat finds it. */
+        var hidden = false
     }
     private val actors = Cat.entries.map(::CatEntity)
     private fun actor(cat: Cat): CatEntity = actors[cat.ordinal]
@@ -261,15 +278,40 @@ class CandidateBarView(
     private var catDragAnimator: ValueAnimator? = null
     private var droppingCat = false
     private var presented = false
+    /** The cat a finger has held without moving for [CAT_PURR_DELAY]: it purrs until the finger leaves. */
+    private var purringCat: CatEntity? = null
     private val liftPressedCat = Runnable {
         pressedCat?.let { if (target == TARGET_CAT) startCatDrag(it) }
     }
+    private val holdPressedCat = Runnable {
+        val seat = pressedCat ?: return@Runnable
+        if (target != TARGET_CAT || liftedCat != null || seat.actor.hidden || droppingCat) return@Runnable
+        purringCat = seat.actor
+        listener?.onHold(seat.actor.id)
+    }
     private val sleepCat = Runnable {
         if (presented && fullEffects && motionEnabled && !content.composing && pressedCat == null) {
-            actor(Cat.MIMIMO).sleeping = true
+            actor(Cat.MIMIMO).apply { sleeping = true; sleepStart = SystemClock.uptimeMillis() }
             invalidate()
         }
     }
+
+    /**
+     * The pets core directs the cats (docs/PETS.md): it decides when they doze (25 s, 12 s at night) and a held
+     * finger makes a cat purr. False (moments off) keeps the old behaviour: 米米莫 dozes after 16 s and a held cat is lifted.
+     */
+    var directed = false
+        set(value) {
+            if (field == value) return
+            field = value
+            scheduleCatSleep()
+        }
+    private var rippleStart = -1L
+    private var rippleX = 0f
+    private var rippleY = 0f
+    private var rippleLine = false
+    private val ripplePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.2f }
+    private var catsAnimating = false
     private var lean = 0f
     private var leanAnimator: ValueAnimator? = null
     private var easterEggAt = -1L
@@ -308,6 +350,7 @@ class CandidateBarView(
         }
         if (wasComposing != next.composing) {
             scheduleCatSleep()
+            listener?.onComposing(next.composing)
             if (fullEffects) animateLean(if (next.composing) 1f else 0f)
             else if (next.composing) for (cat in actors) motion(cat.id, CatMotion.Event.LOOK)
         }
@@ -497,8 +540,10 @@ class CandidateBarView(
         // The cats are in front of the glass and under the candidates.
         val seats = seats()
         if (seats.isEmpty()) for (cat in actors) cat.motion = null
-        if (look.skin.supportsFestivals) drawFestivalEnd(canvas)
+        if (look.supportsFestivals || look.overlay?.rightEnd != null) drawFestivalEnd(canvas)
         if (fullEffects && !look.opaque && look.skin.catArtwork == SkinCatArtwork.SCULPTED) pawShadows(canvas, seats)
+        catsAnimating = false
+        drawRipple(canvas, now)
         for (seat in seats) if (seat.actor !== liftedCat?.actor) drawCat(canvas, seat, now)
         // A note from the cats takes the row's place while it shows.
         drawRow(canvas, 1f - toastAlpha(now))
@@ -514,8 +559,8 @@ class CandidateBarView(
         if (scroller.computeScrollOffset()) {
             scroll = (scroller.currX / density).coerceIn(0f, maxScroll)
             postInvalidateOnAnimation()
-        } else if (catLiftStartedAt >= 0L || actors.any { it.motion != null } || particles.isNotEmpty() || (animatedToast && toast != null) ||
-            (motionEnabled && easterEggAt >= 0L)) {
+        } else if (catLiftStartedAt >= 0L || catsAnimating || actors.any { val m = it.motion; m != null && !m.settled(now) } ||
+            particles.isNotEmpty() || (animatedToast && toast != null) || (motionEnabled && easterEggAt >= 0L)) {
             postInvalidateOnAnimation()
         } else if (catHeldAt >= 0L && catDragAnimator == null && motionEnabled) {
             // Only the held paws animate here. Keep this loop below display
@@ -534,11 +579,23 @@ class CandidateBarView(
 
     private var festivalOrnament: Pair<Bitmap, Box>? = null
 
+    /** Today's festival cluster where the skin wears festivals, else the custom skin's own right end. */
+    private fun ornamentPiece(): FestivalPiece? =
+        (if (look.supportsFestivals) festival?.theme?.right else null) ?: look.overlay?.rightEnd?.piece()
+
+    private fun ornamentBitmap(): Bitmap? {
+        if (look.supportsFestivals && festival?.theme?.right != null) return festival?.right
+        return look.overlay?.rightEnd?.let { sprites.endArt(it) }
+    }
+
+    /** A custom skin's picture of this pose when it has one, else the built-in sprite's geometry. */
+    private fun skinSprite(cat: Cat, pose: CatPose): CatSprite =
+        look.overlay?.sprites?.get("${cat.key}_edge_${pose.key}")?.sprite ?: pose.sprite(cat)
+
     private fun seats(): List<Seat> = seats ?: seatCats().also {
         seats = it
-        val f = festival
-        val piece = f?.theme?.right
-        val bitmap = f?.right
+        val piece = ornamentPiece()
+        val bitmap = ornamentBitmap()
         festivalOrnament = if (piece == null || bitmap == null) null else {
             val glass = region.glass
             Festivals.placeRight(piece, glass, GlassOutline.contentBand(look.shape, glass.height), region.width,
@@ -546,19 +603,24 @@ class CandidateBarView(
         }
     }
 
-    fun newPresentation() {
+    /** [rest]: how the time of day seats the cats (docs/PETS.md A5); null keeps the usual rotation. */
+    fun newPresentation(rest: CatRest? = null) {
         presented = true
         scheduleCatSleep()
-        catSchedule.newPresentation()
+        catSchedule.newPresentation(rest?.arrangement)
         invalidateSeats()
-        for (cat in actors) motion(cat.id, CatMotion.Event.WAKE)
+        val asleep = rest?.mimimoAsleep == true
+        for (cat in actors) if (!(asleep && cat.id == Cat.MIMIMO)) motion(cat.id, CatMotion.Event.WAKE)
+        // Asleep on appearance; the first touch, commit or composition wakes him as it wakes a dozing cat.
+        if (asleep) actor(Cat.MIMIMO).apply { sleeping = true; sleepStart = SystemClock.uptimeMillis() }
     }
 
     fun endPresentation() {
         presented = false
         scheduleCatSleep()
         cancelTouch()
-        for (cat in actors) cat.motion = null
+        for (cat in actors) { cat.motion = null; cat.hidden = false }
+        rippleStart = -1L
         particles.clear()
         leanAnimator?.cancel()
         removeCallbacks(expireToast)
@@ -572,16 +634,26 @@ class CandidateBarView(
         resetCatDrag()
     }
 
+    /** Typing or a commit stirs the cats: a sleeper wakes and the old doze timer restarts. */
+    fun stirCats() = scheduleCatSleep()
+
     private fun scheduleCatSleep() {
-        val cat = actor(Cat.MIMIMO)
-        if (cat.sleeping) {
+        var woke = false
+        for (cat in actors) if (cat.sleeping) {
             cat.sleeping = false
+            woke = true
+            // A cat the core put to sleep stretches when it wakes (0.3 s); the old doze simply opened its eyes.
+            if (directed) motion(cat.id, CatMotion.Event.WAKE)
+        }
+        if (woke) {
             invalidate()
+            listener?.onCatsWoke()
         }
         removeCallbacks(sleepCat)
-        if (presented && fullEffects && motionEnabled && !content.composing && look.cats) {
+        if (!directed && presented && fullEffects && motionEnabled && !content.composing && look.cats) {
             postDelayed(sleepCat, 16_000L)
         }
+        listener?.onActivity()
     }
 
     private fun invalidateSeats() {
@@ -601,7 +673,7 @@ class CandidateBarView(
         // The scheduler only needs geometry; decode the sculpted image after seating.
         fun place(mimimo: CatSprites.Art?, momo: CatSprites.Art?) = catSchedule.seats(stage) { cat, pose ->
             val themed = if (cat == Cat.MIMIMO) mimimo else momo
-            themed?.sprite ?: if (sculpted) pose.sprite(cat) else sprites.art(cat, pose, artwork).sprite
+            themed?.sprite ?: if (sculpted) skinSprite(cat, pose) else sprites.art(cat, pose, artwork).sprite
         }
         val mimimo = if (sculpted) japaneseMimimo ?: festival?.mimimo else null
         val momo = if (sculpted) festival?.momo else null
@@ -611,7 +683,7 @@ class CandidateBarView(
             val themed = place(mimimo, momo) ?: if (japaneseMimimo != null && momo != null) place(mimimo, null) else null
             themed ?: place(null, null).orEmpty()
         }
-        val ornament = if (look.skin.supportsFestivals) festival?.theme?.right else null
+        val ornament = ornamentPiece()
         val fitted = stage.fitting(chosen, ornament) ?: stage.fitting(chosen) ?: stage
         setTargets(Box(fitted.row.left, region.row.top, fitted.row.width, region.row.height),
             region.chevron.offset(fitted.arrowTouch.left - stage.arrowTouch.left, 0f))
@@ -702,6 +774,8 @@ class CandidateBarView(
         val motion = cat.motion
         val pose = motion?.pose(now)
         if (motion != null && pose == null) cat.motion = null
+        // Sunk out of sight in the glass, or faded out: nothing to draw until it surfaces.
+        if (cat.hidden && pose != null && (pose.drop >= 1f || pose.alpha <= 0f)) return
         // A lean toward the candidates while composing, plus the answer to a pet.
         val tilt = lean * (if (cat.id == Cat.MIMIMO) 2.5f else -2.5f) + (pose?.tilt ?: 0f)
         var wide = pose?.wide ?: 1f
@@ -716,7 +790,10 @@ class CandidateBarView(
                 canvas.scale(wide, tall, place.anchorX, place.anchorY)
             }
             val pixelHop = if (artwork == SkinCatArtwork.PIXEL && cat.pressed && motionEnabled) 1f else 0f
+            val fading = pose != null && pose.alpha < 1f
+            if (fading) bitmapPaint.alpha = (255 * pose!!.alpha).roundToInt()
             drawSkinCat(canvas, seat, place.frame.offset(0f, -pixelHop), pose?.body)
+            if (fading) bitmapPaint.alpha = 255
             canvas.restore()
             if (look.edgeHuggingCats && artwork == SkinCatArtwork.LEGACY && cat.id == Cat.MIMIMO) {
                 val tail = sprites.classicTail()
@@ -726,10 +803,19 @@ class CandidateBarView(
             }
             return
         }
-        val body = if (seat.themed || !motionEnabled) null else if (cat.sleeping) CatBodyPose.SLEEP else pose?.body
-        val bodyAlpha = if (body == null) 0f else if (cat.sleeping) 1f else pose?.bodyAlpha ?: 0f
-        if (bodyAlpha < 1f) drawSeatedCat(canvas, seat, tilt, wide, tall, 1f - bodyAlpha)
-        if (body != null && bodyAlpha > 0f) drawStandingCat(canvas, seat, body, bodyAlpha, tilt, wide, tall)
+        // A moment of the pets core changes the pose even when motion is off (Reduce Motion): then it only cross-fades.
+        val poses = !seat.themed && (motionEnabled || motion?.isMoment == true || cat.sleeping)
+        val body = if (!poses) null else if (cat.sleeping) CatBodyPose.SLEEP else pose?.body
+        var sleepAlpha = 1f
+        if (cat.sleeping && directed) {
+            sleepAlpha = ((now - cat.sleepStart).toFloat() / SLEEP_FADE_MS).coerceIn(0f, 1f)
+            if (sleepAlpha < 1f) catsAnimating = true
+        }
+        val bodyAlpha = if (body == null) 0f else if (cat.sleeping) sleepAlpha else pose?.bodyAlpha ?: 0f
+        val whole = pose?.alpha ?: 1f
+        val sink = if (pose == null || pose.drop <= 0f) 0f else pose.drop * (place.anchorY - place.visible.top + 3f)
+        if (bodyAlpha < 1f) drawSeatedCat(canvas, seat, tilt, wide, tall, (1f - bodyAlpha) * whole, sink)
+        if (body != null && bodyAlpha > 0f) drawStandingCat(canvas, seat, body, bodyAlpha * whole, tilt, wide, tall)
     }
 
     private fun drawSkinCat(canvas: Canvas, seat: Seat, frame: Box, pose: CatBodyPose?) {
@@ -742,31 +828,46 @@ class CandidateBarView(
         bitmapPaint.isFilterBitmap = true
     }
 
-    private fun drawSeatedCat(canvas: Canvas, seat: Seat, tilt: Float, wide: Float, tall: Float, opacity: Float) {
+    /**
+     * [sink] is how far the cat has gone down into the glass, in dp: the cut-out
+     * of the glass (behind the bar) hides what is inside it, so it sinks into
+     * the glass. Its paws in front of the glass stay only while it is hardly down.
+     */
+    private fun drawSeatedCat(canvas: Canvas, seat: Seat, tilt: Float, wide: Float, tall: Float, opacity: Float, sink: Float = 0f) {
         val place = seat.place
         val frame = rectOf(place.frame)
         val glow = seat.glow
+        val pawsLeft = (1f - sink / SINK_PAWS_DP).coerceIn(0f, 1f)
         bitmapPaint.alpha = (255 * opacity).roundToInt()
         glowPaint.alpha = (153 * opacity).roundToInt()
         canvas.save()
         canvas.clipOutPath(glassPath)
+        if (sink > 0f) canvas.translate(0f, sink)
         turn(canvas, place, tilt, wide, tall)
         if (glow != null) canvas.drawBitmap(glow.body, null, glow.bodyBox, glowPaint)
         canvas.drawBitmap(seat.bitmap, null, frame, bitmapPaint)
         canvas.restore()
 
-        if (glow != null) {
+        if (pawsLeft > 0f) {
+            if (sink > 0f) {
+                bitmapPaint.alpha = (255 * opacity * pawsLeft).roundToInt()
+                glowPaint.alpha = (153 * opacity * pawsLeft).roundToInt()
+            }
+            if (glow != null) {
+                canvas.save()
+                canvas.clipPath(glassPath)
+                if (sink > 0f) canvas.translate(0f, sink)
+                turn(canvas, place, tilt, wide, tall)
+                canvas.drawBitmap(glow.paws, null, glow.pawsBox, glowPaint)
+                canvas.restore()
+            }
             canvas.save()
-            canvas.clipPath(glassPath)
+            if (sink > 0f) canvas.translate(0f, sink)
             turn(canvas, place, tilt, wide, tall)
-            canvas.drawBitmap(glow.paws, null, glow.pawsBox, glowPaint)
+            canvas.clipPath(seat.paws)
+            canvas.drawBitmap(seat.bitmap, null, frame, bitmapPaint)
             canvas.restore()
         }
-        canvas.save()
-        turn(canvas, place, tilt, wide, tall)
-        canvas.clipPath(seat.paws)
-        canvas.drawBitmap(seat.bitmap, null, frame, bitmapPaint)
-        canvas.restore()
         bitmapPaint.alpha = 255
         glowPaint.alpha = 153
     }
@@ -916,7 +1017,7 @@ class CandidateBarView(
                 else canvas.drawRoundRect(rect, region.pillHeight / 2, region.pillHeight / 2, pressPaint)
             }
             val paint = if (selected) selectedPaint else textPaint
-            paint.color = if (selected) Color.WHITE else if (item.kind == 2) look.candidateSecondary else look.candidateText
+            paint.color = if (selected) look.pillText else if (item.kind == 2) look.candidateSecondary else look.candidateText
             if (pressed && motionEnabled) {
                 canvas.save()
                 canvas.scale(0.95f, 0.95f, x + item.width / 2, cy)
@@ -926,7 +1027,7 @@ class CandidateBarView(
             val tx = x + (item.width - textWidth - markWidth) / 2
             canvas.drawText(item.shown, tx, baseline, paint)
             if (item.japanese) {
-                glyphPaint.color = if (selected) Look.withAlpha(Color.WHITE, 0.85f) else look.candidateSecondary
+                glyphPaint.color = if (selected) Look.withAlpha(look.pillText, 0.85f) else look.candidateSecondary
                 Glyphs.paw(canvas, tx + textWidth + PAW_GAP + font * 0.225f, cy - font * 0.05f, font * 0.45f, glyphPaint)
             }
             if (pressed && motionEnabled) canvas.restore()
@@ -1068,7 +1169,9 @@ class CandidateBarView(
                 scheduleCatSleep()
                 if (liftedCat != null) resetCatDrag()
                 pressedCat?.actor?.pressed = false
+                removeCallbacks(holdPressedCat)
                 removeCallbacks(liftPressedCat)
+                endHold(interrupted = true)
                 val cats = seats()
                 scroller.forceFinished(true)
                 velocity?.recycle()
@@ -1084,7 +1187,11 @@ class CandidateBarView(
                 val pet = cats.firstOrNull { it.touch.contains(x, y) }
                 pressedCat = pet
                 pet?.actor?.pressed = true
-                if (pet != null && onDismissKeyboard != null) postDelayed(liftPressedCat, CAT_HOLD_DELAY)
+                // Held still for half a second, the cat purrs; a drag lifts it at once (docs/PETS.md A2).
+                // With moments off, a held cat is lifted after 0.32 s as before.
+                if (pet != null && onDismissKeyboard != null && !pet.actor.hidden) {
+                    if (directed) postDelayed(holdPressedCat, CAT_PURR_DELAY) else postDelayed(liftPressedCat, CAT_HOLD_DELAY)
+                }
                 target = when {
                     pet != null -> TARGET_CAT
                     onArrow -> TARGET_CHEVRON
@@ -1104,7 +1211,7 @@ class CandidateBarView(
             MotionEvent.ACTION_MOVE -> {
                 velocity?.addMovement(event)
                 val cat = pressedCat
-                if (cat != null && onDismissKeyboard != null) {
+                if (cat != null && onDismissKeyboard != null && !cat.actor.hidden) {
                     val dx = x - downX
                     val dy = y - downY
                     if (liftedCat != null || abs(dx) > touchSlop || abs(dy) > touchSlop) {
@@ -1164,8 +1271,11 @@ class CandidateBarView(
                             moveLiftedCat(seat, dx, dy)
                             val falls = !seat.place.supportedBy(firstKeyTop, dy)
                             finishCatDrag(falls = falls)
+                        } else if (purringCat != null) {
+                            // A purr is not a pet: it does not count toward the five that switch the script.
+                            endHold(interrupted = false)
                         } else if (abs(dx) <= touchSlop && abs(dy) <= touchSlop) {
-                            pressedCat?.let { listener?.onPet(it.actor.id) }
+                            pressedCat?.let { if (it.actor.hidden) listener?.onSeat(it.actor.id) else listener?.onPet(it.actor.id) }
                         }
                     }
                 }
@@ -1187,7 +1297,9 @@ class CandidateBarView(
 
     private fun endTouch() {
         clearPunctuationHold()
+        removeCallbacks(holdPressedCat)
         removeCallbacks(liftPressedCat)
+        endHold(interrupted = false)
         velocity?.recycle()
         velocity = null
         pressedItem = -1
@@ -1211,7 +1323,9 @@ class CandidateBarView(
     }
 
     private fun startCatDrag(seat: Seat) {
+        removeCallbacks(holdPressedCat)
         removeCallbacks(liftPressedCat)
+        endHold(interrupted = true)
         liftedCat = seat
         seat.actor.motion = null
         if (motionEnabled) {
@@ -1328,6 +1442,169 @@ class CandidateBarView(
         return outcome
     }
 
+    // ---------------------------------------------------------------- moments
+
+    /** Whether the cats sit behind the glass bar with its cut-out, so that sinking works. Classic and pixel skins fade instead. */
+    private val glassSeated get() = look.skin.catArtwork == SkinCatArtwork.SCULPTED && !look.edgeHuggingCats
+
+    /** The cats on screen as bits (MP_PETS_MIMIMO, MP_PETS_MOMO). */
+    val petCats: Int get() = if (region.cats && look.cats) NativePets.MIMIMO or NativePets.MOMO else 0
+
+    /** What the pets core needs to know of the bar: MPPetsAmbience.flags, without the assistive-technology bit. */
+    fun petFlags(): Int {
+        var flags = 0
+        if (content.composing) flags = flags or NativePets.COMPOSING
+        if (liftedCat != null || purringCat != null) flags = flags or NativePets.LIFTED
+        if (droppingCat) flags = flags or NativePets.DISMISSING
+        if (look.effects == EffectsLevel.LIGHTWEIGHT) flags = flags or NativePets.LIGHTWEIGHT
+        if (!ValueAnimator.areAnimatorsEnabled()) flags = flags or NativePets.REDUCE_MOTION
+        if (look.opaque) flags = flags or NativePets.REDUCE_TRANSPARENCY
+        if (glassSeated) flags = flags or NativePets.GLASS_SEAT or NativePets.EDGES
+        if (look.skin.supportsFestivals && festival != null) flags = flags or NativePets.FESTIVAL
+        return flags
+    }
+
+    /** TalkBack, Switch Access or another assistive service is running. */
+    val assistiveTechnology: Boolean get() = accessibility.assistive
+
+    /** Whether the cat is sunk out of sight in the glass. */
+    fun isHidden(cat: Cat) = actor(cat).hidden
+
+    private fun hasCat(who: Int, cat: Cat) = who and (if (cat == Cat.MIMIMO) NativePets.MIMIMO else NativePets.MOMO) != 0
+
+    /** One moment's motion on one cat; a cat without body poses (a festival outfit) hops instead of changing pose. */
+    private fun moment(cat: Cat, event: CatMotion.Event, fade: Boolean, quick: Boolean = false, delay: Long = 0L) {
+        val a = actor(cat)
+        if (!(region.cats && look.cats) || a === liftedCat?.actor) return
+        var shown = event
+        if (!fade && (event == CatMotion.Event.HELLO || event == CatMotion.Event.DUET)) {
+            val seat = seats().firstOrNull { it.actor === a }
+            if (seat?.themed == true) shown = CatMotion.Event.HOP
+        }
+        a.motion = CatMotion(cat, SystemClock.uptimeMillis() + delay, timeScale(), shown, fade, quick, waits = delay > 0L)
+        invalidate()
+    }
+
+    /** The first appearance of the day: 莫莫 waves and 米米莫 reaches a beat later. */
+    fun playHello(who: Int, fade: Boolean) {
+        if (hasCat(who, Cat.MOMO)) moment(Cat.MOMO, CatMotion.Event.HELLO, fade)
+        if (hasCat(who, Cat.MIMIMO)) moment(Cat.MIMIMO, CatMotion.Event.HELLO, fade, delay = 150L)
+    }
+
+    /** A peekaboo: the cats in [who] sink into the glass (a fade where there is no glass seat) and a ripple spreads where they went. */
+    fun sink(who: Int, fade: Boolean, ripple: Int) {
+        val now = SystemClock.uptimeMillis()
+        var other: Cat? = null
+        for (cat in Cat.entries) {
+            val a = actor(cat)
+            if (!hasCat(who, cat)) { other = cat; continue }
+            a.hidden = true
+            moment(cat, CatMotion.Event.SINK, fade)
+            val seat = seats().firstOrNull { it.actor === a } ?: continue
+            if (!fade && ripple != NativePets.RIPPLE_NONE && fullEffects) {
+                rippleStart = now
+                rippleX = seat.place.anchorX
+                rippleY = seat.place.anchorY + 2.5f
+                rippleLine = ripple == NativePets.RIPPLE_LINE
+            }
+        }
+        // The other cat leans, as if looking for it.
+        if (other != null && !fade && fullEffects) animateLean(1f)
+        invalidate()
+    }
+
+    /** Hiding cats come back up by themselves ([quick]: typing, within 0.18 s). */
+    fun surface(fade: Boolean, quick: Boolean = false) {
+        for (cat in Cat.entries) if (actor(cat).hidden) {
+            actor(cat).hidden = false
+            moment(cat, CatMotion.Event.SURFACE, fade, quick)
+        }
+        leanBack()
+    }
+
+    /** The hiding cats were found: they pop up and are happy. */
+    fun found(who: Int, fade: Boolean) {
+        for (cat in Cat.entries) if (hasCat(who, cat) || actor(cat).hidden) {
+            actor(cat).hidden = false
+            moment(cat, CatMotion.Event.FOUND, fade)
+        }
+        leanBack()
+    }
+
+    /** The cats in [who] fall asleep until a key or a touch (the pets core's doze). */
+    fun doze(who: Int) {
+        if (!(region.cats && look.cats)) return
+        val now = SystemClock.uptimeMillis()
+        for (cat in Cat.entries) if (hasCat(who, cat)) actor(cat).apply { sleeping = true; sleepStart = now }
+        invalidate()
+    }
+
+    /** 莫莫 jumps and 米米莫 is happy, together. */
+    fun playDuet(fade: Boolean) {
+        moment(Cat.MOMO, CatMotion.Event.DUET, fade)
+        moment(Cat.MIMIMO, CatMotion.Event.DUET, fade)
+    }
+
+    /** A cat held under a finger purrs: 米米莫 sleeps and 莫莫 is happy (momo_happy stands in for the missing momo_sleep). */
+    fun purr(cat: Cat, fade: Boolean) = moment(cat, CatMotion.Event.HOLD, fade)
+
+    /** The finger left (or began a drag): the purr fades. */
+    fun endPurr(cat: Cat) {
+        actor(cat).motion?.release(SystemClock.uptimeMillis())
+        invalidate()
+    }
+
+    /** Typing or a touch elsewhere: every moment ends within 0.18 s. */
+    fun yieldMoments(fade: Boolean) {
+        val now = SystemClock.uptimeMillis()
+        surface(fade, quick = true)
+        for (a in actors) a.motion?.let { if (it.isMoment) it.cut(now) }
+        rippleStart = -1L
+        scheduleCatSleep()
+        invalidate()
+    }
+
+    /** The bar is going away (or its look changed): nothing is left hiding. */
+    fun cancelMoments() {
+        for (a in actors) { a.hidden = false; if (a.motion?.isMoment == true) a.motion = null }
+        rippleStart = -1L
+        leanBack()
+    }
+
+    private fun leanBack() {
+        if (lean != 0f && !content.composing) animateLean(0f)
+    }
+
+    private fun endHold(interrupted: Boolean) {
+        val cat = purringCat ?: return
+        purringCat = null
+        listener?.onHoldEnd(cat.id, interrupted)
+    }
+
+    /** Two soft rings (a thin opaque line for Reduce Transparency) spreading over the glass where a cat sank, for 0.5 s. */
+    private fun drawRipple(canvas: Canvas, now: Long) {
+        if (rippleStart < 0L) return
+        val age = (now - rippleStart).toFloat() / timeScale()
+        if (age >= RIPPLE_MS) { rippleStart = -1L; return }
+        canvas.save()
+        canvas.clipPath(glassPath)
+        for (ring in 0..1) {
+            val u = ((age - ring * 120f) / (RIPPLE_MS - 120f)).coerceIn(0f, 1f)
+            if (age < ring * 120f) continue
+            val radius = 3f + 15f * u
+            if (rippleLine) {
+                ripplePaint.color = look.rippleLine
+                ripplePaint.strokeWidth = 1f
+            } else {
+                ripplePaint.color = Look.withAlpha(look.rippleSoft, 0.55f * (1f - u))
+                ripplePaint.strokeWidth = 1.2f
+            }
+            canvas.drawOval(rippleX - radius, rippleY - radius * 0.4f, rippleX + radius, rippleY + radius * 0.4f, ripplePaint)
+        }
+        canvas.restore()
+        catsAnimating = true
+    }
+
     fun playEasterEgg() {
         for (actor in actors) actor.affection.resetStreak()
         easterEggAt = SystemClock.uptimeMillis()
@@ -1436,11 +1713,15 @@ class CandidateBarView(
         for (seat in cats) {
             val b = seat.touch
             val bounds = Rect((b.left * density).toInt(), (b.top * density).toInt(), (b.right * density).toInt(), (b.bottom * density).toInt())
+            val id = seat.actor.id
+            val purr = if (directed && !seat.actor.hidden) listOf(
+                VirtualAccessibility.LongClick(content.words("讓牠呼嚕", "让它呼噜")) { listener?.onHold(id) },
+            ) else emptyList()
             out += if (seat.actor.id == Cat.MIMIMO) {
-                VirtualAccessibility.Item(MIMIMO_ID, bounds, content.words("摸摸米米莫，連續五下切換輸入方式", "摸摸米米莫，连续五下切换输入方式"), longClick = dismiss)
+                VirtualAccessibility.Item(MIMIMO_ID, bounds, content.words("摸摸米米莫，連續五下切換輸入方式", "摸摸米米莫，连续五下切换输入方式"), longClick = dismiss, custom = purr)
             } else {
                 val label = if (content.japaneseMode) "摸摸莫莫" else content.words("摸摸莫莫，連續五下切換簡繁", "摸摸莫莫，连续五下切换简繁")
-                VirtualAccessibility.Item(MOMO_ID, bounds, label, longClick = dismiss)
+                VirtualAccessibility.Item(MOMO_ID, bounds, label, longClick = dismiss, custom = purr)
             }
         }
         if (content.canExpand || content.expanded) {
@@ -1458,8 +1739,8 @@ class CandidateBarView(
     private fun activate(id: Int) {
         when (id) {
             CHEVRON_ID -> listener?.onToggleExpanded()
-            MIMIMO_ID -> listener?.onPet(Cat.MIMIMO)
-            MOMO_ID -> listener?.onPet(Cat.MOMO)
+            MIMIMO_ID -> if (actor(Cat.MIMIMO).hidden) listener?.onSeat(Cat.MIMIMO) else listener?.onPet(Cat.MIMIMO)
+            MOMO_ID -> if (actor(Cat.MOMO).hidden) listener?.onSeat(Cat.MOMO) else listener?.onPet(Cat.MOMO)
             else -> items.getOrNull(id)?.let(::activateItem)
         }
     }
@@ -1479,7 +1760,13 @@ class CandidateBarView(
         private const val ROW_FADE = 18f
         private const val MIN_CANDIDATE_WIDTH = 44f
         private const val EGG_DURATION = 850L
+        private const val RIPPLE_MS = 500f
         private const val CAT_HOLD_DELAY = 320L
+        /** A finger held still on a cat this long makes it purr. */
+        private const val CAT_PURR_DELAY = 500L
+        private const val SLEEP_FADE_MS = 200f
+        /** A sinking cat's paws in front of the glass fade out over its first dp. */
+        private const val SINK_PAWS_DP = 4f
         private val PIXEL_CAT = listOf("..#...#..", ".#######.", "###.###.#", "#########", ".##...##.")
         /** Between a Japanese candidate's text and its paw mark (DESIGN.md §4). */
         const val PAW_GAP = 3f

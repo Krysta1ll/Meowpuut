@@ -8,4 +8,6 @@
 
 在 Meowpuut-Core 裡，Rust 引擎在 `crates/meowpuut-core`，C 介面在 `crates/meowpuut-ffi`，詞庫建置工具在 `crates/meowpuut-lexicon` 和 `scripts/`。按鍵事件、候選窗和系統整合由各客戶端處理。改共用引擎可先執行 `bash scripts/build-lexicon.sh`，再執行 `cargo test --locked --workspace`，改客戶端則參照各平台的建置說明。
 
+新加的詞條和權重不能含 `Resources/Lexicon/blocked-terms.txt` 所列的詞，也不能替這些詞加權；這些詞不主動提供，只有完整拼出時才打得出來。皮膚和音效不放旗幟、國徽、標語，也不放宗教或爭議性的符號。
+
 一個 PR 處理一組相關問題。程式及詞庫修訂依專案 MIT 授權提供，第三方內容請附來源與授權。皮膚或角色素材若要納入正式版，先和作者確認署名與使用範圍。[程式授權](LICENSE) · [第三方來源](THIRD_PARTY.md) · [美術素材](ASSETS-LICENSE.md)

@@ -2,11 +2,59 @@ package com.krysta1ll.meowpuut.android.ime
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.krysta1ll.meowpuut.android.engine.InputDefaults
 import com.krysta1ll.meowpuut.android.engine.InputMode
 
 /** Settings shared by the keyboard and the app (one process, one file). */
 class Prefs(context: Context) {
     val store: SharedPreferences = context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE)
+
+    init {
+        firstRun(context)
+    }
+
+    /**
+     * Runs once per install, before anything else is written. Settings from
+     * before the switch existed mean an existing user, who keeps mixed typing
+     * on and the mode they have; a store with nothing in it is a new install,
+     * which starts with mixed typing off and the mode its system language and
+     * region suggest. Only the resulting values are saved, never the region.
+     */
+    private fun firstRun(context: Context) {
+        if (store.contains(MIXED_JAPANESE)) return
+        val locales = context.resources.configuration.locales
+        val tags = (0 until locales.size()).map { locales.get(it).toLanguageTag() }
+        val plan = InputDefaults.firstRun(
+            existingSettings = store.all.isNotEmpty() || hadEarlierVersion(context),
+            hasModeOrScript = store.contains(MODE) || store.contains(SIMPLIFIED),
+            region = if (locales.isEmpty) null else locales.get(0).country,
+            languageTags = tags,
+        )
+        val edit = store.edit().putBoolean(MIXED_JAPANESE, plan.mixedJapanese)
+        plan.start?.let { edit.putString(MODE, it.mode.key).putBoolean(SIMPLIFIED, it.simplified) }
+        edit.apply()
+    }
+
+    /**
+     * An earlier version only wrote this store when something was changed, so an empty store
+     * does not mean a new install. Other files that version wrote by itself (the cat records,
+     * the choice memory) or an update after the first install do.
+     */
+    private fun hadEarlierVersion(context: Context): Boolean {
+        val dir = java.io.File(context.applicationInfo.dataDir, "shared_prefs")
+        if (listOf("cat_affinity", "choice-memory").any { java.io.File(dir, "$it.xml").exists() }) return true
+        return try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            info.lastUpdateTime - info.firstInstallTime > UPDATE_GAP_MS
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Japanese words among Zhuyin, Pinyin and nine-key candidates. The separate Japanese mode ignores it. */
+    var mixedJapanese: Boolean
+        get() = store.getBoolean(MIXED_JAPANESE, false)
+        set(value) = store.edit().putBoolean(MIXED_JAPANESE, value).apply()
 
     var mode: InputMode
         get() = InputMode.of(store.getString(MODE, null))
@@ -42,6 +90,22 @@ class Prefs(context: Context) {
         set(value) {
             if (isSkinUnlocked(value)) store.edit().putString(SKIN, value.key).apply()
         }
+
+    /** The applied custom skin as "<id>@<rev>" (always re-parsed, never a path), or null for a built-in skin. */
+    var customSkin: String?
+        get() = SkinRef.parse(store.getString(CUSTOM_SKIN, null))?.toString()
+        set(value) {
+            val ref = SkinRef.parse(value)
+            store.edit().apply { if (ref == null) remove(CUSTOM_SKIN) else putString(CUSTOM_SKIN, ref.toString()) }.apply()
+        }
+
+    /** Changed whenever installed skins, the device state or revocations change: the keyboard then verifies again. */
+    fun touchCustomSkins() {
+        store.edit().putLong(CUSTOM_SKIN_EPOCH, store.getLong(CUSTOM_SKIN_EPOCH, 0L) + 1).apply()
+    }
+
+    /** Whether the person has chosen a glass shape themselves (a custom skin's own shape applies until then). */
+    val hasShape: Boolean get() = store.contains(SHAPE)
 
     fun isSkinUnlocked(skin: KeyboardSkin): Boolean {
         if (!skin.requiresQuiz) return true
@@ -104,6 +168,10 @@ class Prefs(context: Context) {
     var cats: Boolean
         get() = store.getBoolean(skinKey(CATS), true)
         set(value) = store.edit().putBoolean(skinKey(CATS), value).apply()
+    /** How much the cats do by themselves (docs/PETS.md): full, quiet or off. */
+    var petMoments: PetMoments
+        get() = PetMoments.of(store.getString(PET_MOMENTS, null))
+        set(value) = store.edit().putString(PET_MOMENTS, value.key).apply()
     var festivals: Boolean
         get() = store.getBoolean(FESTIVALS, true)
         set(value) = store.edit().putBoolean(FESTIVALS, value).apply()
@@ -130,15 +198,21 @@ class Prefs(context: Context) {
     companion object {
         const val MODE = "mode"
         const val SIMPLIFIED = "simplified"
+        const val MIXED_JAPANESE = "mixedJapanese"
         const val ENGLISH_AUTO_CAPS = "englishAutoCaps"
         const val REMEMBER_CHOICES = "rememberChoices"
         const val CLEAR_CHOICE_MEMORY = "clearChoiceMemory"
+        const val PET_MOMENTS = "petMoments"
+        /** Written by the app when the cat records are cleared; the running keyboard clears its copy on seeing it. */
+        const val CLEAR_PETS = "clearPetsRequest"
         const val SHAPE = "shape"
         const val TONE = "tone"
         const val PALETTE = "palette"
         const val STRENGTH = "strength"
         const val EFFECTS = "effects"
         const val SKIN = "skin"
+        const val CUSTOM_SKIN = "customSkin"
+        const val CUSTOM_SKIN_EPOCH = "customSkinEpoch"
         private const val UNLOCKED_SKINS = "unlockedSkins"
         private const val PIXEL_UNLOCKED = "pixelUnlocked"
         const val KEYBOARD_HEIGHT = "keyboardHeight"
@@ -157,5 +231,6 @@ class Prefs(context: Context) {
         const val KEY_SOUND = "keySound"
         const val KEY_SOUND_VOLUME = "keySoundVolume"
         private const val SOUND = "sound"
+        private const val UPDATE_GAP_MS = 60_000L
     }
 }

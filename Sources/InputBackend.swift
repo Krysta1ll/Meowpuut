@@ -46,11 +46,14 @@ protocol InputBackend: AnyObject {
     func priorityGroup(_ index: Int) -> Int
     func compactJapanese() -> IndexedCandidate?
     func predict(context: String, limit: Int) -> [String]
+    var inputText: String? { get }
 }
 extension InputBackend {
     func priorityGroup(_ index: Int) -> Int { 0 }
     func compactJapanese() -> IndexedCandidate? { nil }
     func predict(context: String, limit: Int) -> [String] { [] }
+    /// The uncommitted input as written (ㄋㄧˇㄏㄠˇ for Zhuyin), when known.
+    var inputText: String? { nil }
 }
 
 /// A read-only mapping of a whole file, unmapped on deinit. The lexicon's
@@ -163,14 +166,18 @@ final class NativeBackend: InputBackend {
     private let mode: InputMode
     private var punctuation = ""
 
-    init(mode: InputMode = .zhuyin) throws {
+    /// 中日混打, fixed when the session is made: with it off no Japanese word is registered with the core.
+    let mixJapanese: Bool
+
+    init(mode: InputMode = .zhuyin, mixJapanese: Bool = Preferences.shared.mixJapanese) throws {
         self.mode = mode
+        self.mixJapanese = mixJapanese
         #if os(iOS)
         Self.releaseInactiveLexicons(keeping: mode)
         #endif
         guard let handle = Self.makeSession(for: mode) else { throw CocoaError(.fileReadCorruptFile) }
         session = handle
-        if mode == .pinyin || mode == .nineKey, let japanese = JapaneseLexicon.shared {
+        if mixJapanese, mode == .pinyin || mode == .nineKey, let japanese = JapaneseLexicon.shared {
             _ = mpn_session_add_japanese_mixed(handle, japanese)
         }
     }
@@ -232,16 +239,17 @@ final class NativeBackend: InputBackend {
     func setSimplified(_ simplified: Bool) { mpn_set_simplified(session, simplified ? 1 : 0) }
     var segmentContext: String { String(cString: mpn_segment_context(session)) }
     var currentInput: String { String(cString: mpn_input(session)) }
+    var inputText: String? { String(cString: mpn_input_text(session)) }
     func setSegmentContext(_ context: String) {
         context.withCString { mpn_set_segment_context(session, $0) }
     }
     func mixedPinyin(_ reading: String, simplified: Bool) -> String? {
-        guard mode == .pinyin else { return nil }
+        guard mixJapanese, mode == .pinyin else { return nil }
         let result = reading.withCString { String(cString: mpn_mixed_pinyin(session, $0, simplified ? 1 : 0)) }
         return result.isEmpty ? nil : result
     }
     func mixedPinyinPrefix(_ reading: String, simplified: Bool) -> (text: String, consumed: Int)? {
-        guard mode == .pinyin else { return nil }
+        guard mixJapanese, mode == .pinyin else { return nil }
         var consumed = 0
         let result = reading.withCString { String(cString: mpn_mixed_pinyin_prefix(session, $0, simplified ? 1 : 0, &consumed)) }
         return result.isEmpty || consumed == 0 ? nil : (result, consumed)

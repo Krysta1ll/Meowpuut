@@ -82,14 +82,16 @@ extension Engine {
             return true
         }
         if inputMode == .japanese, code == 0xffc3 || code == 0xffc4, !snapshot.preedit.isEmpty {
-            let reading = snapshot.preedit.replacingOccurrences(of: " ", with: "")
+            let reading = Romaji.finalize(snapshot.preedit.replacingOccurrences(of: " ", with: ""))
             let text = reading.applyingTransform(.hiraganaToKatakana, reverse: code == 0xffc3) ?? reading
             clear(); snapshot.commit = text
             return true
         }
         if browsing && code == 0xff1b { refresh(); return true }
         if code == 0xff0d && modifiers == 1, moduleBuffer != nil || !snapshot.input.isEmpty {
-            let literal = moduleBuffer ?? (inputMode == .nineKey ? snapshot.input.replacingOccurrences(of: "'", with: "") : snapshot.input)
+            // Zhuyin keeps the symbols as written (ㄋㄧˇㄏㄠˇ), not the key letters.
+            let zhuyin = inputMode == .zhuyin ? backend.inputText ?? zhuyinText(snapshot.input.filter { $0 != " " && $0 != "'" }) : nil
+            let literal = moduleBuffer ?? zhuyin ?? (inputMode == .nineKey ? snapshot.input.replacingOccurrences(of: "'", with: "") : snapshot.input)
             clear(); snapshot.commit = literal
             return true
         }

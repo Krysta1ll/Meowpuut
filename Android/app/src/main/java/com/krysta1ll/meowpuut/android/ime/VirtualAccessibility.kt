@@ -1,5 +1,6 @@
 package com.krysta1ll.meowpuut.android.ime
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -27,6 +28,8 @@ class VirtualAccessibility(
         val selected: Boolean = false,
         val enabled: Boolean = true,
         val longClick: LongClick? = null,
+        /** Further TalkBack actions (the actions menu), e.g. the purr of a cat. */
+        val custom: List<LongClick> = emptyList(),
     )
 
     class LongClick(val label: String, val perform: () -> Unit)
@@ -38,6 +41,22 @@ class VirtualAccessibility(
 
     // Sending an event while accessibility is off throws.
     private val listening get() = manager?.isEnabled == true
+
+    /**
+     * TalkBack (touch exploration), or a spoken or braille service, or Switch Access
+     * and Voice Access: the cats then make no moments of their own (docs/PETS.md).
+     * Reads the service list, so ask on appearance, not per frame.
+     */
+    val assistive: Boolean
+        get() {
+            val manager = manager ?: return false
+            if (!manager.isEnabled) return false
+            if (manager.isTouchExplorationEnabled) return true
+            val speaking = AccessibilityServiceInfo.FEEDBACK_SPOKEN or AccessibilityServiceInfo.FEEDBACK_BRAILLE
+            return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
+                it.feedbackType and speaking != 0 || it.id.contains("switchaccess", true) || it.id.contains("voiceaccess", true)
+            }
+        }
 
     override fun createAccessibilityNodeInfo(virtualViewId: Int): AccessibilityNodeInfo? {
         if (virtualViewId == View.NO_ID) {
@@ -70,11 +89,19 @@ class VirtualAccessibility(
             info.isLongClickable = true
             info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, item.longClick.label))
         }
+        if (item.enabled) item.custom.forEachIndexed { i, action ->
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(CUSTOM_BASE + i, action.label))
+        }
         return info
     }
 
     override fun performAction(virtualViewId: Int, action: Int, arguments: Bundle?): Boolean {
         if (virtualViewId == View.NO_ID) return host.performAccessibilityAction(action, arguments)
+        if (action >= CUSTOM_BASE) {
+            val custom = items().firstOrNull { it.id == virtualViewId && it.enabled }?.custom?.getOrNull(action - CUSTOM_BASE) ?: return false
+            custom.perform()
+            return true
+        }
         when (action) {
             AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS -> {
                 if (focused == virtualViewId) return false
@@ -155,6 +182,7 @@ class VirtualAccessibility(
     }
 
     private companion object {
+        const val CUSTOM_BASE = 0x7f7f0001
         // TalkBack treats nodes of this class as keyboard keys.
         const val KEY_CLASS = "android.inputmethodservice.Keyboard\$Key"
     }

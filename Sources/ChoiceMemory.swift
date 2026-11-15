@@ -164,9 +164,11 @@ final class ChoiceMemory: ObservableObject {
             }
             if !matched.isEmpty { break }
         }
+        // What the person chose in the past is offered again as the next word, except words on the
+        // never-volunteer list (NeverVolunteer); they come only from typing them out in full.
         var seen = Set<String>()
         return matched.sorted(by: Self.rank).compactMap { choice in
-            seen.insert(choice.text).inserted ? choice.text : nil
+            !NeverVolunteer.shared.blocks(choice.text) && seen.insert(choice.text).inserted ? choice.text : nil
         }.prefix(limit).map { $0 }
     }
     func forget(_ reading: String) { if records.removeValue(forKey: reading) != nil { revision &+= 1; save() } }

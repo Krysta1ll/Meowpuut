@@ -36,7 +36,40 @@ enum class CatArrangement(
     REST(CatPose.REST, CatPose.REST),
     MIMIMO_LOUNGE(CatPose.LOUNGE),
     MOMO_LOUNGE(momo = CatPose.LOUNGE),
-    COMPANY(momo = CatPose.LOUNGE, together = CatSide.RIGHT),
+    COMPANY(momo = CatPose.LOUNGE, together = CatSide.RIGHT);
+
+    companion object {
+        /**
+         * The arrangement with 米米莫 and 莫莫 at their own ends of the glass that shows
+         * these resting poses (docs/PETS.md A5), or null. Only these "edge" arrangements
+         * can be chosen by the time of day; the ones where the cats sit together are not.
+         */
+        fun resting(mimimo: CatPose, momo: CatPose): CatArrangement? =
+            entries.firstOrNull { it.together == null && it.mimimo == mimimo && it.momo == momo }
+    }
+}
+
+/**
+ * What the time of day asks of each cat on appearance: the arrangement to seat
+ * them in, and whether 米米莫 is asleep. Answers of the pets core's `rest_pose`
+ * (MP_PETS_REST_*): 0 keep, 1 edge_rest, 2 edge_peek, 3 edge_lounge, 4 sleep.
+ */
+class CatRest(val arrangement: CatArrangement, val mimimoAsleep: Boolean) {
+    companion object {
+        fun of(mimimo: Int, momo: Int): CatRest? {
+            fun pose(rest: Int) = when (rest) {
+                1 -> CatPose.REST
+                2 -> CatPose.PEEK
+                3 -> CatPose.LOUNGE
+                // Asleep, 米米莫 is drawn by his sleeping pose over a peeking seat.
+                4 -> CatPose.PEEK
+                else -> null
+            }
+            val a = pose(mimimo) ?: return null
+            val b = pose(momo) ?: return null
+            return CatArrangement.resting(a, b)?.let { CatRest(it, mimimo == 4) }
+        }
+    }
 }
 
 /** Keep the chosen arrangement until the next presentation of the keyboard. */
@@ -44,16 +77,23 @@ class CatSchedule {
     private var current = CatArrangement.ENDS
     private var shown = false
     private var advance = false
+    private var resting: CatArrangement? = null
 
-    fun newPresentation() {
+    /** [rest]: the arrangement the time of day asks for (CatRest), used when it fits; otherwise the rotation goes on. */
+    fun newPresentation(rest: CatArrangement? = null) {
         advance = shown
         shown = true
+        resting = rest
     }
 
     fun seats(stage: CatStage, sprite: (Cat, CatPose) -> CatSprite): List<CatPlacement>? {
         fun place(arrangement: CatArrangement) = CatSeats.place(
             stage, arrangement, sprite(Cat.MIMIMO, arrangement.mimimo), sprite(Cat.MOMO, arrangement.momo),
         )
+        resting?.let { wanted ->
+            resting = null
+            place(wanted)?.let { return select(wanted, it) }
+        }
         val previous = place(current)
         if (advance || previous == null) {
             val arrangements = CatArrangement.entries

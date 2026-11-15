@@ -6,6 +6,8 @@ import InputMethodKit
 class MeowpuutInputController: IMKInputController {
     private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
     private var shiftTap = ShiftTapTracker()
+    /// Set when `deliver` hands text to the app; the typing sound uses it to tell a pick from a key.
+    private var committed = false
     private lazy var candidates: CandidatePanelController = {
         let controller = CandidatePanelController(engine: engine)
         controller.onChoose = { [weak self] index in
@@ -13,6 +15,7 @@ class MeowpuutInputController: IMKInputController {
             // A click chooses what is under it, in the row or in the panel.
             self.chooseCompactCandidate(index)
             self.deliver(client)
+            KeySoundPlayer.shared.play(.pick)
         }
         controller.onPage = { [weak self] key in
             guard let self, let client = self.client() else { return }
@@ -81,6 +84,15 @@ class MeowpuutInputController: IMKInputController {
             return false
         }
         guard event.type == .keyDown, let client = activeClient else { return false }
+        // 中日混打 was switched: the next composition starts with the new setting.
+        if engine.snapshot.input.isEmpty { engine.applyMixJapanese() }
+        // Typing sounds (docs/SOUNDS.md).
+        let sound = KeySoundPlayer.role(for: event)
+        let hadCandidates = !engine.snapshot.candidates.isEmpty
+        committed = false
+        defer {
+            if let sound { KeySoundPlayer.shared.play(sound, keyCode: event.keyCode, hadCandidates: hadCandidates, committed: committed) }
+        }
         if event.modifierFlags.intersection([.command, .control, .option, .shift]) == [.control, .option],
            let index = [UInt16(18), 19, 20].firstIndex(of: event.keyCode) {
             changeInputMode(InputMode.allCases[index], client: client)
@@ -193,7 +205,10 @@ class MeowpuutInputController: IMKInputController {
     }
     private func deliver(_ client: IMKTextInput) {
         let commit = engine.takeCommit()
-        if !commit.isEmpty { client.insertText(commit, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        if !commit.isEmpty {
+            committed = true
+            client.insertText(commit, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
         let preedit = engine.snapshot.preedit
         if !commit.isEmpty || preedit.isEmpty { setCandidatesExpanded(false) }
         // Before the marked text goes in, the caret is where this composition starts.
@@ -239,6 +254,7 @@ class MeowpuutInputController: IMKInputController {
     override func activateServer(_ sender: Any!) {
         shiftTap.reset()
         engine.selectMode(Preferences.shared.inputMode)
+        engine.applyMixJapanese()
         engine.modeChanged()
     }
     override func menu() -> NSMenu! {

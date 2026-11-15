@@ -37,13 +37,19 @@ final class ChineseWithJapaneseBackend: InputBackend {
     /// iOS: an emoji cell after the first candidate and a kaomoji cell after the third.
     /// macOS keeps its numbered list as it was, with the symbols after the words.
     private let emojiCell: Bool
-    init(mode: InputMode, literalSpaceAddsSpace: Bool = true, emojiCell: Bool = true) throws {
+    /// 中日混打. Off: no Japanese word reaches the core, no paw candidate, no compact Japanese
+    /// cell and no mixed sentence; the side engine stays unused. Fixed when the backend is made
+    /// (the Engine makes a new one when the setting changes).
+    let mixJapanese: Bool
+    init(mode: InputMode, literalSpaceAddsSpace: Bool = true, emojiCell: Bool = true,
+         mixJapanese: Bool = Preferences.shared.mixJapanese) throws {
         self.mode = mode
+        self.mixJapanese = mixJapanese
         self.literalSpaceAddsSpace = literalSpaceAddsSpace
         self.emojiCell = emojiCell
         let side = try JapaneseBackend()
         side.pinyinSide = true
-        engines = [try NativeBackend(mode: mode), side]
+        engines = [try NativeBackend(mode: mode, mixJapanese: mixJapanese), side]
     }
     func snapshot() -> Snapshot {
         if rememberedChoicesEnabled != Preferences.shared.rememberChoices || memoryRevision != ChoiceMemory.shared.revision {
@@ -72,7 +78,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
         }
     }
     func compactJapanese() -> IndexedCandidate? {
-        guard locked == nil,
+        guard mixJapanese, locked == nil,
               let index = choices.firstIndex(where: { state.japaneseCandidates.contains($0.text) && !bareKana.contains($0.text) && !lateJapanese.contains($0.text) }) else { return nil }
         let choice = choices[index]
         return IndexedCandidate(index: index, text: choice.text, backendIndex: choice.index, source: choice.source, metadata: choice.metadata)
@@ -83,6 +89,10 @@ final class ChineseWithJapaneseBackend: InputBackend {
         simplified = value
         engines[0].setSimplified(value)
         if locked != nil { readLocked() } else if !raw.isEmpty { rebuild() }
+    }
+    var inputText: String? {
+        guard let native = engines[locked ?? 0] as? NativeBackend, native.currentInput == state.input else { return nil }
+        return native.inputText
     }
     func clear() {
         engines.forEach { $0.clear() }
@@ -289,6 +299,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
         guard !raw.isEmpty else { clear(); state.commit = pendingCommit; return }
         var snapshots: [Snapshot] = []
         for (index, backend) in engines.enumerated() {
+            if index == 1, !mixJapanese { snapshots.append(Snapshot()); continue }
             let expected = mode == .pinyin ? raw.lowercased() : raw
             if index == 0, let key, (backend.key(key, modifiers: 0) || key == 0xff08),
                (backend as? NativeBackend)?.currentInput == expected {
@@ -353,7 +364,7 @@ final class ChineseWithJapaneseBackend: InputBackend {
             chinese = chinese.filter { knownChinese[$0.text] != nil } + chinese.filter { knownChinese[$0.text] == nil }
         }
         // Japanese words from mimo_jp.bin, already gated for pinyin mode by the compile step.
-        let japaneseWords = pinyinFirst ? JapaneseLexicon.words(raw, mode: JapaneseLexicon.pinyinMode, limit: 5) : []
+        let japaneseWords = pinyinFirst && mixJapanese ? JapaneseLexicon.words(raw, mode: JapaneseLexicon.pinyinMode, limit: 5) : []
         var knownJapanese: [String: Int] = [:]
         lateJapanese = []
         let chineseTexts = nativeTexts.union(dictionary.keys)
@@ -379,11 +390,11 @@ final class ChineseWithJapaneseBackend: InputBackend {
             .replacingOccurrences(of: "nn(?=[bcdfghjklmpqrstvwxz]|$)", with: "n", options: .regularExpression) : ""
         let literal = unmatchedPinyin || (englishKeys && !hasTones && EnglishEvidence.prefers(raw, context: englishContext,
             chinese: pinyinFirst && !dictionary.isEmpty,
-            japanese: pinyinFirst && JapaneseLexicon.reviewedEvidence.contains(evidence)))
-        let mixed = pinyinFirst && !hasTones ? mixedCandidate(raw) : nil
+            japanese: pinyinFirst && mixJapanese && JapaneseLexicon.reviewedEvidence.contains(evidence)))
+        let mixed = pinyinFirst && mixJapanese && !hasTones ? mixedCandidate(raw) : nil
         // A Japanese word for the whole input wins over one for its start
         // (arigatou is ありがとう, not ありがとう with u left over).
-        let mixedPrefix = pinyinFirst && !hasTones && knownJapanese.isEmpty
+        let mixedPrefix = pinyinFirst && mixJapanese && !hasTones && knownJapanese.isEmpty
             ? (engines[0] as? NativeBackend)?.mixedPinyinPrefix(raw.lowercased(), simplified: simplified) : nil
         if literal { append(raw, source: -2, index: 0) }
         let script = simplified ? "s:" : "t:"
@@ -474,7 +485,9 @@ final class ChineseWithJapaneseBackend: InputBackend {
         }
         if pinyinFirst, !literal, dictionary.isEmpty, personalCandidates.isEmpty,
            let mixed, let native = engines[0] as? NativeBackend,
-           chinese.allSatisfy({ $0.text.count == 1 && native.consumedInputBytes($0.index) < raw.utf8.count }),
+           // A one-key typo fix (我隨你 for wosukini) is a guess, not a reading of the letters.
+           chinese.allSatisfy({ ($0.text.count == 1 && native.consumedInputBytes($0.index) < raw.utf8.count)
+               || ($0.metadata?.kind == MPN_CANDIDATE_CORRECTION.rawValue && $0.metadata?.scoreKind == MPN_SCORE_FALLBACK.rawValue) }),
            let index = choices.firstIndex(where: { $0.source == -5 && $0.text == mixed }) {
             choices.insert(choices.remove(at: index), at: 0)
             state.preferredCompleteMixed = mixed

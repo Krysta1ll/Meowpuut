@@ -144,7 +144,7 @@ class ExpandedPanelView(context: Context) : View(context) {
         if (look.usesSteppedMaterial) {
             drawPixelPanel(canvas, rect, look.pixelSurface, look.pixelEdge, paint)
         } else {
-            paint.color = if (look.dark) Color.rgb(40, 38, 42) else Color.rgb(246, 245, 249)
+            paint.color = look.overlay?.palette(look.dark)?.paper2 ?: if (look.dark) Color.rgb(40, 38, 42) else Color.rgb(246, 245, 249)
             canvas.drawRoundRect(rect, 15f, 15f, paint)
             // The rim is lit from the upper left like the bar's, in the same colour.
             paint.style = Paint.Style.STROKE
@@ -174,7 +174,7 @@ class ExpandedPanelView(context: Context) : View(context) {
                 else canvas.drawRoundRect(rect, cellHeight / 2, cellHeight / 2, paint)
             }
             val p = if (selected) bold else text
-            p.color = if (selected) Color.WHITE else look.candidateText
+            p.color = if (selected) look.pillText else look.candidateText
             val textWidth = p.measureText(cell.shown)
             val pawSize = p.textSize * 0.45f
             val markWidth = if (cell.japanese) pawSize + CandidateBarView.PAW_GAP else 0f
@@ -182,7 +182,7 @@ class ExpandedPanelView(context: Context) : View(context) {
             val cy = top + cellHeight / 2
             canvas.drawText(cell.shown, tx, cy - (p.ascent() + p.descent()) / 2, p)
             if (cell.japanese) {
-                paint.color = if (selected) Look.withAlpha(Color.WHITE, 0.85f) else look.candidateSecondary
+                paint.color = if (selected) Look.withAlpha(look.pillText, 0.85f) else look.candidateSecondary
                 Glyphs.paw(canvas, tx + textWidth + CandidateBarView.PAW_GAP + pawSize / 2, cy, pawSize, paint)
             }
             // Hairline between rows.

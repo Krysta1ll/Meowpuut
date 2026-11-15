@@ -21,6 +21,8 @@ interface KeyListener {
     fun onCursorEnd()
     /** A held key changed what it does (alternates, cursor): a light tick. */
     fun onTick()
+    /** A key with a long-press action was held (Return while composing Zhuyin); the tap is then not typed. */
+    fun onKeyHold(key: Key) {}
 }
 
 class KeyTouches(private val host: Host) {
@@ -165,7 +167,8 @@ class KeyTouches(private val host: Host) {
                 p.originPage = keySet?.page ?: 0
                 listener?.onPage(action.page)
             }
-            KeyAction.Return, KeyAction.ToggleEnglish, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
+            KeyAction.Return -> if (key.holdsRaw) scheduleHold(p, ALTERNATES_DELAY) { fireHold(p) }
+            KeyAction.ToggleEnglish, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
         }
     }
 
@@ -317,6 +320,21 @@ class KeyTouches(private val host: Host) {
         }
         p.hold = runnable
         host.post(delay, runnable)
+    }
+
+    private fun fireHold(p: Pointer) {
+        p.committed = true
+        listener?.onTick()
+        listener?.onKeyHold(p.key)
+    }
+
+    /** A TalkBack long-press action: the same as holding the key. */
+    fun hold(row: Int, column: Int) {
+        val key = keyOf(row, column) ?: return
+        if (!key.enabled || !key.holdsRaw) return
+        host.pulseKeyPress(row, column)
+        listener?.onTick()
+        listener?.onKeyHold(key)
     }
 
     private fun cancelHold(p: Pointer) {

@@ -31,6 +31,7 @@ import kotlin.math.roundToInt
 @SuppressLint("ViewConstructor")
 internal class SkinGallery(
     context: Context,
+    private val ui: PaperUi,
     preview: View,
     title: String,
     options: List<Option>,
@@ -41,29 +42,26 @@ internal class SkinGallery(
     data class Option(val skin: KeyboardSkin, val title: String)
 
     private val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    private val ink = if (dark) 0xfff3ece9.toInt() else 0xff292124.toInt()
-    private val accent = if (dark) 0xffebbac2.toInt() else 0xff85515d.toInt()
-    private val outline = if (dark) 0xff4a4149.toInt() else 0xffe9dcd6.toInt()
-    private val fill = if (dark) 0xff2b272c.toInt() else 0xfffffaf4.toInt()
-    private val activeFill = if (dark) 0xff3a2c36.toInt() else 0xfff5e5e3.toInt()
+    private val ink = ui.p.ink
+    private val accent = ui.p.pill
+    private val outline = ui.line
+    private val fill = ui.p.paper
+    private val activeFill = ui.p.paper2
     private val tiles = options.associateWith { SkinTile(it, onSkin) }
 
     init {
         orientation = VERTICAL
-        addView(TextView(context).apply {
-            text = title
-            textSize = 19f
-            setTextColor(ink)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            includeFontPadding = false
-            if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
-        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
+        clipChildren = false
+        addView(ui.heading(title), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
 
         addView(preview, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(8)
         })
         addView(LinearLayout(context).apply {
             orientation = HORIZONTAL
+            clipChildren = false
+            clipToPadding = false
+            setPadding(0, dp(4), 0, 0)
             tiles.values.forEachIndexed { index, tile ->
                 addView(tile, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
                     if (index > 0) marginStart = dp(8)
@@ -74,7 +72,7 @@ internal class SkinGallery(
         addView(TextView(context).apply {
             text = detailLabel
             textSize = 13f
-            setTextColor(accent)
+            setTextColor(ui.p.stamp)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             minimumHeight = dp(48)
@@ -136,14 +134,30 @@ internal class SkinGallery(
             }
         }
 
+        /** A strip of tape on the corner of the chosen card (the one place tape is used). */
+        private val tape = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = ui.p.tapeA
+            alpha = (PaperTokens.TAPE_ALPHA * 255).roundToInt()
+        }
+
+        override fun dispatchDraw(canvas: Canvas) {
+            super.dispatchDraw(canvas)
+            if (!isSelected) return
+            canvas.save()
+            canvas.rotate(8f, width - dp(14).toFloat(), dp(2).toFloat())
+            canvas.drawRect(width - dp(30).toFloat(), -dp(3).toFloat(), width.toFloat(), dp(8).toFloat(), tape)
+            canvas.restore()
+        }
+
         fun render(active: Boolean, locked: Boolean) {
             isSelected = active
+            translationY = if (active) -dp(3).toFloat() else 0f
             background = GradientDrawable().apply {
                 cornerRadius = dp(12).toFloat()
                 setColor(if (active) activeFill else fill)
                 setStroke(dp(1), if (active) accent else outline)
             }
-            label.setTextColor(if (active) accent else ink)
+            label.setTextColor(ink)
             contentDescription = if (locked) context.getString(R.string.skin_unlock_title, option.title) else option.title
             swatch.render(active, locked)
         }

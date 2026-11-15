@@ -20,18 +20,26 @@ class Lexicons(private val context: Context) {
     private var lexicon = 0L
     private var session = 0L
     private var loadedMode: InputMode? = null
+    private var loadedMixed = true
     private var generation = 0
 
     @Volatile
     var japanese: JapaneseWords = JapaneseWords.EMPTY
         private set
 
+    // The English word list (mimo_en.bin), mapped in place from the APK like mimo_base.bin. Opened on first
+    // use (warmEnglish does it off the main thread beforehand) and used on the main thread only.
+    private val englishLock = Any()
+    private var englishSource: NativeEnglishSource? = null
+    private var englishFailed = false
+    private var englishClosed = false
+
     /**
      * Calls [ready] on the main thread with a session for [mode] (0 on failure
      * or for Japanese). The session handed out before is freed here, so the
      * caller detaches its composer first.
      */
-    fun open(mode: InputMode, ready: (Long) -> Unit) {
+    fun open(mode: InputMode, mixedJapanese: Boolean = true, ready: (Long) -> Unit) {
         val token = ++generation
         if (mode == InputMode.JAPANESE) {
             // Japanese needs only the word list; the Chinese lexicon is given back.
@@ -40,12 +48,12 @@ class Lexicons(private val context: Context) {
             return
         }
         val pinyin = mode.pinyinBased
-        if (session != 0L && loadedMode == mode) {
+        if (session != 0L && loadedMode == mode && loadedMixed == mixedJapanese) {
             ready(session)
             return
         }
         worker.execute {
-            loadJapanese()
+            if (mixedJapanese) loadJapanese()
             val started = SystemClock.elapsedRealtime()
             val lex = try {
                 context.assets.openFd("lexicon/mimo_base.bin").use { fd ->
@@ -66,16 +74,25 @@ class Lexicons(private val context: Context) {
                     Log.w(TAG, "word-pair table unavailable", e)
                     false
                 }
+                // English words inside pinyin and nine-key Chinese (after the Chinese readings); Zhuyin takes none.
+                val english = pinyin && try {
+                    context.assets.openFd("lexicon/mimo_en.bin").use { fd ->
+                        NativeEngine.attachEnglishFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "English word list unavailable for pinyin", e)
+                    false
+                }
                 newSession = if (mode == InputMode.NINE_KEY) NativeEngine.nineKeySessionCreate(lex) else NativeEngine.sessionCreate(lex)
                 var mixed = 0
-                if (pinyin && newSession != 0L) {
+                if (pinyin && mixedJapanese && newSession != 0L) {
                     // The engine keeps the readings it can use for mixed typing and refuses the rest.
                     for ((reading, text, weight) in japanese.best()) {
                         if (NativeEngine.addJapaneseWord(newSession, reading, text, weight)) mixed++
                     }
                 }
                 Log.i(TAG, "lexicon ${if (pinyin) "pinyin" else "zhuyin"} ready in ${SystemClock.elapsedRealtime() - started} ms, " +
-                    "${NativeEngine.lexiconHeapBytes(lex) / 1024} KiB, word pairs ${if (pairs) "on" else "off"}, " +
+                    "${NativeEngine.lexiconHeapBytes(lex) / 1024} KiB, word pairs ${if (pairs) "on" else "off"}, English ${if (english) "on" else "off"}, " +
                     "$mixed Japanese words for mixed typing")
             }
             main.post {
@@ -88,9 +105,40 @@ class Lexicons(private val context: Context) {
                 lexicon = lex
                 session = newSession
                 loadedMode = if (newSession != 0L) mode else null
+                loadedMixed = mixedJapanese
                 ready(newSession)
             }
         }
+    }
+
+    /** The English word list, or null when it is missing or damaged. Call on the main thread. */
+    fun english(): EnglishSource? = synchronized(englishLock) {
+        if (englishSource == null && !englishFailed && !englishClosed) {
+            val started = SystemClock.elapsedRealtime()
+            englishSource = try {
+                context.assets.openFd("lexicon/mimo_en.bin").use { NativeEnglishSource.open(it) }
+            } catch (e: Exception) {
+                Log.w(TAG, "English word list unavailable", e)
+                null
+            }
+            englishFailed = englishSource == null
+            Log.i(TAG, "English word list ${englishSource?.let { "${it.wordCount} words" } ?: "unavailable"} " +
+                "in ${SystemClock.elapsedRealtime() - started} ms")
+        }
+        englishSource
+    }
+
+    /** Opens the English list off the main thread, so the first suggestion does not wait for it. */
+    fun warmEnglish() {
+        if (worker.isShutdown) return
+        worker.execute { english() }
+    }
+
+    /** Gives the English list back (memory pressure, or the keyboard going away); the next use maps it again. */
+    fun releaseEnglish() = synchronized(englishLock) {
+        englishSource?.close()
+        englishSource = null
+        englishFailed = false
     }
 
     /** Frees the lexicon (memory pressure, or the keyboard going away). */
@@ -106,6 +154,8 @@ class Lexicons(private val context: Context) {
         generation++
         release()
         worker.shutdown()
+        synchronized(englishLock) { englishClosed = true }
+        releaseEnglish()
     }
 
     private fun loadJapanese() {

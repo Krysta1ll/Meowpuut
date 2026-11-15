@@ -258,12 +258,12 @@ void testEllipsis() {
 
     // A flag, a kana with a combining voicing mark and a variation selector
     // are never cut apart.
-    const std::string flag = "\xF0\x9F\x87\xB9\xF0\x9F\x87\xBC";       // regional indicators T, W
+    const std::string flag = "\xF0\x9F\x87\xAB\xF0\x9F\x87\xB7";       // regional indicators F, R
     for (float width : {40.0f, 62.0f, 78.0f, 92.0f, 110.0f}) {
         const auto cut = ellipsizeMiddle("長長" + flag + "長長長長", width, 15, true, measurer);
         CHECK(validUtf8(cut));
-        CHECK(cut.find("\xF0\x9F\x87\xB9") == std::string::npos || cut.find(flag) != std::string::npos);
-        CHECK(cut.find("\xF0\x9F\x87\xBC") == std::string::npos || cut.find(flag) != std::string::npos);
+        CHECK(cut.find("\xF0\x9F\x87\xAB") == std::string::npos || cut.find(flag) != std::string::npos);
+        CHECK(cut.find("\xF0\x9F\x87\xB7") == std::string::npos || cut.find(flag) != std::string::npos);
         const auto kana = ellipsizeMiddle("長長長長長か\xE3\x82\x99長\xEF\xB8\x8F", width, 15, true, measurer);
         const auto dots = kana.find("\xE2\x80\xA6");
         CHECK(dots != std::string::npos);

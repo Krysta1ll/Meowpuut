@@ -103,6 +103,7 @@ bool Session::key(std::int32_t key) {
 }
 bool Session::hasComposition() const { return *mpn_input(session_.get()) != '\0'; }
 std::string_view Session::input() const { return mpn_input(session_.get()); }
+std::string_view Session::inputText() const { return mpn_input_text(session_.get()); }
 std::string Session::segmentContext() const { return mpn_segment_context(session_.get()); }
 bool Session::canChooseOnPage(std::size_t index) const { return index < pageCandidates().size(); }
 bool Session::chooseOnPage(std::size_t index) {

@@ -24,13 +24,16 @@ enum Symbols {
     /// The symbols of a word, best first; the ones the user picked for this
     /// word before lead.
     static func of(_ word: String, japanese: Bool = false) -> Found? {
+        // Words on the never-volunteer list (NeverVolunteer) get no emoji or kaomoji.
         guard let entry = table[japanese ? "ja" : "zh"]?[word] else { return nil }
+        guard !NeverVolunteer.shared.blocksSymbols(for: word) else { return nil }
         let picked = ChoiceMemory.shared.preferred(for: "sym:" + word)
         func ordered(_ list: [String]) -> [String] {
             picked.isEmpty ? list : picked.filter(list.contains) + list.filter { !picked.contains($0) }
         }
         // A lone emoji whose default is the text glyph (🌧, ❤) gets the selector that asks for the emoji.
-        let emoji = entry[0].map { symbol -> String in
+        // A flag is never offered, whatever the table holds.
+        let emoji = entry[0].filter { !NeverVolunteer.isNeverSymbol($0) }.map { symbol -> String in
             let scalars = symbol.unicodeScalars
             return scalars.count == 1 && !scalars.first!.properties.isEmojiPresentation ? symbol + "\u{FE0F}" : symbol
         }
@@ -42,7 +45,7 @@ enum Symbols {
     /// An ending right after 不 or 沒 is skipped: 不想睡 is not 想睡. Japanese
     /// is matched as a whole only; a kana ending is too often part of another
     /// word (たい in 食べたい).
-    static func after(_ text: String, japanese: Bool) -> Found? {
+    static func after(_ text: String, japanese: Bool, japaneseFallback: Bool = true) -> Found? {
         let characters = Array(text.trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines)))
         guard !characters.isEmpty else { return nil }
         let whole = String(characters)
@@ -53,7 +56,7 @@ enum Symbols {
             if characters[max(0, start - 3)..<start].contains(where: { "不沒没".contains($0) }) { continue }
             if let found = of(String(characters[start...])) { return found }
         }
-        return of(whole, japanese: true)
+        return japaneseFallback ? of(whole, japanese: true) : nil
     }
 
     /// The user picked `symbol` for `word`: it comes first for that word from now on.

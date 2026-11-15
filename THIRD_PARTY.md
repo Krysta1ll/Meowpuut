@@ -49,8 +49,8 @@
   - **CrossWOZ**（`thu-coai/CrossWOZ`，commit `df82c9f`，**Apache-2.0**）：訂房、餐廳、景點、交通的任務對話。
   - **KdConv**（`thu-coai/KdConv`，commit `653db76`，**Apache-2.0**）：電影、音樂、旅遊的對話。
   - **MASSIVE** 1.1 的 zh-TW 與 zh-CN（Amazon，**CC BY 4.0**）：語音助理指令。
-- 不用的來源：維基百科與其姊妹計畫（CC BY-SA）、任何相同方式分享／非商業／禁止改作的文字、新聞與政府文字、網頁爬取而發佈者不擁有內容的語料。
-- 內容篩選：含 `Resources/Lexicon/blocked-terms.txt` 所列詞語（政治與公共衝突、貶低某一群人的說法、辱罵、色情、毒品、自傷）的句子整句不計入，短語也不收含這些詞的。這些詞仍在詞庫裡，使用者自己要打仍然打得出來，只是不會出現在短語和聯想詞裡。
+- 不用的來源：維基百科與其姊妹計畫（CC BY-SA）、任何相同方式分享／非商業／禁止改作的文字、新聞與官方文件、網頁爬取而發佈者不擁有內容的語料。
+- 內容篩選：含 `Resources/Lexicon/blocked-terms.txt` 所列詞語（爭議性或冒犯性用語：貶低某一群人的說法、辱罵、色情、毒品、自傷等）的句子整句不計入，短語也不收含這些詞的。這些詞仍在詞庫裡，使用者自己要打仍然打得出來，只是鍵盤不會主動提供：短語、聯想詞、首字母、補完和修正都不會給出，要完整拼出才會出現。
 - 測試與保留句不計入：評測集的 Tatoeba 句子編號、保留集句子，以及含有其中任一 5 字以上文字的子句。
 - 隨附授權聲明：`Licenses/mimo-pairs-SOURCE.json`、`Licenses/mimo-pairs-Tatoeba-CC-BY-2.0-FR.html`、`Licenses/mimo-pairs-CommonVoice-CC0-1.0.txt`、`Licenses/mimo-pairs-Apache-2.0.txt`、`Licenses/mimo-pairs-CC-BY-4.0.txt`。
 
@@ -66,7 +66,7 @@
 
 ## 6. mimo-names 作品、角色、地名等名稱（CC0）
 
-- 清單：`DataSources/mimo-names/names.tsv`（約 5.8 萬個），由 `scripts/mimo_names.py` 向 Wikidata 查詢各類別有中文名稱的項目：動畫、漫畫、輕小說、遊戲與其角色、影視、書籍、疾病與藥品、食物、資訊科技、企業與品牌、車款、地名與車站、天文、樂器、運動、學科、職業等。不取真人，也不取政治、戰爭、宗教的類別。查詢的類別、門檻與回應情形記在 `DataSources/mimo-names/SOURCE.json`。
+- 清單：`DataSources/mimo-names/names.tsv`（約 5.8 萬個），由 `scripts/mimo_names.py` 向 Wikidata 查詢各類別有中文名稱的項目：動畫、漫畫、輕小說、遊戲與其角色、影視、書籍、疾病與藥品、食物、資訊科技、企業與品牌、車款、地名與車站、天文、樂器、運動、學科、職業等。不取真人，也不取爭議性話題的類別。查詢的類別、門檻與回應情形記在 `DataSources/mimo-names/SOURCE.json`。
 - 授權：**Wikidata** 的資料以 **CC0 1.0** 釋出。
 - 隨附聲明：`Licenses/mimo-names-SOURCE.json`。
 
@@ -77,7 +77,14 @@
 ## 8. mimo-everyday 本專案自寫的句子（本專案所有）
 
 - `DataSources/mimo-everyday`：`everyday.txt.xz`（2026-11-11，96,627 句日常聊天）、`chat-2.txt.xz`（45,606 句聊天、情境用語與問答）、`written-2.txt.xz`（54,676 句敘述、說明、故事與例句）、`mixed-2.txt.xz`（9,436 句中文夾英文）。後三份寫於 2026-11-12。
-- 全部由語言模型為本專案寫成，每位寫手拿到主題、語體與內容限制（不寫政治、不針對任何群體、不寫真人與作品品牌名稱），沒有看過評測集與保留集。台灣用語（繁體）與大陸用語（簡體）都有。主題、行數與檢查碼見該目錄的 `SOURCE.json`。
+- 全部由語言模型為本專案寫成，每位寫手拿到主題、語體與內容限制（不寫爭議性話題、不針對任何群體、不寫真人與作品品牌名稱），沒有看過評測集與保留集。台灣用語（繁體）與大陸用語（簡體）都有。主題、行數與檢查碼見該目錄的 `SOURCE.json`。
+## 9. App 頁面字型（SIL OFL 1.1，只用在 macOS Studio 視窗與 Android 設定頁）
+
+`Resources/Fonts/`（macOS）與 `Android/app/src/main/res/font/`（Android）的檔案由 `scripts/subset_app_fonts.py` 從上游字型子集化而來；候選窗、鍵盤與面板不使用。授權文字在 `Resources/Fonts/`，並隨 macOS App 與 Android 套件（`assets/font-licenses/`）一起發佈。
+
+- **jf open 粉圓** 2.1（justfont，<https://github.com/justfont/open-huninn-font>，**SIL OFL 1.1**）：子集成 `MeowpuutPaperRound.ttf`（Android 為 `paper_round.ttf`），只含 App 頁面的固定字串。保留字型名稱 “open huninn” 與 “huninn” 不可沿用，所以子集改名為 “Meowpuut Paper Round”。授權檔 `OFL-jf-open-huninn.txt`。漢字字形衍生自 **Kosugi Maru**（Copyright (c) 2010 MOTOYA CO.,LTD.，**Apache-2.0**，已修改：刪減字形、更改字型名稱），授權檔 `Apache-2.0-Kosugi-Maru.txt`；拉丁字母來自 **Varela Round**（The Varela Round Project Authors，SIL OFL 1.1）。
+- **Fraunces**（Copyright 2020 The Fraunces Project Authors，<https://github.com/undercasetype/Fraunces>，**SIL OFL 1.1**）：取 google/fonts 的可變字型，固定成 wght 400 與 600 兩個實例並子集成拉丁。授權檔 `OFL-Fraunces.txt`。
+
 ## 引擎與整體授權說明
 
 - 解碼核心（Rust，`#![forbid(unsafe_code)]`）、唯讀二進位格式 `mimo_base.bin`（`MIMO-BASE-1` / `MIMO-BIN-1`）與選詞記錄（`mimo_user_wal.log` + `mimo_user.db`）由本專案寫成，執行時不依賴第三方引擎。

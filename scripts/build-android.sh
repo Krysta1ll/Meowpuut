@@ -4,8 +4,14 @@
 #   bash scripts/build-android.sh             -> Android/app/build/outputs/apk/debug/app-debug.apk
 #   bash scripts/build-android.sh --release   -> Android/app/build/outputs/apk/release/
 #   bash scripts/build-android.sh --test      -> the debug APK and the JVM unit tests
-#   bash scripts/build-android.sh --prepare   -> only the Rust engine and the lexicon assets
-#                                                (Gradle's preBuild runs this)
+#   bash scripts/build-android.sh --prepare [debug|release]
+#                                             -> only the Rust engine and the lexicon assets
+#                                                (Gradle's preDebugBuild / preReleaseBuild run this)
+#
+# The Rust library is built per variant into .build/rust/android/<variant>/<abi>/:
+#   debug    --features skin-test-keys  trusts the published custom-skin test keys (kids "test-…")
+#   release  --features skin, MEOWPUUT_RELEASE_BUILD=1: every "test-" kid is refused, and the
+#            Rust build fails if the test keys were enabled by mistake.
 #
 # Needs the Android SDK (ANDROID_HOME, default ~/Library/Android/sdk) with
 # platform 37.0, build-tools 37.0.0, NDK 30.0.16248370 and CMake 3.31.6; Rust
@@ -23,8 +29,18 @@ export PATH="$HOME/.cargo/bin:$PATH"
 mode="${1:-debug}"
 case "$mode" in
   debug|--release|--test|--prepare) ;;
-  *) echo "usage: bash scripts/build-android.sh [--release|--test|--prepare]" >&2; exit 2 ;;
+  *) echo "usage: bash scripts/build-android.sh [--release|--test|--prepare [debug|release]]" >&2; exit 2 ;;
 esac
+# The Rust variant: release only for --release, or --prepare release.
+variant=debug
+[ "$mode" != "--release" ] || variant=release
+if [ "$mode" = "--prepare" ]; then
+  variant="${2:-debug}"
+  case "$variant" in
+    debug|release) ;;
+    *) echo "usage: bash scripts/build-android.sh --prepare [debug|release]" >&2; exit 2 ;;
+  esac
+fi
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 NDK="${ANDROID_NDK_HOME:-$SDK/ndk/30.0.16248370}"
 API=26
@@ -55,9 +71,19 @@ build_rust() {
     export "CARGO_TARGET_${upper}_LINKER=$TOOLCHAIN/${triple}${API}-clang"
     export "CC_${triple//-/_}=$TOOLCHAIN/${triple}${API}-clang"
     export "AR_${triple//-/_}=$TOOLCHAIN/llvm-ar"
-    cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --release -p meowpuut-ffi --target "$triple" --crate-type staticlib
-    out=".build/rust/android/$abi"
+    if [ "$variant" = release ]; then
+      # A release build trusts no test key; this variable also makes a test-keys build fail to compile.
+      MEOWPUUT_RELEASE_BUILD=1 cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --release -p meowpuut-ffi --features skin --target "$triple" --crate-type staticlib
+    else
+      env -u MEOWPUUT_RELEASE_BUILD cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --release -p meowpuut-ffi --features skin-test-keys --target "$triple" --crate-type staticlib
+    fi
+    out=".build/rust/android/$variant/$abi"
     mkdir -p "$out"
+    # A release library holds no test root (plans/custom-skins.md §9.5): stop the build if it does.
+    if [ "$variant" = release ] && strings "target/$triple/release/libmeowpuut_ffi.a" | grep -q 'test-root-1'; then
+      echo "error: the release library for $triple contains the custom-skin test root" >&2
+      exit 1
+    fi
     # Replace only when changed so the native build is not redone needlessly.
     if ! cmp -s "target/$triple/release/libmeowpuut_ffi.a" "$out/libmeowpuut_ffi.a"; then
       cp "target/$triple/release/libmeowpuut_ffi.a" "$out/libmeowpuut_ffi.a"
@@ -65,7 +91,8 @@ build_rust() {
   done
 }
 
-# What the keyboard reads: the Chinese lexicon, its word-pair table and the mimo-jp word list and emoji associations.
+# What the keyboard reads: the Chinese lexicon, its word-pair table and the mimo-jp word list and emoji associations
+# (and mimo_en.bin, the English word list, staged by ensure_english_lexicon).
 LEXICON_FILES="mimo_base.bin mimo_pairs.bin native-japanese.tsv associations.json"
 # Everything scripts/compile-native-lexicon.py reads.
 LEXICON_SOURCES="Engine/DataSources Engine/Resources/Lexicon Engine/scripts"
@@ -78,16 +105,26 @@ lexicon_current() {
   done
 }
 
+# The English keyboard's word list (MIMO-EN-1), packed from Engine/DataSources/mimo-english; the
+# keyboard maps it in place, so the file ships as is. Packed again when its sources are newer.
+ensure_english_lexicon() {
+  local generated="$1" file="$1/mimo_en.bin"
+  if [ ! -f "$file" ] || [ -n "$(find Engine/DataSources/mimo-english Engine/scripts/mimo_en_binary.py -type f -newer "$file" -print -quit)" ]; then
+    python3 -I Engine/scripts/mimo_en_binary.py "$file"
+  fi
+}
+
 stage_assets() {
   local generated="$ROOT/Engine/.build/lexicon"
   if ! lexicon_current "$generated" || [ ! -f "$generated/Licenses/Meowpuut-MIT.txt" ]; then
     bash Engine/scripts/build-lexicon.sh
   fi
+  ensure_english_lexicon "$generated"
   local assets="$ROOT/Android/app/src/main/assets"
   rm -rf "$assets/licenses"
   mkdir -p "$assets/lexicon" "$assets/licenses"
   local file
-  for file in $LEXICON_FILES; do
+  for file in $LEXICON_FILES mimo_en.bin; do
     cmp -s "$generated/$file" "$assets/lexicon/$file" || cp "$generated/$file" "$assets/lexicon/$file"
   done
   cp "$generated"/Licenses/* "$assets/licenses/"
@@ -123,6 +160,13 @@ esac
 # meowpuut), password from the login Keychain item "meowpuut-android-release".
 # Without the key the unsigned APK is left as it is.
 if [ "$mode" = "--release" ]; then
+  # The APK's own native libraries must not hold the test root either.
+  for abi in arm64-v8a x86_64; do
+    if unzip -p app/build/outputs/apk/release/app-release-unsigned.apk "lib/$abi/libmeowpuut_jni.so" | strings | grep -q 'test-root-1'; then
+      echo "error: the release APK ($abi) contains the custom-skin test root" >&2
+      exit 1
+    fi
+  done
   KEYSTORE="${MEOWPUUT_ANDROID_KEYSTORE:-$HOME/.android/meowpuut/meowpuut-release.p12}"
   OUTDIR=app/build/outputs/apk/release
   if [ -f "$KEYSTORE" ]; then

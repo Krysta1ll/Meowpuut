@@ -31,6 +31,14 @@ Gradle 不會自己下載 SDK 套件（`android.builder.sdkDownload=false`），
   --out app-release-debugsigned.apk Android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
+## 自訂皮膚
+
+開發者簽章並加密的 `.mpskin`（規格 `plans/custom-skins.md` v2，只做 Android）。設定 App 首頁「自訂皮膚 ›」：產生兌換 ID 傳給開發者、用檔案選擇器（或「以喵撲開啟」／分享）開啟收到的 `.mpskin`、套用、移除；`.mprevoke` 也從同一個選擇器匯入。驗章、解密、驗證器與安裝在 Rust 核心（`Engine` 的 `skin` 功能，經 `SkinNative` JNI）；請求金鑰與單調狀態存在 `filesDir/skinvault/`（Keystore AES-GCM 加密），已安裝的皮膚在 `filesDir/skins/<id>/<rev>/`。輸入法每次套用時在背景執行緒先驗章再讀圖與聲音（`CustomSkinLoader`），任何失敗都靜默退回內建皮膚；按鍵路徑不碰皮膚檔案（`SkinPathTest` 檢查原始碼）。
+
+- Debug 建置用 `skin-test-keys`，信任公開的 `test-` 測試金鑰；Release 建置用 `skin` 並設 `MEOWPUUT_RELEASE_BUILD=1`，函式庫內沒有測試根金鑰（建置腳本會檢查），執行時也會因 `acceptsTestKeys` 而拒絕載入。
+- Rust 函式庫依建置類型放在 `.build/rust/android/<debug|release>/<abi>/`。
+- 版一的限制：圖框（`cats.trim`）與 `*_side_hold` 圖 Android 不畫；`cats.seating: edges` 只在 `base: classic` 生效。
+
 ## 安裝與啟用
 
 ```sh
@@ -60,6 +68,7 @@ adb shell ime set com.krysta1ll.meowpuut.android/.ime.MeowpuutIME
 
 - Android 沒有讓輸入法讀取背後畫面的即時模糊，玻璃是模擬的：半透明底、內光、虹彩焦散與邊框光。米米莫和莫莫在玻璃上緣兩端探頭（docs/DESIGN.md §1 的「兩端探頭」），身體畫在玻璃外，爪子畫在玻璃前。
 - 沒有選詞記憶與個人詞庫，也沒有 macOS 的英文辨識資料庫；拼音輸入英文單字時，原始字母排在第二個候選。
+- 英文（English 鍵）：候選列有補完、拼字更正和下一個字，來自核心的 `mimo_en.bin`（放在 assets/lexicon，不壓縮，直接映射）；九鍵拼音模式的英文用九鍵面板拼字。
 - 系統的對比設定為中或高時（Android 14 起），玻璃改成不透明，對應 iOS 的「增加對比」。
 - 震動使用系統的鍵盤觸感，系統關掉觸感時就不震；App 裡另有開關。iOS 因為需要「完整取用」才能震動，拿掉了這個開關，Android 沒有這個限制。按鍵聲預設關閉，可在 App 裡開啟。
 - 貓的動作時間跟著系統的「動畫時間比例」（開發人員選項）伸縮，設為關閉時貓不跳、不晃。
@@ -69,7 +78,8 @@ adb shell ime set com.krysta1ll.meowpuut.android/.ime.MeowpuutIME
 
 在模擬器上（Android 37、arm64、軟體繪圖 swiftshader，1080×2400、420 dpi）實際點按鍵確認過：
 
-- 拼音打 `nihao`、`sushi`：寿司 帶貓掌記號排在第三個，不用展開就看得到；長的中日混合候選從中間省略，始終一行。
+- 中日混打是設定 App「輸入」裡的一個開關（「中日混打」），新安裝預設關閉；舊版就有設定的人升級後維持開啟。開關改了，下一次打字就生效，不用重啟鍵盤。第一次執行時，輸入模式和繁簡依系統語言和地區決定（`InputDefaults`，只在沒有存過模式和繁簡時用，只存結果、不存地區）。
+- 開啟後，拼音打 `nihao`、`sushi`：寿司 帶貓掌記號排在第三個，不用展開就看得到；長的中日混合候選從中間省略，始終一行。
 - 注音、日語、英文切換、Shift 與大寫鎖定、兩頁符號、展開面板、長按刪除連刪、長按空白鍵移游標、長按字母的替代字。
 - 摸莫莫五下切換簡繁，摸米米莫的跳動與小圖示。
 - 膠囊、波浪、雲朵三種造型的淺色與深色；手機橫向；360、432 dp 寬的手機；800 dp 寬的平板；手勢導覽與三按鈕導覽的底部留白。

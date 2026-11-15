@@ -83,9 +83,17 @@ func applyAppearance(_ command: String, to preferences: Preferences = .shared) -
 final class TypingView: NSTextView {
     var engine: Engine?
     override func keyDown(with event: NSEvent) {
+        // The try-typing pad sounds like the input method, so a set can be heard here.
+        let sound = KeySoundPlayer.role(for: event)
+        let hadCandidates = !(engine?.snapshot.candidates.isEmpty ?? true)
+        var committed = false
+        defer {
+            if let sound { KeySoundPlayer.shared.play(sound, keyCode: event.keyCode, hadCandidates: hadCandidates, committed: committed) }
+        }
         guard let engine, let (key, modifiers) = inputKey(event, mode: engine.inputMode, english: engine.english, composing: !engine.snapshot.input.isEmpty) else { super.keyDown(with: event); return }
         let handled = engine.key(key, modifiers: modifiers)
         let commit = engine.takeCommit()
+        committed = !commit.isEmpty
         if !commit.isEmpty { insertText(commit, replacementRange: selectedRange()) }
         if !handled { super.keyDown(with: event) }
     }
@@ -265,13 +273,27 @@ struct Studio: View {
     }
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @StateObject var engine = Engine()
     @ObservedObject var preferences = Preferences.shared
     @ObservedObject var memory = ChoiceMemory.shared
     @State private var confirmingMemoryClear = false
     @State private var section: Section
     @State private var inputSourceStatus = ""
+    @State private var stamp: StampEvent?
     private let t: InterfaceText
+
+    private var paper: PaperPalette { .current(preferences.candidatePalette, dark: colorScheme == .dark) }
+
+    /// A seal for something that was saved or cleared. It is announced too.
+    private func stamped(_ glyph: String, _ message: String) {
+        stamp = StampEvent(glyph: glyph, message: message)
+        AccessibilityNotification.Announcement(message).post()
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content().background(reduceTransparency ? paper.paper2.color : paper.paper2.color.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+    }
 
     /// The window opens on try typing in the system's script; the preview's snapshots open the others.
     init(section: Section = .typing, text: InterfaceText = .system) {
@@ -288,9 +310,12 @@ struct Studio: View {
     var body: some View {
         NavigationSplitView {
             VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 10) {
-                    BrandMark(size: 36)
-                    Text("Meowpuut").font(.system(size: 22, weight: .black)).tracking(-0.9)
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        BrandMark(size: 36)
+                        PaperWordmark(palette: paper, chinese: t("喵撲", "喵扑"), simplified: t.simplified)
+                    }
+                    StitchDivider(palette: paper)
                 }.padding(.top, 20)
                 ForEach(Section.allCases) { item in
                     Button { section = item } label: {
@@ -308,7 +333,8 @@ struct Studio: View {
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text(section.title(t)).font(.system(size: 28, weight: .semibold))
+                    Text(section.title(t)).font(PaperFont.title(.largeTitle, simplified: t.simplified)).foregroundStyle(paper.ink.color)
+                        .accessibilityAddTraits(.isHeader)
                     switch section {
                     case .typing: typing
                     case .appearance: appearance
@@ -322,12 +348,26 @@ struct Studio: View {
                     }.font(.caption).buttonStyle(.link)
                 }.padding(36).padding(.top, 16).frame(maxWidth: .infinity, alignment: .topLeading)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(colorScheme == .dark ? Color(nsColor: .windowBackgroundColor) : Brand.paper)
+                .background(PaperBackground(palette: paper))
+                .overlay(alignment: .topTrailing) {
+                    if let stamp {
+                        StampToast(event: stamp, palette: paper).id(stamp.id).padding(20)
+                            .transition(.opacity)
+                            .task(id: stamp.id) {
+                                try? await Task.sleep(for: .seconds(2.4))
+                                if !Task.isCancelled { withAnimation(.easeOut(duration: 0.25)) { self.stamp = nil } }
+                            }
+                    }
+                }
         }.tint(accent).frame(minWidth: 920, minHeight: 650)
         .onChange(of: preferences.simplified) { _, _ in engine.modeChanged() }
         .onChange(of: preferences.rememberChoices) { _, _ in engine.refresh() }
+        .onChange(of: preferences.mixJapanese) { _, _ in engine.finishComposition(); engine.applyMixJapanese() }
         .confirmationDialog(t("清除選詞記錄？", "清除选词记录？"), isPresented: $confirmingMemoryClear) {
-            Button(t("清除記錄", "清除记录"), role: .destructive) { memory.clear(); engine.refresh() }
+            Button(t("清除記錄", "清除记录"), role: .destructive) {
+                memory.clear(); engine.refresh()
+                if memory.error.isEmpty { stamped("好", t("選詞記錄已清除。", "选词记录已清除。")) }
+            }
             Button("取消", role: .cancel) {}
         } message: { Text(t("固定的首選會保留。", "固定的首选会保留。")) }
     }
@@ -344,6 +384,22 @@ struct Studio: View {
             }.pickerStyle(.segmented).fixedSize()
             Spacer()
             Text(engine.english ? "ABC" : engine.inputMode.title).font(.callout.weight(.medium)).foregroundStyle(accent)
+        }
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle(t("中日混打", "中日混打"), isOn: $preferences.mixJapanese)
+            Text(t("開啟後，拼音和注音裡可以直接打日文詞（帶貓爪的候選），例如 sushi 打出寿司。",
+                   "开启后，拼音和注音里可以直接打日文词（带猫爪的候选），例如 sushi 打出寿司。"))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        HStack(spacing: 16) {
+            Picker(t("按鍵聲", "按键声"), selection: $preferences.keySound) {
+                ForEach(KeySound.allCases.filter { $0 != .system }, id: \.self) { Text($0.title(t.callAsFunction)).tag($0) }
+            }.fixedSize()
+            if preferences.keySound.isCustom {
+                Slider(value: Binding(get: { Double(preferences.keySoundVolume) }, set: { preferences.keySoundVolume = Int($0.rounded()) }),
+                       in: 0...100, step: 5) { Text(t("音量", "音量")) }.frame(maxWidth: 220)
+                Text("\(preferences.keySoundVolume)%").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            }
         }
         TypingPad(engine: engine).frame(height: 140).clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.08)))
@@ -421,10 +477,11 @@ struct Studio: View {
 
     private func appearanceGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
-            VStack(alignment: .leading, spacing: 6, content: content)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+            LabelStrip(title: title, palette: paper, simplified: t.simplified)
+            card {
+                VStack(alignment: .leading, spacing: 6, content: content)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+            }
         }
     }
 
@@ -444,7 +501,11 @@ struct Studio: View {
             Button(t("清除選詞記錄", "清除选词记录")) { confirmingMemoryClear = true }.disabled(memory.records.isEmpty && memory.error.isEmpty)
         }
         if !memory.error.isEmpty { Text(memory.error).foregroundStyle(.red) }
-        if !memory.records.isEmpty {
+        if !memory.records.keys.contains(where: { !$0.hasPrefix("ctx|") }) && memory.error.isEmpty {
+            Text(t("這一頁還空著。", "这一页还空着。")).font(PaperFont.title(.title3, simplified: t.simplified)).foregroundStyle(paper.inkSecondary.color)
+                .padding(.vertical, 12)
+        }
+        if memory.records.keys.contains(where: { !$0.hasPrefix("ctx|") }) {
             LazyVStack(spacing: 8) {
                 ForEach(memory.records.keys.filter { !$0.hasPrefix("ctx|") }.sorted(), id: \.self) { key in
                     HStack {
@@ -453,8 +514,8 @@ struct Studio: View {
                             Text(readingLabel(key)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button(t("忘記", "忘记")) { memory.forget(key); engine.refresh() }
-                    }.padding(14).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                        Button(t("忘記", "忘记")) { memory.forget(key); engine.refresh(); stamped("收", t("已忘記這組讀音。", "已忘记这组读音。")) }
+                    }.padding(14).background(paper.paper2.color.opacity(reduceTransparency ? 1 : 0.7), in: RoundedRectangle(cornerRadius: 12))
                 }
             }
         }
@@ -470,11 +531,14 @@ struct Studio: View {
                     Text(t("\(module.trigger) · \(module.phrases.count) 條短語", "\(module.trigger) · \(module.phrases.count) 条短语")).foregroundStyle(.secondary)
                 }
                 Spacer(); Text("API v\(module.apiVersion)").font(.caption).foregroundStyle(.secondary)
-            }.padding(18).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+            }.padding(18).background(paper.paper2.color.opacity(reduceTransparency ? 1 : 0.7), in: RoundedRectangle(cornerRadius: 12))
+        }
+        if preferences.modules.isEmpty {
+            Text(t("架子上還沒有短語模組。", "架子上还没有短语模块。")).font(PaperFont.title(.title3, simplified: t.simplified)).foregroundStyle(paper.inkSecondary.color)
         }
         HStack {
             Button(t("打開模組資料夾", "打开模块文件夹")) { NSWorkspace.shared.open(preferences.moduleDirectory) }
-            Button(t("重新載入", "重新加载")) { preferences.reload() }
+            Button(t("重新載入", "重新加载")) { preferences.reload(); if preferences.moduleError.isEmpty { stamped("好", t("模組已重新載入。", "模块已重新加载。")) } }
         }
         if !preferences.moduleError.isEmpty { Text(preferences.moduleError).foregroundStyle(.red) }
         Text(t("加入或修改模組後，按「重新載入」。", "添加或修改模块后，点“重新加载”。")).font(.caption).foregroundStyle(.secondary)
@@ -499,7 +563,7 @@ struct Studio: View {
         }
         HStack {
             Button(t("啟用 Meowpuut", "启用 Meowpuut")) {
-                do { try SystemInput.enable(); inputSourceStatus = t("已加入輸入法列表。", "已添加到输入法列表。") }
+                do { try SystemInput.enable(); inputSourceStatus = t("已加入輸入法列表。", "已添加到输入法列表。"); stamped("存", inputSourceStatus) }
                 catch { inputSourceStatus = error.localizedDescription }
             }
             Button(t("打開鍵盤設定", "打开键盘设置")) { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")!) }

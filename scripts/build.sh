@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Engine, appearance and candidate window. Sources/InterfaceText.swift is the
 # Traditional/Simplified text helper both Apple clients use.
-SOURCES="Sources/Engine.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift Sources/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift"
+SOURCES="Sources/Engine.swift Sources/FirstRunDefaults.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/NeverVolunteer.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift Sources/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/PaperTokens.swift Sources/PaperStudio.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift Sources/KeySounds.swift"
 if [ "${1:-}" = "--sources" ]; then
   echo "$SOURCES"
   exit 0
@@ -29,6 +29,13 @@ fi
 for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin associations.json language-evidence.sqlite; do
   cp "$LEXICON/$file" "$APP/Contents/Resources/"
 done
+# The list of words the keyboard never offers by itself (Sources/NeverVolunteer.swift), as hashes: the lexicon
+# build writes it (Engine/scripts/build-lexicon.sh); an older lexicon folder without it gets it written here.
+if [ -f "$LEXICON/never-volunteer.txt" ]; then
+  cp "$LEXICON/never-volunteer.txt" "$APP/Contents/Resources/never-volunteer.txt"
+else
+  python3 Engine/scripts/blocked_terms.py --client "$APP/Contents/Resources/never-volunteer.txt"
+fi
 python3 Engine/scripts/copy-lexicon-notices.py "$APP/Contents/Resources/Licenses"
 cp ASSETS-LICENSE.md "$APP/Contents/Resources/Licenses/Meowpuut-Artwork.txt"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
@@ -36,8 +43,17 @@ cp -R Resources/*.lproj Resources/Festivals "$APP/Contents/Resources/"
 # 米米莫 and 莫莫 (scripts/render_cats.py); NSImage pairs name.png with name@2x.png.
 cp Resources/Cats/*.png "$APP/Contents/Resources/"
 cp Modules/*.json "$APP/Contents/Resources/Modules/"
+# Typing sounds (docs/SOUNDS.md): the same WAV files as iOS and Android.
+for set in assets/key-sounds/*/; do
+  mkdir -p "$APP/Contents/Resources/key-sounds/$(basename "$set")"
+  cp "$set"*.wav "$APP/Contents/Resources/key-sounds/$(basename "$set")/"
+done
 swiftc -target "$TARGET" scripts/Icon.swift -o .build/icon
 cp assets/brand/MeowpuutMark.png "$APP/Contents/Resources/"
+cp assets/brand/paper/grain.png "$APP/Contents/Resources/paper_grain.png"
+# App-page fonts and their licences (scripts/subset_app_fonts.py); PaperFont registers them in the Studio only.
+mkdir -p "$APP/Contents/Resources/Fonts"
+cp Resources/Fonts/* "$APP/Contents/Resources/Fonts/"
 .build/icon assets/brand/MeowpuutMark.png .build/Meowpuut.iconset
 iconutil -c icns .build/Meowpuut.iconset -o "$APP/Contents/Resources/Meowpuut.icns"
 cp .build/MeowpuutCatTemplate.tiff "$APP/Contents/Resources/"
