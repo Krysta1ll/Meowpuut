@@ -57,6 +57,10 @@ class RedeemActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!SkinNative.hasTrustedRoots()) {
+            finish()
+            return
+        }
         prefs = Prefs(this)
         redeemer = SkinRedeemer(this)
         SkinDebugHooks.handle(this, intent)

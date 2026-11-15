@@ -6,8 +6,8 @@ project(meowpuut_jni C)
 # The variant (debug or release) decides which custom-skin keys the library
 # trusts: debug is built with the `skin-test-keys` feature, release without it
 # and with MEOWPUUT_RELEASE_BUILD set (a release library refuses every test- kid).
-if(NOT MEOWPUUT_RUST_VARIANT)
-    set(MEOWPUUT_RUST_VARIANT debug)
+if(NOT MEOWPUUT_RUST_VARIANT MATCHES "^(debug|release)$")
+    message(FATAL_ERROR "Set MEOWPUUT_RUST_VARIANT to debug or release")
 endif()
 set(MEOWPUUT_FFI "${MEOWPUUT_ROOT}/.build/rust/android/${MEOWPUUT_RUST_VARIANT}/${ANDROID_ABI}/libmeowpuut_ffi.a")
 if(NOT EXISTS "${MEOWPUUT_FFI}")

@@ -20,7 +20,7 @@ android {
         applicationId = "com.krysta1ll.meowpuut.android"
         minSdk = 26
         targetSdk = 37
-        val buildNumber = 13
+        val buildNumber = 14
         versionCode = buildNumber
         versionName = "稜鏡 · 26A" + buildNumber.toString().padStart(3, '0')
         ndk {
@@ -41,7 +41,11 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            externalNativeBuild.cmake.arguments += "-DMEOWPUUT_RUST_VARIANT=debug"
+        }
         getByName("release") {
+            externalNativeBuild.cmake.arguments += "-DMEOWPUUT_RUST_VARIANT=release"
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -71,14 +75,20 @@ dependencies {
     testImplementation("org.json:json:20260814")
 }
 
-// Builds the Rust engine for each ABI and stages the lexicon assets.
-val prepareEngine = tasks.register<Exec>("prepareEngine") {
-    group = "build"
-    description = "Runs scripts/build-android.sh --prepare"
-    workingDir = repoRoot
-    commandLine("bash", "scripts/build-android.sh", "--prepare")
+// Build the matching Rust trust configuration before each Android variant.
+for (variant in listOf("debug", "release")) {
+    val suffix = variant.replaceFirstChar { it.uppercase() }
+    val prepareEngine = tasks.register<Exec>("prepare${suffix}Engine") {
+        group = "build"
+        description = "Builds the $variant Rust engine and stages the lexicon"
+        workingDir = repoRoot
+        commandLine("bash", "scripts/build-android.sh", "--prepare", variant)
+    }
+    tasks.configureEach {
+        if (name == "pre${suffix}Build") dependsOn(prepareEngine)
+    }
 }
 
 tasks.named("preBuild") {
-    dependsOn(prepareEngine, prepareKeySounds)
+    dependsOn(prepareKeySounds)
 }

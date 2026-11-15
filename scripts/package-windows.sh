@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
-BUILD_ID=26A002
+BUILD_ID=26A003
 : "${MINGW_BIN:?set MINGW_BIN to the bin directory of llvm-mingw}"
 TOOLCHAIN=$(cd "$MINGW_BIN/.." && pwd)
 LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"

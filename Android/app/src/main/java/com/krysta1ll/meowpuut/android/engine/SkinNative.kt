@@ -21,6 +21,9 @@ object SkinNative {
     /** True in a library that trusts the published test keys (debug builds); a release build must see false. */
     @JvmStatic external fun acceptsTestKeys(): Boolean
 
+    /** False when this build has no trusted issuer for skin packages. */
+    @JvmStatic external fun hasTrustedRoots(): Boolean
+
     /** 64 bytes, the secret then the public key; null when the system's random source fails. */
     @JvmStatic external fun requestKeyGenerate(): ByteArray?
     @JvmStatic external fun requestPublicKey(secret: ByteArray): ByteArray?

@@ -80,7 +80,7 @@ build_rust() {
     out=".build/rust/android/$variant/$abi"
     mkdir -p "$out"
     # A release library holds no test root (plans/custom-skins.md §9.5): stop the build if it does.
-    if [ "$variant" = release ] && strings "target/$triple/release/libmeowpuut_ffi.a" | grep -q 'test-root-1'; then
+    if [ "$variant" = release ] && strings "target/$triple/release/libmeowpuut_ffi.a" | grep -F 'test-root-1' >/dev/null; then
       echo "error: the release library for $triple contains the custom-skin test root" >&2
       exit 1
     fi
@@ -162,7 +162,7 @@ esac
 if [ "$mode" = "--release" ]; then
   # The APK's own native libraries must not hold the test root either.
   for abi in arm64-v8a x86_64; do
-    if unzip -p app/build/outputs/apk/release/app-release-unsigned.apk "lib/$abi/libmeowpuut_jni.so" | strings | grep -q 'test-root-1'; then
+    if unzip -p app/build/outputs/apk/release/app-release-unsigned.apk "lib/$abi/libmeowpuut_jni.so" | strings | grep -F 'test-root-1' >/dev/null; then
       echo "error: the release APK ($abi) contains the custom-skin test root" >&2
       exit 1
     fi

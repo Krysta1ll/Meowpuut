@@ -55,8 +55,8 @@ class Composer {
         }
 
     /**
-     * English on the nine-key pad: while set (and the mode is nine-key) the digits spell English words from the
-     * core's list and no Chinese session is used. [englishContext] gives the text before the cursor as the
+     * When set by the English nine-key layout, the digits spell English words without waiting for a Chinese session.
+     * [englishContext] gives the text before the cursor as the
      * core takes it (see [EnglishSuggestions.context]) and the Shift flags, asked once when a word begins.
      */
     var englishKeypad: EnglishSource? = null
@@ -68,7 +68,7 @@ class Composer {
     var englishContext: () -> Pair<String, Int> = { "" to 0 }
     private var keypadBefore = ""
     private var keypadFlags = 0
-    private val keypad get() = englishKeypad != null && mode == InputMode.NINE_KEY
+    private val keypad get() = englishKeypad != null
 
     private var session = 0L
     private var maxInput = 64
@@ -94,7 +94,7 @@ class Composer {
     fun attach(mode: InputMode, session: Long) {
         // The previous session may already be freed: forget it before clearing.
         this.session = 0L
-        clear()
+        if (!keypad || mode != InputMode.NINE_KEY) clear()
         this.mode = mode
         this.session = if (mode == InputMode.JAPANESE) 0L else session
         if (this.session != 0L) {

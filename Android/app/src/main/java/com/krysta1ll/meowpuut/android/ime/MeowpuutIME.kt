@@ -85,8 +85,6 @@ class MeowpuutIME : InputMethodService(),
     private var englishPlan = NO_SUGGESTIONS
     /** Not a password, e-mail or address field, and the editor wants suggestions. */
     private var suggestionsAllowed = false
-    /** A password, e-mail or address field: English there is always the letter keyboard. */
-    private var latinField = false
     private var selectionEmpty = true
     /** The last insertion was a tapped suggestion and its space. */
     private var suggestionSpace = false
@@ -109,7 +107,7 @@ class MeowpuutIME : InputMethodService(),
     private val mode get() = prefs.mode
     private val chineseActive get() = !english && mode != InputMode.JAPANESE
     /** English on the nine-key pad: its digits spell English words from the core. */
-    private val keypadEnglish get() = english && mode == InputMode.NINE_KEY && !latinField && !numericField &&
+    private val keypadEnglish get() = english && mode == InputMode.NINE_KEY && suggestionsAllowed &&
         composer.englishKeypad != null
 
     override fun onCreate() {
@@ -212,7 +210,7 @@ class MeowpuutIME : InputMethodService(),
         val variation = inputType and InputType.TYPE_MASK_VARIATION
         editorAllowsLearning = allowsChoiceMemory(inputType, attribute?.imeOptions ?: 0)
         composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
-        latinField = inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT && variation in LATIN_VARIATIONS
+        val latinField = variation in LATIN_VARIATIONS
         suggestionsAllowed = inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT && !latinField &&
             inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS == 0
         selectionEmpty = attribute?.let { it.initialSelStart == it.initialSelEnd } ?: true
@@ -288,6 +286,7 @@ class MeowpuutIME : InputMethodService(),
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         selectionEmpty = newSelStart == newSelEnd
+        if (!selectionEmpty) suggestionSpace = false
         if (composer.composing) {
             // The editor reports where the composing text is. A cursor outside
             // it means the user moved it away. Updates without a composing
@@ -499,7 +498,7 @@ class MeowpuutIME : InputMethodService(),
 
     /** The English the engine's lexicon list is read for: the pad's source, set while English runs on the nine-key pad. */
     private fun syncKeypad() {
-        val wanted = if (english && mode == InputMode.NINE_KEY && !latinField && !numericField) lexicons.english() else null
+        val wanted = if (english && mode == InputMode.NINE_KEY && suggestionsAllowed) lexicons.english() else null
         if (composer.englishKeypad !== wanted) {
             composer.englishKeypad = wanted
             composer.englishContext = {
@@ -532,6 +531,7 @@ class MeowpuutIME : InputMethodService(),
      * A list made for text that has since changed does nothing.
      */
     private fun chooseEnglish(choice: String) {
+        if (!suggestionsAllowed || !selectionEmpty) return
         val ic = currentInputConnection ?: return
         val plan = englishPlan
         val word = plan.word
@@ -542,13 +542,12 @@ class MeowpuutIME : InputMethodService(),
         }
         val edit = EnglishSuggestions.apply(plan, choice)
         ic.beginBatchEdit()
-        try {
-            if (edit.deleteBefore > 0) ic.deleteSurroundingText(edit.deleteBefore, 0)
-            commit(edit.insert, ic)
+        suggestionSpace = try {
+            val canInsert = edit.deleteBefore == 0 || ic.deleteSurroundingText(edit.deleteBefore, 0)
+            canInsert && commit(edit.insert, ic)
         } finally {
             ic.endBatchEdit()
         }
-        suggestionSpace = true
         lastSpaceAt = 0
         updateAutoCaps()
         updateEnglish()

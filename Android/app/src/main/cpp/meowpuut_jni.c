@@ -644,6 +644,11 @@ JNIEXPORT jboolean JNICALL SKIN_FN(acceptsTestKeys)(JNIEnv *env, jclass cls) {
     return mps_skin_accepts_test_keys() != 0 ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL SKIN_FN(hasTrustedRoots)(JNIEnv *env, jclass cls) {
+    (void)env; (void)cls;
+    return mps_skin_has_trusted_roots() != 0 ? JNI_TRUE : JNI_FALSE;
+}
+
 // 64 bytes, the secret then the public key; null on failure.
 JNIEXPORT jbyteArray JNICALL SKIN_FN(requestKeyGenerate)(JNIEnv *env, jclass cls) {
     (void)cls;

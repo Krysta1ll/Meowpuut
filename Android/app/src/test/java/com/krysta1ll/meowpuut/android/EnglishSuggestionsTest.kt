@@ -136,6 +136,15 @@ class EnglishSuggestionsTest {
     }
 
     @Test
+    fun keypadKeepsTypingWhileTheChineseSessionLoads() {
+        val composer = Composer().apply { englishKeypad = Fake() }
+        for (key in "466") assertTrue(composer.type(key.code).handled)
+        composer.attach(InputMode.NINE_KEY, 0)
+        assertTrue(composer.type('3'.code).handled)
+        assertEquals("good ", composer.space().commit)
+    }
+
+    @Test
     fun shiftFlagsFollowTheShiftState() {
         assertEquals(0, EnglishSuggestions.flags(false, false))
         assertEquals(EnglishSuggestions.SHIFT, EnglishSuggestions.flags(true, false))

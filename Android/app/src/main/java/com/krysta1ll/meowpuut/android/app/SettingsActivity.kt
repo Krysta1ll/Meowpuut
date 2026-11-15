@@ -40,6 +40,7 @@ import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.InputMode
+import com.krysta1ll.meowpuut.android.engine.SkinNative
 import com.krysta1ll.meowpuut.android.ime.CandidateBarView
 import com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout
 import com.krysta1ll.meowpuut.android.ime.Cat
@@ -185,10 +186,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             visibility = View.GONE
         }
         column.addView(customSkinNote)
-        column.addView(action(R.string.cs_open) { startActivity(Intent(this, RedeemActivity::class.java)) },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.END
-            })
+        if (SkinNative.hasTrustedRoots()) {
+            column.addView(action(R.string.cs_open) { startActivity(Intent(this, RedeemActivity::class.java)) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.END
+                })
+        }
 
         val setup = section(column, R.string.setup_title)
         status = textView(14f, quietInk).apply { setPadding(dp(16), dp(12), dp(16), dp(2)) }
