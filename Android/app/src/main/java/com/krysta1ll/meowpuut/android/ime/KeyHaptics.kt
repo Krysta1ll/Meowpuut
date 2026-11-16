@@ -37,7 +37,7 @@ class KeyHaptics(private val context: Context) {
     private var purring = false
     private var tap: VibrationEffect? = null
     private var tick: VibrationEffect? = null
-    private var enabled = true
+    private var enabled = false
 
     private companion object {
         // 17 pulses of 10 ms, 120 ms apart: just under 2 s. Amplitude 51 of 255 is 0.2.

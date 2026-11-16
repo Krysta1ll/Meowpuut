@@ -55,6 +55,19 @@ class LogicTest {
     }
 
     @Test
+    fun memoryBreaksFrequencyTiesWithMostRecentSelection() {
+        val a = Candidate("你好", CandidateKind.CHINESE, 0, 5)
+        val b = a.copy(text = "擬好", coreIndex = 1)
+        val kana = Candidate("に", CandidateKind.KANA, consumed = 5)
+        val previous = linkedMapOf(a.text to 3, b.text to 2)
+        val tied = ChoiceMemory.afterSelection(previous, b.text)
+        assertEquals(listOf(b.text, a.text), tied.keys.toList())
+        assertEquals(listOf(b, kana, a), ChoiceMemory.rank(listOf(a, kana, b), 5, tied))
+        val lead = ChoiceMemory.afterSelection(tied, a.text)
+        assertEquals(listOf(a, kana, b), ChoiceMemory.rank(listOf(a, kana, b), 5, lead))
+    }
+
+    @Test
     fun memoryIgnoresPrivateEditors() {
         val text = InputType.TYPE_CLASS_TEXT
         assertTrue(MeowpuutIME.allowsChoiceMemory(text, 0))

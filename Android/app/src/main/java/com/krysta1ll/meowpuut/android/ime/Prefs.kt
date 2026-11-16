@@ -2,6 +2,7 @@ package com.krysta1ll.meowpuut.android.ime
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.krysta1ll.meowpuut.android.engine.CustomDictionary
 import com.krysta1ll.meowpuut.android.engine.InputDefaults
 import com.krysta1ll.meowpuut.android.engine.InputMode
 
@@ -68,6 +69,9 @@ class Prefs(context: Context) {
     var rememberChoices: Boolean
         get() = store.getBoolean(REMEMBER_CHOICES, true)
         set(value) = store.edit().putBoolean(REMEMBER_CHOICES, value).apply()
+    internal var customDictionary: List<CustomDictionary.Entry>
+        get() = CustomDictionary.decode(store.getString(CUSTOM_DICTIONARY, null))
+        set(value) = store.edit().putString(CUSTOM_DICTIONARY, CustomDictionary.encode(value)).apply()
     var shape: GlassShape
         get() = GlassShape.of(store.getString(SHAPE, null))
         set(value) = store.edit().putString(SHAPE, value.key).apply()
@@ -179,7 +183,7 @@ class Prefs(context: Context) {
         get() = store.getBoolean(KEY_POPUPS, true)
         set(value) = store.edit().putBoolean(KEY_POPUPS, value).apply()
     var haptics: Boolean
-        get() = store.getBoolean(HAPTICS, true)
+        get() = store.getBoolean(HAPTICS, false)
         set(value) = store.edit().putBoolean(HAPTICS, value).apply()
     var hapticStrength: HapticStrength
         get() = HapticStrength.entries.getOrElse(store.getInt(HAPTIC_STRENGTH, 1)) { HapticStrength.STANDARD }
@@ -202,6 +206,7 @@ class Prefs(context: Context) {
         const val ENGLISH_AUTO_CAPS = "englishAutoCaps"
         const val REMEMBER_CHOICES = "rememberChoices"
         const val CLEAR_CHOICE_MEMORY = "clearChoiceMemory"
+        const val CUSTOM_DICTIONARY = "customDictionary"
         const val PET_MOMENTS = "petMoments"
         /** Written by the app when the cat records are cleared; the running keyboard clears its copy on seeing it. */
         const val CLEAR_PETS = "clearPetsRequest"

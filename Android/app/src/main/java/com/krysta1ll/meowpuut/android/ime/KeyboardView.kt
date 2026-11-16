@@ -38,6 +38,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     val previews = PreviewOverlay(context)
     val bar = CandidateBarView(context, sprites, catSchedule, previews)
     val keys = KeysView(context, previews)
+    val syllableRail = NineKeySyllableRailView(context)
     val panel = ExpandedPanelView(context)
 
     private val density = resources.displayMetrics.density
@@ -66,6 +67,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             clipToOutline = !floating && !value.usesSteppedMaterial
             bar.look = value
             keys.look = value
+            syllableRail.look = value
             panel.look = value
             previews.look = value
             backgroundHeight = 0
@@ -105,8 +107,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         clipToOutline = true
         addView(bar)
         addView(keys)
+        addView(syllableRail)
         addView(panel)
         addView(previews)
+        syllableRail.visibility = GONE
         panel.visibility = GONE
     }
 
@@ -125,9 +129,22 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     fun setKeyboardHaptics(enabled: Boolean) {
         isHapticFeedbackEnabled = enabled
         keys.isHapticFeedbackEnabled = enabled
+        syllableRail.isHapticFeedbackEnabled = enabled
         bar.isHapticFeedbackEnabled = enabled
         panel.isHapticFeedbackEnabled = enabled
         previews.isHapticFeedbackEnabled = enabled
+    }
+
+    fun setNineKeySyllables(syllables: List<String>, showRail: Boolean, words: Words) {
+        val active = showRail && syllables.isNotEmpty()
+        keys.hideLeftMarks = active
+        syllableRail.words = words
+        syllableRail.update(if (active) syllables else emptyList(), metrics().cornerRadius + 1f)
+        val nextVis = if (active) VISIBLE else GONE
+        if (syllableRail.visibility != nextVis) {
+            syllableRail.visibility = nextVis
+            requestLayout()
+        }
     }
 
     fun idiomFor(): Idiom {
@@ -213,6 +230,12 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         bar.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx, MeasureSpec.EXACTLY))
         keys.measure(MeasureSpec.makeMeasureSpec((keysWidth * density).roundToInt(), MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(keysPx, MeasureSpec.EXACTLY))
+        if (syllableRail.visibility == VISIBLE) {
+            keys.leftColumnBox(keysWidth)?.let { box ->
+                syllableRail.measure(MeasureSpec.makeMeasureSpec((box.width * density).roundToInt(), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec((box.height * density).roundToInt(), MeasureSpec.EXACTLY))
+            }
+        }
         val panelPx = (panelHeight(metrics) * density).roundToInt()
         keys.coveredHeight = if (expanded) panelHeight(metrics) else 0f
         panel.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(panelPx, MeasureSpec.EXACTLY))
@@ -237,6 +260,13 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         bar.layout(0, 0, width, bar.measuredHeight)
         val keyLeft = (width - keys.measuredWidth) / 2
         keys.layout(keyLeft, bar.measuredHeight, keyLeft + keys.measuredWidth, bar.measuredHeight + keys.measuredHeight)
+        if (syllableRail.visibility == VISIBLE) {
+            keys.leftColumnBox()?.let { box ->
+                val rl = keyLeft + (box.left * density).roundToInt()
+                val rt = bar.measuredHeight + (box.top * density).roundToInt()
+                syllableRail.layout(rl, rt, rl + syllableRail.measuredWidth, rt + syllableRail.measuredHeight)
+            }
+        }
         panel.layout(0, bar.measuredHeight, width, bar.measuredHeight + panel.measuredHeight)
         previews.layout(0, 0, width, previews.measuredHeight)
     }

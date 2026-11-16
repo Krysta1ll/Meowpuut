@@ -12,6 +12,13 @@ data class Edit(val handled: Boolean, val commit: String = "", val confirmedRead
  */
 class Composer {
     internal var choiceMemory: ChoiceMemory? = null
+    internal var customDictionary = emptyList<CustomDictionary.Entry>()
+        set(value) {
+            if (field == value) return
+            field = value
+            refreshChoices()
+        }
+    internal var allowCustomEntries = false
     var rememberChoices = false
         set(value) {
             if (field == value) return
@@ -54,22 +61,6 @@ class Composer {
             }
         }
 
-    /**
-     * When set by the English nine-key layout, the digits spell English words without waiting for a Chinese session.
-     * [englishContext] gives the text before the cursor as the
-     * core takes it (see [EnglishSuggestions.context]) and the Shift flags, asked once when a word begins.
-     */
-    var englishKeypad: EnglishSource? = null
-        set(value) {
-            if (field === value) return
-            field = value
-            clear()
-        }
-    var englishContext: () -> Pair<String, Int> = { "" to 0 }
-    private var keypadBefore = ""
-    private var keypadFlags = 0
-    private val keypad get() = englishKeypad != null
-
     private var session = 0L
     private var maxInput = 64
     private val raw = StringBuilder()
@@ -79,22 +70,24 @@ class Composer {
     /** Every choice for the current composition, in display order. */
     var candidates: List<Candidate> = emptyList()
         private set
+    var nineKeySyllables: List<String> = emptyList()
+        private set
     var highlighted = 0
     var preedit = ""
         private set
 
     val composing get() = raw.isNotEmpty()
     val input get() = raw.toString()
-    val canSeparateNineKey get() = raw.lastOrNull()?.let { it in '2'..'9' } == true && raw.length < maxInput
+    val canSeparateNineKey get() = raw.lastOrNull()?.let { it in '2'..'9' || it in 'A'..'Z' } == true && raw.length < maxInput
     val moreAvailable get() = coreFetched < coreTotal
 
     /** Japanese needs no lexicon; Chinese waits for the engine session. */
-    val ready get() = mode == InputMode.JAPANESE || session != 0L || keypad
+    val ready get() = mode == InputMode.JAPANESE || session != 0L
 
     fun attach(mode: InputMode, session: Long) {
         // The previous session may already be freed: forget it before clearing.
         this.session = 0L
-        if (!keypad || mode != InputMode.NINE_KEY) clear()
+        clear()
         this.mode = mode
         this.session = if (mode == InputMode.JAPANESE) 0L else session
         if (this.session != 0L) {
@@ -110,7 +103,6 @@ class Composer {
 
     fun type(code: Int): Edit {
         val c = code.toChar()
-        if (keypad) return typeKeypad(c)
         return when (mode) {
             InputMode.PINYIN, InputMode.NINE_KEY -> typePinyin(c)
             InputMode.ZHUYIN -> typeZhuyin(c)
@@ -121,7 +113,7 @@ class Composer {
     private fun typePinyin(c: Char): Edit {
         if (session == 0L) return Edit(false)
         val nineKey = mode == InputMode.NINE_KEY
-        val compositionKey = if (nineKey) c in '2'..'9' else c in 'a'..'z' || c in 'A'..'Z'
+        val compositionKey = if (nineKey) c in '2'..'9' || c in 'A'..'Z' else c in 'a'..'z' || c in 'A'..'Z'
         val separator = c == '\'' && if (nineKey) canSeparateNineKey else raw.isNotEmpty() && raw.last() != '\''
         if (!compositionKey && !separator) return Edit(false)
         var pending = ""
@@ -131,7 +123,8 @@ class Composer {
             resetCore()
             if (separator) return Edit(true, pending)
         }
-        if (!NativeEngine.key(session, c.lowercaseChar().code)) return Edit(pending.isNotEmpty(), pending)
+        val keyChar = if (nineKey) c else c.lowercaseChar()
+        if (!NativeEngine.key(session, keyChar.code)) return Edit(pending.isNotEmpty(), pending)
         raw.append(c)
         pending += NativeEngine.takeCommitted(session)
         syncRaw()
@@ -139,17 +132,19 @@ class Composer {
         return Edit(true, pending)
     }
 
-    private fun typeKeypad(c: Char): Edit {
-        if (c !in '2'..'9') return Edit(false)
-        if (raw.length >= KEYPAD_LIMIT) return Edit(true)
-        if (raw.isEmpty()) {
-            val (before, flags) = englishContext()
-            keypadBefore = before
-            keypadFlags = flags
+    /** Locks a Pinyin syllable at the start of the first unlocked nine-key digit span. */
+    fun lockNineKeySyllable(syllable: String): Boolean {
+        if (mode != InputMode.NINE_KEY || raw.isEmpty()) return false
+        val next = NineKeySyllables.lock(syllable, raw.toString()) ?: return false
+        if (next.length > maxInput) return false
+        raw.setLength(0)
+        raw.append(next)
+        if (session != 0L) {
+            replay()
+            syncRaw()
         }
-        raw.append(c)
         rebuild()
-        return Edit(true)
+        return true
     }
 
     private fun typeZhuyin(c: Char): Edit {
@@ -183,6 +178,13 @@ class Composer {
         return Edit(true)
     }
 
+    internal fun acceptsJapaneseReadingMark(mark: Char): Boolean {
+        if (mark == '-' && composing) return true
+        if (!allowCustomEntries) return false
+        val prefix = input.lowercase() + mark
+        return customDictionary.any { it.mode == InputMode.JAPANESE && it.reading.startsWith(prefix) }
+    }
+
     /**
      * Space while composing. Pinyin and Japanese choose the highlighted
      * candidate; Zhuyin types the first tone unless the reading already ends
@@ -190,7 +192,6 @@ class Composer {
      */
     fun space(): Edit {
         if (raw.isEmpty()) return Edit(false)
-        if (keypad) return chooseHighlighted(confirm = true)
         return when (mode) {
             // A reading with no candidates is typed as its symbols rather than left stuck.
             InputMode.ZHUYIN -> if (raw.last() in TONES) chooseHighlighted(confirm = true) else typeZhuyin(' ')
@@ -201,8 +202,21 @@ class Composer {
 
     fun backspace(): Edit {
         if (raw.isEmpty()) return Edit(false)
+        if (mode == InputMode.NINE_KEY) {
+            val unlocked = NineKeySyllables.unlockLastOnBackspace(raw.toString())
+            if (unlocked != null) {
+                raw.setLength(0)
+                raw.append(unlocked)
+                if (session != 0L) {
+                    replay()
+                    syncRaw()
+                }
+                rebuild()
+                return Edit(true)
+            }
+        }
         raw.deleteCharAt(raw.length - 1)
-        if (mode != InputMode.JAPANESE && session != 0L && !keypad) {
+        if (mode != InputMode.JAPANESE && session != 0L) {
             if (raw.isEmpty()) {
                 NativeEngine.clear(session)
             } else {
@@ -216,19 +230,10 @@ class Composer {
         return Edit(true)
     }
 
-    fun chooseHighlighted(confirm: Boolean = false, trailingSpace: Boolean = true): Edit =
-        choose(highlighted.coerceIn(0, (candidates.size - 1).coerceAtLeast(0)), confirm, trailingSpace)
+    fun chooseHighlighted(confirm: Boolean = false): Edit =
+        choose(highlighted.coerceIn(0, (candidates.size - 1).coerceAtLeast(0)), confirm)
 
-    /** [trailingSpace]: an English word chosen on the pad is followed by a space (Return keeps the word alone). */
-    fun choose(index: Int, confirm: Boolean = false, trailingSpace: Boolean = true): Edit {
-        if (keypad) {
-            // The word, or the keys' first letters when the pad spells nothing (never the digits, and no guess:
-            // spec 6.2 item 3); either ends the composition.
-            val text = candidates.getOrNull(index)?.text ?: keypadLetters(raw)
-            if (raw.isEmpty()) return Edit(false)
-            resetCore()
-            return Edit(true, if (trailingSpace) "$text " else text)
-        }
+    fun choose(index: Int, confirm: Boolean = false): Edit {
         val c = candidates.getOrNull(index) ?: return if (raw.isEmpty()) Edit(false) else Edit(true, takeLiteral())
         if (c.coreIndex >= 0) {
             val reading = if (confirm && rememberChoices) ChoiceMemory.selectionReading(raw, c) else ""
@@ -257,7 +262,8 @@ class Composer {
         return text
     }
 
-    private fun rawLiteral(): String = if (mode == InputMode.NINE_KEY) raw.filterNot { it == '\'' }.toString() else raw.toString()
+    private fun rawLiteral(): String =
+        if (mode == InputMode.NINE_KEY) raw.filterNot { it == '\'' }.toString().lowercase() else raw.toString()
 
     fun clear() = resetCore()
 
@@ -268,11 +274,19 @@ class Composer {
     /** Appends the next batch of the engine's candidates (for the expanded panel). */
     fun loadMore(batch: Int = 96): Boolean {
         if (session == 0L || coreFetched >= coreTotal) return false
-        val more = fetchCore(coreFetched, batch)
-        val seen = candidates.mapTo(HashSet()) { it.text }
-        val added = more.filter { mode == InputMode.NINE_KEY || seen.add(it.text) }.map { it.choice() }
-        candidates = candidates + added
-        return added.isNotEmpty()
+        val nineKey = mode == InputMode.NINE_KEY
+        val seen = candidates.asSequence().filter { !nineKey || it.kind == CandidateKind.CUSTOM }.mapTo(HashSet()) { it.text }
+        while (coreFetched < coreTotal) {
+            val start = coreFetched
+            val added = fetchCore(start, batch)
+                .filter { if (nineKey) it.text !in seen else seen.add(it.text) }.map { it.choice() }
+            if (added.isNotEmpty()) {
+                candidates = candidates + added
+                return true
+            }
+            if (coreFetched <= start) break
+        }
+        return false
     }
 
     fun predictions(context: String, limit: Int = 8): List<String> {
@@ -287,6 +301,7 @@ class Composer {
             NativeEngine.takeCommitted(session)
         }
         candidates = emptyList()
+        nineKeySyllables = emptyList()
         preedit = ""
         highlighted = 0
         coreTotal = 0
@@ -348,24 +363,20 @@ class Composer {
         highlighted = 0
         if (raw.isEmpty()) {
             candidates = emptyList()
+            nineKeySyllables = emptyList()
             preedit = ""
             coreTotal = 0
             coreFetched = 0
             return
         }
-        if (keypad) {
-            val words = englishKeypad?.nineKey(raw.toString(), keypadBefore, keypadFlags).orEmpty().distinct()
-            candidates = words.map { Candidate(it, CandidateKind.LITERAL, consumed = raw.length) }
-            // The first word shows in the editor while the digits are open. When the keys spell no word the core
-            // gives their first letters as the first choice (a blocked word it spells comes after them, never
-            // first); without the core's list the same letters show here.
-            preedit = words.firstOrNull() ?: keypadLetters(raw)
-            coreTotal = 0
-            coreFetched = 0
+        nineKeySyllables = if (mode == InputMode.NINE_KEY) NineKeySyllables.leading(raw.toString()) else emptyList()
+        if (session == 0L && mode != InputMode.JAPANESE) {
+            candidates = emptyList()
+            preedit = ""
             return
         }
         val preferred = if (rememberChoices && mode != InputMode.JAPANESE) {
-            choiceMemory?.preferred(mode, simplified, raw.toString()).orEmpty()
+            choiceMemory?.preferred(mode, simplified, raw.toString().trimEnd('\'')).orEmpty()
         } else emptyMap()
         when (mode) {
             InputMode.PINYIN -> {
@@ -406,17 +417,20 @@ class Composer {
             }
         }
         candidates = ChoiceMemory.rank(candidates, raw.length, preferred)
+        if (allowCustomEntries && customDictionary.isNotEmpty()) {
+            val input = if (mode == InputMode.ZHUYIN) NativeEngine.inputText(session) else raw.toString()
+            val matches = CustomDictionary.matches(customDictionary, mode, input)
+            if (matches.isNotEmpty()) {
+                val texts = matches.toHashSet()
+                candidates = matches.map { Candidate(it, CandidateKind.CUSTOM, consumed = raw.length) } +
+                    candidates.filterNot { it.text in texts }
+            }
+        }
         if (symbolsAllowed) candidates = CandidateMerge.withSymbols(candidates, symbols, raw.length)
     }
 
     companion object {
         private const val FIRST_BATCH = 48
-        private const val KEYPAD_LIMIT = 24
-        private const val FIRST_LETTERS = "adgjmptw"
-
-        /** The first letter of each key 2-9 (4663 -> gmmd). */
-        fun keypadLetters(digits: CharSequence): String =
-            buildString { for (d in digits) if (d in '2'..'9') append(FIRST_LETTERS[d - '2']) }
         private const val TONES = " 6347"
         private val TONE_MARKS = mapOf('6' to "ˊ", '3' to "ˇ", '4' to "ˋ", '7' to "˙", ' ' to "ˉ")
     }

@@ -414,7 +414,7 @@ static jobjectArray english_result(JNIEnv *env, struct english_handle *handle, s
     return result;
 }
 
-// mode 0 completions of `word`, 1 corrections of `word`, 2 next words (`word` unused), 3 keypad digits in `word`.
+// mode 0 completions of `word`, 1 corrections of `word`, 2 next words (`word` unused).
 JNIEXPORT jobjectArray JNICALL ENGLISH_FN(query)(JNIEnv *env, jclass cls, jlong value, jint mode, jstring word, jstring before, jint flags) {
     (void)cls;
     struct english_handle *handle = (struct english_handle *)(intptr_t)value;
@@ -427,7 +427,6 @@ JNIEXPORT jobjectArray JNICALL ENGLISH_FN(query)(JNIEnv *env, jclass cls, jlong 
             case 0: count = mpn_english_complete(handle->query, handle->english, w, b, f); break;
             case 1: count = mpn_english_correct(handle->query, handle->english, w, b, f); break;
             case 2: count = mpn_english_predict(handle->query, handle->english, b, f); break;
-            case 3: count = mpn_english_nine_key(handle->query, handle->english, w, b, f); break;
             default: break;
         }
     }

@@ -58,6 +58,10 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     var coveredHeight = 0f
         set(value) { if (field != value) { field = value; accessibility.invalidateAll() } }
 
+    /** Hides the three left-column punctuation caps when the nine-key syllable rail covers them. */
+    var hideLeftMarks = false
+        set(value) { if (field != value) { field = value; accessibility.invalidateAll(); invalidate() } }
+
     private val touches = KeyTouches(this)
     private val density = resources.displayMetrics.density
     private val handler = Handler(Looper.getMainLooper())
@@ -153,6 +157,17 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     private fun place(set: KeySet): List<List<KeyPlacement>> =
         if (width == 0) emptyList() else KeyGrid.place(set.specs, width / density, set.referenceColumns, metrics)
 
+    /** Bounding box (dp, in this view's coordinates) of column 0 across rows 0..2. */
+    fun leftColumnBox(widthDp: Float = width / density): Box? {
+        val set = keySet ?: return null
+        if (widthDp <= 0f || set.specs.size < 3) return null
+        val rows = touches.placements.takeIf { it.size >= 3 && width > 0 }
+            ?: KeyGrid.place(set.specs, widthDp, set.referenceColumns, metrics)
+        val top = rows.getOrNull(0)?.firstOrNull()?.frame ?: return null
+        val bottom = rows.getOrNull(2)?.firstOrNull()?.frame ?: return null
+        return Box(top.left, top.top, top.width, bottom.bottom - top.top)
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         // Key places depend on the width and the metrics, not on the height.
         if (w == oldw) return
@@ -236,6 +251,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         for ((r, row) in touches.placements.withIndex()) {
             val held = if (fingers) touches.pressedColumns(r) else 0
             for (placement in row) {
+                if (hideLeftMarks && r in 0..2 && placement.column == 0) continue
                 val key = set.rows.getOrNull(r)?.getOrNull(placement.column) ?: continue
                 val f = placement.frame
                 val radius = capRadius(key, f)
@@ -486,6 +502,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         val set = keySet ?: return emptyList()
         val out = ArrayList<VirtualAccessibility.Item>()
         for ((r, row) in touches.placements.withIndex()) for (placement in row) {
+            if (hideLeftMarks && r in 0..2 && placement.column == 0) continue
             val key = set.rows.getOrNull(r)?.getOrNull(placement.column) ?: continue
             val f = placement.frame
             if (f.top < coveredHeight) continue

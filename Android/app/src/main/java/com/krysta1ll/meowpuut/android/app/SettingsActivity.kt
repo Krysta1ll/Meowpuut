@@ -224,6 +224,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         toggle(input, R.string.english_auto_caps, prefs.englishAutoCaps) { prefs.englishAutoCaps = it }
         toggle(input, R.string.remember_choices, prefs.rememberChoices) { prefs.rememberChoices = it }
         note(input, R.string.remember_choices_note)
+        input.addView(action(R.string.dictionary_title) { CustomDictionaryDialog(this, prefs).show() })
         val memoryEmpty = note(input, R.string.choice_memory_empty).apply { visibility = View.GONE }
         input.addView(action(R.string.clear_choice_memory) {
             AlertDialog.Builder(this)

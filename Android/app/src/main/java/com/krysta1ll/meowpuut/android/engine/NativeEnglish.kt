@@ -9,7 +9,6 @@ internal object NativeEnglish {
     const val COMPLETE = 0
     const val CORRECT = 1
     const val PREDICT = 2
-    const val NINE_KEY = 3
 
     /** Maps mimo_en.bin out of the APK and opens it in place; 0 for a damaged file. */
     @JvmStatic external fun openFromFd(fd: Int, offset: Long, length: Long): Long

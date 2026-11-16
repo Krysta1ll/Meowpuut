@@ -1,6 +1,5 @@
 package com.krysta1ll.meowpuut.android
 
-import com.krysta1ll.meowpuut.android.engine.Composer
 import com.krysta1ll.meowpuut.android.engine.EnglishSource
 import com.krysta1ll.meowpuut.android.engine.EnglishSuggestions
 import com.krysta1ll.meowpuut.android.engine.InputMode
@@ -13,7 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** English suggestions: what is passed to the core, what is shown, and the keypad words. The core is faked here. */
+/** English suggestions: what is passed to the core, what is shown, and how the keyboard switches. The core is faked here. */
 class EnglishSuggestionsTest {
     private class Fake : EnglishSource {
         val asked = ArrayList<String>()
@@ -29,10 +28,6 @@ class EnglishSuggestionsTest {
         override fun predict(before: String, flags: Int): List<String> {
             asked += "predict($before|$flags)"
             return listOf("you", "the")
-        }
-        override fun nineKey(digits: String, before: String, flags: Int): List<String> {
-            asked += "nineKey($digits|$before|$flags)"
-            return if (digits == "4663") listOf("good", "home", "gone") else emptyList()
         }
     }
 
@@ -136,15 +131,6 @@ class EnglishSuggestionsTest {
     }
 
     @Test
-    fun keypadKeepsTypingWhileTheChineseSessionLoads() {
-        val composer = Composer().apply { englishKeypad = Fake() }
-        for (key in "466") assertTrue(composer.type(key.code).handled)
-        composer.attach(InputMode.NINE_KEY, 0)
-        assertTrue(composer.type('3'.code).handled)
-        assertEquals("good ", composer.space().commit)
-    }
-
-    @Test
     fun shiftFlagsFollowTheShiftState() {
         assertEquals(0, EnglishSuggestions.flags(false, false))
         assertEquals(EnglishSuggestions.SHIFT, EnglishSuggestions.flags(true, false))
@@ -152,64 +138,20 @@ class EnglishSuggestionsTest {
     }
 
     @Test
-    fun keypadDigitsSpellWordsFromTheCore() {
-        val source = Fake()
-        val composer = Composer()
-        composer.attach(InputMode.NINE_KEY, 0L)
-        composer.englishKeypad = source
-        composer.englishContext = { "I am " to 1 }
-        assertTrue(composer.ready)
-        for (digit in "4663") assertTrue(composer.type(digit.code).handled)
-        assertEquals(listOf("good", "home", "gone"), composer.candidates.map { it.text })
-        assertEquals("good", composer.preedit)
-        assertEquals("4663", composer.input)
-        // The context is asked once, when the word begins.
-        assertTrue(source.asked.all { it.contains("|I am |1)") })
-        // A word of the pad is chosen with a space; Return keeps it as it is.
-        val chosen = composer.choose(1, confirm = true)
-        assertEquals("home ", chosen.commit)
-        assertFalse(composer.composing)
-        for (digit in "4663") composer.type(digit.code)
-        assertEquals("good", composer.chooseHighlighted(confirm = true, trailingSpace = false).commit)
-        // Space chooses the highlighted word.
-        for (digit in "4663") composer.type(digit.code)
-        assertEquals("good ", composer.space().commit)
-    }
+    fun switchingFromChineseNineKeyShowsAllTwentySixEnglishLetters() {
+        val context = KeyContext(InputMode.NINE_KEY, false, 0, ShiftState.OFF, false, false,
+            "space", "換行", false, true)
+        val chinese = KeyBuilder.build(context)
+        assertTrue(context.showsNineKey)
+        assertEquals("ABC", chinese.rows[0][2].label)
+        assertEquals("WXYZ", chinese.rows[2][3].label)
+        assertEquals("英", chinese.rows.last().single { it.action == KeyAction.ToggleEnglish }.label)
 
-    @Test
-    fun keypadBackspaceAndUnknownDigits() {
-        val composer = Composer()
-        composer.attach(InputMode.NINE_KEY, 0L)
-        composer.englishKeypad = Fake()
-        composer.type('4'.code); composer.type('6'.code)
-        assertEquals("46", composer.input)
-        // The pad spells nothing: the keys' first letters show and space types them, never the digits.
-        assertTrue(composer.candidates.isEmpty())
-        assertEquals("gm", composer.preedit)
-        assertEquals("gm ", composer.choose(0).commit)
-        composer.type('4'.code); composer.type('6'.code)
-        assertEquals("gm ", composer.space().commit)
-        composer.type('4'.code)
-        assertTrue(composer.backspace().handled)
-        assertFalse(composer.composing)
-        // Only the digits 2 to 9 compose.
-        assertFalse(composer.type('0'.code).handled)
-        assertFalse(composer.type('a'.code).handled)
-    }
-
-    @Test
-    fun theNineKeyPadStaysForEnglishOnlyWhenAsked() {
-        fun context(english: Boolean, pad: Boolean) = KeyContext(InputMode.NINE_KEY, english, 0, ShiftState.OFF, false, false,
-            "space", "換行", false, true, nineKeyEnglish = pad)
-        assertTrue(context(english = true, pad = true).showsNineKey)
-        // A URL, e-mail or password field keeps the letter keyboard.
-        assertFalse(context(english = true, pad = false).showsNineKey)
-        val set = KeyBuilder.build(context(english = true, pad = true))
-        val labels = set.rows.flatten().map { it.label }
-        assertTrue("ABC" in labels && "WXYZ" in labels)
-        assertTrue("!" in labels && "?" in labels)
-        assertFalse("！" in labels)
-        assertEquals(KeyAction.Segment, set.rows[0][1].action)
-        assertEquals("'", set.rows[0][1].label)
+        val englishContext = context.copy(english = true)
+        val english = KeyBuilder.build(englishContext)
+        assertFalse(englishContext.showsNineKey)
+        assertEquals("qwertyuiopasdfghjklzxcvbnm",
+            english.rows.flatten().filter { it.action is KeyAction.Engine }.joinToString("") { it.label })
+        assertEquals("中", english.rows.last().single { it.action == KeyAction.ToggleEnglish }.label)
     }
 }

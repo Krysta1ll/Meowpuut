@@ -34,6 +34,7 @@ import kotlin.math.roundToInt
 class ExpandedPanelView(context: Context) : View(context) {
     interface Listener {
         fun onCandidate(index: Int)
+        fun onSyllable(syllable: String) {}
         /** Scrolled near the end; the keyboard may append more candidates. */
         fun onNeedMore()
     }
@@ -54,6 +55,7 @@ class ExpandedPanelView(context: Context) : View(context) {
         }
 
     private var candidates: List<Candidate> = emptyList()
+    private var syllables: List<String> = emptyList()
     private var highlighted = 0
     private var japaneseMarks = true
     private var emoji = false
@@ -68,29 +70,45 @@ class ExpandedPanelView(context: Context) : View(context) {
     private var rimShader: Shader? = null
 
     private class Cell(val index: Int, val left: Float, val top: Float, val width: Float, val shown: String, val japanese: Boolean)
+    private class Chip(val index: Int, val left: Float, val width: Float, val text: String)
     private var cells: List<Cell> = emptyList()
+    private var chips: List<Chip> = emptyList()
     private var contentHeight = 0f
+    private var chipWidth = 0f
     private var scroll = 0f
+    private var chipScroll = 0f
     private val scroller = OverScroller(context)
     private var velocity: VelocityTracker? = null
     private val slop = ViewConfiguration.get(context).scaledTouchSlop / density
+    private var downX = 0f
     private var downY = 0f
     private var downScroll = 0f
+    private var inSyllableBar = false
     private var dragging = false
     private var pressed = -1
+    private var pressedChip = -1
 
-    private val accessibility = VirtualAccessibility(this, ::accessibleCells) { id -> listener?.onCandidate(id) }
+    private val accessibility = VirtualAccessibility(this, ::accessibleCells) { id ->
+        if (id >= CHIP_ID_BASE) syllables.getOrNull(id - CHIP_ID_BASE)?.let { listener?.onSyllable(it) }
+        else listener?.onCandidate(id)
+    }
 
-    fun show(list: List<Candidate>, highlighted: Int, japaneseMarks: Boolean, resetScroll: Boolean, emoji: Boolean = false) {
+    fun show(
+        list: List<Candidate>, highlighted: Int, japaneseMarks: Boolean, resetScroll: Boolean,
+        emoji: Boolean = false, syllables: List<String> = emptyList()
+    ) {
         if (!resetScroll && candidates === list && this.highlighted == highlighted &&
-            this.japaneseMarks == japaneseMarks && this.emoji == emoji) return
-        val changed = candidates !== list || this.japaneseMarks != japaneseMarks || this.emoji != emoji
+            this.japaneseMarks == japaneseMarks && this.emoji == emoji && this.syllables == syllables) return
+        val changed = candidates !== list || this.japaneseMarks != japaneseMarks || this.emoji != emoji || this.syllables != syllables
+        val syllablesChanged = this.syllables != syllables
         candidates = list
+        this.syllables = syllables
         this.highlighted = highlighted
         this.japaneseMarks = japaneseMarks
         this.emoji = emoji
         if (resetScroll) { scroll = 0f; scroller.forceFinished(true) }
-        if (changed) { pressed = -1; relayout() }
+        if (resetScroll || syllablesChanged) chipScroll = 0f
+        if (changed) { pressed = -1; pressedChip = -1; relayout() }
         accessibility.invalidateAll()
         invalidate()
     }
@@ -111,9 +129,24 @@ class ExpandedPanelView(context: Context) : View(context) {
         val totalColumns = if (emoji && width >= 320f) 6 else 4
         val unit = (usable - (totalColumns - 1) * GAP) / totalColumns
         val mark = fontSize * 0.45f + CandidateBarView.PAW_GAP
+        val hasBar = !emoji && syllables.isNotEmpty()
+        if (hasBar) {
+            bold.textSize = candidateTextSize.fontSize(14.5f, resources.configuration.fontScale)
+            var cx = margin
+            chips = syllables.mapIndexed { idx, syl ->
+                val cw = max(44f, bold.measureText(syl) + 22f)
+                Chip(idx, cx, cw, syl).also { cx += cw + 6f }
+            }
+            chipWidth = cx + margin - 6f
+            bold.textSize = fontSize
+        } else {
+            chips = emptyList()
+            chipWidth = 0f
+        }
+        val barOffset = if (hasBar) SYLLABLE_BAR else 0f
         val list = ArrayList<Cell>(candidates.size)
         var x = 0f
-        var y = TOP
+        var y = TOP + barOffset
         var columnsUsed = 0
         for ((i, c) in candidates.withIndex()) {
             val japanese = c.japanese && japaneseMarks
@@ -129,9 +162,12 @@ class ExpandedPanelView(context: Context) : View(context) {
         cells = list
         contentHeight = y + ROW + TOP
         scroll = scroll.coerceIn(0f, maxScroll)
+        chipScroll = chipScroll.coerceIn(0f, maxChipScroll)
     }
 
+    private val barOffset get() = if (chips.isNotEmpty()) SYLLABLE_BAR else 0f
     private val maxScroll get() = max(0f, contentHeight - height / density)
+    private val maxChipScroll get() = max(0f, chipWidth - width / density)
 
     override fun onDraw(canvas: Canvas) {
         canvas.save()
@@ -156,10 +192,13 @@ class ExpandedPanelView(context: Context) : View(context) {
             paint.shader = null
             paint.style = Paint.Style.FILL
         }
+        canvas.save()
+        rect.set(4f, 2f + barOffset, w - 4f, h - 2f)
         canvas.clipRect(rect)
         canvas.translate(0f, -scroll)
+        val firstGridTop = TOP + barOffset
         for ((n, cell) in cells.withIndex()) {
-            if (cell.top + ROW < scroll || cell.top > scroll + h) continue
+            if (cell.top + ROW < scroll + barOffset || cell.top > scroll + h) continue
             val top = cell.top + 3f
             val cellHeight = ROW - 6f
             val selected = cell.index == highlighted
@@ -186,7 +225,7 @@ class ExpandedPanelView(context: Context) : View(context) {
                 Glyphs.paw(canvas, tx + textWidth + CandidateBarView.PAW_GAP + pawSize / 2, cy, pawSize, paint)
             }
             // Hairline between rows.
-            if (cell.left < 11f && cell.top > TOP) {
+            if (cell.left < 11f && cell.top > firstGridTop) {
                 paint.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.08f else 0.06f)
                 canvas.drawRect(16f, cell.top - 0.25f, w - 16f, cell.top + 0.25f, paint)
             }
@@ -197,6 +236,8 @@ class ExpandedPanelView(context: Context) : View(context) {
             canvas.drawText(label, (w - text.measureText(label)) / 2, h / 2, text)
         }
         canvas.restore()
+        if (chips.isNotEmpty()) drawSyllableBar(canvas, w)
+        canvas.restore()
         if (scroller.computeScrollOffset()) {
             scroll = (scroller.currY / density).coerceIn(0f, maxScroll)
             maybeNeedMore()
@@ -204,11 +245,47 @@ class ExpandedPanelView(context: Context) : View(context) {
         }
     }
 
+    private fun drawSyllableBar(canvas: Canvas, w: Float) {
+        canvas.save()
+        rect.set(5f, 3f, w - 5f, 2f + SYLLABLE_BAR)
+        canvas.clipRect(rect)
+        paint.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.08f else 0.06f)
+        canvas.drawRect(12f, 2f + SYLLABLE_BAR - 0.5f, w - 12f, 2f + SYLLABLE_BAR, paint)
+        canvas.translate(-chipScroll, 0f)
+        val chipSize = candidateTextSize.fontSize(14.5f, resources.configuration.fontScale)
+        val oldBold = bold.textSize
+        bold.textSize = chipSize
+        val top = 6f
+        val ch = SYLLABLE_BAR - 8f
+        for ((i, chip) in chips.withIndex()) {
+            if (chip.left + chip.width < chipScroll || chip.left > chipScroll + w) continue
+            paint.color = when {
+                i == pressedChip -> Look.withAlpha(look.pill.second, if (look.dark) 0.34f else 0.24f)
+                i == 0 -> Look.withAlpha(look.pill.second, if (look.dark) 0.20f else 0.14f)
+                else -> Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.09f else 0.06f)
+            }
+            rect.set(chip.left, top, chip.left + chip.width, top + ch)
+            if (look.usesSteppedMaterial) canvas.drawRect(rect, paint)
+            else canvas.drawRoundRect(rect, ch / 2f, ch / 2f, paint)
+            bold.color = look.candidateText
+            val cy = top + ch / 2f
+            canvas.drawText(chip.text, chip.left + (chip.width - bold.measureText(chip.text)) / 2f, cy - (bold.ascent() + bold.descent()) / 2f, bold)
+        }
+        bold.textSize = oldBold
+        canvas.restore()
+    }
+
     private fun maybeNeedMore() {
         if (!emoji && scroll > maxScroll - 3 * ROW) listener?.onNeedMore()
     }
 
+    private fun chipAt(x: Float): Int {
+        val cx = x + chipScroll
+        return chips.indexOfFirst { cx >= it.left - 3f && cx < it.left + it.width + 3f }
+    }
+
     private fun cellAt(x: Float, y: Float): Int {
+        if (y < 2f + barOffset) return -1
         val cy = y + scroll
         return cells.indexOfFirst {
             x >= it.left - GAP / 2 && x < it.left + it.width + GAP / 2 && cy >= it.top && cy < it.top + ROW
@@ -224,37 +301,50 @@ class ExpandedPanelView(context: Context) : View(context) {
                 scroller.forceFinished(true)
                 velocity?.recycle()
                 velocity = VelocityTracker.obtain().also { it.addMovement(event) }
-                downY = y; downScroll = scroll; dragging = false
-                pressed = cellAt(x, y)
+                downX = x; downY = y; dragging = false
+                inSyllableBar = chips.isNotEmpty() && y < 2f + SYLLABLE_BAR
+                downScroll = if (inSyllableBar) chipScroll else scroll
+                pressed = if (inSyllableBar) -1 else cellAt(x, y)
+                pressedChip = if (inSyllableBar) chipAt(x) else -1
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 velocity?.addMovement(event)
-                if (!dragging && abs(y - downY) > slop) { dragging = true; pressed = -1 }
+                val delta = if (inSyllableBar) abs(x - downX) else abs(y - downY)
+                if (!dragging && delta > slop) { dragging = true; pressed = -1; pressedChip = -1 }
                 if (dragging) {
-                    scroll = (downScroll - (y - downY)).coerceIn(0f, maxScroll)
-                    maybeNeedMore()
+                    if (inSyllableBar) {
+                        chipScroll = (downScroll - (x - downX)).coerceIn(0f, maxChipScroll)
+                    } else {
+                        scroll = (downScroll - (y - downY)).coerceIn(0f, maxScroll)
+                        maybeNeedMore()
+                    }
                     invalidate()
                 }
             }
             MotionEvent.ACTION_UP -> {
                 velocity?.addMovement(event)
                 if (dragging) {
-                    velocity?.computeCurrentVelocity(1000)
-                    val vy = -(velocity?.yVelocity ?: 0f)
-                    scroller.fling(0, (scroll * density).roundToInt(), 0, vy.roundToInt(), 0, 0, 0, (maxScroll * density).roundToInt())
-                    postInvalidateOnAnimation()
+                    if (!inSyllableBar) {
+                        velocity?.computeCurrentVelocity(1000)
+                        val vy = -(velocity?.yVelocity ?: 0f)
+                        scroller.fling(0, (scroll * density).roundToInt(), 0, vy.roundToInt(), 0, 0, 0, (maxScroll * density).roundToInt())
+                        postInvalidateOnAnimation()
+                    }
+                } else if (inSyllableBar) {
+                    val idx = chipAt(x)
+                    if (idx >= 0 && idx == pressedChip) listener?.onSyllable(chips[idx].text)
                 } else {
                     val n = cellAt(x, y)
                     if (n >= 0 && n == pressed) listener?.onCandidate(cells[n].index)
                 }
                 velocity?.recycle(); velocity = null
-                pressed = -1
+                pressed = -1; pressedChip = -1
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
                 velocity?.recycle(); velocity = null
-                pressed = -1
+                pressed = -1; pressedChip = -1
                 invalidate()
             }
         }
@@ -263,10 +353,18 @@ class ExpandedPanelView(context: Context) : View(context) {
 
     private fun accessibleCells(): List<VirtualAccessibility.Item> {
         val h = height / density
-        return cells.filter { it.top + ROW >= scroll && it.top <= scroll + h }.map { cell ->
+        val w = width / density
+        val barItems = chips.filter { it.left + it.width >= chipScroll && it.left <= chipScroll + w }.map { chip ->
+            val left = chip.left - chipScroll
+            VirtualAccessibility.Item(CHIP_ID_BASE + chip.index,
+                Rect((max(0f, left) * density).toInt(), (4f * density).toInt(),
+                    (min(w, left + chip.width) * density).toInt(), ((2f + SYLLABLE_BAR) * density).toInt()),
+                words("拼音音節：", "拼音音节：") + chip.text, selected = chip.index == 0)
+        }
+        val gridItems = cells.filter { it.top + ROW >= scroll + barOffset && it.top <= scroll + h }.map { cell ->
             val top = cell.top - scroll
             VirtualAccessibility.Item(cell.index,
-                Rect(((cell.left - GAP / 2) * density).toInt(), (max(0f, top) * density).toInt(),
+                Rect(((cell.left - GAP / 2) * density).toInt(), (max(barOffset, top) * density).toInt(),
                     ((cell.left + cell.width + GAP / 2) * density).toInt(), (min(h, top + ROW) * density).toInt()),
                 (when {
                     emoji -> words("表情符號：", "表情符号：")
@@ -275,6 +373,7 @@ class ExpandedPanelView(context: Context) : View(context) {
                 }) + candidates[cell.index].text,
                 selected = cell.index == highlighted)
         }
+        return barItems + gridItems
     }
 
     override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider = accessibility
@@ -285,5 +384,7 @@ class ExpandedPanelView(context: Context) : View(context) {
         private const val ROW = 48f
         private const val TOP = 6f
         private const val GAP = 4f
+        private const val SYLLABLE_BAR = 38f
+        private const val CHIP_ID_BASE = 100_000
     }
 }

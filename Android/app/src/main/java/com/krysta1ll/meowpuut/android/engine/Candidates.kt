@@ -18,7 +18,7 @@ enum class InputMode(val key: String) {
     }
 }
 
-enum class CandidateKind { CHINESE, JAPANESE_WORD, MIXED, MIXED_PREFIX, KANA, LITERAL, EMOJI, KAOMOJI, SYMBOL_EXTRA }
+enum class CandidateKind { CHINESE, JAPANESE_WORD, MIXED, MIXED_PREFIX, KANA, LITERAL, EMOJI, KAOMOJI, SYMBOL_EXTRA, CUSTOM }
 
 /**
  * One choice. [coreIndex] addresses the engine's own list for Chinese
@@ -108,7 +108,7 @@ object CandidateMerge {
     /** Keep the interpreted word first and associate only a full reading. */
     fun withSymbols(choices: List<Candidate>, symbols: SymbolAssociations, inputLength: Int): List<Candidate> {
         val first = choices.firstOrNull() ?: return choices
-        if (first.kind == CandidateKind.LITERAL || first.consumed != inputLength) return choices
+        if (first.kind == CandidateKind.LITERAL || first.kind == CandidateKind.CUSTOM || first.consumed != inputLength) return choices
         val marks = symbols.of(first.text, japanese = first.japanese) ?: return choices
         val primaryEmoji = marks.emoji.firstOrNull { it != first.text }
         val primaryKaomoji = if (first.text.codePointCount(0, first.text.length) > 1) {

@@ -12,9 +12,6 @@ interface EnglishSource {
 
     /** The words that may follow [before]. */
     fun predict(before: String, flags: Int): List<String>
-
-    /** The words keypad [digits] (2-9) spell. */
-    fun nineKey(digits: String, before: String, flags: Int): List<String>
 }
 
 /**
@@ -30,7 +27,6 @@ class NativeEnglishSource private constructor(private var handle: Long) : Englis
     override fun complete(prefix: String, before: String, flags: Int) = ask(NativeEnglish.COMPLETE, prefix, before, flags)
     override fun correct(word: String, before: String, flags: Int) = ask(NativeEnglish.CORRECT, word, before, flags)
     override fun predict(before: String, flags: Int) = ask(NativeEnglish.PREDICT, "", before, flags)
-    override fun nineKey(digits: String, before: String, flags: Int) = ask(NativeEnglish.NINE_KEY, digits, before, flags)
 
     override fun close() {
         if (handle != 0L) NativeEnglish.close(handle)
