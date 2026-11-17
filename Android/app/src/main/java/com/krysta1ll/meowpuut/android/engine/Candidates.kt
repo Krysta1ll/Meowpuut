@@ -27,6 +27,8 @@ enum class CandidateKind { CHINESE, JAPANESE_WORD, MIXED, MIXED_PREFIX, KANA, LI
 data class Candidate(val text: String, val kind: CandidateKind, val coreIndex: Int = -1, val consumed: Int = 0) {
     val japanese get() = kind == CandidateKind.JAPANESE_WORD || kind == CandidateKind.MIXED ||
         kind == CandidateKind.MIXED_PREFIX || kind == CandidateKind.KANA
+    internal val selection get() = text to consumed
+    internal fun continues(inputLength: Int) = consumed in 1 until inputLength
 }
 
 /** A Chinese candidate as the engine reports it. */
@@ -54,23 +56,25 @@ object CandidateMerge {
     ): List<Candidate> {
         val length = input.length
         val list = ArrayList<Candidate>(chinese.size + 6)
-        val seen = HashSet<String>()
+        val seen = HashSet<Pair<String, Int>>()
         for (c in chinese) {
-            if (c.text.isNotEmpty() && seen.add(c.text)) list += c.choice()
+            if (c.text.isEmpty()) continue
+            val choice = c.choice()
+            if (seen.add(choice.selection)) list += choice
         }
         val top = chinese.firstOrNull()
         // "sushi": 蘇軾 is an exact word and stays first; 寿司 still shows up front.
         val topComplete = top != null && top.exact && top.consumed >= length
 
         val best: Candidate? = when {
-            japaneseWord != null && japaneseWord !in seen -> Candidate(japaneseWord, CandidateKind.JAPANESE_WORD, consumed = length)
-            mixedWhole != null && mixedWhole.isNotEmpty() && mixedWhole !in seen -> Candidate(mixedWhole, CandidateKind.MIXED, consumed = length)
-            mixedPrefix != null && mixedPrefix.first !in seen && mixedPrefix.second in 1 until length ->
+            japaneseWord != null && (japaneseWord to length) !in seen -> Candidate(japaneseWord, CandidateKind.JAPANESE_WORD, consumed = length)
+            mixedWhole != null && mixedWhole.isNotEmpty() && (mixedWhole to length) !in seen -> Candidate(mixedWhole, CandidateKind.MIXED, consumed = length)
+            mixedPrefix != null && mixedPrefix !in seen && mixedPrefix.second in 1 until length ->
                 Candidate(mixedPrefix.first, CandidateKind.MIXED_PREFIX, consumed = mixedPrefix.second)
             else -> null
         }
         if (best != null) {
-            seen += best.text
+            seen += best.selection
             val position = when {
                 list.isEmpty() -> 0
                 best.consumed >= length && !topComplete -> 0
@@ -80,19 +84,19 @@ object CandidateMerge {
         }
 
         val extras = ArrayList<Candidate>()
-        if (mixedPrefix != null && mixedPrefix.second in 1 until length && seen.add(mixedPrefix.first)) {
+        if (mixedPrefix != null && mixedPrefix.second in 1 until length && seen.add(mixedPrefix)) {
             extras += Candidate(mixedPrefix.first, CandidateKind.MIXED_PREFIX, consumed = mixedPrefix.second)
         }
         if (kana != null && length >= 2 && Romaji.isKana(kana)) {
-            if (seen.add(kana)) extras += Candidate(kana, CandidateKind.KANA, consumed = length)
+            if (seen.add(kana to length)) extras += Candidate(kana, CandidateKind.KANA, consumed = length)
             val katakana = Romaji.katakana(kana)
-            if (seen.add(katakana)) extras += Candidate(katakana, CandidateKind.KANA, consumed = length)
+            if (seen.add(katakana to length)) extras += Candidate(katakana, CandidateKind.KANA, consumed = length)
         }
         for (word in moreJapanese) {
-            if (seen.add(word)) extras += Candidate(word, CandidateKind.JAPANESE_WORD, consumed = length)
+            if (seen.add(word to length)) extras += Candidate(word, CandidateKind.JAPANESE_WORD, consumed = length)
         }
 
-        if (typed.isNotEmpty() && seen.add(typed)) {
+        if (typed.isNotEmpty() && seen.add(typed to length)) {
             val literal = Candidate(typed, CandidateKind.LITERAL, consumed = length)
             val position = when {
                 length == 1 -> min(6, list.size)
@@ -106,17 +110,12 @@ object CandidateMerge {
     }
 
     internal fun withCustom(
-        choices: List<Candidate>, matches: List<String>, inputLength: Int, core: List<CoreCandidate>,
+        choices: List<Candidate>, matches: List<String>, inputLength: Int,
     ): List<Candidate> {
         if (matches.isEmpty()) return choices
         val texts = matches.toHashSet()
-        val kept = choices.filterNot { it.text in texts && it.consumed !in 1 until inputLength }
-        val keptPartials = kept.filter { it.text in texts }.mapTo(HashSet()) { it.text to it.consumed }
-        // The normal compact ordering can already have hidden a same-text prefix.
-        val prefixes = core.filter {
-            it.text in texts && it.consumed in 1 until inputLength && keptPartials.add(it.text to it.consumed)
-        }.map(CoreCandidate::choice)
-        return matches.map { Candidate(it, CandidateKind.CUSTOM, consumed = inputLength) } + kept + prefixes
+        val kept = choices.filterNot { it.text in texts && !it.continues(inputLength) }
+        return matches.map { Candidate(it, CandidateKind.CUSTOM, consumed = inputLength) } + kept
     }
 
     internal fun customTexts(choices: List<Candidate>): Set<String> {
@@ -149,19 +148,35 @@ object CandidateMerge {
         return result
     }
 
-    /** Secondary symbols, repeated Japanese suggestions and custom-name prefixes wait in the panel. */
-    fun collapsed(all: List<Candidate>, limitJapanese: Boolean = true): List<Int> {
-        val custom = customTexts(all)
+    /** Keep the leading choice and put a native prefix on the first screen in segmented modes. */
+    fun collapsed(all: List<Candidate>, limitJapanese: Boolean = true, segmentLength: Int = 0): List<Int> {
         var japaneseShown = false
         val out = ArrayList<Int>(all.size)
         for ((i, c) in all.withIndex()) {
             if (c.kind == CandidateKind.SYMBOL_EXTRA) continue
-            if (c.kind != CandidateKind.CUSTOM && c.text in custom) continue
             if (limitJapanese && c.japanese) {
                 if (japaneseShown) continue
                 japaneseShown = true
             }
             out += i
+        }
+        val lead = out.firstOrNull()?.let(all::get)
+        if (segmentLength > 0 && lead != null && !lead.continues(segmentLength)) {
+            val whole = out.asSequence().map(all::get).firstOrNull {
+                it.kind == CandidateKind.CHINESE && it.consumed == segmentLength
+            }
+            var prefix = -1
+            for ((position, i) in out.withIndex()) {
+                val candidate = all[i]
+                if (candidate.kind != CandidateKind.CHINESE || !candidate.continues(segmentLength)) continue
+                if (prefix < 0) prefix = position
+                if (whole?.text?.startsWith(candidate.text) == true) {
+                    prefix = position
+                    break
+                }
+            }
+            val position = if (out.getOrNull(1)?.let { all[it].kind } == CandidateKind.EMOJI) 2 else 1
+            if (prefix > position) out.add(position, out.removeAt(prefix))
         }
         return out
     }

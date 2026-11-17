@@ -78,6 +78,7 @@ class Composer {
 
     val composing get() = raw.isNotEmpty()
     val input get() = raw.toString()
+    val segmentLength get() = if (mode == InputMode.JAPANESE) 0 else raw.length
     val canSeparateNineKey get() = raw.lastOrNull()?.let { it in '2'..'9' || it in 'A'..'Z' } == true && raw.length < maxInput
     val moreAvailable get() = coreFetched < coreTotal
 
@@ -276,18 +277,14 @@ class Composer {
         if (session == 0L || coreFetched >= coreTotal) return false
         val nineKey = mode == InputMode.NINE_KEY
         val custom = CandidateMerge.customTexts(candidates)
-        val seen = HashSet<String>()
-        if (!nineKey) candidates.mapTo(seen) { it.text }
-        val seenPartials = candidates.filter { it.kind != CandidateKind.CUSTOM && it.text in custom }
-            .mapTo(HashSet()) { it.text to it.consumed }
+        val seen = candidates.asSequence().filter { !nineKey || it.text in custom }
+            .mapTo(HashSet(), Candidate::selection)
         while (coreFetched < coreTotal) {
             val start = coreFetched
             val added = fetchCore(start, batch).filter {
-                if (it.text in custom) {
-                    it.consumed in 1 until raw.length && seenPartials.add(it.text to it.consumed)
-                } else {
-                    nineKey || seen.add(it.text)
-                }
+                val matchesCustom = it.text in custom
+                (!matchesCustom || it.consumed in 1 until raw.length) &&
+                    ((nineKey && !matchesCustom) || seen.add(it.text to it.consumed))
             }.map(CoreCandidate::choice)
             if (added.isNotEmpty()) {
                 candidates = candidates + added
@@ -405,7 +402,7 @@ class Composer {
             InputMode.ZHUYIN, InputMode.NINE_KEY -> {
                 preedit = NativeEngine.preedit(session)
                 val choices = core.map(CoreCandidate::choice)
-                candidates = if (mode == InputMode.NINE_KEY) choices else choices.distinctBy { it.text }
+                candidates = if (mode == InputMode.NINE_KEY) choices else choices.distinctBy(Candidate::selection)
             }
             InputMode.JAPANESE -> {
                 val typed = raw.toString()
@@ -429,7 +426,7 @@ class Composer {
         if (allowCustomEntries && customDictionary.isNotEmpty()) {
             val input = if (mode == InputMode.ZHUYIN) NativeEngine.inputText(session) else raw.toString()
             val matches = CustomDictionary.matches(customDictionary, mode, input)
-            candidates = CandidateMerge.withCustom(candidates, matches, raw.length, core)
+            candidates = CandidateMerge.withCustom(candidates, matches, raw.length)
         }
         if (symbolsAllowed) candidates = CandidateMerge.withSymbols(candidates, symbols, raw.length)
     }

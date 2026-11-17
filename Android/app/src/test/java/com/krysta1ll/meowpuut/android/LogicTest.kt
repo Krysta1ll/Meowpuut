@@ -40,6 +40,25 @@ import kotlin.math.abs
 
 class LogicTest {
     @Test
+    fun compactChineseChoicesKeepTheLeaderAndEmojiAndPromoteTheMatchingPrefix() {
+        // Native consumption uses raw ASCII in both modes: youhua and
+        // the Zhuyin key sequence for ㄧㄡㄏㄨㄚ use different split offsets.
+        for ((length, prefixLength) in listOf(6 to 3, 5 to 2)) {
+            val lead = Candidate("優化", CandidateKind.CHINESE, coreIndex = 0, consumed = length)
+            val emoji = Candidate("🪄", CandidateKind.EMOJI, consumed = length)
+            val full = lead.copy(text = "油畫", coreIndex = 1)
+            val earlierPrefix = lead.copy(text = "油", coreIndex = 6, consumed = prefixLength)
+            val matchingPrefix = earlierPrefix.copy(text = "優", coreIndex = 11)
+            val choices = listOf(lead, emoji, full, earlierPrefix, matchingPrefix)
+            assertEquals(listOf(0, 1, 4, 2, 3), CandidateMerge.collapsed(choices, segmentLength = length))
+            assertEquals("優", choices[4].text)
+            assertEquals(prefixLength, choices[4].consumed)
+            assertEquals(listOf(0, 1, 3, 2), CandidateMerge.collapsed(choices.dropLast(1), segmentLength = length))
+            assertEquals(listOf(0, 1), CandidateMerge.collapsed(choices.take(2), segmentLength = length))
+        }
+    }
+
+    @Test
     fun memoryPreservesCandidateSlotsAndLearnsOnlyConsumedReading() {
         val lead = Candidate("你好", CandidateKind.CHINESE, 4, 5)
         val alternate = lead.copy(text = "擬好", coreIndex = 81)

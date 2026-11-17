@@ -19,8 +19,6 @@ import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeProvider
 import android.widget.OverScroller
 import com.krysta1ll.meowpuut.android.engine.Candidate
-import com.krysta1ll.meowpuut.android.engine.CandidateKind
-import com.krysta1ll.meowpuut.android.engine.CandidateMerge
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -57,6 +55,7 @@ class ExpandedPanelView(context: Context) : View(context) {
         }
 
     private var candidates: List<Candidate> = emptyList()
+    private var segmentLength = 0
     private var syllables: List<String> = emptyList()
     private var highlighted = 0
     private var japaneseMarks = true
@@ -100,17 +99,18 @@ class ExpandedPanelView(context: Context) : View(context) {
 
     fun show(
         list: List<Candidate>, highlighted: Int, japaneseMarks: Boolean, resetScroll: Boolean,
-        emoji: Boolean = false, syllables: List<String> = emptyList()
+        emoji: Boolean = false, syllables: List<String> = emptyList(), segmentLength: Int = 0,
     ) {
-        if (!resetScroll && candidates === list && this.highlighted == highlighted &&
-            this.japaneseMarks == japaneseMarks && this.emoji == emoji && this.syllables == syllables) return
-        val changed = candidates !== list || this.japaneseMarks != japaneseMarks || this.emoji != emoji || this.syllables != syllables
+        val changed = candidates !== list || this.japaneseMarks != japaneseMarks || this.emoji != emoji ||
+            this.syllables != syllables || this.segmentLength != segmentLength
+        if (!resetScroll && !changed && this.highlighted == highlighted) return
         val syllablesChanged = this.syllables != syllables
         candidates = list
         this.syllables = syllables
         this.highlighted = highlighted
         this.japaneseMarks = japaneseMarks
         this.emoji = emoji
+        this.segmentLength = segmentLength
         if (resetScroll) { scroll = 0f; scroller.forceFinished(true) }
         if (resetScroll || syllablesChanged) chipScroll = 0f
         if (changed) { pressed = -1; pressedChip = -1; relayout() }
@@ -150,13 +150,12 @@ class ExpandedPanelView(context: Context) : View(context) {
         }
         val barOffset = if (hasBar) SYLLABLE_BAR else 0f
         val list = ArrayList<Cell>(candidates.size)
-        val custom = CandidateMerge.customTexts(candidates)
         var x = 0f
         var y = TOP + barOffset
         var columnsUsed = 0
         for ((i, c) in candidates.withIndex()) {
             val japanese = c.japanese && japaneseMarks
-            val continues = c.kind != CandidateKind.CUSTOM && c.text in custom
+            val continues = c.continues(segmentLength)
             val label = if (continues) c.text + words("（續）", "（续）") else c.text
             val natural = bold.measureText(label) + 28f + if (japanese) mark else 0f
             val columns = if (emoji) 1 else min(totalColumns, max(1, ceil((natural + GAP) / (unit + GAP)).toInt()))

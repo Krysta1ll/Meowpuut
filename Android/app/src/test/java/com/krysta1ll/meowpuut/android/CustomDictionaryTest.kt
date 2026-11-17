@@ -53,20 +53,22 @@ class CustomDictionaryTest {
     }
 
     @Test
-    fun keepsASameTextNativePrefixInTheExpandedPanel() {
+    fun keepsTheSameTextCustomAndNativePrefixInTheCompactRow() {
         val core = listOf(
             CoreCandidate("你好", index = 0, consumed = 7, exact = true),
             CoreCandidate("你好", index = 1, consumed = 5, exact = false),
             CoreCandidate("你好我", index = 2, consumed = 7, exact = true),
+            CoreCandidate("你好", index = 3, consumed = 5, exact = false),
         )
         val native = CandidateMerge.pinyin("nihaowo", "nihaowo", core, null, null, null, null)
-        val expanded = CandidateMerge.withCustom(native, listOf("你好"), 7, core)
+        assertEquals(listOf(7, 5), native.filter { it.text == "你好" }.map { it.consumed })
+        val expanded = CandidateMerge.withCustom(native, listOf("你好"), 7)
         val matching = expanded.filter { it.text == "你好" }
         assertEquals(listOf(7, 5), matching.map { it.consumed })
         assertEquals(CandidateKind.CUSTOM, matching.first().kind)
         assertEquals(1, matching.last().coreIndex)
-        val compact = CandidateMerge.collapsed(expanded).map(expanded::get)
-        assertEquals(listOf(matching.first()), compact.filter { it.text == "你好" })
+        val compact = CandidateMerge.collapsed(expanded, segmentLength = 7).map(expanded::get)
+        assertEquals(matching, compact.take(2))
     }
 
     @Test

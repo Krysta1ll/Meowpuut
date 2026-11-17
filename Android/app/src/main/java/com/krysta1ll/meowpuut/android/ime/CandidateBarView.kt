@@ -84,6 +84,7 @@ class CandidateBarView(
         val expanded: Boolean = false,
         val canExpand: Boolean = false,
         val composing: Boolean = false,
+        val segmentLength: Int = 0,
         val japaneseMarks: Boolean = true,
         val emoji: Boolean = false,
         val japaneseMode: Boolean = false,
@@ -212,7 +213,10 @@ class CandidateBarView(
     }
 
     // Row items in content coordinates (dp, before scrolling).
-    private class Item(val kind: Int, val index: Int, val text: String, val shown: String, var x: Float, val width: Float, val japanese: Boolean)
+    private class Item(
+        val kind: Int, val index: Int, val text: String, val shown: String,
+        var x: Float, val width: Float, val japanese: Boolean, val continues: Boolean = false,
+    )
     private var items: List<Item> = emptyList()
     private var contentWidth = 0f
     private var scroll
@@ -342,7 +346,7 @@ class CandidateBarView(
         val wasComposing = content.composing
         val newRow = next.candidates != content.candidates || next.visible != content.visible ||
             next.predictions != content.predictions || next.punctuation != content.punctuation ||
-            next.japaneseMarks != content.japaneseMarks
+            next.japaneseMarks != content.japaneseMarks || next.segmentLength != content.segmentLength
         bar.content = next
         if (newRow && next.composing) {
             toast = null
@@ -390,43 +394,63 @@ class CandidateBarView(
         val maxCell = min(region.maximumCandidateWidth(candidateRow), room.coerceAtLeast(MIN_CANDIDATE_WIDTH))
         if (c.candidates.isNotEmpty()) {
             fun textWidth(text: String) = max(measureText(text, selectedPaint), measureText(text, textPaint))
-            // Reserve an associated emoji and one Japanese reading when
-            // they fit beside the highest-ranked word on this screen.
+            // Keep the inline emoji and the leading prefix on the first screen when they fit.
             val emoji = c.visible.getOrNull(1)?.let(c.candidates::getOrNull)?.takeIf { it.kind == CandidateKind.EMOJI }
             val emojiWidth = emoji?.let { (textWidth(it.text) + 24f).coerceIn(MIN_CANDIDATE_WIDTH, maxCell) } ?: 0f
             val emojiSpace = if (emoji != null && room >= MIN_CANDIDATE_WIDTH + gap + emojiWidth) emojiWidth + gap else 0f
+            val prefixPosition = c.visible.indexOfFirst {
+                val candidate = c.candidates.getOrNull(it)
+                candidate?.kind == CandidateKind.CHINESE && candidate.continues(c.segmentLength)
+            }
+            val reservePrefix = prefixPosition in 1..2 && room >= emojiSpace + 2 * MIN_CANDIDATE_WIDTH + gap
+            val prefixSpace = if (reservePrefix) {
+                val prefix = c.candidates[c.visible[prefixPosition]]
+                val desired = (textWidth(prefix.text + CONTINUATION_MARK) + 24f).coerceIn(MIN_CANDIDATE_WIDTH, maxCell)
+                min(desired, room - emojiSpace - MIN_CANDIDATE_WIDTH - gap) + gap
+            } else 0f
             val japanesePosition = if (c.japaneseMarks) c.visible.indexOfFirst { c.candidates.getOrNull(it)?.japanese == true } else -1
-            val reserveJapanese = japanesePosition > 0 && room >= emojiSpace + 2 * MIN_CANDIDATE_WIDTH + gap
+            val reserveJapanese = japanesePosition > 0 && room >= emojiSpace + prefixSpace + 2 * MIN_CANDIDATE_WIDTH + gap
             val japaneseSpace = if (reserveJapanese) {
                 val japanese = c.candidates[c.visible[japanesePosition]]
                 val desired = (textWidth(japanese.text) + 24f + mark).coerceIn(MIN_CANDIDATE_WIDTH, min(76f, maxCell))
-                min(desired, room - emojiSpace - MIN_CANDIDATE_WIDTH - gap) + gap
+                min(desired, room - emojiSpace - prefixSpace - MIN_CANDIDATE_WIDTH - gap) + gap
             } else 0f
-            val firstCell = min(maxCell, (room - emojiSpace - japaneseSpace).coerceAtLeast(MIN_CANDIDATE_WIDTH))
+            val firstCell = min(maxCell, (room - emojiSpace - prefixSpace - japaneseSpace).coerceAtLeast(MIN_CANDIDATE_WIDTH))
             var firstWidth = MIN_CANDIDATE_WIDTH
             for ((position, index) in c.visible.withIndex()) {
                 val candidate = c.candidates.getOrNull(index) ?: continue
                 val japanese = candidate.japanese && c.japaneseMarks
+                val continues = candidate.continues(c.segmentLength)
+                val suffix = if (continues) CONTINUATION_MARK else ""
                 val cellLimit = when {
                     position == 0 -> firstCell
+                    reservePrefix && position == prefixPosition ->
+                        min(maxCell, (viewport - x - japaneseSpace).coerceAtLeast(MIN_CANDIDATE_WIDTH))
                     reserveJapanese && position == japanesePosition ->
-                        min(maxCell, (room - firstWidth - gap - emojiSpace).coerceAtLeast(MIN_CANDIDATE_WIDTH))
+                        min(maxCell, (room - firstWidth - gap - emojiSpace - prefixSpace).coerceAtLeast(MIN_CANDIDATE_WIDTH))
                     else -> maxCell
                 }
                 val labelRoom = (cellLimit - 24f - if (japanese) mark else 0f).coerceAtLeast(0f)
-                val shown = if (textWidth(candidate.text) > labelRoom) {
+                val shown = if (textWidth(candidate.text + suffix) > labelRoom) {
                     val wider = if (measureText(candidate.text, selectedPaint) >= measureText(candidate.text, textPaint)) selectedPaint else textPaint
-                    TextUtils.ellipsize(candidate.text, wider, labelRoom, TextUtils.TruncateAt.MIDDLE).toString()
-                } else candidate.text
+                    val availableForText = (labelRoom - textWidth(suffix)).coerceAtLeast(0f)
+                    val label = TextUtils.ellipsize(candidate.text, wider, availableForText, TextUtils.TruncateAt.MIDDLE).toString()
+                    if (continues && (label.isEmpty() || label == "…")) {
+                        TextUtils.ellipsize(candidate.text, wider, labelRoom, TextUtils.TruncateAt.MIDDLE).toString()
+                    } else label + suffix
+                } else candidate.text + suffix
                 val width = (textWidth(shown) + 24f + if (japanese) mark else 0f).coerceIn(MIN_CANDIDATE_WIDTH, cellLimit)
                 if (position == 0) firstWidth = width
-                list += Item(0, index, candidate.text, shown, x, width, japanese)
+                list += Item(0, index, candidate.text, shown, x, width, japanese, continues)
                 x += width + gap
             }
             if (reserveJapanese) {
                 val japanese = list.firstOrNull { it.japanese }
                 if (japanese != null && japanese.x + japanese.width > viewport + 0.01f) {
-                    val insertAt = list.indexOfFirst { it.x + it.width + gap + japanese.width > viewport + 0.01f }
+                    val insertAt = list.indexOfFirst {
+                        (!reservePrefix || it.index != c.visible[prefixPosition]) &&
+                            it.x + it.width + gap + japanese.width > viewport + 0.01f
+                    }
                     if (insertAt >= 0) {
                         list.remove(japanese)
                         list.add(insertAt, japanese)
@@ -1701,7 +1725,8 @@ class CandidateBarView(
                 (right * density).toInt(), (hit.bottom * density).toInt())
             val words = content.words
             val label = when (item.kind) {
-                0 -> (if (item.japanese) words("日語候選：", "日语候选：") else words("候選：", "候选：")) + item.text
+                0 -> (if (item.japanese) words("日語候選：", "日语候选：") else words("候選：", "候选：")) + item.text +
+                    if (item.continues) words("，保留後續讀音", "，保留后续读音") else ""
                 1 -> words("聯想詞：", "联想词：") + item.text
                 else -> words("標點：", "标点：") + item.text
             }
@@ -1759,6 +1784,7 @@ class CandidateBarView(
         private const val MOMO_ID = 10_002
         private const val ROW_FADE = 18f
         private const val MIN_CANDIDATE_WIDTH = 44f
+        private const val CONTINUATION_MARK = " ›"
         private const val EGG_DURATION = 850L
         private const val RIPPLE_MS = 500f
         private const val CAT_HOLD_DELAY = 320L

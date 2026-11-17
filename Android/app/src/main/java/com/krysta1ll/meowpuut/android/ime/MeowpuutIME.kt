@@ -667,7 +667,9 @@ class MeowpuutIME : InputMethodService(),
     }
 
     private fun visibleCandidates(): List<Int> {
-        return CandidateMerge.collapsed(composer.candidates, limitJapanese = mode.pinyinBased && prefs.mixedJapanese)
+        return CandidateMerge.collapsed(
+            composer.candidates, limitJapanese = mode.pinyinBased && prefs.mixedJapanese, segmentLength = composer.segmentLength,
+        )
     }
 
     private fun moveHighlight(delta: Int) {
@@ -1227,6 +1229,7 @@ class MeowpuutIME : InputMethodService(),
         val all = composer.candidates
         val visible = if (english) all.indices.toList() else visibleCandidates()
         val composing = composer.composing
+        val segmentLength = if (english || emojiOpen) 0 else composer.segmentLength
         view.bar.japaneseMimimo = if (mode == InputMode.JAPANESE && !english && prefs.cats) japaneseMimimo else null
         view.bar.update(CandidateBarView.Content(
             candidates = if (emojiOpen) emptyList() else all,
@@ -1238,6 +1241,7 @@ class MeowpuutIME : InputMethodService(),
             expanded = showPanel,
             canExpand = showPanel || (composing && all.isNotEmpty()),
             composing = composing,
+            segmentLength = segmentLength,
             japaneseMarks = mode.pinyinBased && prefs.mixedJapanese && !english,
             emoji = emojiOpen,
             japaneseMode = mode == InputMode.JAPANESE,
@@ -1246,7 +1250,7 @@ class MeowpuutIME : InputMethodService(),
         view.expanded = showPanel
         view.panel.words = words
         if (emojiOpen) view.panel.show(emojiChoices, -1, false, resetPanel, emoji = true)
-        else if (showPanel) view.panel.show(all, composer.highlighted, mode.pinyinBased, resetPanel, syllables = syllables)
+        else if (showPanel) view.panel.show(all, composer.highlighted, mode.pinyinBased, resetPanel, syllables = syllables, segmentLength = segmentLength)
     }
 
     companion object {
