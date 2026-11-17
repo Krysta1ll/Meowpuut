@@ -181,6 +181,57 @@ class TouchTest {
     }
 
     @Test
+    fun pinyinToneHintsAcceptUpwardSwipesAndKeepTheLetterTap() {
+        val b = Board()
+        val marks = listOf("ˉ", "ˇ", "ˋ", "ˊ", "˙")
+        val digits = listOf('1', '3', '4', '2', '5')
+        assertNull(b.set.rows[0][5].swipeUpTone)
+        for ((index, letter) in "ertui".withIndex()) {
+            val key = b.set.rows[0].single { it.label == letter.toString() }
+            assertEquals(KeyAction.Engine(letter.code), key.action)
+            assertEquals(digits[index], key.swipeUpTone?.digit)
+            assertEquals(marks[index], key.swipeUpTone?.mark)
+            val frame = b.frame(letter.toString())
+            b.down(0, frame)
+            b.touches.up(0, frame.centerX, frame.centerY - 21f)
+        }
+        val r = b.frame("r")
+        b.tap(r)
+        b.down(0, r)
+        b.touches.move(0, r.centerX, r.centerY - 21f)
+        assertEquals(marks + "r", b.typed)
+        b.down(1, b.frame("q"))
+        b.up(1, b.frame("q"))
+        b.touches.up(0, r.centerX, r.centerY - 28f)
+        b.touches.activateTone(0, 3)
+        assertEquals(marks + listOf("r", "ˇ", "q", "ˇ"), b.typed)
+    }
+
+    @Test
+    fun toneGestureRequiresAnUpwardSwipeFromTheOriginalKey() {
+        val b = Board()
+        val r = b.frame("r")
+        b.down(0, r)
+        b.touches.up(0, r.centerX, r.centerY - 18f)
+        b.down(0, r)
+        b.touches.up(0, r.centerX + 20f, r.centerY - 21f)
+        b.down(0, r)
+        val t = b.frame("t")
+        b.move(0, t)
+        b.touches.up(0, t.centerX, t.centerY - 60f)
+        b.down(0, r)
+        b.touches.move(0, r.centerX, r.centerY - 21f)
+        b.touches.cancelAll()
+        b.touches.up(0, r.centerX, r.centerY - 21f)
+        assertEquals(listOf("r", "r", "t"), b.typed)
+        for (other in listOf(Board(english = true), Board(mode = InputMode.ZHUYIN), Board(mode = InputMode.NINE_KEY), Board(mode = InputMode.JAPANESE))) {
+            assertTrue(other.set.rows.flatten().none { it.swipeUpTone != null })
+        }
+        b.touches.activate(3, 0)
+        assertTrue(b.set.rows.flatten().none { it.swipeUpTone != null })
+    }
+
+    @Test
     fun nineKeyTapsComposeAndHoldingInsertsTheDigit() {
         val board = Board(mode = InputMode.NINE_KEY, composing = true)
         assertEquals(listOf(5, 5, 5), board.set.rows.take(3).map { it.size })

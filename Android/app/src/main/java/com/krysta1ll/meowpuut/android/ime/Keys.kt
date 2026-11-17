@@ -10,6 +10,7 @@ import com.krysta1ll.meowpuut.android.engine.InputMode
 sealed interface KeyAction {
     /** A raw ASCII key for the composer (letters, Zhuyin). */
     data class Engine(val code: Int) : KeyAction
+    data class PinyinTone(val digit: Char, val mark: String, val spoken: String) : KeyAction
     /** Inserted as is (symbol pages). */
     data class Text(val text: String) : KeyAction
     data class Page(val page: Int) : KeyAction
@@ -41,6 +42,7 @@ data class Key(
     val digit: String? = null,
     /** Return while composing Zhuyin: a long press commits the symbols as written. */
     val holdLabel: String? = null,
+    val swipeUpTone: KeyAction.PinyinTone? = null,
 ) {
     val holdsRaw get() = holdLabel != null
     val isCharacter get() = action is KeyAction.Engine || action is KeyAction.Text
@@ -282,13 +284,22 @@ object KeyBuilder {
         // Shift shows capitals in every letters layout: English text, a
         // reading typed in capitals in Pinyin, katakana first in Japanese.
         val upper = context.shift != ShiftState.OFF
+        val tones = if (!context.english && context.mode == InputMode.PINYIN) {
+            mapOf(
+                'e' to KeyAction.PinyinTone('1', "ˉ", t("一聲", "一声")),
+                'r' to KeyAction.PinyinTone('3', "ˇ", t("三聲", "三声")),
+                't' to KeyAction.PinyinTone('4', "ˋ", t("四聲", "四声")),
+                'u' to KeyAction.PinyinTone('2', "ˊ", t("二聲", "二声")),
+                'i' to KeyAction.PinyinTone('5', "˙", t("輕聲", "轻声")),
+            )
+        } else emptyMap()
         val rows = listOf("qwertyuiop", "asdfghjkl", "zxcvbnm").map { row ->
             row.map { c ->
                 val label = if (upper) c.uppercaseChar().toString() else c.toString()
                 val alternates = if (context.english) {
                     accents[c]?.map { if (upper) it.uppercase() else it }.orEmpty()
                 } else emptyList()
-                Key(KeyAction.Engine(c.code), label, alternates = alternates, spoken = label)
+                Key(KeyAction.Engine(c.code), label, alternates = alternates, spoken = label, swipeUpTone = tones[c])
             }
         }
         val shiftIcon = when (context.shift) {

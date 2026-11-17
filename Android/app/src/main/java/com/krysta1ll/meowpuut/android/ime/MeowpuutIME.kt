@@ -89,7 +89,7 @@ class MeowpuutIME : InputMethodService(),
     /** The last insertion was a tapped suggestion and its space. */
     private var suggestionSpace = false
     private var editorAllowsLearning = false
-    private val pending = ArrayList<Int>()
+    private val pending = ArrayList<KeyAction>()
     private var loading = false
     private var lexiconFailed = false
     private var opening: InputMode? = null
@@ -421,7 +421,11 @@ class MeowpuutIME : InputMethodService(),
             val queued = pending.toList()
             pending.clear()
             if (!lexiconFailed && currentInputConnection != null) {
-                for (code in queued) typeEngine(code, null, asTyped = true)
+                for (key in queued) when (key) {
+                    is KeyAction.Engine -> typeEngine(key.code, null, asTyped = true)
+                    is KeyAction.PinyinTone -> typePinyinTone(key)
+                    else -> Unit
+                }
             }
             refresh()
         }
@@ -558,7 +562,8 @@ class MeowpuutIME : InputMethodService(),
         val c = if (upper) code.toChar().uppercaseChar().code else code
         val nineKeySeparator = !english && mode == InputMode.NINE_KEY && c == '\''.code
         if (nineKeySeparator) {
-            val followsDigit = pending.lastOrNull()?.toChar()?.let { it in '2'..'9' || it in 'A'..'Z' } ?: composer.canSeparateNineKey
+            val queued = (pending.lastOrNull() as? KeyAction.Engine)?.code?.toChar()
+            val followsDigit = queued?.let { it in '2'..'9' || it in 'A'..'Z' } ?: composer.canSeparateNineKey
             if (!followsDigit) return
         }
         suggestionSpace = false
@@ -577,7 +582,7 @@ class MeowpuutIME : InputMethodService(),
             }
             if (currentInputConnection == null) return
             val wasEmpty = pending.isEmpty()
-            pending += c
+            pending += KeyAction.Engine(c)
             if (!asTyped) letterTyped()
             openLexicon()
             if (wasEmpty && mode == InputMode.NINE_KEY) refresh()
@@ -594,6 +599,21 @@ class MeowpuutIME : InputMethodService(),
         predictions = emptyList()
         applyEdit(edit, wasComposing)
         if (!asTyped) letterTyped()
+    }
+
+    private fun typePinyinTone(tone: KeyAction.PinyinTone) {
+        if (english || mode != InputMode.PINYIN) return
+        if (!composer.ready) {
+            if (lexiconFailed || currentInputConnection == null) return
+            when (val last = pending.lastOrNull()) {
+                is KeyAction.PinyinTone -> pending[pending.lastIndex] = tone
+                is KeyAction.Engine -> if (last.code.toChar().lowercaseChar() in 'a'..'z') pending += tone
+                else -> Unit
+            }
+            return
+        }
+        val edit = composer.typePinyinTone(tone.digit)
+        if (edit.handled) applyEdit(edit, wasComposing = true)
     }
 
     // ---------------------------------------------------------------- hardware keys
@@ -699,6 +719,7 @@ class MeowpuutIME : InputMethodService(),
         if (key.action != KeyAction.Emoji && emojiOpen) setEmoji(false)
         when (val action = key.action) {
             is KeyAction.Engine -> typeEngine(action.code, text)
+            is KeyAction.PinyinTone -> typePinyinTone(action)
             is KeyAction.Text -> typeSymbol(text ?: action.text)
             KeyAction.Segment -> typeEngine('\''.code, text)
             KeyAction.ClearComposition -> clearComposition()
@@ -993,7 +1014,8 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onNeedMore() {
-        if (composer.loadMore()) refresh()
+        val hadMore = composer.moreAvailable
+        if (composer.loadMore() || hadMore != composer.moreAvailable) refresh(retainCandidateScroll = !expanded)
     }
 
     override fun onSyllable(syllable: String) = onNineKeySyllable(syllable)
@@ -1193,7 +1215,7 @@ class MeowpuutIME : InputMethodService(),
     /** The day the festival theme was last looked up for. */
     private var festivalDay: java.time.LocalDate? = null
 
-    private fun refresh(resetPanel: Boolean = false) {
+    private fun refresh(resetPanel: Boolean = false, retainCandidateScroll: Boolean = false) {
         val view = keyboard ?: return
         // A keyboard left up past midnight takes the new day's theme, between words only.
         if (composer.input.isEmpty() && festivalDay != java.time.LocalDate.now()) applyLook()
@@ -1240,13 +1262,14 @@ class MeowpuutIME : InputMethodService(),
             status = if (emojiOpen) words("表情符號", "表情符号") else status(),
             expanded = showPanel,
             canExpand = showPanel || (composing && all.isNotEmpty()),
+            moreAvailable = composer.moreAvailable,
             composing = composing,
             segmentLength = segmentLength,
             japaneseMarks = mode.pinyinBased && prefs.mixedJapanese && !english,
             emoji = emojiOpen,
             japaneseMode = mode == InputMode.JAPANESE,
             words = words,
-        ))
+        ), retainScroll = retainCandidateScroll)
         view.expanded = showPanel
         view.panel.words = words
         if (emojiOpen) view.panel.show(emojiChoices, -1, false, resetPanel, emoji = true)

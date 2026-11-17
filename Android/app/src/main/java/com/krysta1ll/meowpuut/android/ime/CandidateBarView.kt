@@ -57,6 +57,7 @@ class CandidateBarView(
         fun onPunctuation(mark: String)
         fun onPunctuationTick() {}
         fun onToggleExpanded()
+        fun onNeedMore() {}
         fun onPet(cat: Cat)
         /** The cats were touched, typed over or woken: the pets' idle timer starts again. */
         fun onActivity() {}
@@ -83,6 +84,7 @@ class CandidateBarView(
         val status: String = "",
         val expanded: Boolean = false,
         val canExpand: Boolean = false,
+        val moreAvailable: Boolean = false,
         val composing: Boolean = false,
         val segmentLength: Int = 0,
         val japaneseMarks: Boolean = true,
@@ -341,7 +343,7 @@ class CandidateBarView(
         selectedPaint.typeface = if (Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, 500, false) else Typeface.DEFAULT
     }
 
-    fun update(next: Content) {
+    fun update(next: Content, retainScroll: Boolean = false) {
         if (next == content) return
         val wasComposing = content.composing
         val newRow = next.candidates != content.candidates || next.visible != content.visible ||
@@ -362,11 +364,13 @@ class CandidateBarView(
             clearPunctuationHold()
             layoutRow()
             pressedItem = -1
-            scroll = 0f
-            scroller.forceFinished(true)
-        } else {
-            scroll = scroll.coerceIn(0f, maxScroll)
+            if (!retainScroll) {
+                removeCallbacks(loadMore)
+                scroll = 0f
+                scroller.forceFinished(true)
+            }
         }
+        scroll = scroll.coerceIn(0f, maxScroll)
         accessibility.invalidateAll()
         invalidate()
     }
@@ -484,6 +488,17 @@ class CandidateBarView(
 
     private val maxScroll get() = max(0f, contentWidth - candidateRow.width)
 
+    private val loadMore = Runnable {
+        if (content.moreAvailable && !content.expanded) listener?.onNeedMore()
+    }
+
+    private fun maybeLoadMore() {
+        if (content.moreAvailable && !content.expanded && scroll >= maxScroll - candidateRow.width / 2f) {
+            removeCallbacks(loadMore)
+            post(loadMore)
+        }
+    }
+
     private val firstScreen get() = scroll <= 0.01f
 
     private fun shows(item: Item): Boolean {
@@ -546,6 +561,12 @@ class CandidateBarView(
 
     override fun onDraw(canvas: Canvas) {
         if (width == 0 || height == 0) return
+        val scrolling = scroller.computeScrollOffset()
+        if (scrolling) {
+            val previousScroll = scroll
+            scroll = (scroller.currX / density).coerceIn(0f, maxScroll)
+            if (scroll > previousScroll) maybeLoadMore()
+        }
         val refraction = refractionPaint(canvas)
         ensureCaches(needsGlass = refraction == null)
         val now = SystemClock.uptimeMillis()
@@ -580,8 +601,7 @@ class CandidateBarView(
             drawLiftedCat(canvas, it, now)
         }
         canvas.restore()
-        if (scroller.computeScrollOffset()) {
-            scroll = (scroller.currX / density).coerceIn(0f, maxScroll)
+        if (scrolling) {
             postInvalidateOnAnimation()
         } else if (catLiftStartedAt >= 0L || catsAnimating || actors.any { val m = it.motion; m != null && !m.settled(now) } ||
             particles.isNotEmpty() || (animatedToast && toast != null) || (motionEnabled && easterEggAt >= 0L)) {
@@ -1182,6 +1202,12 @@ class CandidateBarView(
     private fun onExpandHit(x: Float, y: Float): Boolean =
         (content.canExpand || content.expanded) && region.expandTarget(expandButton).contains(x, y)
 
+    private fun moveCandidateRow(x: Float) {
+        scroll = (downScroll - (x - downX)).coerceIn(0f, maxScroll)
+        if (x < downX) maybeLoadMore()
+        invalidate()
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (droppingCat) return true
@@ -1259,10 +1285,7 @@ class CandidateBarView(
                         pressedItem = -1
                         parent?.requestDisallowInterceptTouchEvent(true)
                     }
-                    if (dragging) {
-                        scroll = (downScroll - (x - downX)).coerceIn(0f, maxScroll)
-                        invalidate()
-                    }
+                    if (dragging) moveCandidateRow(x)
                 }
                 return true
             }
@@ -1271,7 +1294,8 @@ class CandidateBarView(
                 when (target) {
                     TARGET_ROW -> if (punctuationHold != null) {
                         punctuationHold?.let { listener?.onPunctuation(it.options[it.selected]) }
-                    } else if (dragging) {
+                    } else if (dragging || abs(x - downX) > touchSlop) {
+                        moveCandidateRow(x)
                         velocity?.computeCurrentVelocity(1000)
                         val vx = -(velocity?.xVelocity ?: 0f)
                         scroller.fling((scroll * density).roundToInt(), 0, vx.roundToInt(), 0, 0, (maxScroll * density).roundToInt(), 0, 0)
@@ -1699,6 +1723,7 @@ class CandidateBarView(
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(loadMore)
         endPresentation()
         super.onDetachedFromWindow()
     }

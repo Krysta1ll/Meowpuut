@@ -133,6 +133,25 @@ class Composer {
         return Edit(true, pending)
     }
 
+    fun typePinyinTone(tone: Char): Edit {
+        if (mode != InputMode.PINYIN || session == 0L || tone !in '1'..'5') return Edit(false)
+        val last = raw.lastOrNull() ?: return Edit(false)
+        val replacesTone = last in '1'..'5'
+        if (last == tone) return Edit(true)
+        if (replacesTone) {
+            if (!NativeEngine.key(session, NativeEngine.KEY_BACKSPACE)) return Edit(false)
+        } else if (raw.length >= maxInput || last.lowercaseChar() !in 'a'..'z') return Edit(false)
+        if (!NativeEngine.key(session, tone.code)) {
+            if (replacesTone) NativeEngine.key(session, last.code)
+            return Edit(false)
+        }
+        if (replacesTone) raw.setLength(raw.length - 1)
+        raw.append(tone)
+        syncRaw()
+        rebuild()
+        return Edit(true)
+    }
+
     /** Locks a Pinyin syllable at the start of the first unlocked nine-key digit span. */
     fun lockNineKeySyllable(syllable: String): Boolean {
         if (mode != InputMode.NINE_KEY || raw.isEmpty()) return false
@@ -390,9 +409,9 @@ class Composer {
                 preedit = raw.toString()
                 val lower = raw.toString().lowercase()
                 val reading = lower.replace("'", "")
-                val japanese = mixedWords(reading)
+                val mixing = mixedJapanese && reading.none { it in '1'..'5' }
+                val japanese = if (mixing) mixedWords(reading) else emptyList()
                 val word = japanese.firstOrNull()
-                val mixing = mixedJapanese
                 val whole = if (mixing && word == null && reading.length >= 2) NativeEngine.mixedPinyin(session, lower, simplified).ifEmpty { null } else null
                 val prefix = if (mixing && reading.length >= 3) {
                     NativeEngine.mixedPinyinPrefix(session, lower, simplified)?.let { it[0] to (it[1].toIntOrNull() ?: 0) }

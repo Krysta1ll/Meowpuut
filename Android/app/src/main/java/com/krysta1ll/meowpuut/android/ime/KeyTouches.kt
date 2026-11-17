@@ -1,5 +1,7 @@
 package com.krysta1ll.meowpuut.android.ime
 
+import kotlin.math.abs
+
 // Which finger is on which key and what that types (docs/DESIGN.md §6), the
 // same rules as iOS KeyboardKeysView.swift. Nothing here touches android.*:
 // KeysView feeds it touches and timers, and the JVM unit tests drive it too.
@@ -55,7 +57,10 @@ class KeyTouches(private val host: Host) {
     /** What a finger is doing. SHIFT and PAGE may end on a character the finger slid to. */
     private enum class Mode { KEY, ALTERNATES, CURSOR, SHIFT, PAGE, DELETE, INERT }
 
-    private class Pointer(val id: Int, var row: Int, var column: Int, var key: Key, var frame: Box, var x: Float) {
+    private class Pointer(val id: Int, var row: Int, var column: Int, var key: Key, var frame: Box, val downX: Float, val downY: Float) {
+        var x = downX
+        var canSwipeTone = key.swipeUpTone != null
+        var tone: KeyAction.PinyinTone? = null
         var mode = Mode.KEY
         var committed = false
         /** Shift: a letter was typed while it was held. */
@@ -140,7 +145,7 @@ class KeyTouches(private val host: Host) {
         val frame = frameOf(row, column) ?: return
         // Rollover: a new finger types whatever the earlier fingers still hold.
         for (earlier in pointers.values.toList()) commitEarly(earlier)
-        val p = Pointer(id, row, column, key, frame, x)
+        val p = Pointer(id, row, column, key, frame, x, y)
         pointers[id] = p
         begin(p)
     }
@@ -168,7 +173,7 @@ class KeyTouches(private val host: Host) {
                 listener?.onPage(action.page)
             }
             KeyAction.Return -> if (key.holdsRaw) scheduleHold(p, ALTERNATES_DELAY) { fireHold(p) }
-            KeyAction.ToggleEnglish, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
+            is KeyAction.PinyinTone, KeyAction.ToggleEnglish, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
         }
     }
 
@@ -188,7 +193,12 @@ class KeyTouches(private val host: Host) {
         when (p.mode) {
             Mode.KEY -> {
                 // A finger may slide to another character key before lifting.
-                if (p.committed || !p.key.isCharacter) return
+                if (p.committed || p.tone != null || !p.key.isCharacter) return
+                if (recognizeTone(p, x, y)) {
+                    host.hideBalloon(p.id)
+                    host.redraw()
+                    return
+                }
                 // A small drift across the seam keeps the active key. New taps hit the full grid.
                 if (p.key.action is KeyAction.Engine && keySet?.toleratesKeyDrift == true) {
                     val hit = placements.getOrNull(p.row)?.getOrNull(p.column)?.hitFrame
@@ -199,6 +209,7 @@ class KeyTouches(private val host: Host) {
                 if (row == p.row && column == p.column) return
                 val next = keyOf(row, column) ?: return
                 if (!next.isCharacter || !next.enabled) return
+                p.canSwipeTone = false
                 p.row = row; p.column = column; p.key = next
                 p.frame = frameOf(row, column) ?: p.frame
                 showPressed(p)
@@ -249,6 +260,7 @@ class KeyTouches(private val host: Host) {
         host.redraw()
         when (mode) {
             Mode.KEY -> if (!p.committed) {
+                recognizeTone(p, x, y)
                 // Characters and space are typed wherever the finger lifts;
                 // Return, the language key and the globe need it to stay on them.
                 if (p.key.rollsOver || keyAt(x, y) == (p.row to p.column)) commit(p, null)
@@ -271,9 +283,23 @@ class KeyTouches(private val host: Host) {
         p.mode = Mode.INERT
     }
 
+    private fun recognizeTone(p: Pointer, x: Float, y: Float): Boolean {
+        val tone = p.key.swipeUpTone ?: return false
+        if (p.tone != null) return true
+        val rise = p.downY - y
+        if (!p.canSwipeTone || rise < TONE_SWIPE_DP || rise < abs(x - p.downX) * 1.4f) return false
+        p.tone = tone
+        return true
+    }
+
     private fun commit(p: Pointer, text: String?) {
         p.committed = true
         val key = p.key
+        val tone = p.tone
+        if (tone != null) {
+            listener?.onKey(key.copy(action = tone, label = tone.mark), null)
+            return
+        }
         if (key.isCharacter) {
             if (p.mode == Mode.SHIFT) p.typed = true
             for (other in pointers.values) if (other.mode == Mode.SHIFT) other.typed = true
@@ -309,7 +335,7 @@ class KeyTouches(private val host: Host) {
     }
 
     private fun showPressed(p: Pointer) {
-        if (p.key.preview && p.key.isCharacter) host.showBalloon(p.id, p.key, p.frame) else host.hideBalloon(p.id)
+        if (p.key.preview && p.key.isCharacter && p.tone == null) host.showBalloon(p.id, p.key, p.frame) else host.hideBalloon(p.id)
     }
 
     private fun scheduleHold(p: Pointer, delay: Long, action: () -> Unit) {
@@ -335,6 +361,16 @@ class KeyTouches(private val host: Host) {
         host.pulseKeyPress(row, column)
         listener?.onTick()
         listener?.onKeyHold(key)
+    }
+
+    /** A TalkBack action invokes the same tone as an upward swipe. */
+    fun activateTone(row: Int, column: Int) {
+        val key = keyOf(row, column) ?: return
+        val tone = key.swipeUpTone ?: return
+        if (!key.enabled) return
+        host.pulseKeyPress(row, column)
+        listener?.onTick()
+        listener?.onKey(key.copy(action = tone, label = tone.mark), null)
     }
 
     private fun cancelHold(p: Pointer) {
@@ -430,6 +466,7 @@ class KeyTouches(private val host: Host) {
 
     companion object {
         private const val KEY_DRIFT_DP = 2f
+        private const val TONE_SWIPE_DP = 20f
         const val ALTERNATES_DELAY = 450L
         const val CURSOR_DELAY = 400L
         const val CURSOR_STEP = 9f

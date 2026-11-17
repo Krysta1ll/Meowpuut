@@ -413,6 +413,12 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         labelPaint.textSize = layout.size
         labelPaint.color = color
         canvas.drawText(key.label, f.centerX, f.centerY + layout.baselineOffset + depth, labelPaint)
+        key.swipeUpTone?.let { tone ->
+            digitPaint.textSize = min(16f, f.height * 0.42f)
+            digitPaint.color = if (look.opaque) color else Look.withAlpha(color, if (look.dark) 0.82f else 0.72f)
+            canvas.drawText(tone.mark, f.right - digitPaint.measureText(tone.mark) / 2 - 5f,
+                f.top + 3f - digitPaint.ascent() + depth, digitPaint)
+        }
     }
 
     // ---------------------------------------------------------------- touch
@@ -509,7 +515,10 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             out += VirtualAccessibility.Item(r * 100 + placement.column,
                 Rect((f.left * density).toInt(), (f.top * density).toInt(), (f.right * density).toInt(), (f.bottom * density).toInt()),
                 key.spoken.ifEmpty { key.label }, enabled = key.enabled,
-                longClick = if (key.holdLabel != null) VirtualAccessibility.LongClick(key.holdLabel!!) { touches.hold(r, placement.column) } else null)
+                longClick = key.holdLabel?.let { VirtualAccessibility.LongClick(it) { touches.hold(r, placement.column) } },
+                custom = key.swipeUpTone?.let { tone ->
+                    listOf(VirtualAccessibility.LongClick(tone.spoken) { touches.activateTone(r, placement.column) })
+                }.orEmpty())
         }
         return out
     }
