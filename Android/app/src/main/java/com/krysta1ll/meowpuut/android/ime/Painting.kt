@@ -364,6 +364,17 @@ object Glyphs {
         canvas.drawPath(path, paint)
     }
 
+    fun pinyinTone(canvas: Canvas, cx: Float, cy: Float, digit: Char, paint: Paint) {
+        paint.style = Paint.Style.FILL
+        when (digit) {
+            '1' -> canvas.drawLine(cx - 2.7f, cy, cx + 2.7f, cy, paint)
+            '2' -> canvas.drawLine(cx - 2.2f, cy + 1.9f, cx + 2.2f, cy - 1.9f, paint)
+            '3' -> chevron(canvas, cx, cy, 5.4f, up = false, paint)
+            '4' -> canvas.drawLine(cx - 2.2f, cy - 1.9f, cx + 2.2f, cy + 1.9f, paint)
+            '5' -> canvas.drawCircle(cx, cy, 1.4f, paint)
+        }
+    }
+
     fun shift(canvas: Canvas, cx: Float, cy: Float, size: Float, filled: Boolean, lock: Boolean, paint: Paint) {
         val w = size * 0.92f
         val head = size * 0.5f

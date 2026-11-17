@@ -95,6 +95,10 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         typeface = if (Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, 600, false)
         else Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
+    private val tonePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = 1.4f
+        strokeCap = Paint.Cap.ROUND
+    }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursorHint = context.getString(R.string.cursor_drag_hint)
     private val rect = RectF()
@@ -414,10 +418,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         labelPaint.color = color
         canvas.drawText(key.label, f.centerX, f.centerY + layout.baselineOffset + depth, labelPaint)
         key.swipeUpTone?.let { tone ->
-            digitPaint.textSize = min(16f, f.height * 0.42f)
-            digitPaint.color = if (look.opaque) color else Look.withAlpha(color, if (look.dark) 0.82f else 0.72f)
-            canvas.drawText(tone.mark, f.right - digitPaint.measureText(tone.mark) / 2 - 5f,
-                f.top + 3f - digitPaint.ascent() + depth, digitPaint)
+            tonePaint.color = if (look.opaque) color else Look.withAlpha(color, if (look.dark) 0.82f else 0.72f)
+            Glyphs.pinyinTone(canvas, f.right - 7.5f, f.top + min(5.5f, f.height * 0.18f) + depth, tone.digit, tonePaint)
         }
     }
 
