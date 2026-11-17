@@ -275,11 +275,20 @@ class Composer {
     fun loadMore(batch: Int = 96): Boolean {
         if (session == 0L || coreFetched >= coreTotal) return false
         val nineKey = mode == InputMode.NINE_KEY
-        val seen = candidates.asSequence().filter { !nineKey || it.kind == CandidateKind.CUSTOM }.mapTo(HashSet()) { it.text }
+        val custom = CandidateMerge.customTexts(candidates)
+        val seen = HashSet<String>()
+        if (!nineKey) candidates.mapTo(seen) { it.text }
+        val seenPartials = candidates.filter { it.kind != CandidateKind.CUSTOM && it.text in custom }
+            .mapTo(HashSet()) { it.text to it.consumed }
         while (coreFetched < coreTotal) {
             val start = coreFetched
-            val added = fetchCore(start, batch)
-                .filter { if (nineKey) it.text !in seen else seen.add(it.text) }.map { it.choice() }
+            val added = fetchCore(start, batch).filter {
+                if (it.text in custom) {
+                    it.consumed in 1 until raw.length && seenPartials.add(it.text to it.consumed)
+                } else {
+                    nineKey || seen.add(it.text)
+                }
+            }.map(CoreCandidate::choice)
             if (added.isNotEmpty()) {
                 candidates = candidates + added
                 return true
@@ -378,10 +387,10 @@ class Composer {
         val preferred = if (rememberChoices && mode != InputMode.JAPANESE) {
             choiceMemory?.preferred(mode, simplified, raw.toString().trimEnd('\'')).orEmpty()
         } else emptyMap()
+        val core = if (mode == InputMode.JAPANESE) emptyList() else firstCoreBatch(preferred)
         when (mode) {
             InputMode.PINYIN -> {
                 preedit = raw.toString()
-                val chinese = firstCoreBatch(preferred)
                 val lower = raw.toString().lowercase()
                 val reading = lower.replace("'", "")
                 val japanese = mixedWords(reading)
@@ -391,11 +400,11 @@ class Composer {
                 val prefix = if (mixing && reading.length >= 3) {
                     NativeEngine.mixedPinyinPrefix(session, lower, simplified)?.let { it[0] to (it[1].toIntOrNull() ?: 0) }
                 } else null
-                candidates = CandidateMerge.pinyin(lower, raw.toString(), chinese, word, whole, prefix, if (mixing) Romaji.reading(reading) else null, japanese.drop(1))
+                candidates = CandidateMerge.pinyin(lower, raw.toString(), core, word, whole, prefix, if (mixing) Romaji.reading(reading) else null, japanese.drop(1))
             }
             InputMode.ZHUYIN, InputMode.NINE_KEY -> {
                 preedit = NativeEngine.preedit(session)
-                val choices = firstCoreBatch(preferred).map { it.choice() }
+                val choices = core.map(CoreCandidate::choice)
                 candidates = if (mode == InputMode.NINE_KEY) choices else choices.distinctBy { it.text }
             }
             InputMode.JAPANESE -> {
@@ -420,11 +429,7 @@ class Composer {
         if (allowCustomEntries && customDictionary.isNotEmpty()) {
             val input = if (mode == InputMode.ZHUYIN) NativeEngine.inputText(session) else raw.toString()
             val matches = CustomDictionary.matches(customDictionary, mode, input)
-            if (matches.isNotEmpty()) {
-                val texts = matches.toHashSet()
-                candidates = matches.map { Candidate(it, CandidateKind.CUSTOM, consumed = raw.length) } +
-                    candidates.filterNot { it.text in texts }
-            }
+            candidates = CandidateMerge.withCustom(candidates, matches, raw.length, core)
         }
         if (symbolsAllowed) candidates = CandidateMerge.withSymbols(candidates, symbols, raw.length)
     }

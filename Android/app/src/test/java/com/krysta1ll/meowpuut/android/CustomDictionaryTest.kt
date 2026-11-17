@@ -1,7 +1,9 @@
 package com.krysta1ll.meowpuut.android
 
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
+import com.krysta1ll.meowpuut.android.engine.CandidateMerge
 import com.krysta1ll.meowpuut.android.engine.Composer
+import com.krysta1ll.meowpuut.android.engine.CoreCandidate
 import com.krysta1ll.meowpuut.android.engine.CustomDictionary
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.engine.JapaneseWords
@@ -48,6 +50,23 @@ class CustomDictionaryTest {
         val chosen = composer.choose(1, confirm = true)
         assertEquals("猫ちゃん 🐾", chosen.commit)
         assertEquals("", chosen.confirmedReading)
+    }
+
+    @Test
+    fun keepsASameTextNativePrefixInTheExpandedPanel() {
+        val core = listOf(
+            CoreCandidate("你好", index = 0, consumed = 7, exact = true),
+            CoreCandidate("你好", index = 1, consumed = 5, exact = false),
+            CoreCandidate("你好我", index = 2, consumed = 7, exact = true),
+        )
+        val native = CandidateMerge.pinyin("nihaowo", "nihaowo", core, null, null, null, null)
+        val expanded = CandidateMerge.withCustom(native, listOf("你好"), 7, core)
+        val matching = expanded.filter { it.text == "你好" }
+        assertEquals(listOf(7, 5), matching.map { it.consumed })
+        assertEquals(CandidateKind.CUSTOM, matching.first().kind)
+        assertEquals(1, matching.last().coreIndex)
+        val compact = CandidateMerge.collapsed(expanded).map(expanded::get)
+        assertEquals(listOf(matching.first()), compact.filter { it.text == "你好" })
     }
 
     @Test

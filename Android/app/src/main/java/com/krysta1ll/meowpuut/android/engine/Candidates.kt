@@ -105,6 +105,25 @@ object CandidateMerge {
         return list
     }
 
+    internal fun withCustom(
+        choices: List<Candidate>, matches: List<String>, inputLength: Int, core: List<CoreCandidate>,
+    ): List<Candidate> {
+        if (matches.isEmpty()) return choices
+        val texts = matches.toHashSet()
+        val kept = choices.filterNot { it.text in texts && it.consumed !in 1 until inputLength }
+        val keptPartials = kept.filter { it.text in texts }.mapTo(HashSet()) { it.text to it.consumed }
+        // The normal compact ordering can already have hidden a same-text prefix.
+        val prefixes = core.filter {
+            it.text in texts && it.consumed in 1 until inputLength && keptPartials.add(it.text to it.consumed)
+        }.map(CoreCandidate::choice)
+        return matches.map { Candidate(it, CandidateKind.CUSTOM, consumed = inputLength) } + kept + prefixes
+    }
+
+    internal fun customTexts(choices: List<Candidate>): Set<String> {
+        if (choices.firstOrNull()?.kind != CandidateKind.CUSTOM) return emptySet()
+        return choices.asSequence().takeWhile { it.kind == CandidateKind.CUSTOM }.map(Candidate::text).toSet()
+    }
+
     /** Keep the interpreted word first and associate only a full reading. */
     fun withSymbols(choices: List<Candidate>, symbols: SymbolAssociations, inputLength: Int): List<Candidate> {
         val first = choices.firstOrNull() ?: return choices
@@ -130,12 +149,14 @@ object CandidateMerge {
         return result
     }
 
-    /** Secondary symbols and repeated Japanese suggestions wait in the panel. */
+    /** Secondary symbols, repeated Japanese suggestions and custom-name prefixes wait in the panel. */
     fun collapsed(all: List<Candidate>, limitJapanese: Boolean = true): List<Int> {
+        val custom = customTexts(all)
         var japaneseShown = false
         val out = ArrayList<Int>(all.size)
         for ((i, c) in all.withIndex()) {
             if (c.kind == CandidateKind.SYMBOL_EXTRA) continue
+            if (c.kind != CandidateKind.CUSTOM && c.text in custom) continue
             if (limitJapanese && c.japanese) {
                 if (japaneseShown) continue
                 japaneseShown = true

@@ -19,6 +19,8 @@ import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeProvider
 import android.widget.OverScroller
 import com.krysta1ll.meowpuut.android.engine.Candidate
+import com.krysta1ll.meowpuut.android.engine.CandidateKind
+import com.krysta1ll.meowpuut.android.engine.CandidateMerge
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -69,7 +71,10 @@ class ExpandedPanelView(context: Context) : View(context) {
     private val rect = RectF()
     private var rimShader: Shader? = null
 
-    private class Cell(val index: Int, val left: Float, val top: Float, val width: Float, val shown: String, val japanese: Boolean)
+    private class Cell(
+        val index: Int, val left: Float, val top: Float, val width: Float, val shown: String,
+        val japanese: Boolean, val continues: Boolean,
+    )
     private class Chip(val index: Int, val left: Float, val width: Float, val text: String)
     private var cells: List<Cell> = emptyList()
     private var chips: List<Chip> = emptyList()
@@ -145,17 +150,20 @@ class ExpandedPanelView(context: Context) : View(context) {
         }
         val barOffset = if (hasBar) SYLLABLE_BAR else 0f
         val list = ArrayList<Cell>(candidates.size)
+        val custom = CandidateMerge.customTexts(candidates)
         var x = 0f
         var y = TOP + barOffset
         var columnsUsed = 0
         for ((i, c) in candidates.withIndex()) {
             val japanese = c.japanese && japaneseMarks
-            val natural = bold.measureText(c.text) + 28f + if (japanese) mark else 0f
+            val continues = c.kind != CandidateKind.CUSTOM && c.text in custom
+            val label = if (continues) c.text + words("（續）", "（续）") else c.text
+            val natural = bold.measureText(label) + 28f + if (japanese) mark else 0f
             val columns = if (emoji) 1 else min(totalColumns, max(1, ceil((natural + GAP) / (unit + GAP)).toInt()))
             if (columnsUsed + columns > totalColumns) { y += ROW; x = 0f; columnsUsed = 0 }
             val w = columns * unit + (columns - 1) * GAP
-            val shown = if (!emoji && natural > w) TextUtils.ellipsize(c.text, text, w - 28f - (if (japanese) mark else 0f), TextUtils.TruncateAt.MIDDLE).toString() else c.text
-            list += Cell(i, margin + x, y, w, shown, japanese)
+            val shown = if (!emoji && natural > w) TextUtils.ellipsize(label, text, w - 28f - (if (japanese) mark else 0f), TextUtils.TruncateAt.MIDDLE).toString() else label
+            list += Cell(i, margin + x, y, w, shown, japanese, continues)
             x += w + GAP
             columnsUsed += columns
         }
@@ -370,7 +378,8 @@ class ExpandedPanelView(context: Context) : View(context) {
                     emoji -> words("表情符號：", "表情符号：")
                     cell.japanese -> words("日語候選：", "日语候选：")
                     else -> words("候選：", "候选：")
-                }) + candidates[cell.index].text,
+                }) + candidates[cell.index].text +
+                    if (cell.continues) words("，保留後續讀音", "，保留后续读音") else "",
                 selected = cell.index == highlighted)
         }
         return barItems + gridItems
