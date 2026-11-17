@@ -43,6 +43,7 @@ data class Key(
     /** Return while composing Zhuyin: a long press commits the symbols as written. */
     val holdLabel: String? = null,
     val swipeUpTone: KeyAction.PinyinTone? = null,
+    val zhuyinPinyinHint: String? = null,
 ) {
     val holdsRaw get() = holdLabel != null
     val isCharacter get() = action is KeyAction.Engine || action is KeyAction.Text
@@ -63,6 +64,7 @@ data class KeySet(
     val page: Int = 0,
     val maximumWidth: Float? = null,
     val toleratesKeyDrift: Boolean = false,
+    val hasZhuyinPinyinHints: Boolean = false,
 ) {
     fun layoutWidth(available: Float) = min(available, maximumWidth ?: available)
 }
@@ -85,6 +87,7 @@ data class KeyContext(
     val composing: Boolean = false,
     /** Zhuyin is being composed: a long press on Return sends the Zhuyin text itself. */
     val rawOnHold: Boolean = false,
+    val zhuyinPinyinHints: Boolean = false,
 ) {
     val showsNineKey get() = mode == InputMode.NINE_KEY && !english && page == 0
 }
@@ -98,6 +101,11 @@ object KeyBuilder {
         listOf("ㄇ" to 'a', "ㄋ" to 's', "ㄎ" to 'd', "ㄑ" to 'f', "ㄕ" to 'g', "ㄘ" to 'h', "ㄨ" to 'j', "ㄜ" to 'k', "ㄠ" to 'l', "ㄤ" to ';'),
         listOf("ㄈ" to 'z', "ㄌ" to 'x', "ㄏ" to 'c', "ㄒ" to 'v', "ㄖ" to 'b', "ㄙ" to 'n', "ㄩ" to 'm', "ㄝ" to ',', "ㄡ" to '.', "ㄥ" to '/'),
     )
+    private val pinyinByZhuyin =
+        "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
+            .asIterable()
+            .zip("b p m f d t n l g k h j q x zh ch sh r z c s a o e ê ai ei ao ou an en ang eng er i u ü".split(' '))
+            .toMap()
 
     /** Accented letters on a long press in English. */
     val accents: Map<Char, List<String>> = mapOf(
@@ -328,7 +336,11 @@ object KeyBuilder {
 
     private fun zhuyinSet(context: KeyContext, t: Words): KeySet {
         val rows = zhuyin.map { row ->
-            row.map { (symbol, raw) -> Key(KeyAction.Engine(raw.code), symbol, fontSize = 21f, spoken = symbol) }
+            row.map { (symbol, raw) ->
+                val hint = if (context.zhuyinPinyinHints) pinyinByZhuyin[symbol.single()] else null
+                Key(KeyAction.Engine(raw.code), symbol, fontSize = 21f,
+                    spoken = if (hint != null) "$symbol，$hint" else symbol, zhuyinPinyinHint = hint)
+            }
         }.toMutableList()
         rows[3] = rows[3] + deleteKey(t)
         val symbolsKey = Key(KeyAction.Page(1), t("符號", "符号"), style = KeyStyle.UTILITY, preview = false,
@@ -345,6 +357,7 @@ object KeyBuilder {
             ),
             referenceColumns = 11,
             toleratesKeyDrift = true,
+            hasZhuyinPinyinHints = context.zhuyinPinyinHints,
         )
     }
 

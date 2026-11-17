@@ -83,6 +83,7 @@
     <string name="clear_choice_memory_confirm">要清除这台设备上的选词记录吗？</string>
     <string name="input_mode">输入方式</string>
     <string name="mode_zhuyin">注音</string>
+    <string name="zhuyin_pinyin_hints">注音键帽拼音提示</string>
     <string name="mode_pinyin">全键拼音</string>
     <string name="mode_nine_key">九键拼音</string>
     <string name="mode_japanese">日本語</string>

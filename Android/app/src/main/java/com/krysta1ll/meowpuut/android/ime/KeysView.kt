@@ -1,5 +1,6 @@
 package com.krysta1ll.meowpuut.android.ime
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
@@ -13,10 +14,13 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeProvider
 import com.krysta1ll.meowpuut.android.R
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.min
 
 /**
@@ -90,6 +94,10 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    }
     private val groupPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
         textAlign = Paint.Align.CENTER
         typeface = if (Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, 600, false)
@@ -102,7 +110,14 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val cursorHint = context.getString(R.string.cursor_drag_hint)
     private val rect = RectF()
-    private data class LabelLayout(val size: Float, val baselineOffset: Float, val digitSize: Float = 0f, val digitOffset: Float = 0f)
+    private val visibleHintBounds = Rect()
+    private var hintOpacity = 1f
+    private data class LabelLayout(
+        val size: Float,
+        val baselineOffset: Float,
+        val secondarySize: Float = 0f,
+        val secondaryOffset: Float = 0f,
+    )
     private var labels: List<List<LabelLayout?>> = emptyList()
     private var faceShader: Shader? = null
     private var utilityShader: Shader? = null
@@ -190,6 +205,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             placed.map { item ->
                 val key = set.rows[row][item.column]
                 val frame = item.frame
+                val pinyinHint = key.zhuyinPinyinHint
                 if (key.icon != null || key.label.isEmpty()) null else if (key.digit != null) {
                     val gap = if (frame.height < 36f) 1f else 2f
                     digitPaint.textSize = keyTextSize.fontSize(min(11f, frame.height * 0.34f), systemScale)
@@ -208,6 +224,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                     val top = -(textHeight * fit + gap) / 2
                     LabelLayout(groupPaint.textSize, top + digitHeight * fit + gap - groupTop * fit,
                         digitPaint.textSize, top - digitTop * fit)
+                } else if (pinyinHint != null) {
+                    layoutZhuyinPair(key, pinyinHint, frame, systemScale, bounds)
                 } else {
                     val size = key.fontSize ?: metrics.letterFont
                     val base = if (key.style != KeyStyle.CHARACTER || key.action == KeyAction.Space) min(size, metrics.utilityFont + 1) else size
@@ -223,6 +241,28 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         }
     }
 
+    private fun layoutZhuyinPair(key: Key, hint: String, frame: Box, systemScale: Float, bounds: Rect): LabelLayout {
+        val padding = min(2.8f, frame.height * 0.10f)
+        val textWidth = (frame.width - 8f).coerceAtLeast(1f)
+        hintPaint.textSize = minOf(keyTextSize.fontSize(8.5f, systemScale), 9.5f, frame.height * 0.26f)
+        hintPaint.textSize *= min(1f, textWidth / hintPaint.measureText(hint))
+        val hintBaseline = frame.height / 2 - padding - hintPaint.descent()
+        val mainTop = -frame.height / 2 + padding
+        val mainBottom = hintBaseline + hintPaint.ascent() - 1.6f
+
+        // Keep the stock symbol size until the available space actually needs a reduction.
+        labelPaint.textSize = keyTextSize.fontSize(key.fontSize ?: metrics.letterFont, systemScale)
+        labelPaint.getTextBounds(key.label, 0, key.label.length, bounds)
+        val stockHeight = labelPaint.descent() - labelPaint.ascent()
+        val fit = minOf(1f, textWidth / labelPaint.measureText(key.label),
+            (frame.height - 4f).coerceAtLeast(1f) / stockHeight,
+            (mainBottom - mainTop).coerceAtLeast(1f) / bounds.height().coerceAtLeast(1))
+        labelPaint.textSize *= fit
+        labelPaint.getTextBounds(key.label, 0, key.label.length, bounds)
+        val mainBaseline = (mainTop + mainBottom - bounds.top - bounds.bottom) / 2f
+        return LabelLayout(labelPaint.textSize, mainBaseline, hintPaint.textSize, hintBaseline)
+    }
+
     private fun capRadius(key: Key, frame: Box): Float {
         val extra = when {
             key.action == KeyAction.Space -> 2f
@@ -235,6 +275,13 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
 
     override fun onDraw(canvas: Canvas) {
         val set = keySet ?: return
+        hintOpacity = if (set.hasZhuyinPinyinHints && coveredHeight <= 0f && !touches.cursorMode &&
+            !look.opaque && look.effects != EffectsLevel.LIGHTWEIGHT && ValueAnimator.areAnimatorsEnabled() &&
+            isShown && getLocalVisibleRect(visibleHintBounds)) {
+            postInvalidateDelayed(50)
+            val phase = (SystemClock.uptimeMillis() % 4_200L) / 4_200.0
+            (0.78 + 0.12 * cos(phase * 2 * PI)).toFloat()
+        } else if (look.opaque) 1f else 0.88f
         canvas.save()
         canvas.scale(density, density)
         val pixel = look.usesSteppedMaterial
@@ -405,18 +452,23 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         }
         if (layout == null) return
         key.digit?.let { digit ->
-            digitPaint.textSize = layout.digitSize
+            digitPaint.textSize = layout.secondarySize
             groupPaint.textSize = layout.size
             digitPaint.color = if (look.opaque) color else Look.withAlpha(color, if (look.dark) 0.82f else 0.72f)
             groupPaint.color = color
             val centerY = f.centerY + depth
-            canvas.drawText(digit, f.centerX, centerY + layout.digitOffset, digitPaint)
+            canvas.drawText(digit, f.centerX, centerY + layout.secondaryOffset, digitPaint)
             canvas.drawText(key.label, f.centerX, centerY + layout.baselineOffset, groupPaint)
             return
         }
         labelPaint.textSize = layout.size
         labelPaint.color = color
         canvas.drawText(key.label, f.centerX, f.centerY + layout.baselineOffset + depth, labelPaint)
+        key.zhuyinPinyinHint?.let { hint ->
+            hintPaint.textSize = layout.secondarySize
+            hintPaint.color = Look.withAlpha(color, hintOpacity)
+            canvas.drawText(hint, f.centerX, f.centerY + layout.secondaryOffset + depth, hintPaint)
+        }
         key.swipeUpTone?.let { tone ->
             tonePaint.color = if (look.opaque) color else Look.withAlpha(color, if (look.dark) 0.82f else 0.72f)
             Glyphs.pinyinTone(canvas, f.right - 7.5f, f.top + min(5.5f, f.height * 0.18f) + depth, tone.digit, tonePaint)

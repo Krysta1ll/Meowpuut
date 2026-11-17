@@ -123,6 +123,15 @@ object CandidateMerge {
         return choices.asSequence().takeWhile { it.kind == CandidateKind.CUSTOM }.map(Candidate::text).toSet()
     }
 
+    /** Keep the complete literal reading after all choices, including newly loaded ones. */
+    internal fun withZhuyinLiteral(choices: List<Candidate>, text: String, inputLength: Int): List<Candidate> {
+        if (text.isEmpty()) return choices
+        val existing = choices.indexOfFirst { it.text == text && it.consumed == inputLength }
+        if (existing < 0) return choices + Candidate(text, CandidateKind.LITERAL, consumed = inputLength)
+        if (existing == choices.lastIndex || choices[existing].kind != CandidateKind.LITERAL) return choices
+        return choices.toMutableList().apply { add(removeAt(existing)) }
+    }
+
     /** Keep the interpreted word first and associate only a full reading. */
     fun withSymbols(choices: List<Candidate>, symbols: SymbolAssociations, inputLength: Int): List<Candidate> {
         val first = choices.firstOrNull() ?: return choices

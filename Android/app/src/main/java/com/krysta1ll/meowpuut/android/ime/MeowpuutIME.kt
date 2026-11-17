@@ -357,6 +357,10 @@ class MeowpuutIME : InputMethodService(),
                 composer.simplified = prefs.simplified
                 predictions = emptyList()
             }
+            Prefs.ZHUYIN_PINYIN_HINTS -> {
+                if (mode == InputMode.ZHUYIN && !english && page == 0) refresh()
+                return
+            }
             Prefs.ENGLISH_AUTO_CAPS -> {
                 updateAutoCaps()
                 return
@@ -1236,6 +1240,7 @@ class MeowpuutIME : InputMethodService(),
             emoji = emojiOpen,
             composing = mode == InputMode.NINE_KEY && (composer.composing || pending.isNotEmpty()),
             rawOnHold = mode == InputMode.ZHUYIN && !english && composer.composing,
+            zhuyinPinyinHints = mode == InputMode.ZHUYIN && !english && page == 0 && prefs.zhuyinPinyinHints,
         )
         // Most keystrokes change nothing about the keys; the last set is kept.
         val set = keySet?.takeIf { context == keyContext } ?: KeyBuilder.build(context).also {

@@ -59,6 +59,24 @@ class LogicTest {
     }
 
     @Test
+    fun zhuyinLiteralStaysLastWithoutReplacingWordOrPrefixSelections() {
+        val reading = "ㄋㄧˇㄏㄠˇ"
+        val lead = Candidate("你好", CandidateKind.CHINESE, coreIndex = 0, consumed = 6)
+        val prefix = Candidate("你", CandidateKind.CHINESE, coreIndex = 1, consumed = 3)
+        val japanese = Candidate("你好です", CandidateKind.MIXED, consumed = 6)
+        val words = listOf(lead, prefix, japanese)
+        val literal = Candidate(reading, CandidateKind.LITERAL, consumed = 6)
+        val extended = CandidateMerge.withZhuyinLiteral(words, reading, 6)
+        assertEquals(words + literal, extended)
+        assertEquals(literal, extended[CandidateMerge.collapsed(extended, segmentLength = 6).last()])
+        assertEquals("", ChoiceMemory.selectionReading("su3cl3", literal))
+        assertEquals(words + literal, CandidateMerge.withZhuyinLiteral(words.take(2) + literal + japanese, reading, 6))
+        assertEquals(listOf(literal), CandidateMerge.withZhuyinLiteral(emptyList(), reading, 6))
+        val identical = Candidate(reading, CandidateKind.CUSTOM, consumed = 6)
+        assertEquals(listOf(identical) + words, CandidateMerge.withZhuyinLiteral(listOf(identical) + words, reading, 6))
+    }
+
+    @Test
     fun memoryPreservesCandidateSlotsAndLearnsOnlyConsumedReading() {
         val lead = Candidate("你好", CandidateKind.CHINESE, 4, 5)
         val alternate = lead.copy(text = "擬好", coreIndex = 81)
@@ -325,6 +343,31 @@ class LogicTest {
         assertEquals(KeyStyle.CHARACTER, english.rows[2][0].style)
         assertTrue(pinyin.rows[0][0].rollsOver && pinyin.rows[3].first { it.action == KeyAction.Space }.rollsOver)
         assertTrue(!pinyin.rows[3].last().rollsOver && !pinyin.rows[2][0].rollsOver)
+    }
+
+    @Test
+    fun zhuyinPinyinHintsLabelOnlyTheSameThirtySevenSymbolKeys() {
+        val off = KeyContext(InputMode.ZHUYIN, false, 0, ShiftState.OFF, false, false, "空格", "換行", false, true)
+        val on = off.copy(zhuyinPinyinHints = true)
+        val original = KeyBuilder.build(off)
+        val hinted = KeyBuilder.build(on)
+        assertTrue(original.rows.flatten().none { it.zhuyinPinyinHint != null })
+        assertEquals(original.specs, hinted.specs)
+        assertEquals(original.rows.flatten().map { it.action }, hinted.rows.flatten().map { it.action })
+        val keys = hinted.rows.flatten().filter { it.zhuyinPinyinHint != null }
+        assertEquals(37, keys.size)
+        val hints = keys.associate { it.label to it.zhuyinPinyinHint }
+        assertEquals(listOf("b", "zh", "ê", "er", "ang", "eng", "ü"),
+            listOf("ㄅ", "ㄓ", "ㄝ", "ㄦ", "ㄤ", "ㄥ", "ㄩ").map(hints::get))
+        assertEquals("ㄩ，ü", keys.single { it.label == "ㄩ" }.spoken)
+        assertEquals(hints, KeyBuilder.build(on.copy(simplified = true)).rows.flatten()
+            .filter { it.zhuyinPinyinHint != null }.associate { it.label to it.zhuyinPinyinHint })
+        val otherLayouts = InputMode.entries.filter { it != InputMode.ZHUYIN }.map { on.copy(mode = it) } +
+            on.copy(english = true) + (1..3).map { on.copy(page = it) }
+        for (layout in otherLayouts) {
+            val set = KeyBuilder.build(layout)
+            assertTrue(!set.hasZhuyinPinyinHints && set.rows.flatten().none { it.zhuyinPinyinHint != null })
+        }
     }
 
     @Test

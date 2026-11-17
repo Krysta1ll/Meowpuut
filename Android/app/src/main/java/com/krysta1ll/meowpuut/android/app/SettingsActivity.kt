@@ -216,6 +216,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             R.string.mode_nine_key to InputMode.NINE_KEY,
             R.string.mode_japanese to InputMode.JAPANESE,
         ), { prefs.mode }) { prefs.mode = it }
+        toggle(input, R.string.zhuyin_pinyin_hints, prefs.zhuyinPinyinHints) { prefs.zhuyinPinyinHints = it }
         choice(input, R.string.script, Prefs.SIMPLIFIED, listOf(R.string.script_traditional to false, R.string.script_simplified to true),
             { prefs.simplified }) { prefs.simplified = it }
         note(input, R.string.script_note)
@@ -384,7 +385,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         if (setting == Prefs.SKIN || setting == Prefs.CATS || key == Prefs.CUSTOM_SKIN) refreshSkin()
         if (key == Prefs.CUSTOM_SKIN || key == Prefs.CUSTOM_SKIN_EPOCH) preview.refresh()
         when (setting) {
-            Prefs.MODE, Prefs.SIMPLIFIED, Prefs.TONE, Prefs.SHAPE, Prefs.PALETTE, Prefs.STRENGTH,
+            Prefs.MODE, Prefs.ZHUYIN_PINYIN_HINTS, Prefs.SIMPLIFIED, Prefs.TONE, Prefs.SHAPE, Prefs.PALETTE, Prefs.STRENGTH,
             Prefs.CATS, Prefs.EFFECTS, Prefs.KEYBOARD_HEIGHT, Prefs.CANDIDATE_TEXT_SIZE, Prefs.KEY_TEXT_SIZE, Prefs.SKIN -> preview.refresh()
         }
     }
@@ -977,6 +978,7 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
         mode = prefs.mode, english = false, page = 0, shift = ShiftState.OFF, simplified = prefs.simplified,
         needsGlobe = false, spaceTitle = "空格", returnTitle = Words(prefs.simplified)("確認", "确认"),
         returnAccent = true, returnEnabled = true,
+        zhuyinPinyinHints = prefs.zhuyinPinyinHints,
     ))
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {

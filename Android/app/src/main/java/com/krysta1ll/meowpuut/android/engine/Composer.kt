@@ -45,6 +45,7 @@ class Composer {
             if (!symbolsAllowed) return
             val selection = candidates.getOrNull(highlighted)
             candidates = CandidateMerge.withSymbols(candidates, value, raw.length)
+            appendZhuyinLiteral()
             highlighted = selection?.let(candidates::indexOf)?.coerceAtLeast(0) ?: 0
         }
 
@@ -255,6 +256,7 @@ class Composer {
 
     fun choose(index: Int, confirm: Boolean = false): Edit {
         val c = candidates.getOrNull(index) ?: return if (raw.isEmpty()) Edit(false) else Edit(true, takeLiteral())
+        if (mode == InputMode.ZHUYIN && c.kind == CandidateKind.LITERAL) return Edit(true, takeLiteral())
         if (c.coreIndex >= 0) {
             val reading = if (confirm && rememberChoices) ChoiceMemory.selectionReading(raw, c) else ""
             if (session == 0L || !NativeEngine.choose(session, c.coreIndex)) return Edit(false)
@@ -291,7 +293,7 @@ class Composer {
         if (composing) rebuild()
     }
 
-    /** Appends the next batch of the engine's candidates (for the expanded panel). */
+    /** Appends the next batch of the engine's candidates. */
     fun loadMore(batch: Int = 96): Boolean {
         if (session == 0L || coreFetched >= coreTotal) return false
         val nineKey = mode == InputMode.NINE_KEY
@@ -307,11 +309,12 @@ class Composer {
             }.map(CoreCandidate::choice)
             if (added.isNotEmpty()) {
                 candidates = candidates + added
+                appendZhuyinLiteral()
                 return true
             }
             if (coreFetched <= start) break
         }
-        return false
+        return appendZhuyinLiteral()
     }
 
     fun predictions(context: String, limit: Int = 8): List<String> {
@@ -384,6 +387,14 @@ class Composer {
     /** The Japanese words for a Pinyin reading: none while mixed typing is off. */
     private fun mixedWords(reading: String): List<String> = if (mixedJapanese) japaneseWords.words(reading) else emptyList()
 
+    private fun appendZhuyinLiteral(): Boolean {
+        if (mode != InputMode.ZHUYIN || moreAvailable || raw.isEmpty() || session == 0L) return false
+        val next = CandidateMerge.withZhuyinLiteral(candidates, NativeEngine.inputText(session), raw.length)
+        if (next === candidates) return false
+        candidates = next
+        return true
+    }
+
     private fun rebuild() {
         highlighted = 0
         if (raw.isEmpty()) {
@@ -448,6 +459,7 @@ class Composer {
             candidates = CandidateMerge.withCustom(candidates, matches, raw.length)
         }
         if (symbolsAllowed) candidates = CandidateMerge.withSymbols(candidates, symbols, raw.length)
+        appendZhuyinLiteral()
     }
 
     companion object {

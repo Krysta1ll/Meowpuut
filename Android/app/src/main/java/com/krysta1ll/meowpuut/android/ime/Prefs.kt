@@ -60,6 +60,9 @@ class Prefs(context: Context) {
     var mode: InputMode
         get() = InputMode.of(store.getString(MODE, null))
         set(value) = store.edit().putString(MODE, value.key).apply()
+    var zhuyinPinyinHints: Boolean
+        get() = store.getBoolean(ZHUYIN_PINYIN_HINTS, false)
+        set(value) = store.edit().putBoolean(ZHUYIN_PINYIN_HINTS, value).apply()
     var simplified: Boolean
         get() = store.getBoolean(SIMPLIFIED, false)
         set(value) = store.edit().putBoolean(SIMPLIFIED, value).apply()
@@ -201,6 +204,7 @@ class Prefs(context: Context) {
 
     companion object {
         const val MODE = "mode"
+        const val ZHUYIN_PINYIN_HINTS = "zhuyinPinyinHints"
         const val SIMPLIFIED = "simplified"
         const val MIXED_JAPANESE = "mixedJapanese"
         const val ENGLISH_AUTO_CAPS = "englishAutoCaps"
