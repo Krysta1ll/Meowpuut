@@ -69,6 +69,7 @@ class CatSprites(private val resources: Resources) {
 
     fun art(cat: Cat, pose: CatPose, artwork: SkinCatArtwork): Art {
         if (artwork == SkinCatArtwork.SCULPTED) return art(pose.sprite(cat))
+        if (artwork == SkinCatArtwork.CENTENARY) return art(CentenaryCats.sprite(cat, pose))
         val name = "${artwork.name}_${cat.key}"
         return arts.getOrPut(name) {
             val (id, sprite) = when {
@@ -105,6 +106,14 @@ class CatSprites(private val resources: Resources) {
             "momo_edge_peek" -> R.drawable.cat_momo_edge_peek
             "momo_edge_rest" -> R.drawable.cat_momo_edge_rest
             "momo_edge_lounge" -> R.drawable.cat_momo_edge_lounge
+            "centenary_mimimo_idle" -> R.drawable.centenary_mimimo_idle
+            "centenary_mimimo_bow" -> R.drawable.centenary_mimimo_bow
+            "centenary_mimimo_cheer" -> R.drawable.centenary_mimimo_cheer
+            "centenary_mimimo_doze" -> R.drawable.centenary_mimimo_doze
+            "centenary_momo_idle" -> R.drawable.centenary_momo_idle
+            "centenary_momo_bow" -> R.drawable.centenary_momo_bow
+            "centenary_momo_cheer" -> R.drawable.centenary_momo_cheer
+            "centenary_momo_doze" -> R.drawable.centenary_momo_doze
             else -> error("Unknown keyboard cat pose ${sprite.name}")
         }
         Art(sprite, decode(id))
@@ -129,6 +138,8 @@ class CatSprites(private val resources: Resources) {
         }
         return bodies.getOrPut(id) { decode(id) }
     }
+
+    fun centenaryBody(cat: Cat, pose: CatBodyPose): Bitmap = art(CentenaryCats.sprite(cat, pose)).bitmap
 
     fun held(cat: Cat): HeldCatArt = held[cat.ordinal] ?: HeldCatArt(
         cat, decode(if (cat == Cat.MIMIMO) R.drawable.cat_mimimo_side_hold else R.drawable.cat_momo_side_hold),
@@ -262,7 +273,7 @@ class CatMotion(
     /** Wait for [start] showing the cat as it is (the second cat of a greeting). */
     private val waits: Boolean = false,
 ) {
-    enum class Event { PET, CELEBRATE, WAKE, LOOK, COMMIT, HELLO, HOLD, SINK, SURFACE, FOUND, DUET, HOP }
+    enum class Event { PET, CELEBRATE, WAKE, LOOK, COMMIT, HELLO, HOLD, SINK, SURFACE, FOUND, DUET, HOP, CENTENARY_BOW, CENTENARY_CHEER }
 
     /** Filled by [pose]; one instance per motion, so a frame allocates nothing. */
     class Pose {
@@ -293,6 +304,8 @@ class CatMotion(
         Event.FOUND -> FOUND_MS
         Event.DUET -> DUET_MS
         Event.HOP -> HOP_MS
+        Event.CENTENARY_BOW -> 560f
+        Event.CENTENARY_CHEER -> 640f
     }
     private val current = Pose()
     private var releasedAt = -1L
@@ -411,6 +424,24 @@ class CatMotion(
             Event.HOP -> {
                 // A cat without the poses squashes twice: it never rises above its seat.
                 if (!fade) p.tall = 1f - 0.07f * abs(sin(2.0 * PI * t / span).toFloat()) * cutFactor
+            }
+            Event.CENTENARY_BOW -> {
+                p.body = CatBodyPose.GREET
+                p.bodyAlpha = inOut
+                if (!fade) {
+                    val bow = sin(PI * t / span).toFloat() * cutFactor
+                    p.tilt = direction * 8f * bow
+                    p.tall = 1f - 0.07f * bow
+                }
+            }
+            Event.CENTENARY_CHEER -> {
+                p.body = CatBodyPose.HAPPY
+                p.bodyAlpha = inOut
+                if (!fade) {
+                    val beat = sin(2.0 * PI * t / span).toFloat() * cutFactor
+                    p.tall = 1f - 0.055f * abs(beat)
+                    p.tilt = direction * 2f * beat
+                }
             }
             else -> Unit
         }

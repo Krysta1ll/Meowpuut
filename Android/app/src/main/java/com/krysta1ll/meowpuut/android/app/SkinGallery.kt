@@ -20,10 +20,15 @@ import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.RadioButton
 import android.widget.TextView
 import com.krysta1ll.meowpuut.android.R
 import com.krysta1ll.meowpuut.android.ime.KeyboardSkin
+import com.krysta1ll.meowpuut.android.ime.Look
+import com.krysta1ll.meowpuut.android.ime.GlassShape
+import com.krysta1ll.meowpuut.android.ime.GlassStrength
+import com.krysta1ll.meowpuut.android.ime.Palette
 import com.krysta1ll.meowpuut.android.ime.SkinCatArtwork
 import com.krysta1ll.meowpuut.android.ime.SkinMaterial
 import kotlin.math.roundToInt
@@ -48,6 +53,40 @@ internal class SkinGallery(
     private val fill = ui.p.paper
     private val activeFill = ui.p.paper2
     private val tiles = options.associateWith { SkinTile(it, onSkin) }
+    private val commemorativeCard = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(8), dp(8), dp(14), dp(8))
+        background = GradientDrawable().apply {
+            cornerRadius = dp(14).toFloat()
+            setColor(if (dark) 0xFF1C2635.toInt() else 0xFFF5EDDE.toInt())
+            setStroke(dp(1), if (dark) 0xFF836D45.toInt() else 0xFFD8BF95.toInt())
+        }
+        addView(ImageView(context).apply {
+            setImageResource(R.drawable.centenary_duo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = context.getString(R.string.skin_centenary_art)
+        }, LayoutParams(dp(108), dp(88)))
+        addView(LinearLayout(context).apply {
+            orientation = VERTICAL
+            addView(TextView(context).apply {
+                setText(R.string.skin_centenary)
+                textSize = 17f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(if (dark) 0xFFF8EFDC.toInt() else 0xFF302A22.toInt())
+            })
+            addView(TextView(context).apply {
+                setText(R.string.skin_centenary_note)
+                textSize = 11f
+                setTextColor(if (dark) 0xFFD4BE96.toInt() else 0xFF6D5D48.toInt())
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+            addView(TextView(context).apply {
+                setText(R.string.skin_centenary_thanks)
+                textSize = 13f
+                setTextColor(if (dark) 0xFFD4BE96.toInt() else 0xFF6D5D48.toInt())
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+    }
 
     init {
         orientation = VERTICAL
@@ -57,17 +96,22 @@ internal class SkinGallery(
         addView(preview, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(8)
         })
-        addView(LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            clipChildren = false
-            clipToPadding = false
-            setPadding(0, dp(4), 0, 0)
-            tiles.values.forEachIndexed { index, tile ->
-                addView(tile, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
-                    if (index > 0) marginStart = dp(8)
-                })
-            }
-        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(commemorativeCard, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(10)
+        })
+        tiles.values.toList().chunked(2).forEach { row ->
+            addView(LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                clipChildren = false
+                clipToPadding = false
+                setPadding(0, dp(4), 0, dp(4))
+                row.forEachIndexed { index, tile ->
+                    addView(tile, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+                        if (index > 0) marginStart = dp(8)
+                    })
+                }
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        }
 
         addView(TextView(context).apply {
             text = detailLabel
@@ -90,6 +134,7 @@ internal class SkinGallery(
     }
 
     fun render(selected: KeyboardSkin, isUnlocked: (KeyboardSkin) -> Boolean) {
+        commemorativeCard.visibility = if (selected == KeyboardSkin.CENTENARY) View.VISIBLE else View.GONE
         for ((option, tile) in tiles) {
             tile.render(option.skin == selected, !isUnlocked(option.skin))
         }
@@ -121,8 +166,18 @@ internal class SkinGallery(
             if (context.theme.resolveAttribute(android.R.attr.selectableItemBackground, selectable, true)) {
                 foreground = context.getDrawable(selectable.resourceId)
             }
-            addView(swatch, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
+            addView(swatch, LayoutParams(LayoutParams.MATCH_PARENT, dp(60)))
             addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
+            if (option.skin == KeyboardSkin.CENTENARY) {
+                addView(TextView(context).apply {
+                    setText(R.string.skin_centenary_note)
+                    textSize = 11f
+                    setTextColor(ui.p.inkSecondary)
+                    gravity = Gravity.CENTER
+                    maxLines = 2
+                    importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(3) })
+            }
             setOnClickListener { onSkin(option.skin) }
             accessibilityDelegate = object : View.AccessibilityDelegate() {
                 override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
@@ -158,7 +213,11 @@ internal class SkinGallery(
                 setStroke(dp(1), if (active) accent else outline)
             }
             label.setTextColor(ink)
-            contentDescription = if (locked) context.getString(R.string.skin_unlock_title, option.title) else option.title
+            contentDescription = when {
+                locked -> context.getString(R.string.skin_unlock_title, option.title)
+                option.skin == KeyboardSkin.CENTENARY -> "${option.title}。${context.getString(R.string.skin_centenary_note)}"
+                else -> option.title
+            }
             swatch.render(active, locked)
         }
     }
@@ -171,22 +230,27 @@ private class SkinSwatch(context: Context, private val skin: KeyboardSkin, dark:
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private val pixel = skin.material == SkinMaterial.PIXEL
-    private val deck = when (skin.catArtwork) {
-        SkinCatArtwork.SCULPTED -> if (dark) 0xff42343e.toInt() else 0xffe8dadd.toInt()
+    private val centenary = if (skin == KeyboardSkin.CENTENARY) Look(dark, GlassShape.CAPSULE, Palette.AMBER,
+        GlassStrength.BALANCED, true, skin = skin) else null
+    private val deck = centenary?.keyboardTop ?: when (skin.catArtwork) {
+        SkinCatArtwork.SCULPTED, SkinCatArtwork.CENTENARY -> if (dark) 0xff42343e.toInt() else 0xffe8dadd.toInt()
         SkinCatArtwork.LEGACY -> if (dark) 0xff354350.toInt() else 0xffe1e7ef.toInt()
         SkinCatArtwork.PIXEL -> if (dark) 0xff342c4b.toInt() else 0xffe8dff0.toInt()
     }
-    private val rim = if (pixel) 0xff827196.toInt() else if (dark) 0xffaaadb8.toInt() else Color.WHITE
-    private val key = if (dark) 0xff857a8a.toInt() else 0xfffffbfa.toInt()
-    private val statusInk = if (dark) 0xffe5d5e1.toInt() else 0xff685062.toInt()
+    private val rim = centenary?.rim ?: if (pixel) 0xff827196.toInt() else if (dark) 0xffaaadb8.toInt() else Color.WHITE
+    private val key = centenary?.keyFaceTop ?: if (dark) 0xff857a8a.toInt() else 0xfffffbfa.toInt()
+    private val statusInk = centenary?.tint ?: if (dark) 0xffe5d5e1.toInt() else 0xff685062.toInt()
     private val catImages = when (skin.catArtwork) {
         SkinCatArtwork.SCULPTED -> R.drawable.cat_mimimo_edge_peek to R.drawable.cat_momo_edge_peek
         SkinCatArtwork.LEGACY -> R.drawable.cat_classic_mimimo_open to R.drawable.cat_classic_momo_open
         SkinCatArtwork.PIXEL -> R.drawable.cat_pixel_mimimo to R.drawable.cat_pixel_momo
+        SkinCatArtwork.CENTENARY -> R.drawable.centenary_mimimo_idle to R.drawable.centenary_momo_idle
     }.let { (left, right) ->
         val options = BitmapFactory.Options().apply { inSampleSize = if (pixel) 1 else 2 }
         BitmapFactory.decodeResource(resources, left, options) to BitmapFactory.decodeResource(resources, right, options)
     }
+    private val commemorativeArt = if (skin == KeyboardSkin.CENTENARY) BitmapFactory.decodeResource(resources,
+        R.drawable.centenary_duo, BitmapFactory.Options().apply { inSampleSize = 8 }) else null
     private val glass = LinearGradient(0f, 17f, 0f, 27f, rim, deck, Shader.TileMode.CLAMP)
     private var active = false
     private var locked = false
@@ -209,8 +273,13 @@ private class SkinSwatch(context: Context, private val skin: KeyboardSkin, dark:
         canvas.translate((width - 88f * scale) / 2, (height - 48f * scale) / 2)
         canvas.scale(scale, scale)
         paint.isFilterBitmap = !pixel
-        cat(canvas, catImages.first, 5f, 2f)
-        cat(canvas, catImages.second, 62f, 2f)
+        if (commemorativeArt != null) {
+            rect.set(26f, -2f, 62f, 22f)
+            canvas.drawBitmap(commemorativeArt, null, rect, paint)
+        } else {
+            cat(canvas, catImages.first, 5f, 2f)
+            cat(canvas, catImages.second, 62f, 2f)
+        }
         val barRadius = if (pixel) 1f else 5f
         if (!pixel) paint.shader = glass
         box(canvas, 5f, 17f, 83f, 27f, barRadius, rim)
@@ -224,7 +293,12 @@ private class SkinSwatch(context: Context, private val skin: KeyboardSkin, dark:
                 box(canvas, x, y, x + 11.5f, y + 5f, if (pixel) 0f else 2f, key)
             }
         }
-        if (locked || active) drawStatus(canvas)
+        if (locked || active) {
+            canvas.save()
+            if (centenary != null) canvas.translate(32f, -1f)
+            drawStatus(canvas)
+            canvas.restore()
+        }
         canvas.restore()
     }
 

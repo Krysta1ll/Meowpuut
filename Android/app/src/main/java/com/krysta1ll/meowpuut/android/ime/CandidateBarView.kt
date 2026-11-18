@@ -734,8 +734,10 @@ class CandidateBarView(
         return chosen.map { place ->
             val themed = if (place.cat == Cat.MIMIMO) mimimo else momo
             val themedArt = themed?.takeIf { it.sprite === place.sprite }
-            val art = themedArt ?: if (sculpted) sprites.art(place.sprite) else sprites.art(place.cat, CatPose.PEEK, artwork)
-            if (!sculpted) return@map Seat(actor(place.cat), place, fitted.petTarget(place), art.bitmap, Path(), null, true)
+            val art = themedArt ?: if (sculpted || artwork == SkinCatArtwork.CENTENARY) sprites.art(place.sprite)
+                else sprites.art(place.cat, CatPose.PEEK, artwork)
+            if (!sculpted) return@map Seat(actor(place.cat), place, fitted.petTarget(place), art.bitmap, Path(), null,
+                artwork != SkinCatArtwork.CENTENARY)
             val frame = place.frame
             // In front of the glass: each whole paw (a round paw is about 0.7 as tall as it is wide),
             // so an edge that rises under a paw does not cut into it. Nothing else of the cut row: its
@@ -828,15 +830,17 @@ class CandidateBarView(
         val artwork = look.skin.catArtwork
         if (artwork != SkinCatArtwork.SCULPTED || look.edgeHuggingCats) {
             canvas.save()
-            if (look.edgeHuggingCats) {
-                if (cat.id == Cat.MIMIMO) canvas.clipOutPath(glassPath)
-                canvas.rotate(tilt, place.anchorX, place.anchorY)
-                canvas.scale(wide, tall, place.anchorX, place.anchorY)
+            if (look.edgeHuggingCats || artwork == SkinCatArtwork.CENTENARY) {
+                if (look.edgeHuggingCats && cat.id == Cat.MIMIMO) canvas.clipOutPath(glassPath)
+                if (artwork != SkinCatArtwork.CENTENARY || motionEnabled) {
+                    canvas.rotate(tilt, place.anchorX, place.anchorY)
+                    canvas.scale(wide, tall, place.anchorX, place.anchorY)
+                }
             }
             val pixelHop = if (artwork == SkinCatArtwork.PIXEL && cat.pressed && motionEnabled) 1f else 0f
             val fading = pose != null && pose.alpha < 1f
             if (fading) bitmapPaint.alpha = (255 * pose!!.alpha).roundToInt()
-            drawSkinCat(canvas, seat, place.frame.offset(0f, -pixelHop), pose?.body)
+            drawSkinCat(canvas, seat, place.frame.offset(0f, -pixelHop), pose?.body, pose?.bodyAlpha ?: 1f)
             if (fading) bitmapPaint.alpha = 255
             canvas.restore()
             if (look.edgeHuggingCats && artwork == SkinCatArtwork.LEGACY && cat.id == Cat.MIMIMO) {
@@ -862,13 +866,24 @@ class CandidateBarView(
         if (body != null && bodyAlpha > 0f) drawStandingCat(canvas, seat, body, bodyAlpha * whole, tilt, wide, tall)
     }
 
-    private fun drawSkinCat(canvas: Canvas, seat: Seat, frame: Box, pose: CatBodyPose?) {
+    private fun drawSkinCat(canvas: Canvas, seat: Seat, frame: Box, pose: CatBodyPose?, bodyOpacity: Float = 1f) {
         val artwork = look.skin.catArtwork
-        val bitmap = if (artwork == SkinCatArtwork.LEGACY) sprites.classicCat(seat.actor.id,
+        val bitmap = if (artwork == SkinCatArtwork.CENTENARY) {
+            if (seat.actor.sleeping) sprites.centenaryBody(seat.actor.id, CatBodyPose.SLEEP)
+            else if (pose != null) sprites.centenaryBody(seat.actor.id, pose) else seat.bitmap
+        } else if (artwork == SkinCatArtwork.LEGACY) sprites.classicCat(seat.actor.id,
             happy = pose == CatBodyPose.HAPPY || pose == CatBodyPose.GREET || pose == CatBodyPose.JUMP,
             blink = seat.actor.sleeping) else seat.bitmap
         bitmapPaint.isFilterBitmap = artwork != SkinCatArtwork.PIXEL
+        val wholeAlpha = bitmapPaint.alpha
+        val mix = if (artwork == SkinCatArtwork.CENTENARY && pose != null && !seat.actor.sleeping) bodyOpacity else 1f
+        if (mix < 1f) {
+            bitmapPaint.alpha = (wholeAlpha * (1f - mix)).roundToInt()
+            canvas.drawBitmap(seat.bitmap, null, rectOf(frame), bitmapPaint)
+            bitmapPaint.alpha = (wholeAlpha * mix).roundToInt()
+        }
         canvas.drawBitmap(bitmap, null, rectOf(frame), bitmapPaint)
+        bitmapPaint.alpha = wholeAlpha
         bitmapPaint.isFilterBitmap = true
     }
 
@@ -952,7 +967,7 @@ class CandidateBarView(
         val sculpted = look.skin.catArtwork == SkinCatArtwork.SCULPTED
         if (!sculpted) {
             bitmapPaint.alpha = (255f * fade).roundToInt()
-            drawSkinCat(canvas, seat, place.frame, CatBodyPose.GREET)
+            drawSkinCat(canvas, seat, place.frame, if (look.isCentenary) CatBodyPose.IDLE else CatBodyPose.GREET)
         } else if (held < 1f) {
             bitmapPaint.alpha = (255f * fade * (1f - held)).roundToInt()
             canvas.drawBitmap(seat.bitmap, null, rectOf(place.frame), bitmapPaint)
@@ -1448,10 +1463,17 @@ class CandidateBarView(
 
     // ---------------------------------------------------------------- cats
 
+    private var lastCentenaryCheerAt = -1400L
+
     /** A short response when a candidate is committed. */
     fun committed() {
         scheduleCatSleep()
-        for (cat in actors) motion(cat.id, CatMotion.Event.COMMIT)
+        if (look.isCentenary) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastCentenaryCheerAt < 1400L) return
+            lastCentenaryCheerAt = now
+            for (cat in actors) motion(cat.id, CatMotion.Event.CENTENARY_CHEER)
+        } else for (cat in actors) motion(cat.id, CatMotion.Event.COMMIT)
     }
 
     /** A pet advances only the touched cat's streak. */
@@ -1695,7 +1717,12 @@ class CandidateBarView(
     private fun motion(cat: Cat, event: CatMotion.Event = CatMotion.Event.PET) {
         val catActor = actor(cat)
         if (!motionEnabled || !(region.cats && look.cats) || catActor === liftedCat?.actor) return
-        catActor.motion = CatMotion(cat, SystemClock.uptimeMillis(), timeScale(), event)
+        val reaction = if (look.isCentenary) when (event) {
+            CatMotion.Event.PET -> CatMotion.Event.CENTENARY_BOW
+            CatMotion.Event.CELEBRATE -> CatMotion.Event.CENTENARY_CHEER
+            else -> event
+        } else event
+        catActor.motion = CatMotion(cat, SystemClock.uptimeMillis(), timeScale(), reaction)
         invalidate()
     }
 

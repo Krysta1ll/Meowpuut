@@ -108,6 +108,10 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         strokeCap = Paint.Cap.ROUND
     }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val sealPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    }
     private val cursorHint = context.getString(R.string.cursor_drag_hint)
     private val rect = RectF()
     private val visibleHintBounds = Rect()
@@ -289,7 +293,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         val simple = look.effects == EffectsLevel.LIGHTWEIGHT || look.opaque || pixel || look.overlay != null
         val full = look.effects.hasFullEffects && !simple
         val ultra = look.effects == EffectsLevel.ULTRA && !simple
-        val glass = full || look.tintedGlass
+        val glass = (full || look.tintedGlass) && !look.isCentenary
         val pairedRim = !usesLensKeycaps && (ultra || look.tintedGlass)
         if (!simple && shaderHeight != metrics.keyHeight) {
             prepareMaterial(glass, ultra, pairedRim)
@@ -298,7 +302,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         val drawRim = !simple && !cursorMode
         val fingers = touches.active
         shadowPaint.color = look.keyShadow
-        pressPaint.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.20f else 0.15f)
+        pressPaint.color = if (look.isCentenary) Look.withAlpha(Color.BLACK, 0.12f)
+            else Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.20f else 0.15f)
         for ((r, row) in touches.placements.withIndex()) {
             val held = if (fingers) touches.pressedColumns(r) else 0
             for (placement in row) {
@@ -374,6 +379,9 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     private fun drawKeyLegend(canvas: Canvas, key: Key, frame: Box, layout: LabelLayout?, depth: Float, cursorMode: Boolean) {
         if (!cursorMode) {
             drawLabel(canvas, key, frame, layout, depth)
+            if (look.isCentenary && key.action == KeyAction.Space && layout != null) {
+                drawCentenarySeal(canvas, key, frame, layout, depth)
+            }
         } else if (key.action == KeyAction.Space) {
             labelPaint.textSize = keyTextSize.fontSize(12f, resources.configuration.fontScale)
             val available = (frame.width - 12f).coerceAtLeast(1f)
@@ -382,6 +390,24 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             val baseline = frame.centerY - (labelPaint.ascent() + labelPaint.descent()) / 2
             canvas.drawText(text, frame.centerX, baseline, labelPaint)
         }
+    }
+
+    /** A small maker's seal uses only free space beside the unchanged, centred space-key label. */
+    private fun drawCentenarySeal(canvas: Canvas, key: Key, frame: Box, layout: LabelLayout, depth: Float) {
+        if (frame.width < 128f || frame.height < 22f) return
+        labelPaint.textSize = layout.size
+        val right = frame.left + 36f
+        if (right + 8f > frame.centerX - labelPaint.measureText(key.label) / 2) return
+        val centerY = frame.centerY + depth
+        rect.set(frame.left + 8f, centerY - 7f, right, centerY + 7f)
+        sealPaint.style = Paint.Style.STROKE
+        sealPaint.strokeWidth = if (look.opaque) 1f else 0.7f
+        sealPaint.color = look.tint
+        canvas.drawRoundRect(rect, 4f, 4f, sealPaint)
+        sealPaint.style = Paint.Style.FILL
+        sealPaint.textSize = 8.5f
+        sealPaint.color = if (look.dark) look.tint else 0xFF76542A.toInt()
+        canvas.drawText("100", rect.centerX(), centerY - (sealPaint.ascent() + sealPaint.descent()) / 2, sealPaint)
     }
 
     /** All caps share these local shaders, which are rebuilt on theme or size changes. */
@@ -422,7 +448,12 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         } else {
             faceShader = LinearGradient(0f, 0f, 0f, shaderHeight, look.keyFaceTop, look.keyFaceBottom, Shader.TileMode.CLAMP)
             utilityShader = LinearGradient(0f, 0f, 0f, shaderHeight, look.keyUtilityTop, look.keyUtilityBottom, Shader.TileMode.CLAMP)
-            rimPaint.shader = LinearGradient(0f, 0f, 0f, shaderHeight, intArrayOf(
+            rimPaint.shader = if (look.isCentenary) LinearGradient(0f, 0f, 0f, shaderHeight, intArrayOf(
+                Look.withAlpha(look.keyGlassReflection, if (look.dark) 0.80f else 0.90f),
+                Look.withAlpha(look.tint, if (look.dark) 0.36f else 0.30f),
+                Look.withAlpha(look.tint, if (look.dark) 0.62f else 0.58f),
+            ), floatArrayOf(0f, 0.40f, 1f), Shader.TileMode.CLAMP)
+            else LinearGradient(0f, 0f, 0f, shaderHeight, intArrayOf(
                 Look.withAlpha(Color.WHITE, if (look.dark) 0.20f else 0.78f),
                 Look.withAlpha(Color.WHITE, if (look.dark) 0.02f else 0.07f),
                 Look.withAlpha(Color.BLACK, if (look.dark) 0.14f else 0.09f),
@@ -439,7 +470,9 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         val icon = key.icon
         if (icon != null) {
             iconPaint.color = color
-            val size = metrics.utilityFont * 1.25f
+            // The delete outline is 1.18×size plus its stroke; narrow Zhuyin caps still need an inset.
+            val size = minOf(metrics.utilityFont * 1.25f, (f.width - 6f).coerceAtLeast(1f) / 1.27f,
+                (f.height - 6f).coerceAtLeast(1f) / 1.12f)
             val centerY = f.centerY + depth
             when (icon) {
                 KeyIcon.SHIFT -> Glyphs.shift(canvas, f.centerX, centerY, size, filled = false, lock = false, paint = iconPaint)

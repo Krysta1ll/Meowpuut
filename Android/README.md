@@ -31,6 +31,12 @@ Gradle 不會自己下載 SDK 套件（`android.builder.sdkDownload=false`），
   --out app-release-debugsigned.apk Android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
 
+## 百爪典藏
+
+鍵盤衣櫥的免費銷量破百紀念皮膚。淺色為奶油瓷白與香檳金，深色為午夜藍與暖金，維持原有鍵盤高度和觸控範圍。空白鍵有不與置中字樣重疊的小型 `100` 紀念章，窄鍵會自動省略。
+
+米米莫換上象牙白禮服背心，莫莫穿午夜藍披肩；八張專屬全身圖包含迎賓、鞠躬、舉爪歡呼和抱章休息。輕摸小貓會鞠躬，選詞送出時雙貓短暫歡呼，連續打字會節制觸發。系統關閉動畫或選擇輕量效果時，服裝保留、旋轉和伸縮停止。紀念配色與膠囊造型固定，色調、玻璃透明度與小貓開關仍可調整。
+
 ## 自訂皮膚
 
 開發者簽章並加密的 `.mpskin`（規格 `plans/custom-skins.md` v2，只做 Android）。設定 App 首頁「自訂皮膚 ›」：產生兌換 ID 傳給開發者、用檔案選擇器（或「以喵撲開啟」／分享）開啟收到的 `.mpskin`、套用、移除；`.mprevoke` 也從同一個選擇器匯入。驗章、解密、驗證器與安裝在 Rust 核心（`Engine` 的 `skin` 功能，經 `SkinNative` JNI）；請求金鑰與單調狀態存在 `filesDir/skinvault/`（Keystore AES-GCM 加密），已安裝的皮膚在 `filesDir/skins/<id>/<rev>/`。輸入法每次套用時在背景執行緒先驗章再讀圖與聲音（`CustomSkinLoader`），任何失敗都靜默退回內建皮膚；按鍵路徑不碰皮膚檔案（`SkinPathTest` 檢查原始碼）。

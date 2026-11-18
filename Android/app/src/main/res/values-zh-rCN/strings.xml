@@ -4,6 +4,11 @@
     <string name="skin_current">喵扑玻璃</string>
     <string name="skin_classic_cloud">经典云玻璃</string>
     <string name="skin_pixel">像素</string>
+    <string name="skin_centenary">百爪典藏</string>
+    <string name="skin_centenary_note">销量破百纪念 · 免费收藏</string>
+    <string name="skin_centenary_thanks">谢谢每一次相遇</string>
+    <string name="skin_centenary_art">米米莫与莫莫捧着 100 纪念章</string>
+    <string name="skin_centenary_colors">纪念配色 · 香槟金／午夜蓝</string>
     <string name="skin_unlock_title">解锁%1$s皮肤</string>
     <string name="skin_pixel_question">这行 Python 会输出什么？</string>
     <string name="skin_pixel_try_again">这题没答对，可以再抽一题。</string>

@@ -82,6 +82,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private lateinit var gallery: SkinGallery
     private lateinit var customSkinNote: TextView
     private lateinit var shapeRow: View
+    private lateinit var paletteRow: View
+    private lateinit var commemorativeColorNote: TextView
     private lateinit var glassRow: View
     private lateinit var catsSwitch: Switch
     private lateinit var festivalSwitch: Switch
@@ -291,6 +293,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         choice(look, R.string.palette, Prefs.PALETTE, listOf(R.string.palette_rose to Palette.ROSE, R.string.palette_ocean to Palette.OCEAN,
             R.string.palette_sage to Palette.SAGE, R.string.palette_lavender to Palette.LAVENDER, R.string.palette_amber to Palette.AMBER,
             R.string.palette_graphite to Palette.GRAPHITE), { prefs.palette }) { prefs.palette = it }
+        paletteRow = look.getChildAt(look.childCount - 1)
+        commemorativeColorNote = note(look, R.string.skin_centenary_colors)
         choice(look, R.string.strength, Prefs.STRENGTH, listOf(R.string.strength_soft to GlassStrength.SOFT,
             R.string.strength_balanced to GlassStrength.BALANCED, R.string.strength_vivid to GlassStrength.VIVID), { prefs.strength }) { prefs.strength = it }
         glassRow = look.getChildAt(look.childCount - 1)
@@ -407,6 +411,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         customSkinNote.text = if (custom == null) "" else getString(R.string.cs_in_use_note, custom)
         customSkinNote.visibility = if (custom == null) View.GONE else View.VISIBLE
         shapeRow.visibility = if (custom != null || skin.fixedShape == null) View.VISIBLE else View.GONE
+        paletteRow.visibility = if (custom == null && skin != KeyboardSkin.CENTENARY) View.VISIBLE else View.GONE
+        commemorativeColorNote.visibility = if (custom == null && skin == KeyboardSkin.CENTENARY) View.VISIBLE else View.GONE
         glassRow.visibility = if (custom == null && skin.material == SkinMaterial.GLASS) View.VISIBLE else View.GONE
         festivalSwitch.visibility = if (skin.supportsFestivals) View.VISIBLE else View.GONE
         festivalHint.visibility = festivalSwitch.visibility
