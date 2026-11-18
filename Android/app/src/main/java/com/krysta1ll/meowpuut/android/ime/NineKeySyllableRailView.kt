@@ -157,11 +157,11 @@ class NineKeySyllableRailView(context: Context) : View(context) {
     }
 
     private fun itemAt(y: Float): Int {
-        val cy = y + scroll - PAD
-        if (cy < 0f) return -1
+        if (syllables.isEmpty() || y < -2f || y > height / density + 2f) return -1
+        val cy = max(0f, y + scroll - PAD)
         val step = ITEM_HEIGHT + ITEM_GAP
         val index = (cy / step).toInt()
-        return if (index in syllables.indices) index else -1
+        return index.coerceIn(0, syllables.lastIndex)
     }
 
     @SuppressLint("ClickableViewAccessibility")

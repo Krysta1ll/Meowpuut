@@ -1206,13 +1206,17 @@ class CandidateBarView(
     // ---------------------------------------------------------------- touch
 
     private fun itemAt(x: Float): Int {
-        if (x < candidateRow.left || x >= candidateRow.right) return -1
+        if (x < candidateRow.left - 4f || x >= candidateRow.right + 4f) return -1
         val contentX = x - candidateRow.left + scroll
+        val first = items.firstOrNull()
         return items.indexOfFirst {
-            val slop = if (it.kind == 2) 1f else 3f
-            shows(it) && contentX >= it.x - slop && contentX < it.x + it.width + slop
+            val leftSlop = if (it === first) 6f else 3f
+            shows(it) && contentX >= it.x - leftSlop && contentX < it.x + it.width + 3f
         }
     }
+
+    internal fun claimsPoint(x: Float, y: Float): Boolean =
+        y <= region.glass.bottom || onExpandHit(x, y) || seats().any { it.touch.contains(x, y) }
 
     private fun onExpandHit(x: Float, y: Float): Boolean =
         (content.canExpand || content.expanded) && region.expandTarget(expandButton).contains(x, y)

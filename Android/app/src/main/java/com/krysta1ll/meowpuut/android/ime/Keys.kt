@@ -429,6 +429,7 @@ object KeyBuilder {
             ),
             referenceColumns = 10,
             page = page,
+            toleratesKeyDrift = true,
         )
     }
 }

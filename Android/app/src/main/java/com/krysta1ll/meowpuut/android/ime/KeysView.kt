@@ -67,6 +67,9 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         set(value) { if (field != value) { field = value; accessibility.invalidateAll(); invalidate() } }
 
     private val touches = KeyTouches(this)
+    var topTouchExtension: Float
+        get() = touches.topTouchExtension
+        set(value) { touches.topTouchExtension = value }
     private val density = resources.displayMetrics.density
     private val handler = Handler(Looper.getMainLooper())
 

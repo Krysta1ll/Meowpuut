@@ -48,7 +48,11 @@ class KeyTouches(private val host: Host) {
         private set
     var placements: List<List<KeyPlacement>> = emptyList()
         private set
+    val touchGrid = KeyTouchGridSoA()
+    /** Dead-zone strip immediately above `KeysView` (below the candidate glass) routed to Row 0. */
+    var topTouchExtension = 0f
     private var width = 0f
+    private var shapeEpoch = 0
 
     /** The space bar is moving the cursor: key labels fade. */
     var cursorMode = false
@@ -57,8 +61,12 @@ class KeyTouches(private val host: Host) {
     /** What a finger is doing. SHIFT and PAGE may end on a character the finger slid to. */
     private enum class Mode { KEY, ALTERNATES, CURSOR, SHIFT, PAGE, DELETE, INERT }
 
-    private class Pointer(val id: Int, var row: Int, var column: Int, var key: Key, var frame: Box, val downX: Float, val downY: Float) {
+    private class Pointer(
+        val id: Int, var index: Int, var row: Int, var column: Int,
+        var key: Key, var frame: Box, var hitBox: Box, val downX: Float, val downY: Float,
+    ) {
         var x = downX
+        var y = downY
         var canSwipeTone = key.swipeUpTone != null
         var tone: KeyAction.PinyinTone? = null
         var mode = Mode.KEY
@@ -101,7 +109,9 @@ class KeyTouches(private val host: Host) {
         keySet = set
         this.placements = placements
         this.width = width
+        touchGrid.rebuild(placements, set)
         if (!sameShape) {
+            shapeEpoch++
             // A held key from the old layout no longer matches what is drawn.
             // Shift and page keys stay down so the finger can slide to a character.
             for (p in pointers.values) {
@@ -130,22 +140,34 @@ class KeyTouches(private val host: Host) {
         return columns
     }
 
-    private fun keyAt(x: Float, y: Float): Pair<Int, Int>? = KeyGrid.keyAt(x, y, placements)
-
     private fun keyOf(row: Int, column: Int): Key? = keySet?.rows?.getOrNull(row)?.getOrNull(column)
 
     private fun frameOf(row: Int, column: Int): Box? = placements.getOrNull(row)?.getOrNull(column)?.frame
+
+    private fun hitBoxOf(row: Int, column: Int): Box? = placements.getOrNull(row)?.getOrNull(column)?.hitFrame
+
+    private fun withinReleaseSlop(p: Pointer, x: Float, y: Float): Boolean {
+        val s = KeyTouchGridSoA.UTILITY_RELEASE_SLOP_DP
+        val b = p.hitBox
+        return x >= b.left - s && x <= b.right + s && y >= b.top - s && y <= b.bottom + s
+    }
 
     fun down(id: Int, x: Float, y: Float) {
         pointers.remove(id)?.let(::retire)
         // The key is read before earlier fingers are typed: typing one can
         // change the page, and this finger aimed at what was on screen.
-        val (row, column) = keyAt(x, y) ?: return
+        val hitIndex = touchGrid.resolveDown(x, y, topTouchExtension)
+        if (hitIndex < 0) return
+        val row = touchGrid.rowOf(hitIndex)
+        val column = touchGrid.columnOf(hitIndex)
         val key = keyOf(row, column) ?: return
         val frame = frameOf(row, column) ?: return
+        val hitBox = hitBoxOf(row, column) ?: frame
+        val epochBefore = shapeEpoch
         // Rollover: a new finger types whatever the earlier fingers still hold.
         for (earlier in pointers.values.toList()) commitEarly(earlier)
-        val p = Pointer(id, row, column, key, frame, x, y)
+        val effectiveIndex = if (shapeEpoch == epochBefore) hitIndex else -1
+        val p = Pointer(id, effectiveIndex, row, column, key, frame, hitBox, x, maxOf(0f, y))
         pointers[id] = p
         begin(p)
     }
@@ -190,8 +212,10 @@ class KeyTouches(private val host: Host) {
     fun move(id: Int, x: Float, y: Float) {
         val p = pointers[id] ?: return
         p.x = x
+        p.y = y
         when (p.mode) {
             Mode.KEY -> {
+                if (p.key.holdsRaw && !withinReleaseSlop(p, x, y)) cancelHold(p)
                 // A finger may slide to another character key before lifting.
                 if (p.committed || p.tone != null || !p.key.isCharacter) return
                 if (recognizeTone(p, x, y)) {
@@ -199,19 +223,17 @@ class KeyTouches(private val host: Host) {
                     host.redraw()
                     return
                 }
-                // A small drift across the seam keeps the active key. New taps hit the full grid.
-                if (p.key.action is KeyAction.Engine && keySet?.toleratesKeyDrift == true) {
-                    val hit = placements.getOrNull(p.row)?.getOrNull(p.column)?.hitFrame
-                    if (hit != null && x >= hit.left - KEY_DRIFT_DP && x < hit.right + KEY_DRIFT_DP &&
-                        y >= hit.top - KEY_DRIFT_DP && y < hit.bottom + KEY_DRIFT_DP) return
-                }
-                val (row, column) = keyAt(x, y) ?: return
-                if (row == p.row && column == p.column) return
+                val nextIndex = touchGrid.resolveCharacterSlide(
+                    p.index, p.downX, p.downY, x, y, keySet?.toleratesKeyDrift == true,
+                )
+                if (nextIndex < 0) return
+                val row = touchGrid.rowOf(nextIndex)
+                val column = touchGrid.columnOf(nextIndex)
                 val next = keyOf(row, column) ?: return
-                if (!next.isCharacter || !next.enabled) return
                 p.canSwipeTone = false
-                p.row = row; p.column = column; p.key = next
+                p.index = nextIndex; p.row = row; p.column = column; p.key = next
                 p.frame = frameOf(row, column) ?: p.frame
+                p.hitBox = hitBoxOf(row, column) ?: p.hitBox
                 showPressed(p)
                 scheduleAlternates(p)
                 host.redraw()
@@ -230,15 +252,19 @@ class KeyTouches(private val host: Host) {
         }
     }
 
-    /** From Shift or a page key the finger may slide onto a character. */
+    /** From Shift or a page key the finger may slide onto a character once past chord-slide hysteresis. */
     private fun slide(p: Pointer, x: Float, y: Float) {
-        val hit = keyAt(x, y)
-        val next = hit?.let { keyOf(it.first, it.second) }
-        if (hit != null && next != null && next.isCharacter && next.enabled) {
-            if (p.slid && hit.first == p.row && hit.second == p.column && next == p.key) return
+        if (!touchGrid.allowsModifierSlide(p.downX, p.downY, x, y, p.slid)) return
+        val nextIndex = touchGrid.resolveHit(x, maxOf(0f, y))
+        val row = touchGrid.rowOf(nextIndex)
+        val column = touchGrid.columnOf(nextIndex)
+        val next = if (nextIndex >= 0) keyOf(row, column) else null
+        if (next != null && next.isCharacter && next.enabled) {
+            if (p.slid && row == p.row && column == p.column && next == p.key) return
             p.slid = true
-            p.row = hit.first; p.column = hit.second; p.key = next
+            p.index = nextIndex; p.row = row; p.column = column; p.key = next
             p.frame = frameOf(p.row, p.column) ?: p.frame
+            p.hitBox = hitBoxOf(p.row, p.column) ?: p.hitBox
             showPressed(p)
             host.redraw()
         } else if (p.slid) {
@@ -251,6 +277,7 @@ class KeyTouches(private val host: Host) {
     fun up(id: Int, x: Float, y: Float) {
         val p = pointers.remove(id) ?: return
         p.x = x
+        p.y = y
         cancelHold(p)
         host.hideBalloon(p.id)
         val mode = p.mode
@@ -262,8 +289,8 @@ class KeyTouches(private val host: Host) {
             Mode.KEY -> if (!p.committed) {
                 recognizeTone(p, x, y)
                 // Characters and space are typed wherever the finger lifts;
-                // Return, the language key and the globe need it to stay on them.
-                if (p.key.rollsOver || keyAt(x, y) == (p.row to p.column)) commit(p, null)
+                // Return, language toggle, emoji and retype forgive small edge lift drift.
+                if (p.key.rollsOver || withinReleaseSlop(p, x, y)) commit(p, null)
             }
             Mode.ALTERNATES -> {
                 if (!p.committed) commit(p, p.options.getOrNull(p.selected))
@@ -286,8 +313,14 @@ class KeyTouches(private val host: Host) {
     private fun recognizeTone(p: Pointer, x: Float, y: Float): Boolean {
         val tone = p.key.swipeUpTone ?: return false
         if (p.tone != null) return true
-        val rise = p.downY - y
-        if (!p.canSwipeTone || rise < TONE_SWIPE_DP || rise < abs(x - p.downX) * 1.4f) return false
+        if (!p.canSwipeTone) return false
+        val valid = if (p.index >= 0) {
+            touchGrid.isValidToneSwipe(p.index, p.downX, p.downY, x, y)
+        } else {
+            val rise = p.downY - y
+            rise >= KeyTouchGridSoA.TONE_SWIPE_MIN_RISE_DP && rise >= abs(x - p.downX) * KeyTouchGridSoA.TONE_SWIPE_SLOPE
+        }
+        if (!valid) return false
         p.tone = tone
         return true
     }
@@ -465,8 +498,6 @@ class KeyTouches(private val host: Host) {
     }
 
     companion object {
-        private const val KEY_DRIFT_DP = 2f
-        private const val TONE_SWIPE_DP = 20f
         const val ALTERNATES_DELAY = 450L
         const val CURSOR_DELAY = 400L
         const val CURSOR_STEP = 9f

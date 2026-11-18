@@ -87,6 +87,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     private var baseRows = 4
     private var bottomInset = 0
     private var measuredLimit = Float.POSITIVE_INFINITY
+    private var routingToKeys = false
     var expanded = false
         set(value) {
             if (field == value) return
@@ -259,6 +260,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         val width = r - l
         bar.layout(0, 0, width, bar.measuredHeight)
         val keyLeft = (width - keys.measuredWidth) / 2
+        keys.topTouchExtension = maxOf(0f, bar.region.height - bar.region.glass.bottom)
         keys.layout(keyLeft, bar.measuredHeight, keyLeft + keys.measuredWidth, bar.measuredHeight + keys.measuredHeight)
         if (syllableRail.visibility == VISIBLE) {
             keys.leftColumnBox()?.let { box ->
@@ -269,6 +271,39 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         }
         panel.layout(0, bar.measuredHeight, width, bar.measuredHeight + panel.measuredHeight)
         previews.layout(0, 0, width, previews.measuredHeight)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val action = event.actionMasked
+        if (action == MotionEvent.ACTION_DOWN) {
+            routingToKeys = shouldRoutePerimeterTouchToKeys(event.x, event.y)
+        }
+        if (routingToKeys) {
+            val dx = -keys.left.toFloat()
+            val dy = -keys.top.toFloat()
+            event.offsetLocation(dx, dy)
+            val handled = keys.dispatchTouchEvent(event)
+            event.offsetLocation(-dx, -dy)
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                routingToKeys = false
+            }
+            return handled
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun shouldRoutePerimeterTouchToKeys(x: Float, y: Float): Boolean {
+        if (expanded || keys.visibility != VISIBLE || !keys.isEnabled) return false
+        if (syllableRail.visibility == VISIBLE &&
+            x >= syllableRail.left && x < syllableRail.right &&
+            y >= syllableRail.top && y < syllableRail.bottom
+        ) {
+            return false
+        }
+        if (y < keys.top) {
+            return y >= bar.region.glass.bottom * density && !bar.claimsPoint(x / density, y / density)
+        }
+        return y >= keys.bottom || x < keys.left || x >= keys.right
     }
 
     override fun onDraw(canvas: Canvas) {

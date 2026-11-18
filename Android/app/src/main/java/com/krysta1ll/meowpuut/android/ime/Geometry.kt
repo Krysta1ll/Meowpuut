@@ -334,11 +334,12 @@ object KeyGrid {
         }
     }
 
-    /** The key under a point (row, column), or null outside the area. */
+    /** The key under a point (row, column), or null above the area. */
     fun keyAt(x: Float, y: Float, placements: List<List<KeyPlacement>>): Pair<Int, Int>? {
-        for (row in placements) {
+        val lastRow = placements.lastIndex
+        for ((index, row) in placements.withIndex()) {
             val first = row.firstOrNull() ?: continue
-            if (y < first.hitFrame.top || y >= first.hitFrame.bottom) continue
+            if (y < first.hitFrame.top || (y >= first.hitFrame.bottom && index != lastRow)) continue
             for (key in row) if (x >= key.hitFrame.left && x < key.hitFrame.right) return key.row to key.column
             // Past either end of the row: the nearest end key.
             val end = if (x < first.hitFrame.left) first else row.last()
