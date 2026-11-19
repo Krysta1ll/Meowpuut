@@ -169,10 +169,6 @@ object KeyBuilder {
         val keys = mutableListOf(first)
         val units = mutableListOf(utilityWidth)
         if (second != null) { keys += second; units += utilityWidth }
-        if (context.needsGlobe) {
-            keys += Key(KeyAction.Globe, "", KeyIcon.GLOBE, KeyStyle.UTILITY, preview = false, spoken = t("選擇系統鍵盤", "选择系统键盘"))
-            units += utilityWidth
-        }
         keys += Key(KeyAction.Space, context.spaceTitle, style = KeyStyle.CHARACTER, preview = false, fontSize = 16f, spoken = "空格")
         units += 0f
         if (context.expanded) {
@@ -216,19 +212,9 @@ object KeyBuilder {
     private fun utilityPage(page: Int, label: String, spoken: String = label) =
         Key(KeyAction.Page(page), label, style = KeyStyle.UTILITY, preview = false, fontSize = 15f, spoken = spoken)
 
-    private fun punctuationKey(mark: String, options: List<String> = punctuationAlternates(mark)) =
-        Key(KeyAction.Text(mark), mark, style = KeyStyle.UTILITY, alternates = options, fontSize = 20f)
-
-    private fun globeKey(t: Words) = Key(KeyAction.Globe, "", KeyIcon.GLOBE, KeyStyle.UTILITY, preview = false,
-        spoken = t("選擇系統鍵盤", "选择系统键盘"))
-
     private fun nineKeyBottom(context: KeyContext, t: Words, first: Key, second: Key): Pair<List<Key>, RowSpec> {
         val keys = mutableListOf(first, second)
         val widths = mutableListOf(1.2f, 1.0f)
-        if (context.needsGlobe) {
-            keys += globeKey(t)
-            widths += 0.9f
-        }
         keys += Key(KeyAction.Space, context.spaceTitle, preview = false, fontSize = 16f, spoken = "空格")
         widths += 0f
         keys += toggleKey(context)
@@ -270,11 +256,14 @@ object KeyBuilder {
 
     private val nineKeyRow = RowSpec(listOf(1.35f, 2.3f, 2.3f, 2.3f, 1.35f), RowAlignment.JUSTIFIED)
 
+    private fun punctuationKey(mark: String, options: List<String> = punctuationAlternates(mark)) =
+        Key(KeyAction.Text(mark), mark, style = KeyStyle.UTILITY, alternates = options, fontSize = 20f)
+
     private fun nineKeyNumbers(context: KeyContext, t: Words): KeySet {
         fun number(digit: Char) = Key(KeyAction.Text(digit.toString()), digit.toString(), fontSize = 20f)
         val marks = listOf(
             utilityPage(1, t("符號", "符号")),
-            if (context.needsGlobe) globeKey(t) else punctuationKey("+"),
+            punctuationKey("+"),
             punctuationKey("-"),
         )
         val side = listOf(deleteKey(t), punctuationKey("/"), punctuationKey("#"))

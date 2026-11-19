@@ -119,10 +119,11 @@ object GlassPainter {
 
         // Inner glaze, brighter at the top.
         fill.color = Color.WHITE
+        val topHighlight = if (look.isCentenary && !dark) 0xFFFFF8E8.toInt() else Color.WHITE
         fill.shader = LinearGradient(0f, glass.top, 0f, glass.bottom, intArrayOf(
-            Look.withAlpha(Color.WHITE, if (dark) 0.09f else 0.32f),
-            Look.withAlpha(Color.WHITE, if (dark) 0.025f else 0.08f),
-            Look.withAlpha(look.tint, if (dark) 0.06f else 0.04f),
+            Look.withAlpha(topHighlight, if (dark) 0.09f else 0.34f),
+            Look.withAlpha(topHighlight, if (dark) 0.025f else 0.09f),
+            Look.withAlpha(look.tint, if (dark) 0.06f else 0.05f),
         ), floatArrayOf(0f, 0.62f, 1f), Shader.TileMode.CLAMP)
         canvas.drawPath(path, fill)
         fill.shader = null
@@ -291,16 +292,18 @@ class PillPainter {
             canvas.drawRoundRect(rect, radius, radius, fill)
             return
         }
+        val centenary = look.isCentenary
         val key = (colors.first.toLong() shl 32) xor colors.second.toLong() xor (height.toBits().toLong() shl 7) xor top.toBits().toLong() xor
-            (if (dark) 1L shl 62 else 0L)
+            (if (dark) 1L shl 62 else 0L) xor (if (centenary) 1L shl 61 else 0L)
         if (key != cachedKey) {
             cachedKey = key
             val middle = top + height / 2
+            val glint = if (centenary) 0xFFF4DBA4.toInt() else Color.WHITE
             cachedShader = LinearGradient(0f, top, 0f, top + height, colors.first, colors.second, Shader.TileMode.CLAMP)
             cachedLine = LinearGradient(0f, top, 0f, middle,
-                Look.withAlpha(Color.WHITE, if (dark) 0.34f else 0.55f), Look.withAlpha(Color.WHITE, 0f), Shader.TileMode.CLAMP)
+                Look.withAlpha(glint, if (dark || centenary) 0.42f else 0.55f), Look.withAlpha(glint, 0f), Shader.TileMode.CLAMP)
             cachedGlow = LinearGradient(0f, middle, 0f, top + height,
-                Look.withAlpha(Color.WHITE, 0f), Look.withAlpha(Color.WHITE, if (dark) 0.16f else 0.26f), Shader.TileMode.CLAMP)
+                Look.withAlpha(glint, 0f), Look.withAlpha(glint, if (dark || centenary) 0.20f else 0.26f), Shader.TileMode.CLAMP)
         }
         fill.shader = cachedShader
         // The shadow is the pill's own colour, not grey.

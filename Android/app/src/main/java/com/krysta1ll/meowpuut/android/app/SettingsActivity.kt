@@ -94,6 +94,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     // Paper colours (assets/brand/paper/paper-tokens.json) for the chosen colour system. Read when the page opens.
     private lateinit var ui: PaperUi
     private lateinit var stamp: StampToast
+    private lateinit var photoStore: CatPhotoStore
+    private lateinit var photoWall: CatPhotoWall
     private val ink get() = ui.p.ink
     private val quietInk get() = ui.p.inkSecondary
     private val accentInk get() = ui.p.stamp
@@ -201,6 +203,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         buttons.addView(action(R.string.setup_open_settings) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) }, weighted())
         buttons.addView(action(R.string.setup_pick) { getSystemService(InputMethodManager::class.java).showInputMethodPicker() }, weighted())
         setup.addView(buttons)
+
+        photoStore = CatPhotoStore(this)
+        photoWall = CatPhotoWall(this, ui, photoStore)
+        column.addView(photoWall, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(20)
+        })
 
         val shortcuts = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -371,6 +379,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     override fun onResume() {
         super.onResume()
         updateStatus()
+        photoWall.refreshIfDayChanged()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -379,6 +388,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     override fun onDestroy() {
+        photoStore.shutdown()
         prefs.store.unregisterOnSharedPreferenceChangeListener(this)
         super.onDestroy()
     }
@@ -1003,6 +1013,14 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
         }
         rect.set(0f, panelTop.toFloat(), width.toFloat(), height.toFloat())
         canvas.drawRoundRect(rect, 18 * density, 18 * density, background)
+        if (l.isCentenary) {
+            navigationPaint.style = Paint.Style.STROKE
+            navigationPaint.strokeWidth = density
+            navigationPaint.color = Look.withAlpha(l.tint, if (l.dark) 0.42f else 0.36f)
+            rect.inset(density * 0.5f, density * 0.5f)
+            canvas.drawRoundRect(rect, 17.5f * density, 17.5f * density, navigationPaint)
+            navigationPaint.style = Paint.Style.FILL
+        }
         if (dockedPanel) {
             val center = width / 2f
             val y = height - navigationPreview * density / 2

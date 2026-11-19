@@ -84,8 +84,16 @@ class PreviewOverlay(context: Context) : View(context) {
         canvas.restore()
     }
 
-    private fun shadow(paint: Paint) {
-        if (Build.VERSION.SDK_INT >= 28) paint.setShadowLayer(4f, 0f, 2f, Look.withAlpha(Color.BLACK, if (look.dark) 0.45f else 0.20f))
+    private fun drawSoftPathShadow(canvas: Canvas) {
+        val alpha = if (look.dark) 0.22f else 0.10f
+        face.color = Look.withAlpha(Color.BLACK, alpha)
+        canvas.save()
+        canvas.translate(0f, 1.5f)
+        canvas.drawPath(path, face)
+        canvas.translate(0f, 1.2f)
+        face.color = Look.withAlpha(Color.BLACK, alpha * 0.55f)
+        canvas.drawPath(path, face)
+        canvas.restore()
     }
 
     private fun drawBalloon(canvas: Canvas, b: Balloon) {
@@ -95,13 +103,13 @@ class PreviewOverlay(context: Context) : View(context) {
             drawPixelPanel(canvas, rect, look.pixelSurface, look.pixelEdge, face)
         } else {
             balloonPath(b.key, b.bubble, b.radius)
+            drawSoftPathShadow(canvas)
             face.color = look.balloonFace
-            shadow(face)
             canvas.drawPath(path, face)
-            face.clearShadowLayer()
             face.style = Paint.Style.STROKE
-            face.strokeWidth = 0.5f
-            face.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.10f else 0.06f)
+            face.strokeWidth = if (look.isCentenary) 0.8f else 0.5f
+            face.color = if (look.isCentenary) Look.withAlpha(look.tint, if (look.dark) 0.45f else 0.36f)
+            else Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.10f else 0.06f)
             canvas.drawPath(path, face)
         }
         text.color = look.keyText
@@ -120,10 +128,21 @@ class PreviewOverlay(context: Context) : View(context) {
         if (look.usesSteppedMaterial) {
             drawPixelPanel(canvas, rect, look.pixelSurface, look.pixelEdge, face)
         } else {
-            face.color = look.balloonFace
-            shadow(face)
+            val shadowAlpha = if (look.dark) 0.22f else 0.10f
+            rect.offset(0f, 1.6f)
+            face.color = Look.withAlpha(Color.BLACK, shadowAlpha)
             canvas.drawRoundRect(rect, 11f, 11f, face)
-            face.clearShadowLayer()
+            rect.offset(0f, -1.6f)
+            face.color = look.balloonFace
+            canvas.drawRoundRect(rect, 11f, 11f, face)
+            if (look.isCentenary) {
+                face.style = Paint.Style.STROKE
+                face.strokeWidth = 0.8f
+                face.color = Look.withAlpha(look.tint, if (look.dark) 0.45f else 0.36f)
+                rect.inset(0.4f, 0.4f)
+                canvas.drawRoundRect(rect, 10.6f, 10.6f, face)
+                face.style = Paint.Style.FILL
+            }
         }
         for ((i, option) in s.options.withIndex()) {
             val left = s.layout.cellLeft(i)

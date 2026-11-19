@@ -18,19 +18,22 @@ object KeyTouchFlags {
     const val CHARACTER: Int = 1 shl 0
     const val DEFENSIVE_UTILITY: Int = 1 shl 1
     const val ENABLED: Int = 1 shl 2
+    const val SPACE: Int = 1 shl 3
 
-    fun pack(isCharacter: Boolean, isDefensiveUtility: Boolean, enabled: Boolean): Byte {
+    fun pack(isCharacter: Boolean, isDefensiveUtility: Boolean, enabled: Boolean, isSpace: Boolean = false): Byte {
         var bits = 0
         if (isCharacter) bits = bits or CHARACTER
         if (isDefensiveUtility) bits = bits or DEFENSIVE_UTILITY
         if (enabled) bits = bits or ENABLED
+        if (isSpace) bits = bits or SPACE
         return bits.toByte()
     }
 
     fun from(key: Key): Byte {
         val charLike = key.isCharacter || key.action == KeyAction.Segment
-        val defensive = !charLike && key.action != KeyAction.Space
-        return pack(isCharacter = charLike, isDefensiveUtility = defensive, enabled = key.enabled)
+        val isSpace = key.action == KeyAction.Space
+        val defensive = !charLike && !isSpace
+        return pack(isCharacter = charLike, isDefensiveUtility = defensive, enabled = key.enabled, isSpace = isSpace)
     }
 }
 
@@ -180,12 +183,57 @@ class KeyTouchGridSoA {
         return -1
     }
 
-    /** Touch-down resolver with top-seam reach and character-prioritized gutter disambiguation. */
+    /**
+     * Touch-down resolver with top-seam reach, disabled-key edge rescue,
+     * anchored Spacebar top-gutter parallax guard, and character-prioritized
+     * utility gutter disambiguation.
+     */
     fun resolveDown(x: Float, y: Float, allowTopMargin: Float = 0f): Int {
         val effectiveY = if (y < 0f && y >= -allowTopMargin) 0f else y
         val base = resolveHit(x, effectiveY)
         if (base < 0) return -1
-        if ((flags[base].toInt() and KeyTouchFlags.DEFENSIVE_UTILITY) == 0) return base
+        val baseFlags = flags[base].toInt()
+        val rBase = keyRow[base]
+
+        if ((baseFlags and KeyTouchFlags.ENABLED) == 0) {
+            val inset = DISABLED_INNER_INSET_DP
+            val insideCore = x >= frameLeft[base] + inset && x <= frameRight[base] - inset &&
+                effectiveY >= frameTop[base] + inset && effectiveY <= frameBottom[base] - inset
+            if (insideCore) return base
+            val rescue = nearestMatchingKey(
+                rMin = max(0, rBase - 1),
+                rMax = min(rowCount - 1, rBase + 1),
+                requiredAll = KeyTouchFlags.ENABLED,
+                anyMask = KeyTouchFlags.CHARACTER or KeyTouchFlags.SPACE,
+                maxDist = CHARACTER_GUTTER_REACH_DP,
+                maxVsBase = Float.POSITIVE_INFINITY,
+                x = x,
+                y = effectiveY,
+            )
+            return if (rescue >= 0) rescue else base
+        }
+
+        if ((baseFlags and KeyTouchFlags.SPACE) != 0) {
+            // Thumb parallax (Holz & Baudisch CHI 2011; Henze et al. CHI 2012):
+            // touches landing in the rowGap above Space's anchored cap+2dp rim yield to Row-2 keys.
+            if (effectiveY < frameTop[base] - SPACE_TOP_PROTECTED_MARGIN_DP && rBase > 0) {
+                val baseDist = boxDistance(base, x, effectiveY)
+                val rescue = nearestMatchingKey(
+                    rMin = rBase - 1,
+                    rMax = rBase - 1,
+                    requiredAll = KeyTouchFlags.CHARACTER or KeyTouchFlags.ENABLED,
+                    anyMask = KeyTouchFlags.CHARACTER,
+                    maxDist = CHARACTER_GUTTER_REACH_DP,
+                    maxVsBase = baseDist + UTILITY_YIELD_BIAS_DP,
+                    x = x,
+                    y = effectiveY,
+                )
+                if (rescue >= 0) return rescue
+            }
+            return base
+        }
+
+        if ((baseFlags and KeyTouchFlags.DEFENSIVE_UTILITY) == 0) return base
 
         val m = UTILITY_PROTECTED_MARGIN_DP
         if (x >= frameLeft[base] - m && x <= frameRight[base] + m &&
@@ -195,17 +243,31 @@ class KeyTouchGridSoA {
         }
 
         val baseDist = boxDistance(base, x, effectiveY)
-        val rBase = keyRow[base]
-        val rMin = max(0, rBase - 1)
-        val rMax = min(rowCount - 1, rBase + 1)
-        val needed = KeyTouchFlags.CHARACTER or KeyTouchFlags.ENABLED
+        val bestIndex = nearestMatchingKey(
+            rMin = max(0, rBase - 1),
+            rMax = min(rowCount - 1, rBase + 1),
+            requiredAll = KeyTouchFlags.CHARACTER or KeyTouchFlags.ENABLED,
+            anyMask = KeyTouchFlags.CHARACTER,
+            maxDist = CHARACTER_GUTTER_REACH_DP,
+            maxVsBase = baseDist + UTILITY_YIELD_BIAS_DP,
+            x = x,
+            y = effectiveY,
+        )
+        return if (bestIndex >= 0) bestIndex else base
+    }
+
+    private fun nearestMatchingKey(
+        rMin: Int, rMax: Int, requiredAll: Int, anyMask: Int,
+        maxDist: Float, maxVsBase: Float, x: Float, y: Float,
+    ): Int {
         var bestIndex = -1
-        var bestDist = CHARACTER_GUTTER_REACH_DP
+        var bestDist = maxDist
         for (r in rMin..rMax) {
             for (i in rowStart[r] until rowStart[r + 1]) {
-                if ((flags[i].toInt() and needed) == needed) {
-                    val d = boxDistance(i, x, effectiveY)
-                    if (d <= bestDist && d <= baseDist + UTILITY_YIELD_BIAS_DP) {
+                val f = flags[i].toInt()
+                if ((f and requiredAll) == requiredAll && (f and anyMask) != 0) {
+                    val d = boxDistance(i, x, y)
+                    if (d <= bestDist && d <= maxVsBase) {
                         if (bestIndex < 0 || d < bestDist) {
                             bestDist = d
                             bestIndex = i
@@ -214,19 +276,24 @@ class KeyTouchGridSoA {
                 }
             }
         }
-        return if (bestIndex >= 0) bestIndex else base
+        return bestIndex
     }
 
-    /** Two-condition character slide hysteresis (`PointerTracker`). */
+    /** Returns true when rapid inter-keystroke timing and short dwell indicate a fast tap rather than a slide. */
+    fun isFastTypingBurst(interDownMs: Long, dwellMs: Long): Boolean =
+        interDownMs in 0L..FAST_BURST_INTER_DOWN_MS && dwellMs in 0L..FAST_BURST_MAX_DWELL_MS
+
+    /** Two-condition character slide hysteresis (`PointerTracker` + velocity/dwell burst guard). */
     fun resolveCharacterSlide(
-        current: Int, downX: Float, downY: Float, x: Float, y: Float, toleratesDrift: Boolean,
+        current: Int, downX: Float, downY: Float, x: Float, y: Float,
+        toleratesDrift: Boolean, fastTyping: Boolean = false,
     ): Int {
         if (current !in 0 until count || (flags[current].toInt() and KeyTouchFlags.CHARACTER) == 0) return -1
         val next = resolveHit(x, y)
         val needed = KeyTouchFlags.CHARACTER or KeyTouchFlags.ENABLED
         if (next < 0 || next == current || (flags[next].toInt() and needed) != needed) return -1
         if (toleratesDrift) {
-            val h = SLIDE_BOUNDARY_HYSTERESIS_DP
+            val h = if (fastTyping) FAST_SLIDE_BOUNDARY_HYSTERESIS_DP else SLIDE_BOUNDARY_HYSTERESIS_DP
             if (x >= hitLeft[current] - h && x < hitRight[current] + h &&
                 y >= hitTop[current] - h && y < hitBottom[current] + h
             ) {
@@ -234,7 +301,8 @@ class KeyTouchGridSoA {
             }
             val dx = x - downX
             val dy = y - downY
-            if (dx * dx + dy * dy < SLIDE_MIN_TRAVEL_SQ_DP) return -1
+            val minSq = if (fastTyping) FAST_SLIDE_MIN_TRAVEL_SQ_DP else SLIDE_MIN_TRAVEL_SQ_DP
+            if (dx * dx + dy * dy < minSq) return -1
         }
         return next
     }
@@ -262,6 +330,18 @@ class KeyTouchGridSoA {
         return y <= top + height * TONE_TOP_ZONE_FRACTION || rise >= height * TONE_FULL_FLICK_FRACTION
     }
 
+    /** Returns true when an upward drag on Delete arms clearing the composition or field. */
+    fun isValidDeleteAllSwipe(downX: Float, downY: Float, x: Float, y: Float): Boolean {
+        val rise = downY - y
+        return rise >= DELETE_SWIPE_UP_MIN_RISE_DP && rise >= DELETE_SWIPE_UP_SLOPE * abs(x - downX)
+    }
+
+    /** Hysteresis check keeping Delete-All armed until the finger returns down below the cancel band. */
+    fun shouldKeepDeleteAllSwipe(downX: Float, downY: Float, x: Float, y: Float): Boolean {
+        val rise = downY - y
+        return rise >= DELETE_SWIPE_UP_CANCEL_RISE_DP && rise >= DELETE_SWIPE_UP_KEEP_SLOPE * abs(x - downX)
+    }
+
     private fun boxDistance(index: Int, x: Float, y: Float): Float {
         val dx = when {
             x < frameLeft[index] -> frameLeft[index] - x
@@ -287,30 +367,33 @@ class KeyTouchGridSoA {
     private fun ensureKeyCapacity(required: Int) {
         if (flags.size >= required) return
         val cap = max(required, flags.size * 2)
-        keyRow = IntArray(cap)
-        keyCol = IntArray(cap)
-        frameLeft = FloatArray(cap)
-        frameRight = FloatArray(cap)
-        frameTop = FloatArray(cap)
-        frameBottom = FloatArray(cap)
-        hitLeft = FloatArray(cap)
-        hitRight = FloatArray(cap)
-        hitTop = FloatArray(cap)
-        hitBottom = FloatArray(cap)
+        keyRow = IntArray(cap); keyCol = IntArray(cap)
+        frameLeft = FloatArray(cap); frameRight = FloatArray(cap); frameTop = FloatArray(cap); frameBottom = FloatArray(cap)
+        hitLeft = FloatArray(cap); hitRight = FloatArray(cap); hitTop = FloatArray(cap); hitBottom = FloatArray(cap)
         flags = ByteArray(cap)
     }
 
     companion object {
         const val UTILITY_PROTECTED_MARGIN_DP = 3f
+        const val SPACE_TOP_PROTECTED_MARGIN_DP = 2f
+        const val DISABLED_INNER_INSET_DP = 2f
         const val CHARACTER_GUTTER_REACH_DP = 11f
         const val UTILITY_YIELD_BIAS_DP = 4.5f
         const val SLIDE_BOUNDARY_HYSTERESIS_DP = 2.5f
+        const val FAST_SLIDE_BOUNDARY_HYSTERESIS_DP = 3.5f
         const val SLIDE_MIN_TRAVEL_SQ_DP = 16f
+        const val FAST_SLIDE_MIN_TRAVEL_SQ_DP = 100f
+        const val FAST_BURST_INTER_DOWN_MS = 160L
+        const val FAST_BURST_MAX_DWELL_MS = 120L
         const val MODIFIER_SLIDE_MIN_TRAVEL_SQ_DP = 100f
         const val UTILITY_RELEASE_SLOP_DP = 12f
         const val TONE_SWIPE_MIN_RISE_DP = 20f
         const val TONE_SWIPE_SLOPE = 1.4f
         const val TONE_TOP_ZONE_FRACTION = 0.22f
         const val TONE_FULL_FLICK_FRACTION = 0.68f
+        const val DELETE_SWIPE_UP_MIN_RISE_DP = 24f
+        const val DELETE_SWIPE_UP_CANCEL_RISE_DP = 12f
+        const val DELETE_SWIPE_UP_SLOPE = 1.6f
+        const val DELETE_SWIPE_UP_KEEP_SLOPE = 1.1f
     }
 }

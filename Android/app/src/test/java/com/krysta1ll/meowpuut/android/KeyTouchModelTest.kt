@@ -9,6 +9,7 @@ import com.krysta1ll.meowpuut.android.ime.KeyAction
 import com.krysta1ll.meowpuut.android.ime.KeyBuilder
 import com.krysta1ll.meowpuut.android.ime.KeyContext
 import com.krysta1ll.meowpuut.android.ime.KeyGrid
+import com.krysta1ll.meowpuut.android.ime.KeyIcon
 import com.krysta1ll.meowpuut.android.ime.KeyListener
 import com.krysta1ll.meowpuut.android.ime.KeyMetrics
 import com.krysta1ll.meowpuut.android.ime.KeyPlacement
@@ -110,6 +111,68 @@ class KeyTouchModelTest {
     }
 
     @Test
+    fun contiguousHitSeamsAndSpacebarParallaxAndDisabledKeyRescueAndFastBurstHysteresis() {
+        val width = 393f
+        val set = KeyBuilder.build(context(InputMode.PINYIN, english = false, page = 0))
+        val metrics = KeyMetrics.of(Idiom.PHONE, width, set.rows.size)
+        val placed = KeyGrid.place(set.specs, width, set.referenceColumns, metrics)
+        val grid = KeyTouchGridSoA().also { it.rebuild(placed, set) }
+
+        // 1) Bit-exact contiguous seams across all adjacent rows and columns (zero ULP gaps).
+        for (r in 1 until placed.size) {
+            assertEquals(placed[r - 1].first().hitFrame.bottom, placed[r].first().hitFrame.top)
+        }
+        for (row in placed) {
+            for (c in 1 until row.size) {
+                assertEquals(row[c - 1].hitFrame.right, row[c].hitFrame.left)
+            }
+        }
+
+        // 2) Anchored Spacebar top-gutter parallax guard:
+        // Low aim on 'b'/'n' landing at space.top - 5 dp (still > 2 dp above Space cap) rescues Row-2 character.
+        val space = placed[3][2].frame
+        val b = placed[2][5].frame
+        val rescuedFromSpaceGap = grid.resolveDown(b.centerX, space.top - 5f)
+        assertEquals(2 to 5, grid.rowOf(rescuedFromSpaceGap) to grid.columnOf(rescuedFromSpaceGap))
+        // Touching within 2 dp of Space's top rim or inside Space ALWAYS fires Space.
+        val spaceRim = grid.resolveDown(b.centerX, space.top - 1.5f)
+        assertEquals(3 to 2, grid.rowOf(spaceRim) to grid.columnOf(spaceRim))
+        val spaceCenter = grid.resolveDown(space.centerX, space.centerY)
+        assertEquals(3 to 2, grid.rowOf(spaceCenter) to grid.columnOf(spaceCenter))
+        // Below Row 0 Spacebar branch check (disabled rBase == 0 Space doesn't exist, check row-0 Space guard branch safely):
+        val singleRow = KeyGrid.place(listOf(RowSpec(listOf(1f), RowAlignment.JUSTIFIED)), width, 1, KeyMetrics.of(Idiom.PHONE, width, 1))
+        val spaceOnlyGrid = KeyTouchGridSoA().also {
+            it.rebuild(singleRow) { _, _ -> KeyTouchFlags.pack(isCharacter = false, isDefensiveUtility = false, enabled = true, isSpace = true) }
+        }
+        assertEquals(0, spaceOnlyGrid.resolveDown(singleRow[0][0].frame.centerX, -1f, allowTopMargin = 2f))
+
+        // 3) Disabled-key edge rescue (Nine-key when not composing has disabled 重輸 at row 1, col 4).
+        val nine = KeyBuilder.build(context(InputMode.NINE_KEY, composing = false))
+        val nineMetrics = KeyMetrics.of(Idiom.PHONE, width, nine.rows.size)
+        val ninePlaced = KeyGrid.place(nine.specs, width, nine.referenceColumns, nineMetrics)
+        val nineGrid = KeyTouchGridSoA().also { it.rebuild(ninePlaced, nine) }
+        val retype = ninePlaced[1][4].frame // disabled 重輸
+        val centerRetype = nineGrid.resolveDown(retype.centerX, retype.centerY)
+        assertEquals(1 to 4, nineGrid.rowOf(centerRetype) to nineGrid.columnOf(centerRetype))
+        // Touching just outside top edge of disabled 重輸 toward enabled row-0/row-2 neighbors rescues nearest enabled key.
+        val belowGap = nineGrid.resolveDown(ninePlaced[1][3].frame.right + 1f, retype.top + 0.5f)
+        assertEquals(1 to 3, nineGrid.rowOf(belowGap) to nineGrid.columnOf(belowGap))
+
+        // 4) Fast-typing burst slide hysteresis (<160 ms inter-down & <120 ms dwell).
+        assertTrue(grid.isFastTypingBurst(interDownMs = 95L, dwellMs = 60L))
+        assertFalse(grid.isFastTypingBurst(interDownMs = -1L, dwellMs = 60L))
+        assertFalse(grid.isFastTypingBurst(interDownMs = 250L, dwellMs = 60L))
+        assertFalse(grid.isFastTypingBurst(interDownMs = 95L, dwellMs = 150L))
+        val qIdx = grid.indexOf(0, 0)
+        val seam = placed[0][0].hitFrame.right
+        val qY = placed[0][0].frame.centerY
+        // 6 dp liftoff shear crossing seam + 3.0 dp stays on Q during fast burst, while 14 dp deliberate slide crosses to W.
+        assertEquals(-1, grid.resolveCharacterSlide(qIdx, seam - 3f, qY, seam + 3f, qY, toleratesDrift = true, fastTyping = true))
+        assertEquals(-1, grid.resolveCharacterSlide(qIdx, seam - 11f, qY, seam + 3.2f, qY, toleratesDrift = true, fastTyping = true))
+        assertEquals(grid.indexOf(0, 1), grid.resolveCharacterSlide(qIdx, seam - 11f, qY, seam + 4f, qY, toleratesDrift = true, fastTyping = true))
+    }
+
+    @Test
     fun hysteresisReleaseSlopModifierSlideAndToneGuardWorkEndToEnd() {
         val events = ArrayList<Key>()
         var pageChanges = 0
@@ -146,7 +209,7 @@ class KeyTouchModelTest {
         touches.layout(set, rows, 393f, sameShape = false)
 
         // 1) Pressing Return near its left edge and rolling 9 dp onto Space on lift STILL commits Return!
-        val enterHit = rows[3][4].hitFrame
+        val enterHit = rows[3].last().hitFrame
         touches.down(0, enterHit.left + 0.5f, enterHit.centerY)
         touches.up(0, enterHit.left - 9f, enterHit.centerY)
         assertEquals(KeyAction.Return, events.last().action)
@@ -216,11 +279,46 @@ class KeyTouchModelTest {
                     val down = grid.resolveDown(x, y)
                     val downPair = grid.rowOf(down) to grid.columnOf(down)
                     val baseKey = set.rows[expected.first][expected.second]
-                    if (baseKey.isCharacter || baseKey.action == KeyAction.Space || baseKey.action == KeyAction.Segment) {
-                        assertEquals("seed $seed character/space parity at ($x, $y)", expected, downPair)
+                    val frame = placed[expected.first][expected.second].frame
+                    if (baseKey.isCharacter || baseKey.action == KeyAction.Segment) {
+                        assertEquals("seed $seed character parity at ($x, $y)", expected, downPair)
+                    } else if (baseKey.action == KeyAction.Space) {
+                        if (y >= frame.top - KeyTouchGridSoA.SPACE_TOP_PROTECTED_MARGIN_DP) {
+                            assertEquals("seed $seed space rim/body parity at ($x, $y)", expected, downPair)
+                        } else {
+                            assertTrue(
+                                "seed $seed space top-gutter resolves to Space or Row-2 char at ($x, $y)",
+                                downPair == expected || downPair.first == expected.first - 1,
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    @Test
+    fun androidLayoutsContainZeroGlobeKeysAndNumbersKeepPlus() {
+        for (mode in InputMode.entries) for (english in listOf(false, true)) for (page in 0..KeyBuilder.NUMERIC_PAGE) {
+            for (expanded in listOf(false, true)) {
+                val set = KeyBuilder.build(context(mode, english = english, page = page, globe = true).copy(expanded = expanded))
+                val flat = set.rows.flatten()
+                assertFalse("Android $mode/$english/p$page must have no Globe action", flat.any { it.action == KeyAction.Globe })
+                assertFalse("Android $mode/$english/p$page must have no GLOBE icon", flat.any { it.icon == KeyIcon.GLOBE })
+                if (page == KeyBuilder.NUMERIC_PAGE) {
+                    assertTrue("numeric page keeps + key", flat.any { it.label == "+" })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun deleteSwipeUpGeometryHysteresisWorksAcrossDirections() {
+        val g = KeyTouchGridSoA()
+        assertTrue(g.isValidDeleteAllSwipe(300f, 150f, 300f, 120f))
+        assertFalse(g.isValidDeleteAllSwipe(300f, 150f, 300f, 130f)) // < 24 dp rise
+        assertFalse(g.isValidDeleteAllSwipe(300f, 150f, 325f, 120f)) // too sideways
+        assertTrue(g.shouldKeepDeleteAllSwipe(300f, 150f, 310f, 134f))
+        assertFalse(g.shouldKeepDeleteAllSwipe(300f, 150f, 300f, 142f)) // < 12 dp cancel
     }
 }

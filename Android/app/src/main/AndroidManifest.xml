@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Used strictly by CatPhotoStore inside the host SettingsActivity to fetch public cat photos
+         from HK Google Cloud Storage. MeowpuutIME never accesses the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".MeowpuutApp"

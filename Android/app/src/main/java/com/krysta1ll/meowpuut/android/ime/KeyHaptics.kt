@@ -3,6 +3,7 @@ package com.krysta1ll.meowpuut.android.ime
 import android.content.Context
 import android.media.AudioAttributes
 import android.os.Build
+import android.os.SystemClock
 import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -38,6 +39,18 @@ class KeyHaptics(private val context: Context) {
     private var tap: VibrationEffect? = null
     private var tick: VibrationEffect? = null
     private var enabled = false
+    private var cachedSystemHapticEnabled = true
+    private var lastSystemCheckMs = -2_000L
+
+    fun refreshSystemState() {
+        cachedSystemHapticEnabled = if (Build.VERSION.SDK_INT >= 33) {
+            true
+        } else {
+            @Suppress("DEPRECATION")
+            Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0
+        }
+        lastSystemCheckMs = SystemClock.uptimeMillis()
+    }
 
     private companion object {
         // 17 pulses of 10 ms, 120 ms apart: just under 2 s. Amplitude 51 of 255 is 0.2.
@@ -75,8 +88,10 @@ class KeyHaptics(private val context: Context) {
         if (Build.VERSION.SDK_INT >= 33) {
             motor.vibrate(effect, vibrationAttributes)
         } else {
-            @Suppress("DEPRECATION")
-            if (Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastSystemCheckMs >= 1_500L) refreshSystemState()
+            if (cachedSystemHapticEnabled) {
+                @Suppress("DEPRECATION")
                 motor.vibrate(effect, audioAttributes)
             }
         }
@@ -97,8 +112,10 @@ class KeyHaptics(private val context: Context) {
         } else if (Build.VERSION.SDK_INT >= 33) {
             motor.vibrate(effect, vibrationAttributes)
         } else {
-            @Suppress("DEPRECATION")
-            if (Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) != 0) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastSystemCheckMs >= 1_500L) refreshSystemState()
+            if (cachedSystemHapticEnabled) {
+                @Suppress("DEPRECATION")
                 motor.vibrate(effect, audioAttributes)
             }
         }

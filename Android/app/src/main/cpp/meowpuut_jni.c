@@ -161,6 +161,16 @@ JNIEXPORT jboolean JNICALL FN(attachPairsFromFd)(JNIEnv *env, jclass cls, jlong 
     return mpn_lexicon_attach_pairs((MPNLexicon *)(intptr_t)lexicon, data, (size_t)length, unmap_asset, mapping) ? JNI_TRUE : JNI_FALSE;
 }
 
+// Attaches the Stage-2 trigram/skip-1 table (mimo_trigrams.bin) before any session is made;
+// unmapped like the lexicon. False when it does not belong to this lexicon.
+JNIEXPORT jboolean JNICALL FN(attachTrigramsFromFd)(JNIEnv *env, jclass cls, jlong lexicon, jint fd, jlong offset, jlong length) {
+    (void)env; (void)cls;
+    struct asset_mapping *mapping = NULL;
+    const char *data = map_asset(fd, offset, length, &mapping);
+    if (!data) return JNI_FALSE;
+    return mpn_lexicon_attach_trigrams((MPNLexicon *)(intptr_t)lexicon, data, (size_t)length, unmap_asset, mapping) ? JNI_TRUE : JNI_FALSE;
+}
+
 // Attaches the English word list (mimo_en.bin) to a pinyin lexicon before any
 // session is made: English words beyond mimo-latin in pinyin and nine-key
 // Chinese. Unmapped like the lexicon. False for a Zhuyin lexicon or another file.

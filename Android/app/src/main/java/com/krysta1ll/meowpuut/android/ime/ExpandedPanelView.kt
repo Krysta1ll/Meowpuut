@@ -187,13 +187,14 @@ class ExpandedPanelView(context: Context) : View(context) {
         if (look.usesSteppedMaterial) {
             drawPixelPanel(canvas, rect, look.pixelSurface, look.pixelEdge, paint)
         } else {
-            paint.color = look.overlay?.palette(look.dark)?.paper2 ?: if (look.dark) Color.rgb(40, 38, 42) else Color.rgb(246, 245, 249)
+            paint.color = look.panelSurface
             canvas.drawRoundRect(rect, 15f, 15f, paint)
             // The rim is lit from the upper left like the bar's, in the same colour.
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = 1f
             paint.shader = rimShader ?: LinearGradient(rect.left, rect.top, rect.right, rect.bottom,
-                Look.withAlpha(look.rim, if (look.dark) 0.6f else 0.95f), Look.withAlpha(look.rim, if (look.dark) 0f else 0.3f),
+                Look.withAlpha(look.rim, if (look.dark) 0.65f else 0.95f),
+                Look.withAlpha(look.rim, if (look.isCentenary) (if (look.dark) 0.25f else 0.45f) else if (look.dark) 0f else 0.3f),
                 Shader.TileMode.CLAMP).also { rimShader = it }
             canvas.drawRoundRect(rect, 15f, 15f, paint)
             paint.shader = null
@@ -233,7 +234,8 @@ class ExpandedPanelView(context: Context) : View(context) {
             }
             // Hairline between rows.
             if (cell.left < 11f && cell.top > firstGridTop) {
-                paint.color = Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.08f else 0.06f)
+                paint.color = if (look.isCentenary) Look.withAlpha(look.tint, if (look.dark) 0.20f else 0.16f)
+                else Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.08f else 0.06f)
                 canvas.drawRect(16f, cell.top - 0.25f, w - 16f, cell.top + 0.25f, paint)
             }
         }

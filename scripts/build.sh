@@ -26,7 +26,7 @@ mkdir -p .build "$APP/Contents/MacOS" "$APP/Contents/Resources/Modules"
 if [ -z "${MEOWPUUT_LEXICON_DIR:-}" ]; then
   bash Engine/scripts/build-lexicon.sh "$LEXICON"
 fi
-for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin associations.json language-evidence.sqlite; do
+for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin mimo_trigrams.bin associations.json language-evidence.sqlite; do
   cp "$LEXICON/$file" "$APP/Contents/Resources/"
 done
 # The list of words the keyboard never offers by itself (Sources/NeverVolunteer.swift), as hashes: the lexicon

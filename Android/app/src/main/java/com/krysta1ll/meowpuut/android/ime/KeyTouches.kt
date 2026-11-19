@@ -13,6 +13,8 @@ interface KeyListener {
     /** A key is typed; [text] is a chosen alternate, if any. */
     fun onKey(key: Key, text: String?)
     fun onDelete(word: Boolean)
+    /** Upward swipe from Delete clears composition or the whole field. */
+    fun onDeleteAll() {}
     fun onShiftDown()
     /** [typed]: a letter was typed while Shift was held. */
     fun onShiftUp(typed: Boolean)
@@ -61,28 +63,72 @@ class KeyTouches(private val host: Host) {
     /** What a finger is doing. SHIFT and PAGE may end on a character the finger slid to. */
     private enum class Mode { KEY, ALTERNATES, CURSOR, SHIFT, PAGE, DELETE, INERT }
 
-    private class Pointer(
-        val id: Int, var index: Int, var row: Int, var column: Int,
-        var key: Key, var frame: Box, var hitBox: Box, val downX: Float, val downY: Float,
-    ) {
-        var x = downX
-        var y = downY
-        var canSwipeTone = key.swipeUpTone != null
+    private class Pointer {
+        var id: Int = 0
+        var index: Int = -1
+        var row: Int = 0
+        var column: Int = 0
+        lateinit var key: Key
+        var frame: Box = Box.ZERO
+        var hitBox: Box = Box.ZERO
+        var downX: Float = 0f
+        var downY: Float = 0f
+        var x: Float = 0f
+        var y: Float = 0f
+        var downTimeMs: Long = 0L
+        var interDownMs: Long = -1L
+        var canSwipeTone: Boolean = false
         var tone: KeyAction.PinyinTone? = null
-        var mode = Mode.KEY
-        var committed = false
+        var deleteSwipeArmed: Boolean = false
+        var mode: Mode = Mode.INERT
+        var committed: Boolean = false
         /** Shift: a letter was typed while it was held. */
-        var typed = false
+        var typed: Boolean = false
         /** Shift or a page key: the finger is on the character key now in [key]. */
-        var slid = false
+        var slid: Boolean = false
         /** Page key: the page to go back to after a slide. */
-        var originPage = 0
+        var originPage: Int = 0
         var hold: Runnable? = null
         var options: List<String> = emptyList()
         var strip: AlternatesStrip? = null
-        var selected = 0
-        var cursorAnchor = 0f
-        var cursorSteps = 0
+        var selected: Int = 0
+        var cursorAnchor: Float = 0f
+        var cursorSteps: Int = 0
+        var generation: Int = 0
+
+        fun reset(
+            id: Int, index: Int, row: Int, column: Int, key: Key, frame: Box, hitBox: Box,
+            downX: Float, downY: Float, downTimeMs: Long, interDownMs: Long,
+        ) {
+            this.id = id
+            this.index = index
+            this.row = row
+            this.column = column
+            this.key = key
+            this.frame = frame
+            this.hitBox = hitBox
+            this.downX = downX
+            this.downY = downY
+            this.x = downX
+            this.y = downY
+            this.downTimeMs = downTimeMs
+            this.interDownMs = interDownMs
+            canSwipeTone = key.swipeUpTone != null
+            tone = null
+            deleteSwipeArmed = false
+            mode = Mode.KEY
+            committed = false
+            typed = false
+            slid = false
+            originPage = 0
+            hold = null
+            options = emptyList()
+            strip = null
+            selected = 0
+            cursorAnchor = 0f
+            cursorSteps = 0
+            generation++
+        }
 
         /** The key under this finger is drawn pressed. */
         val pressing
@@ -95,11 +141,33 @@ class KeyTouches(private val host: Host) {
             }
     }
 
-    private val pointers = LinkedHashMap<Int, Pointer>()
+    // Fixed-size preallocated chronological pointer table (zero allocations in touch hot loop).
+    private val slots = Array(MAX_POINTERS) { Pointer() }
+    private var slotCount = 0
+    private val workIds = IntArray(MAX_POINTERS)
+    private var lastDownTimeMs = -1L
     private var deleteRepeat: Runnable? = null
     private var deleteCount = 0
 
-    val active get() = pointers.isNotEmpty()
+    val active get() = slotCount > 0
+
+    private fun slotIndexOf(id: Int): Int {
+        for (i in 0 until slotCount) if (slots[i].id == id) return i
+        return -1
+    }
+
+    private fun pointerById(id: Int): Pointer? {
+        val i = slotIndexOf(id)
+        return if (i >= 0) slots[i] else null
+    }
+
+    private fun removeSlotAt(pos: Int): Pointer {
+        val removed = slots[pos]
+        for (i in pos until slotCount - 1) slots[i] = slots[i + 1]
+        slotCount--
+        slots[slotCount] = removed
+        return removed
+    }
 
     /**
      * Installs the keys and where they are. [sameShape]: only labels changed
@@ -114,7 +182,8 @@ class KeyTouches(private val host: Host) {
             shapeEpoch++
             // A held key from the old layout no longer matches what is drawn.
             // Shift and page keys stay down so the finger can slide to a character.
-            for (p in pointers.values) {
+            for (i in 0 until slotCount) {
+                val p = slots[i]
                 if (p.mode != Mode.SHIFT && p.mode != Mode.PAGE) {
                     retire(p)
                 } else if (p.slid) {
@@ -123,7 +192,8 @@ class KeyTouches(private val host: Host) {
                 }
             }
         } else {
-            for (p in pointers.values) {
+            for (i in 0 until slotCount) {
+                val p = slots[i]
                 if (!p.pressing) continue
                 val current = keyOf(p.row, p.column) ?: continue
                 if (current.action == p.key.action && current != p.key) {
@@ -136,7 +206,10 @@ class KeyTouches(private val host: Host) {
 
     fun pressedColumns(row: Int): Int {
         var columns = 0
-        for (p in pointers.values) if (p.pressing && p.row == row) columns = columns or (1 shl p.column)
+        for (i in 0 until slotCount) {
+            val p = slots[i]
+            if (p.pressing && p.row == row) columns = columns or (1 shl p.column)
+        }
         return columns
     }
 
@@ -152,8 +225,9 @@ class KeyTouches(private val host: Host) {
         return x >= b.left - s && x <= b.right + s && y >= b.top - s && y <= b.bottom + s
     }
 
-    fun down(id: Int, x: Float, y: Float) {
-        pointers.remove(id)?.let(::retire)
+    fun down(id: Int, x: Float, y: Float, eventTimeMs: Long = 0L) {
+        val existing = slotIndexOf(id)
+        if (existing >= 0) retire(removeSlotAt(existing))
         // The key is read before earlier fingers are typed: typing one can
         // change the page, and this finger aimed at what was on screen.
         val hitIndex = touchGrid.resolveDown(x, y, topTouchExtension)
@@ -164,17 +238,31 @@ class KeyTouches(private val host: Host) {
         val frame = frameOf(row, column) ?: return
         val hitBox = hitBoxOf(row, column) ?: frame
         val epochBefore = shapeEpoch
-        // Rollover: a new finger types whatever the earlier fingers still hold.
-        for (earlier in pointers.values.toList()) commitEarly(earlier)
+        // Rollover: a new finger types whatever the earlier fingers still hold (zero heap allocation).
+        val countBefore = slotCount
+        for (i in 0 until countBefore) workIds[i] = slots[i].id
+        var rolled = false
+        for (i in 0 until countBefore) {
+            val earlier = pointerById(workIds[i]) ?: continue
+            if (commitEarly(earlier)) rolled = true
+        }
         val effectiveIndex = if (shapeEpoch == epochBefore) hitIndex else -1
-        val p = Pointer(id, effectiveIndex, row, column, key, frame, hitBox, x, maxOf(0f, y))
-        pointers[id] = p
-        begin(p)
+        val interDown = if (eventTimeMs > 0L && lastDownTimeMs > 0L) eventTimeMs - lastDownTimeMs else -1L
+        if (eventTimeMs > 0L) lastDownTimeMs = eventTimeMs
+        if (slotCount >= MAX_POINTERS) retire(removeSlotAt(0))
+        val p = slots[slotCount]
+        p.reset(id, effectiveIndex, row, column, key, frame, hitBox, x, maxOf(0f, y), eventTimeMs, interDown)
+        slotCount++
+        begin(p, forceRedraw = rolled)
     }
 
-    private fun begin(p: Pointer) {
+    private fun begin(p: Pointer, forceRedraw: Boolean = false) {
         val key = p.key
-        if (!key.enabled) { p.mode = Mode.INERT; return }
+        if (!key.enabled) {
+            p.mode = Mode.INERT
+            if (forceRedraw) host.redraw()
+            return
+        }
         if (key.isCharacter) showPressed(p)
         host.redraw()
         feedback(key, p.frame.centerX)
@@ -200,17 +288,17 @@ class KeyTouches(private val host: Host) {
     }
 
     /** Types a held character or space early because another finger came down. */
-    private fun commitEarly(p: Pointer) {
-        if (p.committed || p.mode != Mode.KEY || !p.key.rollsOver) return
+    private fun commitEarly(p: Pointer): Boolean {
+        if (p.committed || p.mode != Mode.KEY || !p.key.rollsOver) return false
         cancelHold(p)
         host.hideBalloon(p.id)
         p.mode = Mode.INERT
-        host.redraw()
         commit(p, null)
+        return true
     }
 
-    fun move(id: Int, x: Float, y: Float) {
-        val p = pointers[id] ?: return
+    fun move(id: Int, x: Float, y: Float, eventTimeMs: Long = 0L) {
+        val p = pointerById(id) ?: return
         p.x = x
         p.y = y
         when (p.mode) {
@@ -223,8 +311,10 @@ class KeyTouches(private val host: Host) {
                     host.redraw()
                     return
                 }
+                val fastTyping = eventTimeMs > 0L && p.downTimeMs > 0L && p.interDownMs >= 0L &&
+                    touchGrid.isFastTypingBurst(p.interDownMs, eventTimeMs - p.downTimeMs)
                 val nextIndex = touchGrid.resolveCharacterSlide(
-                    p.index, p.downX, p.downY, x, y, keySet?.toleratesKeyDrift == true,
+                    p.index, p.downX, p.downY, x, y, keySet?.toleratesKeyDrift == true, fastTyping,
                 )
                 if (nextIndex < 0) return
                 val row = touchGrid.rowOf(nextIndex)
@@ -248,7 +338,20 @@ class KeyTouches(private val host: Host) {
             }
             Mode.CURSOR -> moveCursor(p)
             Mode.SHIFT, Mode.PAGE -> slide(p, x, y)
-            Mode.DELETE, Mode.INERT -> Unit
+            Mode.DELETE -> {
+                if (!p.deleteSwipeArmed && touchGrid.isValidDeleteAllSwipe(p.downX, p.downY, x, y)) {
+                    p.deleteSwipeArmed = true
+                    stopDelete()
+                    host.showBalloon(p.id, p.key.copy(label = "清空"), p.frame)
+                    listener?.onTick()
+                    host.redraw()
+                } else if (p.deleteSwipeArmed && !touchGrid.shouldKeepDeleteAllSwipe(p.downX, p.downY, x, y)) {
+                    p.deleteSwipeArmed = false
+                    host.hideBalloon(p.id)
+                    host.redraw()
+                }
+            }
+            Mode.INERT -> Unit
         }
     }
 
@@ -275,7 +378,9 @@ class KeyTouches(private val host: Host) {
     }
 
     fun up(id: Int, x: Float, y: Float) {
-        val p = pointers.remove(id) ?: return
+        val slotPos = slotIndexOf(id)
+        if (slotPos < 0) return
+        val p = removeSlotAt(slotPos)
         p.x = x
         p.y = y
         cancelHold(p)
@@ -296,7 +401,13 @@ class KeyTouches(private val host: Host) {
                 if (!p.committed) commit(p, p.options.getOrNull(p.selected))
             }
             Mode.CURSOR -> listener?.onCursorEnd()
-            Mode.DELETE -> stopDelete()
+            Mode.DELETE -> {
+                stopDelete()
+                if (p.deleteSwipeArmed || touchGrid.isValidDeleteAllSwipe(p.downX, p.downY, x, y)) {
+                    listener?.onTick()
+                    listener?.onDeleteAll()
+                }
+            }
             Mode.SHIFT -> {
                 if (p.slid && !p.committed) commit(p, null)
                 listener?.onShiftUp(p.typed)
@@ -308,6 +419,7 @@ class KeyTouches(private val host: Host) {
             Mode.INERT -> Unit
         }
         p.mode = Mode.INERT
+        p.generation++
     }
 
     private fun recognizeTone(p: Pointer, x: Float, y: Float): Boolean {
@@ -335,7 +447,7 @@ class KeyTouches(private val host: Host) {
         }
         if (key.isCharacter) {
             if (p.mode == Mode.SHIFT) p.typed = true
-            for (other in pointers.values) if (other.mode == Mode.SHIFT) other.typed = true
+            for (i in 0 until slotCount) if (slots[i].mode == Mode.SHIFT) slots[i].typed = true
         }
         listener?.onKey(key, text)
     }
@@ -346,6 +458,7 @@ class KeyTouches(private val host: Host) {
         host.hideBalloon(p.id)
         val mode = p.mode
         p.mode = Mode.INERT
+        p.generation++
         when (mode) {
             Mode.ALTERNATES -> host.hideAlternates()
             Mode.CURSOR -> {
@@ -360,8 +473,13 @@ class KeyTouches(private val host: Host) {
 
     /** Ends every touch without typing (the touch was taken away, or the view is going). */
     fun cancelAll() {
-        for (p in pointers.values.toList()) retire(p)
-        pointers.clear()
+        val n = slotCount
+        for (i in 0 until n) workIds[i] = slots[i].id
+        for (i in 0 until n) {
+            val pos = slotIndexOf(workIds[i])
+            if (pos >= 0) retire(removeSlotAt(pos))
+        }
+        slotCount = 0
         stopDelete()
         host.clearVisuals()
         host.redraw()
@@ -373,9 +491,10 @@ class KeyTouches(private val host: Host) {
 
     private fun scheduleHold(p: Pointer, delay: Long, action: () -> Unit) {
         cancelHold(p)
+        val gen = p.generation
         val runnable = Runnable {
             p.hold = null
-            if (pointers[p.id] === p && !p.committed && p.mode == Mode.KEY) action()
+            if (p.generation == gen && slotIndexOf(p.id) >= 0 && !p.committed && p.mode == Mode.KEY) action()
         }
         p.hold = runnable
         host.post(delay, runnable)
@@ -478,6 +597,15 @@ class KeyTouches(private val host: Host) {
         deleteRepeat = null
     }
 
+    /** A TalkBack activation for clearing composition/field (same as swipe up on Delete). */
+    fun deleteAll(row: Int, column: Int) {
+        val key = keyOf(row, column) ?: return
+        if (!key.enabled || key.action != KeyAction.Delete) return
+        host.pulseKeyPress(row, column)
+        listener?.onTick()
+        listener?.onDeleteAll()
+    }
+
     /** A TalkBack activation is a whole tap: press and release. */
     fun activate(row: Int, column: Int) {
         val key = keyOf(row, column) ?: return
@@ -498,6 +626,7 @@ class KeyTouches(private val host: Host) {
     }
 
     companion object {
+        const val MAX_POINTERS = 10
         const val ALTERNATES_DELAY = 450L
         const val CURSOR_DELAY = 400L
         const val CURSOR_STEP = 9f

@@ -122,6 +122,10 @@ class TouchTest {
             onDeleted()
         }
 
+        override fun onDeleteAll() {
+            events += "delete-all"
+        }
+
         override fun onShiftDown() {
             events += "shift-down"
             shift = ShiftState.ONCE
@@ -266,7 +270,8 @@ class TouchTest {
         val set = KeyBuilder.build(KeyContext(InputMode.NINE_KEY, false, 0, ShiftState.OFF, false, true,
             "空格", "換行", false, true))
         assertEquals(('1'..'9').map { it.toString() }, set.rows.take(3).flatten().mapNotNull { it.digit })
-        assertEquals(listOf("符號", "123", "", "空格", "英", "換行"), set.rows.last().map { it.label })
+        assertEquals(listOf("符號", "123", "空格", "英", "換行"), set.rows.last().map { it.label })
+        assertTrue(set.rows.flatten().none { it.action == KeyAction.Globe })
         assertTrue(set.rows[1].last().action == KeyAction.ClearComposition && !set.rows[1].last().enabled)
         for ((width, idiom) in listOf(276f to Idiom.PHONE, 320f to Idiom.PHONE, 852f to Idiom.PHONE_LANDSCAPE, 1024f to Idiom.TABLET)) {
             val keypadWidth = set.layoutWidth(width)
@@ -646,5 +651,55 @@ class TouchTest {
         b.touches.down(0, 1f, a.centerY)
         b.touches.up(0, 1f, a.centerY)
         assertEquals(listOf("a", "a"), b.typed)
+    }
+
+    @Test
+    fun timestampedFastTypingBurstGuardsShortLiftoffDrift() {
+        val b = Board()
+        val q = b.rows[0][0].hitFrame
+        val seam = q.right
+        // Tap 1 sets lastDownTimeMs = 1000L.
+        b.touches.down(0, q.centerX, q.centerY, eventTimeMs = 1000L)
+        b.touches.up(0, q.centerX, q.centerY)
+        // Tap 2 arrives 90 ms later and drifts 6 dp (seam - 3 -> seam + 3) within 45 ms dwell: stays 'q'!
+        b.touches.down(0, seam - 3f, q.centerY, eventTimeMs = 1090L)
+        b.touches.move(0, seam + 3f, q.centerY, eventTimeMs = 1135L)
+        b.touches.up(0, seam + 3f, q.centerY)
+        assertEquals(listOf("q", "q"), b.typed)
+    }
+
+    @Test
+    fun swipeUpOnDeleteArmsClearAndCancelsSafelyWhenDraggedBackDown() {
+        val b = Board()
+        val del = b.frame(KeyAction.Delete)
+        b.touches.down(0, del.centerX, del.centerY, eventTimeMs = 100L)
+        assertEquals(listOf("delete"), b.events)
+        assertEquals(1, b.host.pendingTimers)
+        // Dragging up >= 24 dp arms Clear, halts delete repeat timer, and shows "清空" balloon.
+        b.touches.move(0, del.centerX, del.centerY - 30f, eventTimeMs = 140L)
+        assertEquals(0, b.host.pendingTimers)
+        assertEquals("清空", b.host.balloons[0])
+        // Dragging back below cancel rise (12 dp) disarms Clear; lifting does not fire delete-all.
+        b.touches.move(0, del.centerX, del.centerY - 6f, eventTimeMs = 180L)
+        assertNull(b.host.balloons[0])
+        b.touches.up(0, del.centerX, del.centerY - 6f)
+        assertTrue(!b.events.contains("delete-all"))
+
+        // Re-arm and lift: fires tick + delete-all!
+        val b2 = Board()
+        val del2 = b2.frame(KeyAction.Delete)
+        b2.touches.down(0, del2.centerX, del2.centerY, eventTimeMs = 200L)
+        b2.touches.move(0, del2.centerX, del2.centerY - 32f, eventTimeMs = 230L)
+        assertEquals("清空", b2.host.balloons[0])
+        b2.touches.up(0, del2.centerX, del2.centerY - 32f)
+        assertTrue(b2.events.contains("delete-all"))
+
+        // Fast flick with no intermediate move event still triggers delete-all on lift.
+        val b3 = Board()
+        val del3 = b3.frame(KeyAction.Delete)
+        b3.touches.down(0, del3.centerX, del3.centerY, eventTimeMs = 300L)
+        b3.touches.up(0, del3.centerX, del3.centerY - 34f)
+        assertTrue(b3.events.contains("delete-all"))
+        assertEquals(0, b3.host.pendingTimers)
     }
 }

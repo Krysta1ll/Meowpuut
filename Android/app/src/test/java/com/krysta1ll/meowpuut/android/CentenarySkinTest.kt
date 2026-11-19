@@ -57,6 +57,8 @@ class CentenarySkinTest {
             readable(look.pillText, look.selectedPill.second)
             readable(0xFFFFFFFF.toInt(), look.accent)
             readable(0xFFFFFFFF.toInt(), Look.darken(look.accent, 0.12f))
+            readable(look.candidateText, look.panelSurface)
+            readable(look.candidateSecondary, look.panelSurface)
             assertTrue(look.keyRim)
             assertNull(look.overlay)
         }

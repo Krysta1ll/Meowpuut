@@ -114,14 +114,14 @@ data class Look(
     val supportsFestivals get() = overlay?.festivalsAllowed ?: skin.supportsFestivals
     val isCentenary get() = skin == KeyboardSkin.CENTENARY && overlay == null
     private val colors: SkinPalette? = overlay?.palette(dark) ?: if (isCentenary) {
-        if (dark) SkinPalette(0xFF1C2635.toInt(), 0xFF101824.toInt(), 0xFFF8EFDC.toInt(), 0xFFD4BE96.toInt(),
-            0xFF805E30.toInt(), 0xFF684920.toInt(), 0xFFFFFFFF.toInt(), 0xFFD7B46F.toInt(), 0xFF76542A.toInt())
-        else SkinPalette(0xFFF5EDDE.toInt(), 0xFFE9DCC6.toInt(), 0xFF302A22.toInt(), 0xFF6D5D48.toInt(),
-            0xFF805E30.toInt(), 0xFF684920.toInt(), 0xFFFFFFFF.toInt(), 0xFFA67C3D.toInt(), 0xFF76542A.toInt())
+        if (dark) SkinPalette(0xFF1D2838.toInt(), 0xFF0F1724.toInt(), 0xFFF8EFDC.toInt(), 0xFFD4BE96.toInt(),
+            0xFF836132.toInt(), 0xFF66471E.toInt(), 0xFFFFFFFF.toInt(), 0xFFDFBD7A.toInt(), 0xFF76542A.toInt())
+        else SkinPalette(0xFFF7EFE0.toInt(), 0xFFE9DBC3.toInt(), 0xFF302A22.toInt(), 0xFF6D5D48.toInt(),
+            0xFF836132.toInt(), 0xFF66471E.toInt(), 0xFFFFFFFF.toInt(), 0xFFA67C3D.toInt(), 0xFF76542A.toInt())
     } else null
     private val keyColors: SkinKeys? = overlay?.keys(dark) ?: if (isCentenary) {
-        if (dark) SkinKeys(0xFF344255.toInt(), 0xFF202C3B.toInt(), 0xFFF8EFDC.toInt())
-        else SkinKeys(0xFFFFFCF5.toInt(), 0xFFE4D4B8.toInt(), 0xFF302A22.toInt())
+        if (dark) SkinKeys(0xFF37465B.toInt(), 0xFF243142.toInt(), 0xFFF8EFDC.toInt())
+        else SkinKeys(0xFFFFFDFA.toInt(), 0xFFEDE0C8.toInt(), 0xFF302A22.toInt())
     } else null
     val tintedGlass get() = skin.material == SkinMaterial.GLASS && skin.optics == GlassOptics.TINTED &&
         !opaque && effects != EffectsLevel.LIGHTWEIGHT
@@ -145,12 +145,18 @@ data class Look(
     // An overlay's key colours are the validated ones (text against them is checked at 4.5:1), so its keys are
     // painted solid: KeysView takes the same path as the high-contrast setting. `keys.tint` leans them to the stamp colour.
     val keyFaceTop get() = keyColors?.let { blend(it.character, tint, overlay?.keyTint ?: 0f) } ?: if (dark) 0xFF57565E.toInt() else 0xFFF9F7FA.toInt()
-    val keyFaceBottom get() = if (isCentenary) { if (dark) 0xFF293546.toInt() else 0xFFF4EAD8.toInt() }
+    val keyFaceBottom get() = if (isCentenary) { if (dark) 0xFF2A3648.toInt() else 0xFFF4EAD7.toInt() }
         else keyColors?.let { darken(blend(it.character, tint, overlay?.keyTint ?: 0f), 0.03f) }
         ?: if (dark) 0xFF4B4A52.toInt() else 0xFFF1EFF4.toInt()
     val keyUtility get() = keyColors?.let { blend(it.utility, tint, overlay?.keyTint ?: 0f) } ?: if (dark) 0xFF3C3B40.toInt() else 0xFFCFCED8.toInt()
     val keyUtilityTop = if (keyColors != null) keyUtility else blend(if (dark) 0xFF46444D.toInt() else 0xFFEBE8EF.toInt(), tint, 0.035f)
-    val keyUtilityBottom = if (isCentenary) keyUtility else if (keyColors != null) darken(keyUtility, 0.03f) else blend(if (dark) 0xFF3B3941.toInt() else 0xFFDEDBE4.toInt(), tint, 0.035f)
+    val keyUtilityBottom = if (isCentenary) { if (dark) 0xFF1C2736.toInt() else 0xFFE3D3B6.toInt() }
+        else if (keyColors != null) darken(keyUtility, 0.03f)
+        else blend(if (dark) 0xFF3B3941.toInt() else 0xFFDEDBE4.toInt(), tint, 0.035f)
+    /** Panel surface for expanded candidates / emoji sheets. */
+    val panelSurface: Int get() = overlay?.palette(dark)?.paper2
+        ?: if (isCentenary) { if (dark) 0xFF182231.toInt() else 0xFFF8F1E3.toInt() }
+        else if (dark) 0xFF28262A.toInt() else 0xFFF6F5F9.toInt()
     /** Keys that would be under 3:1 against the deck get an outline (the validator makes the skin say so). */
     val keyRim get() = isCentenary || overlay?.keyRim == true
     /** The ripple where a cat sank (docs/PETS.md A2): soft rings on glass, a thin opaque line under Reduce Transparency. */
@@ -173,8 +179,8 @@ data class Look(
         } else if (dark) 0.075f else 0.035f
         return blend(neutral, tint, amount)
     }
-    val keyGlassReflection = lighten(if (isCentenary) 0xFFD7B46F.toInt() else overlay?.palette(true)?.stamp ?: palette.color(dark = true), if (dark) 0.28f else 0.46f)
-    val keyShadow get() = if (dark) 0x35000000 else 0x16000000
+    val keyGlassReflection = lighten(if (isCentenary) 0xFFDFBD7A.toInt() else overlay?.palette(true)?.stamp ?: palette.color(dark = true), if (dark) 0.28f else 0.46f)
+    val keyShadow get() = if (isCentenary) { if (dark) 0x48050A14 else 0x203A2912 } else if (dark) 0x35000000 else 0x16000000
     val keyText get() = keyColors?.text ?: if (dark) 0xFFFFFFFF.toInt() else 0xFF18181B.toInt()
     val keyTextDisabled get() = if (dark) 0x66FFFFFF else 0x5518181B
     val candidateText get() = colors?.ink ?: if (dark) 0xFFF5EFE9.toInt() else 0xFF3A3334.toInt()

@@ -56,35 +56,44 @@ internal class SkinGallery(
     private val commemorativeCard = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), dp(8), dp(14), dp(8))
-        background = GradientDrawable().apply {
-            cornerRadius = dp(14).toFloat()
-            setColor(if (dark) 0xFF1C2635.toInt() else 0xFFF5EDDE.toInt())
-            setStroke(dp(1), if (dark) 0xFF836D45.toInt() else 0xFFD8BF95.toInt())
+        setPadding(dp(12), dp(12), dp(16), dp(12))
+        val deckColors = if (dark) intArrayOf(0xFF1D2838.toInt(), 0xFF0F1724.toInt())
+        else intArrayOf(0xFFF7EFE0.toInt(), 0xFFE9DBC3.toInt())
+        val foilStroke = if (dark) 0xFF9C7B3F.toInt() else 0xFFC8A66B.toInt()
+        background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, deckColors).apply {
+            cornerRadius = dp(16).toFloat()
+            setStroke(dp(1), foilStroke)
         }
         addView(ImageView(context).apply {
             setImageResource(R.drawable.centenary_duo)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = context.getString(R.string.skin_centenary_art)
-        }, LayoutParams(dp(108), dp(88)))
+        }, LayoutParams(dp(106), dp(84)).apply { marginEnd = dp(12) })
         addView(LinearLayout(context).apply {
             orientation = VERTICAL
+            addView(TextView(context).apply {
+                text = "No.100 · MEOWPUUT"
+                textSize = 10f
+                letterSpacing = 0.08f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(if (dark) 0xFFDFBD7A.toInt() else 0xFF8C6530.toInt())
+            })
             addView(TextView(context).apply {
                 setText(R.string.skin_centenary)
                 textSize = 17f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(if (dark) 0xFFF8EFDC.toInt() else 0xFF302A22.toInt())
-            })
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
             addView(TextView(context).apply {
                 setText(R.string.skin_centenary_note)
-                textSize = 11f
+                textSize = 11.5f
                 setTextColor(if (dark) 0xFFD4BE96.toInt() else 0xFF6D5D48.toInt())
-            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(3) })
             addView(TextView(context).apply {
                 setText(R.string.skin_centenary_thanks)
                 textSize = 13f
                 setTextColor(if (dark) 0xFFD4BE96.toInt() else 0xFF6D5D48.toInt())
-            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(5) })
         }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -250,8 +259,11 @@ private class SkinSwatch(context: Context, private val skin: KeyboardSkin, dark:
         BitmapFactory.decodeResource(resources, left, options) to BitmapFactory.decodeResource(resources, right, options)
     }
     private val commemorativeArt = if (skin == KeyboardSkin.CENTENARY) BitmapFactory.decodeResource(resources,
-        R.drawable.centenary_duo, BitmapFactory.Options().apply { inSampleSize = 8 }) else null
+        R.drawable.centenary_duo, BitmapFactory.Options().apply { inSampleSize = 4 }) else null
     private val glass = LinearGradient(0f, 17f, 0f, 27f, rim, deck, Shader.TileMode.CLAMP)
+    private val centenaryBarFill = if (dark) 0xFF212E40.toInt() else 0xFFFFFBF2.toInt()
+    private val centenaryFoil = if (dark) 0xFFDFBD7A.toInt() else 0xFFA67C3D.toInt()
+    private val isDark = dark
     private var active = false
     private var locked = false
 
@@ -274,28 +286,51 @@ private class SkinSwatch(context: Context, private val skin: KeyboardSkin, dark:
         canvas.scale(scale, scale)
         paint.isFilterBitmap = !pixel
         if (commemorativeArt != null) {
-            rect.set(26f, -2f, 62f, 22f)
+            val aspect = commemorativeArt.width.toFloat() / commemorativeArt.height.coerceAtLeast(1)
+            val maxW = 34f
+            val maxH = 19.5f
+            val w = minOf(maxW, maxH * aspect)
+            val h = w / aspect
+            rect.set(44f - w / 2f, 20.5f - h, 44f + w / 2f, 20.5f)
             canvas.drawBitmap(commemorativeArt, null, rect, paint)
         } else {
             cat(canvas, catImages.first, 5f, 2f)
             cat(canvas, catImages.second, 62f, 2f)
         }
         val barRadius = if (pixel) 1f else 5f
-        if (!pixel) paint.shader = glass
-        box(canvas, 5f, 17f, 83f, 27f, barRadius, rim)
-        paint.shader = null
-        if (pixel) box(canvas, 6f, 18f, 82f, 26f, barRadius, deck)
+        if (centenary != null) {
+            box(canvas, 5f, 17f, 83f, 27f, barRadius, centenaryBarFill)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 0.7f
+            paint.color = Look.withAlpha(centenaryFoil, 0.7f)
+            rect.set(5f, 17f, 83f, 27f)
+            canvas.drawRoundRect(rect, barRadius, barRadius, paint)
+            paint.style = Paint.Style.FILL
+        } else {
+            if (!pixel) paint.shader = glass
+            box(canvas, 5f, 17f, 83f, 27f, barRadius, rim)
+            paint.shader = null
+            if (pixel) box(canvas, 6f, 18f, 82f, 26f, barRadius, deck)
+        }
         box(canvas, 33f, 20f, 54f, 24f, if (pixel) 0f else 2f, statusInk)
         for (row in 0 until 2) {
             for (column in 0 until 5) {
                 val x = 9f + column * 14.5f
                 val y = 30f + row * 7f
                 box(canvas, x, y, x + 11.5f, y + 5f, if (pixel) 0f else 2f, key)
+                if (centenary != null) {
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 0.45f
+                    paint.color = Look.withAlpha(centenaryFoil, if (isDark) 0.45f else 0.40f)
+                    rect.set(x, y, x + 11.5f, y + 5f)
+                    canvas.drawRoundRect(rect, 2f, 2f, paint)
+                    paint.style = Paint.Style.FILL
+                }
             }
         }
         if (locked || active) {
             canvas.save()
-            if (centenary != null) canvas.translate(32f, -1f)
+            if (centenary != null) canvas.translate(29f, -1f)
             drawStatus(canvas)
             canvas.restore()
         }

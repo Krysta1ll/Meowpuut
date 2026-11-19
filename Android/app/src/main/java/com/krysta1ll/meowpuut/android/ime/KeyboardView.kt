@@ -87,7 +87,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     private var baseRows = 4
     private var bottomInset = 0
     private var measuredLimit = Float.POSITIVE_INFINITY
-    private var routingToKeys = false
+    private var keyPointerMask = 0L
+    private var superPointerMask = 0L
+    private val singleProps = arrayOf(MotionEvent.PointerProperties())
+    private val singleCoords = arrayOf(MotionEvent.PointerCoords())
     var expanded = false
         set(value) {
             if (field == value) return
@@ -260,7 +263,8 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         val width = r - l
         bar.layout(0, 0, width, bar.measuredHeight)
         val keyLeft = (width - keys.measuredWidth) / 2
-        keys.topTouchExtension = maxOf(0f, bar.region.height - bar.region.glass.bottom)
+        val glassContentBottom = bar.region.glass.top + GlassOutline.contentBand(look.shape, bar.region.glass.height).second
+        keys.topTouchExtension = maxOf(0f, bar.region.height - glassContentBottom)
         keys.layout(keyLeft, bar.measuredHeight, keyLeft + keys.measuredWidth, bar.measuredHeight + keys.measuredHeight)
         if (syllableRail.visibility == VISIBLE) {
             keys.leftColumnBox()?.let { box ->
@@ -273,27 +277,131 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         previews.layout(0, 0, width, previews.measuredHeight)
     }
 
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        val action = event.actionMasked
-        if (action == MotionEvent.ACTION_DOWN) {
-            routingToKeys = shouldRoutePerimeterTouchToKeys(event.x, event.y)
-        }
-        if (routingToKeys) {
-            val dx = -keys.left.toFloat()
-            val dy = -keys.top.toFloat()
-            event.offsetLocation(dx, dy)
-            val handled = keys.dispatchTouchEvent(event)
-            event.offsetLocation(-dx, -dy)
-            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                routingToKeys = false
-            }
-            return handled
-        }
-        return super.dispatchTouchEvent(event)
+    private fun pointerBit(pointerId: Int): Long = 1L shl (pointerId and 63)
+
+    private fun forwardToKeys(event: MotionEvent): Boolean {
+        val dx = -keys.left.toFloat()
+        val dy = -keys.top.toFloat()
+        event.offsetLocation(dx, dy)
+        val handled = keys.dispatchTouchEvent(event)
+        event.offsetLocation(-dx, -dy)
+        return handled
     }
 
-    private fun shouldRoutePerimeterTouchToKeys(x: Float, y: Float): Boolean {
-        if (expanded || keys.visibility != VISIBLE || !keys.isEnabled) return false
+    private fun dispatchSinglePointer(event: MotionEvent, pointerIndex: Int, action: Int, toKeys: Boolean): Boolean {
+        event.getPointerProperties(pointerIndex, singleProps[0])
+        event.getPointerCoords(pointerIndex, singleCoords[0])
+        if (toKeys) {
+            singleCoords[0].x -= keys.left
+            singleCoords[0].y -= keys.top
+        }
+        val synthetic = MotionEvent.obtain(
+            event.downTime, event.eventTime, action, 1, singleProps, singleCoords,
+            event.metaState, event.buttonState, event.xPrecision, event.yPrecision,
+            event.deviceId, event.edgeFlags, event.source, event.flags,
+        )
+        return try {
+            if (toKeys) keys.dispatchTouchEvent(synthetic) else super.dispatchTouchEvent(synthetic)
+        } finally {
+            synthetic.recycle()
+        }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                keyPointerMask = 0L
+                superPointerMask = 0L
+                val idx = event.actionIndex
+                val bit = pointerBit(event.getPointerId(idx))
+                return if (shouldRouteTouchToKeys(event.getX(idx), event.getY(idx))) {
+                    keyPointerMask = bit
+                    forwardToKeys(event)
+                } else {
+                    superPointerMask = bit
+                    super.dispatchTouchEvent(event)
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val idx = event.actionIndex
+                val bit = pointerBit(event.getPointerId(idx))
+                val forKeys = shouldRouteTouchToKeys(event.getX(idx), event.getY(idx))
+                if (forKeys && superPointerMask == 0L) {
+                    keyPointerMask = keyPointerMask or bit
+                    return forwardToKeys(event)
+                }
+                if (!forKeys && keyPointerMask == 0L) {
+                    superPointerMask = superPointerMask or bit
+                    return super.dispatchTouchEvent(event)
+                }
+                return if (forKeys) {
+                    val wasEmpty = keyPointerMask == 0L
+                    keyPointerMask = keyPointerMask or bit
+                    dispatchSinglePointer(event, idx, if (wasEmpty) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_POINTER_DOWN, toKeys = true)
+                } else {
+                    val wasEmpty = superPointerMask == 0L
+                    superPointerMask = superPointerMask or bit
+                    dispatchSinglePointer(event, idx, if (wasEmpty) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_POINTER_DOWN, toKeys = false)
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (keyPointerMask != 0L && superPointerMask == 0L) return forwardToKeys(event)
+                if (superPointerMask != 0L && keyPointerMask == 0L) return super.dispatchTouchEvent(event)
+                var handled = false
+                if (keyPointerMask != 0L) handled = forwardToKeys(event) || handled
+                if (superPointerMask != 0L) {
+                    for (i in 0 until event.pointerCount) {
+                        if ((superPointerMask and pointerBit(event.getPointerId(i))) != 0L) {
+                            handled = dispatchSinglePointer(event, i, MotionEvent.ACTION_MOVE, toKeys = false) || handled
+                            break
+                        }
+                    }
+                }
+                return handled
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
+                val idx = event.actionIndex
+                val bit = pointerBit(event.getPointerId(idx))
+                val isKeysPointer = (keyPointerMask and bit) != 0L
+                val hadOnlyKeys = superPointerMask == 0L && isKeysPointer
+                val hadOnlySuper = keyPointerMask == 0L && (superPointerMask and bit) != 0L
+                keyPointerMask = keyPointerMask and bit.inv()
+                superPointerMask = superPointerMask and bit.inv()
+                val handled = when {
+                    hadOnlyKeys -> forwardToKeys(event)
+                    hadOnlySuper -> super.dispatchTouchEvent(event)
+                    isKeysPointer -> dispatchSinglePointer(
+                        event, idx,
+                        if (keyPointerMask == 0L) MotionEvent.ACTION_UP else MotionEvent.ACTION_POINTER_UP,
+                        toKeys = true,
+                    )
+                    else -> dispatchSinglePointer(
+                        event, idx,
+                        if (superPointerMask == 0L) MotionEvent.ACTION_UP else MotionEvent.ACTION_POINTER_UP,
+                        toKeys = false,
+                    )
+                }
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    keyPointerMask = 0L
+                    superPointerMask = 0L
+                }
+                return handled
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                var handled = false
+                if (keyPointerMask != 0L) handled = forwardToKeys(event) || handled
+                if (superPointerMask != 0L) handled = super.dispatchTouchEvent(event) || handled
+                keyPointerMask = 0L
+                superPointerMask = 0L
+                return handled
+            }
+            else -> return super.dispatchTouchEvent(event)
+        }
+    }
+
+    internal fun shouldRouteTouchToKeys(x: Float, y: Float): Boolean {
+        if (keys.visibility != VISIBLE || !keys.isEnabled) return false
+        if (expanded) return y >= keys.bottom
         if (syllableRail.visibility == VISIBLE &&
             x >= syllableRail.left && x < syllableRail.right &&
             y >= syllableRail.top && y < syllableRail.bottom
@@ -301,9 +409,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             return false
         }
         if (y < keys.top) {
-            return y >= bar.region.glass.bottom * density && !bar.claimsPoint(x / density, y / density)
+            val glassContentBottom = bar.region.glass.top + GlassOutline.contentBand(look.shape, bar.region.glass.height).second
+            return y >= glassContentBottom * density && !bar.claimsPoint(x / density, y / density)
         }
-        return y >= keys.bottom || x < keys.left || x >= keys.right
+        return true
     }
 
     override fun onDraw(canvas: Canvas) {

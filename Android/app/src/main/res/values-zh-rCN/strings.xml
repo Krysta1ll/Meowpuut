@@ -139,6 +139,14 @@
 
     <string name="licenses">第三方授权</string>
     <string name="close">关闭</string>
+    <string name="photos_title">生活照</string>
+    <string name="photos_daily_count">每日随机轮换 · 共 %1$d 张</string>
+    <string name="photos_hero_badge">今日首推 · %1$s</string>
+    <string name="photos_refresh">重新加载</string>
+    <string name="photos_retry">重试</string>
+    <string name="photos_loading">正在加载生活照…</string>
+    <string name="photos_offline">尚未加载在线生活照</string>
+    <string name="photos_offline_hint">连上网络后可在线加载全部生活照（键盘打字全程离线）。</string>
     <string name="preview_label">候选栏预览</string>
     <string name="preview_nine_key">九键拼音键盘预览</string>
     <string name="sound_off">关闭</string>

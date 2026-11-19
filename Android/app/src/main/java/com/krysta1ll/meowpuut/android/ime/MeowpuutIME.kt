@@ -17,8 +17,8 @@ import android.view.ViewGroup.LayoutParams
 import android.view.Window
 import android.view.WindowInsetsController
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
 import com.krysta1ll.meowpuut.android.engine.CandidateMerge
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
@@ -96,7 +96,9 @@ class MeowpuutIME : InputMethodService(),
     private var openingMixed = true
     private var sessionMode: InputMode? = null
     private var lastSpaceAt = 0L
-    private var globe = false
+    private var deleteBeganComposing = false
+    private var deleteInitialText: String? = null
+    private var undoClearedText: String? = null
     private var keyContext: KeyContext? = null
     private var keySet: KeySet? = null
 
@@ -181,6 +183,10 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onWindowShown() {
         super.onWindowShown()
+        keySounds.refreshSystemState()
+        keyHaptics.refreshSystemState()
+        keyboard?.keys?.refreshAccessibilityState()
+        keyboard?.bar?.refreshAccessibilityState()
         if (!keyboardWindowVisible) {
             keyboardWindowVisible = true
             keyboard?.bar?.let(moments::appear)
@@ -247,7 +253,7 @@ class MeowpuutIME : InputMethodService(),
         }
         caps.reset()
         shiftHeld = false
-        globe = needsGlobe()
+        undoClearedText = null
         updateAutoCaps()
         updateEnglish()
         configureWindow()
@@ -708,6 +714,10 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onKeyDown(key: Key, fraction: Float) {
         moments.pulse.keys++
+        if (key.action == KeyAction.Delete) {
+            deleteBeganComposing = composer.composing || pending.isNotEmpty()
+            deleteInitialText = null
+        }
         val view = keyboard ?: return
         keyHaptics.play(view, HapticFeedbackConstants.KEYBOARD_TAP)
         val effect = when (key.action) {
@@ -721,6 +731,7 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onKey(key: Key, text: String?) {
         if (key.action != KeyAction.Emoji && emojiOpen) setEmoji(false)
+        undoClearedText = null
         when (val action = key.action) {
             is KeyAction.Engine -> typeEngine(action.code, text)
             is KeyAction.PinyinTone -> typePinyinTone(action)
@@ -733,7 +744,6 @@ class MeowpuutIME : InputMethodService(),
                 if (page > 0 && !numericField) onPage(0)
             }
             KeyAction.Return -> enter()
-            KeyAction.Globe -> getSystemService(InputMethodManager::class.java).showInputMethodPicker()
             KeyAction.ToggleEnglish -> toggleEnglish()
             KeyAction.Emoji -> setEmoji(!emojiOpen)
             else -> Unit
@@ -871,8 +881,11 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onDelete(word: Boolean) {
         suggestionSpace = false
+        val hadUndo = undoClearedText != null
+        undoClearedText = null
         if (pending.isNotEmpty()) {
             if (word) pending.clear() else pending.removeAt(pending.lastIndex)
+            if (hadUndo) refresh()
             return
         }
         if (composer.composing) {
@@ -882,24 +895,113 @@ class MeowpuutIME : InputMethodService(),
         if (predictions.isNotEmpty()) {
             predictions = emptyList()
             refresh()
+        } else if (hadUndo) {
+            refresh()
         }
         val ic = currentInputConnection ?: return
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
+            if (!word && !deleteBeganComposing && deleteInitialText == null) {
+                deleteInitialText = selected.toString()
+            }
             ic.commitText("", 1)
             return
         }
         val before = ic.getTextBeforeCursor(if (word) 48 else 16, 0)
         if (before.isNullOrEmpty()) {
+            if (!word && !deleteBeganComposing && deleteInitialText == null) deleteInitialText = ""
             sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
             return
         }
         val count = if (word) TextUnits.wordLength(before) else TextUnits.lastGrapheme(before)
+        if (!word && !deleteBeganComposing && deleteInitialText == null) {
+            deleteInitialText = before.substring((before.length - count.coerceAtLeast(1)).coerceAtLeast(0))
+        }
         ic.deleteSurroundingText(count.coerceAtLeast(1), 0)
         if (english) {
             updateAutoCaps()
             if (updateEnglish()) refresh()
         }
+    }
+
+    override fun onDeleteAll() {
+        suggestionSpace = false
+        lastSpaceAt = 0
+        if (deleteBeganComposing || composer.composing || pending.isNotEmpty()) {
+            deleteInitialText = null
+            if (!clearComposition() && composer.composing) {
+                composer.clear()
+                currentInputConnection?.finishComposingText()
+                expanded = false
+                predictions = emptyList()
+                refresh()
+            }
+            return
+        }
+        val ic = currentInputConnection ?: return
+        val initial = deleteInitialText
+        deleteInitialText = null
+        predictions = emptyList()
+        var restored: String? = null
+        ic.beginBatchEdit()
+        try {
+            val extracted = ic.getExtractedText(ExtractedTextRequest(), 0)
+            val full = extracted?.text?.toString()
+            if (full != null) {
+                val combined = if (!initial.isNullOrEmpty()) {
+                    val split = extracted.selectionStart.coerceIn(0, full.length)
+                    full.substring(0, split) + initial + full.substring(split)
+                } else {
+                    full
+                }
+                if (combined.isNotEmpty() && combined.length <= UNDO_CLEAR_MAX_CHARS) restored = combined
+                if (full.isNotEmpty()) {
+                    ic.setSelection(0, full.length)
+                    ic.commitText("", 1)
+                }
+            } else {
+                val left = StringBuilder()
+                val right = StringBuilder()
+                var passes = 0
+                while (passes < 32) {
+                    passes++
+                    val before = ic.getTextBeforeCursor(4096, 0)?.toString().orEmpty()
+                    val after = ic.getTextAfterCursor(4096, 0)?.toString().orEmpty()
+                    if (before.isEmpty() && after.isEmpty()) break
+                    if (left.length + before.length <= UNDO_CLEAR_MAX_CHARS) left.insert(0, before)
+                    if (right.length + after.length <= UNDO_CLEAR_MAX_CHARS) right.append(after)
+                    if (!ic.deleteSurroundingText(before.length, after.length)) break
+                }
+                val combinedLength = left.length + (initial?.length ?: 0) + right.length
+                if (combinedLength in 1..UNDO_CLEAR_MAX_CHARS) {
+                    restored = left.toString() + initial.orEmpty() + right.toString()
+                }
+            }
+        } finally {
+            ic.endBatchEdit()
+        }
+        undoClearedText = restored
+        expanded = false
+        if (english) {
+            updateAutoCaps()
+            updateEnglish()
+        }
+        refresh()
+    }
+
+    override fun onUndoClear() {
+        val text = undoClearedText ?: return
+        undoClearedText = null
+        val ic = currentInputConnection ?: run { refresh(); return }
+        onTick()
+        ic.commitText(text, 1)
+        if (english) {
+            updateAutoCaps()
+            updateEnglish()
+        } else {
+            updatePredictions()
+        }
+        refresh()
     }
 
     override fun onShiftDown() {
@@ -946,6 +1048,7 @@ class MeowpuutIME : InputMethodService(),
     override fun onCursorEnd() = Unit
 
     private fun toggleEnglish() {
+        undoClearedText = null
         finishComposition()
         pending.clear()
         english = !english
@@ -960,17 +1063,10 @@ class MeowpuutIME : InputMethodService(),
         refresh()
     }
 
-    private fun needsGlobe(): Boolean = if (Build.VERSION.SDK_INT >= 28) {
-        shouldOfferSwitchingToNextInputMethod()
-    } else {
-        val token = window?.window?.attributes?.token
-        @Suppress("DEPRECATION")
-        token != null && (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).shouldOfferSwitchingToNextInputMethod(token)
-    }
-
     // ---------------------------------------------------------------- candidates
 
     override fun onCandidate(index: Int) {
+        undoClearedText = null
         if (emojiOpen) {
             emojiChoices.getOrNull(index)?.let {
                 onTick()
@@ -990,6 +1086,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onPrediction(text: String) {
+        undoClearedText = null
         onTick()
         if (english) {
             chooseEnglish(text)
@@ -1001,6 +1098,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onPunctuation(mark: String) {
+        undoClearedText = null
         typeSymbol(mark)
     }
 
@@ -1231,7 +1329,7 @@ class MeowpuutIME : InputMethodService(),
             page = page,
             shift = shift,
             simplified = prefs.simplified,
-            needsGlobe = globe,
+            needsGlobe = false,
             spaceTitle = spaceTitle(),
             returnTitle = returnTitle,
             returnAccent = accent,
@@ -1257,6 +1355,7 @@ class MeowpuutIME : InputMethodService(),
         val visible = if (english) all.indices.toList() else visibleCandidates()
         val composing = composer.composing
         val segmentLength = if (english || emojiOpen) 0 else composer.segmentLength
+        val undoLabel = if (!composing && !emojiOpen && undoClearedText != null) words("撤回清空", "撤回清空") else null
         view.bar.japaneseMimimo = if (mode == InputMode.JAPANESE && !english && prefs.cats) japaneseMimimo else null
         view.bar.update(CandidateBarView.Content(
             candidates = if (emojiOpen) emptyList() else all,
@@ -1274,6 +1373,7 @@ class MeowpuutIME : InputMethodService(),
             emoji = emojiOpen,
             japaneseMode = mode == InputMode.JAPANESE,
             words = words,
+            undoLabel = undoLabel,
         ), retainScroll = retainCandidateScroll)
         view.expanded = showPanel
         view.panel.words = words
@@ -1291,6 +1391,7 @@ class MeowpuutIME : InputMethodService(),
 
         /** How much text before the cursor is read for the suggestions: the word being typed and two words before it. */
         private const val CONTEXT_CHARS = 96
+        private const val UNDO_CLEAR_MAX_CHARS = 16_384
         private val NO_SUGGESTIONS = EnglishSuggestions.Plan("", emptyList())
         private const val ZHUYIN_KEYS = "1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/-"
         private val QUICK_MARKS = listOf("，", "。", "？", "！", "、")

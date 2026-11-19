@@ -128,6 +128,20 @@ final class NativeBackend: InputBackend {
         }
         return lexicon
     }
+    /// Attaches the bundled Stage-2 context reranker table (`mimo_trigrams.bin`),
+    /// read in place and unmapped by the release callback.
+    private static func withTrigrams(_ lexicon: OpaquePointer) -> OpaquePointer {
+        if let url = Bundle.main.url(forResource: "mimo_trigrams", withExtension: "bin"),
+           let file = MappedFile(url: url) {
+            _ = mpn_lexicon_attach_trigrams(
+                lexicon, file.base.assumingMemoryBound(to: CChar.self), file.size,
+                { context in
+                    guard let context else { return }
+                    Unmanaged<MappedFile>.fromOpaque(context).release()
+                }, Unmanaged.passRetained(file).toOpaque())
+        }
+        return lexicon
+    }
     /// A session on the lexicon for `mode`, loading it if needed. The session
     /// is made under the lock, so releaseInactiveLexicons cannot destroy the
     /// lexicon before the session holds it.
@@ -136,10 +150,10 @@ final class NativeBackend: InputBackend {
         defer { lock.unlock() }
         let lexicon: OpaquePointer?
         if mode == .pinyin || mode == .nineKey {
-            if pinyinLexicon == nil { pinyinLexicon = load("native-pinyin", pinyin: true).map(withPairs) }
+            if pinyinLexicon == nil { pinyinLexicon = load("native-pinyin", pinyin: true).map(withPairs).map(withTrigrams) }
             lexicon = pinyinLexicon
         } else {
-            if zhuyinLexicon == nil { zhuyinLexicon = load("native-zhuyin", pinyin: false).map(withPairs) }
+            if zhuyinLexicon == nil { zhuyinLexicon = load("native-zhuyin", pinyin: false).map(withPairs).map(withTrigrams) }
             lexicon = zhuyinLexicon
         }
         return lexicon.flatMap { mode == .nineKey ? mpn_nine_key_session_create($0) : mpn_session_create($0) }

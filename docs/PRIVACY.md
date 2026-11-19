@@ -1,6 +1,6 @@
 # 喵撲的隱私政策
 
-最後更新：2026 年 11 月 16 日
+最後更新：2026 年 11 月 19 日
 
 喵撲（Meowpuut）是一個鍵盤。這份說明適用於 iOS、iPadOS、macOS、Android 和 Windows 的喵撲。
 
@@ -27,7 +27,7 @@
 
 ## 照片
 
-App 裡有米米莫和莫莫的照片。按「存到照片」時，系統會問你是否允許把那張照片加進你的相簿。喵撲不讀取你相簿裡的照片。
+iOS 與 Android 的喵撲宿主 App 裡展示米米莫和莫莫的生活照，透過香港 Google Cloud Storage 公開唯讀端點線上載入並快取於本機，每日隨機輪換全部照片。請求只抓取公開圖片與清單，不包含任何帳號、個人資料或裝置追蹤識別碼；兩個平台的鍵盤（輸入法服務／Keyboard Extension）本身全程維持離線運作，不發出任何網路連線。按「存到照片」時，系統會問你是否允許把那張照片加進你的相簿；喵撲不讀取你相簿裡的照片。
 
 ## 兒童
 
@@ -45,7 +45,7 @@ App 裡有米米莫和莫莫的照片。按「存到照片」時，系統會問�
 
 # Privacy Policy (English)
 
-Last updated: 16 November 2026
+Last updated: 19 November 2026
 
 Meowpuut (喵撲) is a keyboard. This policy covers Meowpuut on iOS, iPadOS, macOS, Android and Windows.
 
@@ -59,7 +59,7 @@ Meowpuut (喵撲) is a keyboard. This policy covers Meowpuut on iOS, iPadOS, mac
 
 **Optional iCloud sync.** When enabled, Chinese word choices, their readings, selection counts and last-used times are encrypted and stored in the private CloudKit database of your Apple Account. Context history, emoji and kaomoji stay on the device. You can turn off sync or clear iCloud word-choice records in Meowpuut settings.
 
-**Photos.** The app shows photos of the two cats. When you tap Save, the system asks whether the app may add that photo to your library. Meowpuut does not read your photos.
+**Photos.** The iOS and Android host apps load public photos of the two cats from a read-only Hong Kong Google Cloud Storage bucket (`storage.googleapis.com`), cache them locally on the device, and rotate their order daily. Requests fetch only public image assets and contain no accounts, personal data, or tracking identifiers; the keyboard engines and IMEs on both platforms remain 100% offline. When you tap Save on iOS, the system asks whether the app may add that photo to your library. Meowpuut does not read your photos.
 
 **Children.** Meowpuut collects no data from anyone, including children.
 

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RUNTIME_TABLES = ('mimo_base.bin', 'mimo_pairs.bin', 'native-japanese.tsv')
+RUNTIME_TABLES = ('mimo_base.bin', 'mimo_pairs.bin', 'mimo_trigrams.bin', 'native-japanese.tsv')
 DEVELOPMENT_TABLES = ('native-pinyin.tsv', 'native-zhuyin.tsv')
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

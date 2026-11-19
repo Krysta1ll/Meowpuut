@@ -38,6 +38,7 @@ class VirtualAccessibility(
     private var hovered = View.NO_ID
     private val location = IntArray(2)
     private val manager = host.context.getSystemService(AccessibilityManager::class.java)
+    private var cachedAssistive: Boolean? = null
 
     // Sending an event while accessibility is off throws.
     private val listening get() = manager?.isEnabled == true
@@ -48,15 +49,26 @@ class VirtualAccessibility(
      * Reads the service list, so ask on appearance, not per frame.
      */
     val assistive: Boolean
-        get() {
-            val manager = manager ?: return false
-            if (!manager.isEnabled) return false
-            if (manager.isTouchExplorationEnabled) return true
-            val speaking = AccessibilityServiceInfo.FEEDBACK_SPOKEN or AccessibilityServiceInfo.FEEDBACK_BRAILLE
-            return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
-                it.feedbackType and speaking != 0 || it.id.contains("switchaccess", true) || it.id.contains("voiceaccess", true)
-            }
+        get() = refreshAssistive()
+
+    val assistiveCached: Boolean
+        get() = cachedAssistive ?: refreshAssistive()
+
+    fun refreshAssistive(): Boolean {
+        val result = computeAssistive()
+        cachedAssistive = result
+        return result
+    }
+
+    private fun computeAssistive(): Boolean {
+        val manager = manager ?: return false
+        if (!manager.isEnabled) return false
+        if (manager.isTouchExplorationEnabled) return true
+        val speaking = AccessibilityServiceInfo.FEEDBACK_SPOKEN or AccessibilityServiceInfo.FEEDBACK_BRAILLE
+        return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
+            it.feedbackType and speaking != 0 || it.id.contains("switchaccess", true) || it.id.contains("voiceaccess", true)
         }
+    }
 
     override fun createAccessibilityNodeInfo(virtualViewId: Int): AccessibilityNodeInfo? {
         if (virtualViewId == View.NO_ID) {
@@ -152,7 +164,7 @@ class VirtualAccessibility(
 
     /** Call when the items change so TalkBack refreshes them. */
     fun invalidateAll() {
-        if (!listening || !host.isAttachedToWindow) return
+        if (!host.isAttachedToWindow || !listening || !assistiveCached) return
         val event = event(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
         event.packageName = host.context.packageName
         event.setSource(host)

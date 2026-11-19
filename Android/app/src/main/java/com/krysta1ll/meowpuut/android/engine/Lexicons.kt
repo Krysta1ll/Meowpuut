@@ -74,6 +74,14 @@ class Lexicons(private val context: Context) {
                     Log.w(TAG, "word-pair table unavailable", e)
                     false
                 }
+                val trigrams = try {
+                    context.assets.openFd("lexicon/mimo_trigrams.bin").use { fd ->
+                        NativeEngine.attachTrigramsFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "trigram table unavailable", e)
+                    false
+                }
                 // English words inside pinyin and nine-key Chinese (after the Chinese readings); Zhuyin takes none.
                 val english = pinyin && try {
                     context.assets.openFd("lexicon/mimo_en.bin").use { fd ->

@@ -71,6 +71,8 @@ class CandidateBarView(
         fun onComposing(composing: Boolean) {}
         /** A tap on the seat of a cat that is hiding in the glass. */
         fun onSeat(cat: Cat) {}
+        /** Restores text removed by a swipe-up clear-all gesture on Delete. */
+        fun onUndoClear() {}
     }
 
     /** What the row shows; set as a whole by the keyboard. */
@@ -91,6 +93,7 @@ class CandidateBarView(
         val emoji: Boolean = false,
         val japaneseMode: Boolean = false,
         val words: Words = Words(false),
+        val undoLabel: String? = null,
     )
 
     var listener: Listener? = null
@@ -348,7 +351,8 @@ class CandidateBarView(
         val wasComposing = content.composing
         val newRow = next.candidates != content.candidates || next.visible != content.visible ||
             next.predictions != content.predictions || next.punctuation != content.punctuation ||
-            next.japaneseMarks != content.japaneseMarks || next.segmentLength != content.segmentLength
+            next.japaneseMarks != content.japaneseMarks || next.segmentLength != content.segmentLength ||
+            next.undoLabel != content.undoLabel
         bar.content = next
         if (newRow && next.composing) {
             toast = null
@@ -371,7 +375,7 @@ class CandidateBarView(
             }
         }
         scroll = scroll.coerceIn(0f, maxScroll)
-        accessibility.invalidateAll()
+        if (accessibility.assistiveCached) accessibility.invalidateAll()
         invalidate()
     }
 
@@ -476,7 +480,12 @@ class CandidateBarView(
                 list += Item(1, i, text, shown, x, width, false)
                 x += width + gap
             }
-        } else if (c.punctuation.isNotEmpty()) {
+        } else {
+            c.undoLabel?.let { undo ->
+                val width = (measureText(undo, selectedPaint) + 22f).coerceIn(MIN_CANDIDATE_WIDTH, maxCell)
+                list += Item(3, 0, undo, undo, x, width, false)
+                x += width + gap
+            }
             for ((i, mark2) in c.punctuation.withIndex()) {
                 list += Item(2, i, mark2, mark2, x, 38f, false)
                 x += 38f + 2f
@@ -1065,17 +1074,26 @@ class CandidateBarView(
             if (selected) {
                 pill.draw(canvas, x, pillTop, item.width, region.pillHeight, look, shadow = fullEffects)
             }
-            if (pressed || item.kind == 1) {
+            if (pressed || item.kind == 1 || item.kind == 3) {
                 pressPaint.color = when {
                     selected -> Look.withAlpha(Color.BLACK, 0.16f)
-                    pressed -> Look.withAlpha(look.pill.second, if (look.dark) 0.30f else 0.22f)
+                    pressed -> Look.withAlpha(look.pill.second, if (look.dark) 0.32f else 0.24f)
+                    item.kind == 3 -> Look.withAlpha(look.pill.second, if (look.dark) 0.22f else 0.14f)
                     else -> Look.withAlpha(look.pill.second, if (look.dark) 0.14f else 0.10f)
                 }
                 rect.set(x, pillTop, x + item.width, pillTop + region.pillHeight)
                 if (look.usesSteppedMaterial) canvas.drawRect(rect, pressPaint)
                 else canvas.drawRoundRect(rect, region.pillHeight / 2, region.pillHeight / 2, pressPaint)
+                if (item.kind == 3 && !look.usesSteppedMaterial) {
+                    pressPaint.style = Paint.Style.STROKE
+                    pressPaint.strokeWidth = 0.9f
+                    pressPaint.color = Look.withAlpha(look.tint, if (look.dark) 0.56f else 0.42f)
+                    rect.inset(0.45f, 0.45f)
+                    canvas.drawRoundRect(rect, region.pillHeight / 2 - 0.45f, region.pillHeight / 2 - 0.45f, pressPaint)
+                    pressPaint.style = Paint.Style.FILL
+                }
             }
-            val paint = if (selected) selectedPaint else textPaint
+            val paint = if (selected || item.kind == 3) selectedPaint else textPaint
             paint.color = if (selected) look.pillText else if (item.kind == 2) look.candidateSecondary else look.candidateText
             if (pressed && motionEnabled) {
                 canvas.save()
@@ -1215,8 +1233,10 @@ class CandidateBarView(
         }
     }
 
-    internal fun claimsPoint(x: Float, y: Float): Boolean =
-        y <= region.glass.bottom || onExpandHit(x, y) || seats().any { it.touch.contains(x, y) }
+    internal fun claimsPoint(x: Float, y: Float): Boolean {
+        val contentBottom = region.glass.top + GlassOutline.contentBand(look.shape, region.glass.height).second
+        return y <= contentBottom || onExpandHit(x, y) || seats().any { it.touch.contains(x, y) }
+    }
 
     private fun onExpandHit(x: Float, y: Float): Boolean =
         (content.canExpand || content.expanded) && region.expandTarget(expandButton).contains(x, y)
@@ -1462,6 +1482,7 @@ class CandidateBarView(
             0 -> listener?.onCandidate(item.index)
             1 -> listener?.onPrediction(item.text)
             2 -> listener?.onPunctuation(item.text)
+            3 -> listener?.onUndoClear()
         }
     }
 
@@ -1540,6 +1561,10 @@ class CandidateBarView(
 
     /** TalkBack, Switch Access or another assistive service is running. */
     val assistiveTechnology: Boolean get() = accessibility.assistive
+
+    fun refreshAccessibilityState() {
+        accessibility.refreshAssistive()
+    }
 
     /** Whether the cat is sunk out of sight in the glass. */
     fun isHidden(cat: Cat) = actor(cat).hidden
@@ -1784,6 +1809,7 @@ class CandidateBarView(
                 0 -> (if (item.japanese) words("日語候選：", "日语候选：") else words("候選：", "候选：")) + item.text +
                     if (item.continues) words("，保留後續讀音", "，保留后续读音") else ""
                 1 -> words("聯想詞：", "联想词：") + item.text
+                3 -> item.text
                 else -> words("標點：", "标点：") + item.text
             }
             out += VirtualAccessibility.Item(n, bounds, label, selected = item.kind == 0 && item.index == content.highlighted)

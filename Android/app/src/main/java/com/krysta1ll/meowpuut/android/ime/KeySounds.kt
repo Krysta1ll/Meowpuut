@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.SoundPool
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.system.Os
 import com.krysta1ll.meowpuut.android.R
 import java.io.File
@@ -39,6 +40,13 @@ class KeySounds(private val context: Context) {
     private var variation = 0
     private var volume = 1f
     private var gain = 1f
+    private var cachedRingerMode = AudioManager.RINGER_MODE_NORMAL
+    private var lastRingerCheckMs = -2_000L
+
+    fun refreshSystemState() {
+        cachedRingerMode = audio?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
+        lastRingerCheckMs = SystemClock.uptimeMillis()
+    }
 
     fun setVolume(percent: Int) {
         volume = percent.coerceIn(0, 100) / 100f
@@ -125,7 +133,10 @@ class KeySounds(private val context: Context) {
 
     /** Memory only: the samples were loaded when the sound setting or the skin changed. */
     fun play(effect: Int, fraction: Float = 0.5f, pick: Boolean = false) {
-        if (kind == Kind.OFF || volume == 0f || audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        if (kind == Kind.OFF || volume == 0f) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastRingerCheckMs >= 1_500L) refreshSystemState()
+        if (cachedRingerMode != AudioManager.RINGER_MODE_NORMAL) return
         if (kind == Kind.SYSTEM) {
             // The keyboard has its own sound setting, separate from Android's touch sounds.
             audio.playSoundEffect(effect, volume)

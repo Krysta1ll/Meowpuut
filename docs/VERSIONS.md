@@ -6,12 +6,12 @@ Android、macOS 和 Windows 的正式版使用「**名稱 · 構建代碼**」�
 
 | 平台 | 名稱 | 正式版 |
 | --- | --- | --- |
-| Android | 稜鏡 Prism | 26A021 |
-| macOS | 窗臺 Sill | 26A033 |
+| Android | 稜鏡 Prism | 26A023 |
+| macOS | 窗臺 Sill | 26A034 |
 | Windows | 門廊 Porch | 26A003 |
 | iPhone、iPad | 露珠 Dew | App Store／TestFlight 使用 Apple 的數字版號 |
 
-GitHub 標籤包含平台、名稱和構建代碼，例如 `android-prism-26a021`。安裝檔保留名稱與構建代碼，例如 `Meowpuut-Prism-26A021.apk`。[前往下載](../README.md#下載)
+GitHub 標籤包含平台、名稱和構建代碼，例如 `android-prism-26a023`。安裝檔保留名稱與構建代碼，例如 `Meowpuut-Prism-26A023.apk`。[前往下載](../README.md#下載)
 
 ## 更新說明
 

@@ -87,7 +87,12 @@ class NineKeySyllableRailView(context: Context) : View(context) {
     private fun prepareShader(h: Float) {
         shaderHeight = h
         facePaint.shader = LinearGradient(0f, 0f, 0f, h, look.keyUtilityTop, look.keyUtilityBottom, Shader.TileMode.CLAMP)
-        rimPaint.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(
+        rimPaint.shader = if (look.isCentenary) LinearGradient(0f, 0f, 0f, h, intArrayOf(
+            Look.withAlpha(look.keyGlassReflection, if (look.dark) 0.80f else 0.90f),
+            Look.withAlpha(look.tint, if (look.dark) 0.34f else 0.28f),
+            Look.withAlpha(look.tint, if (look.dark) 0.62f else 0.54f),
+        ), floatArrayOf(0f, 0.40f, 1f), Shader.TileMode.CLAMP)
+        else LinearGradient(0f, 0f, 0f, h, intArrayOf(
             Look.withAlpha(Color.WHITE, if (look.dark) 0.22f else 0.78f),
             Look.withAlpha(Color.WHITE, if (look.dark) 0.04f else 0.12f),
             Look.withAlpha(Color.BLACK, if (look.dark) 0.18f else 0.09f),
@@ -194,7 +199,14 @@ class NineKeySyllableRailView(context: Context) : View(context) {
                     postInvalidateOnAnimation()
                 } else {
                     val idx = itemAt(y)
-                    if (idx >= 0 && idx == pressed) onSelect?.invoke(syllables[idx])
+                    val x = event.x / density
+                    val target = when {
+                        idx >= 0 && idx == pressed -> idx
+                        pressed in syllables.indices && abs(y - downY) <= slop &&
+                            x >= -4f && x <= width / density + 4f -> pressed
+                        else -> -1
+                    }
+                    if (target >= 0) onSelect?.invoke(syllables[target])
                 }
                 velocity?.recycle(); velocity = null
                 pressed = -1

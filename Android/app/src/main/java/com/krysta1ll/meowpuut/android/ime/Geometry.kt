@@ -289,10 +289,13 @@ object KeyGrid {
         val unit = max(1f, (usable - (referenceColumns - 1) * metrics.keyGap) / referenceColumns)
         val totalHeight = metrics.areaHeight(rows.size)
         fun span(units: Float) = units * unit + max(0f, units - 1) * metrics.keyGap
+        var prevRowBottom = 0f
         return rows.mapIndexed { r, spec ->
             val y = metrics.topPadding + r * (metrics.keyHeight + metrics.rowGap)
-            val hitTop = if (r == 0) 0f else y - metrics.rowGap / 2
+            // Share the exact floating-point boundary with the adjacent row so diagonal/inter-row touches have zero ULP gap.
+            val hitTop = if (r == 0) 0f else prevRowBottom
             val hitBottom = if (r == rows.size - 1) totalHeight else y + metrics.keyHeight + metrics.rowGap / 2
+            prevRowBottom = hitBottom
             val gaps = max(0, spec.units.size - 1) * metrics.keyGap
             val frames = ArrayList<Box>(spec.units.size)
             when (spec.alignment) {
@@ -326,9 +329,11 @@ object KeyGrid {
                     if (widths.size > 1) frames += Box(metrics.sideMargin + usable - last, y, last, metrics.keyHeight)
                 }
             }
+            var prevColRight = 0f
             frames.mapIndexed { c, frame ->
-                val left = if (c == 0) 0f else (frames[c - 1].right + frame.left) / 2
+                val left = if (c == 0) 0f else prevColRight
                 val right = if (c == frames.size - 1) width else (frame.right + frames[c + 1].left) / 2
+                prevColRight = right
                 KeyPlacement(r, c, frame, Box(left, hitTop, max(0f, right - left), hitBottom - hitTop))
             }
         }

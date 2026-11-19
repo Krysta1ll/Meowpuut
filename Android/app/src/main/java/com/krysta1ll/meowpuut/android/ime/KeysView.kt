@@ -60,11 +60,11 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
 
     /** Height (dp) from the top that the expanded candidate panel covers; 0 when collapsed. */
     var coveredHeight = 0f
-        set(value) { if (field != value) { field = value; accessibility.invalidateAll() } }
+        set(value) { if (field != value) { field = value; if (accessibility.assistiveCached) accessibility.invalidateAll() } }
 
     /** Hides the three left-column punctuation caps when the nine-key syllable rail covers them. */
     var hideLeftMarks = false
-        set(value) { if (field != value) { field = value; accessibility.invalidateAll(); invalidate() } }
+        set(value) { if (field != value) { field = value; if (accessibility.assistiveCached) accessibility.invalidateAll(); invalidate() } }
 
     private val touches = KeyTouches(this)
     var topTouchExtension: Float
@@ -128,6 +128,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     private var labels: List<List<LabelLayout?>> = emptyList()
     private var faceShader: Shader? = null
     private var utilityShader: Shader? = null
+    private var accentShader: Shader? = null
     private var shaderHeight = -1f
     private var feedbackRow = -1
     private var feedbackColumn = -1
@@ -175,8 +176,12 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         }
         layoutLabels(set)
         if (widthChanged) requestLayout()
-        accessibility.invalidateAll()
+        if (accessibility.assistiveCached) accessibility.invalidateAll()
         invalidate()
+    }
+
+    fun refreshAccessibilityState() {
+        accessibility.refreshAssistive()
     }
 
     /** Before the first layout there is no width to place keys in. */
@@ -305,8 +310,11 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         val drawRim = !simple && !cursorMode
         val fingers = touches.active
         shadowPaint.color = look.keyShadow
-        pressPaint.color = if (look.isCentenary) Look.withAlpha(Color.BLACK, 0.12f)
-            else Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.20f else 0.15f)
+        pressPaint.color = if (look.isCentenary) {
+            if (look.dark) Look.withAlpha(0xFFDFBD7A.toInt(), 0.22f) else Look.withAlpha(0xFF4A3518.toInt(), 0.12f)
+        } else {
+            Look.withAlpha(if (look.dark) Color.WHITE else Color.BLACK, if (look.dark) 0.20f else 0.15f)
+        }
         for ((r, row) in touches.placements.withIndex()) {
             val held = if (fingers) touches.pressedColumns(r) else 0
             for (placement in row) {
@@ -337,7 +345,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                 }
                 facePaint.shader = null
                 when {
-                    key.style == KeyStyle.ACCENT -> facePaint.color = look.accent
+                    key.style == KeyStyle.ACCENT -> if (look.isCentenary && !simple) facePaint.shader = accentShader else facePaint.color = look.accent
                     key.style == KeyStyle.UTILITY -> if (simple) facePaint.color = look.keyUtility else facePaint.shader = utilityShader
                     simple -> facePaint.color = look.keyFaceTop
                     else -> facePaint.shader = faceShader
@@ -397,18 +405,25 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
 
     /** A small maker's seal uses only free space beside the unchanged, centred space-key label. */
     private fun drawCentenarySeal(canvas: Canvas, key: Key, frame: Box, layout: LabelLayout, depth: Float) {
-        if (frame.width < 128f || frame.height < 22f) return
+        if (frame.width < 124f || frame.height < 22f) return
         labelPaint.textSize = layout.size
-        val right = frame.left + 36f
-        if (right + 8f > frame.centerX - labelPaint.measureText(key.label) / 2) return
+        val sealW = 32f
+        val left = frame.left + 9f
+        val right = left + sealW
+        if (right + 6f > frame.centerX - labelPaint.measureText(key.label) / 2) return
         val centerY = frame.centerY + depth
-        rect.set(frame.left + 8f, centerY - 7f, right, centerY + 7f)
+        rect.set(left, centerY - 8f, right, centerY + 8f)
+        if (!look.opaque) {
+            sealPaint.style = Paint.Style.FILL
+            sealPaint.color = Look.withAlpha(look.tint, if (look.dark) 0.14f else 0.10f)
+            canvas.drawRoundRect(rect, 8f, 8f, sealPaint)
+        }
         sealPaint.style = Paint.Style.STROKE
-        sealPaint.strokeWidth = if (look.opaque) 1f else 0.7f
-        sealPaint.color = look.tint
-        canvas.drawRoundRect(rect, 4f, 4f, sealPaint)
+        sealPaint.strokeWidth = if (look.opaque) 1f else 0.8f
+        sealPaint.color = Look.withAlpha(look.tint, if (look.dark) 0.72f else 0.65f)
+        canvas.drawRoundRect(rect, 8f, 8f, sealPaint)
         sealPaint.style = Paint.Style.FILL
-        sealPaint.textSize = 8.5f
+        sealPaint.textSize = 9f
         sealPaint.color = if (look.dark) look.tint else 0xFF76542A.toInt()
         canvas.drawText("100", rect.centerX(), centerY - (sealPaint.ascent() + sealPaint.descent()) / 2, sealPaint)
     }
@@ -416,6 +431,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     /** All caps share these local shaders, which are rebuilt on theme or size changes. */
     private fun prepareMaterial(glass: Boolean, ultra: Boolean, pairedRim: Boolean) {
         shaderHeight = metrics.keyHeight
+        accentShader = null
         if (glass) {
             val top = if (usesLensKeycaps) { if (look.dark) 0.36f else 0.64f }
                 else if (look.dark) 0.64f else 0.86f
@@ -451,10 +467,13 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         } else {
             faceShader = LinearGradient(0f, 0f, 0f, shaderHeight, look.keyFaceTop, look.keyFaceBottom, Shader.TileMode.CLAMP)
             utilityShader = LinearGradient(0f, 0f, 0f, shaderHeight, look.keyUtilityTop, look.keyUtilityBottom, Shader.TileMode.CLAMP)
+            accentShader = if (look.isCentenary) {
+                LinearGradient(0f, 0f, 0f, shaderHeight, look.selectedPill.first, look.selectedPill.second, Shader.TileMode.CLAMP)
+            } else null
             rimPaint.shader = if (look.isCentenary) LinearGradient(0f, 0f, 0f, shaderHeight, intArrayOf(
-                Look.withAlpha(look.keyGlassReflection, if (look.dark) 0.80f else 0.90f),
-                Look.withAlpha(look.tint, if (look.dark) 0.36f else 0.30f),
-                Look.withAlpha(look.tint, if (look.dark) 0.62f else 0.58f),
+                Look.withAlpha(look.keyGlassReflection, if (look.dark) 0.85f else 0.92f),
+                Look.withAlpha(look.tint, if (look.dark) 0.34f else 0.28f),
+                Look.withAlpha(look.tint, if (look.dark) 0.65f else 0.56f),
             ), floatArrayOf(0f, 0.40f, 1f), Shader.TileMode.CLAMP)
             else LinearGradient(0f, 0f, 0f, shaderHeight, intArrayOf(
                 Look.withAlpha(Color.WHITE, if (look.dark) 0.20f else 0.78f),
@@ -521,11 +540,30 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                 // A first finger while others are still recorded means an UP was lost.
                 if (event.actionMasked == MotionEvent.ACTION_DOWN && touches.active) touches.cancelAll()
                 val index = event.actionIndex
-                touches.down(event.getPointerId(index), event.getX(index) / density, event.getY(index) / density)
+                touches.down(
+                    event.getPointerId(index),
+                    event.getX(index) / density,
+                    event.getY(index) / density,
+                    event.eventTime,
+                )
             }
             MotionEvent.ACTION_MOVE -> {
-                for (i in 0 until event.pointerCount) {
-                    touches.move(event.getPointerId(i), event.getX(i) / density, event.getY(i) / density)
+                val history = event.historySize
+                val count = event.pointerCount
+                for (h in 0 until history) {
+                    val histTime = event.getHistoricalEventTime(h)
+                    for (i in 0 until count) {
+                        touches.move(
+                            event.getPointerId(i),
+                            event.getHistoricalX(i, h) / density,
+                            event.getHistoricalY(i, h) / density,
+                            histTime,
+                        )
+                    }
+                }
+                val now = event.eventTime
+                for (i in 0 until count) {
+                    touches.move(event.getPointerId(i), event.getX(i) / density, event.getY(i) / density, now)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
@@ -564,8 +602,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     }
 
     override fun showBalloon(id: Int, key: Key, frame: Box) {
-        // A tablet darkens the key instead.
-        if (!showKeyPopups || idiom == Idiom.TABLET) return
+        // A tablet darkens the key instead, except for explicit delete-all swipe confirmation.
+        if (key.action != KeyAction.Delete && (!showKeyPopups || idiom == Idiom.TABLET)) return
         val size = when {
             idiom == Idiom.PHONE_LANDSCAPE -> 28f
             key.label.length > 1 -> 24f
@@ -602,13 +640,22 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             val key = set.rows.getOrNull(r)?.getOrNull(placement.column) ?: continue
             val f = placement.frame
             if (f.top < coveredHeight) continue
+            val custom = when {
+                key.swipeUpTone != null -> listOf(VirtualAccessibility.LongClick(key.swipeUpTone.spoken) {
+                    touches.activateTone(r, placement.column)
+                })
+                key.action == KeyAction.Delete -> listOf(
+                    VirtualAccessibility.LongClick(if (key.spoken == "删除") "删除全部" else "刪除全部") {
+                        touches.deleteAll(r, placement.column)
+                    },
+                )
+                else -> emptyList()
+            }
             out += VirtualAccessibility.Item(r * 100 + placement.column,
                 Rect((f.left * density).toInt(), (f.top * density).toInt(), (f.right * density).toInt(), (f.bottom * density).toInt()),
                 key.spoken.ifEmpty { key.label }, enabled = key.enabled,
                 longClick = key.holdLabel?.let { VirtualAccessibility.LongClick(it) { touches.hold(r, placement.column) } },
-                custom = key.swipeUpTone?.let { tone ->
-                    listOf(VirtualAccessibility.LongClick(tone.spoken) { touches.activateTone(r, placement.column) })
-                }.orEmpty())
+                custom = custom)
         }
         return out
     }
