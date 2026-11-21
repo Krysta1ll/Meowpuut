@@ -22,6 +22,9 @@ internal interface GlyphSink {
     /** One glyph, centred on ([cx], [cy]); [size] in points, [mono]: set in the monospaced face. */
     fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int)
 
+    /** [text] in a weight of the face (400 regular, 500, 700 heavy): a sink with no weights draws it regular. */
+    fun textW(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int, weight: Int) = text(ch, cx, cy, size, mono, color)
+
     /** Makes the block transparent (the seam thins the paper into what is behind the keyboard). */
     fun erase(x: Double, y: Double, w: Double, h: Double) {}
 
@@ -76,8 +79,13 @@ internal class Tear(val bands: List<Triple<Int, Int, Int>>, val negativeY: Int, 
 internal class GlyphScape(private val world: GlyphWorld, private val pools: GlyphPools) {
     private val theme get() = world.theme
 
-    class Layer(val spec: LayerSpec, val cell: Int, val n: Int, val fs: Double, val baseY: Double, level: Int) {
-        val sub = cell / 2.0
+    class Layer(
+        val spec: LayerSpec, val cell: Int, val n: Int, val fs: Double, val baseY: Double, level: Int,
+        /** The size of one block of the layer's grid, and how many of them make a side of a cell (two in the first version; with depth the block is a fine pixel). */
+        val sub: Double = cell / 2.0, val m: Int = 2,
+        /** How far toward the paper this plane's ink goes (0 for the near ones). */
+        val air: Double = 0.0,
+    ) {
         var offI = 0
         var amp = spec.amp
         var haze = spec.haze
@@ -109,10 +117,12 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         var lit = false; var acc = false; var rim = false; var sign: String? = null
         /** A thing, not the ground: a landmark or the one mountain's outline. The mist round the keyboard's type does not thin it. */
         var hard = false
+        /** Drawn in pixels, with no type among them (a crown of leaves). */
+        var bare = false
         var prio = 0; var pool = "dust"; var ox = 0
         /** The place's own ink for this block (ARGB), or 0 for the vermilion (when [acc]) or the ink. */
         var hue = 0
-        fun reset() { lit = false; acc = false; rim = false; sign = null; prio = 0; hue = 0; hard = false }
+        fun reset() { lit = false; acc = false; rim = false; sign = null; prio = 0; hue = 0; hard = false; bare = false }
     }
 
     var width = 393.0; private set
@@ -219,8 +229,13 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         fo = if (framing == Framing.WIDE) 0.0 else ridge / height - walk.base * fs
         fun make(l: LayerSpec): Layer {
             val cell = theme.sized(l.cell)
-            val n = ceil(width / (cell / 2.0)).toInt() + 2
-            return Layer(l, cell, n, fs, fy(l.base), theme.level)
+            val fine = theme.deep && cell % FINE.toInt() == 0
+            val sub = if (fine) FINE else cell / 2.0
+            val m = (cell / sub).toInt()
+            val n = ceil(width / sub).toInt() + 2 + (if (m > 2) m else 0)
+            val speed = l.speed
+            val air = if (!theme.deep || l.pool == "dust" || speed >= 0.45) 0.0 else if (speed >= 0.15) AIR_MID else AIR_FAR   // planes: the near one as it is, the middle a little paler, the far one more
+            return Layer(l, cell, n, fs, fy(l.base), theme.level, sub, m, air)
         }
         front = p.front.map(::make)
         back = p.back.map(::make)
@@ -313,14 +328,14 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val p = world.pos
         formed = world.formed()
         for (l in front + back + listOf(sky)) {
-            l.offI = floor(p * l.spec.speed * 8 / l.cell).toInt() * 2
+            l.offI = floor(p * l.spec.speed * 8 / l.cell).toInt() * l.m
             if (l !== sky) when (l.spec.kind) {
                 LayerKind.LAND -> prepareLand(l)
                 LayerKind.SKYLINE -> prepareSkyline(l)
                 LayerKind.STEMS -> Unit
             }
         }
-        if (theme.level == 3 && !theme.still) sky.offI += 2 * (world.epoch / 5)           // the sky drifts by itself
+        if (theme.level == 3 && !theme.still) sky.offI += sky.m * (world.epoch / 5)       // the sky drifts by itself
         ready = true
     }
 
@@ -1007,9 +1022,13 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     private fun drawLayer(g: GlyphSink, c: GlyphColors, l: Layer, cover: Boolean, sampler: (Layer, Int, Double) -> Double) {
         val cell = l.cell
         val sub = l.sub
+        val m = l.m
+        val mm = m * m
         val rows = ceil((height + tail) / cell).toInt()
-        val cols = ceil(width / cell).toInt()
+        val cols = min(ceil(width / cell).toInt(), l.n / m)
         val p = probe
+        grid = m
+        plane = l.air
         // Rows wholly above everything the layer has are skipped: nothing there is the layer's.
         val firstRow = max(-ceil(lift / cell).toInt(), if (l.spec.kind == LayerKind.STEMS || l === sky) Int.MIN_VALUE else floor(l.minY / cell).toInt() - 1)
         for (r in firstRow until rows) for (col in 0 until cols) {
@@ -1017,54 +1036,80 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             var best = -1
             var accent = 0
             var sign: String? = null
-            for (k in 0 until 4) {
-                val i = col * 2 + (k and 1)
-                val py = (r * 2 + (k shr 1)) * sub + sub / 2
+            var firmCell = false
+            var bareCell = false
+            for (k in 0 until mm) {
+                val i = col * m + (k % m)
+                val py = (r * m + (k / m)) * sub + sub / 2
                 p.reset()
                 val d = sampler(l, i, py)
                 v[k] = if (d < 0) -1.0 else finish(d, i * sub + sub / 2, py)
+                if (d >= 0.9 || p.hard || p.rim) firmCell = true
+                if (p.bare) bareCell = true
                 if (d >= 0 && p.prio > best) { best = p.prio; pool = p.pool }
                 if (p.acc && (d >= 0.5 || p.hue != 0) && d > 0.02) accent = if (p.hue != 0) p.hue else VERMILION
                 if (p.sign != null) sign = p.sign
             }
-            paintCell(g, c, col * cell.toDouble(), r * cell.toDouble(), cell, pool, col + (l.offI shr 1), r, l.seed, cover, accent, sign)
+            firm = firmCell; noType = bareCell
+            paintCell(g, c, col * cell.toDouble(), r * cell.toDouble(), cell, pool, col + (l.offI / m), r, l.seed, cover, accent, sign)
         }
+        grid = 2; plane = 0.0; noType = false; firm = false
         g.layerEnd()
     }
 
+    /** What the cell being painted is made of: [grid] blocks to a side; how pale its plane is, and whether the outline in it holds its ink better. */
+    private var grid = 2
+    private var plane = 0.0
+    private var firm = false
+    private var noType = false
+    /** On the ground: the weight of the type, and how much closer it is set. */
+    private var weight = 400
+    private var dense = 0.0
+
+    /** [a] a part [t] of the way to [b] (both opaque ARGB). */
+    private fun mix(a: Int, b: Int, t: Double): Int {
+        fun ch(s: Int) = round(((a shr s and 255) + ((b shr s and 255) - (a shr s and 255)) * t)).coerceIn(0, 255)
+        return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+    }
+
     /**
-     * One cell of a grid: [v] holds its four blocks (-1 where the layer is not). What is behind is covered, then the cell is either
+     * One cell of a grid: [v] holds its blocks ([grid] to a side; -1 where the layer is not). What is behind is covered, then the cell is either
      * mosaic (outlines and heavy tones) or one glyph. Pale areas leave cells empty and nudge the glyphs, so the type scatters.
      */
     private fun paintCell(
         g: GlyphSink, c: GlyphColors, x: Double, y: Double, cell: Int, part: String, wx: Int, row: Int, seed: Int,
         cover: Boolean, accent: Int, sign: String?,
     ) {
-        val sub = cell / 2.0
+        val m = grid
+        val mm = m * m
+        val sub = cell.toDouble() / m
         var mean = 0.0
         var top = 0.0
         var any = false
-        for (k in 0 until 4) if (v[k] >= 0) { any = true; mean += v[k]; if (v[k] > top) top = v[k] }
+        var whole = true
+        for (k in 0 until mm) if (v[k] >= 0) { any = true; mean += v[k]; if (v[k] > top) top = v[k] } else whole = false
         if (!any) return
         // What is behind is covered: one block if the cell is all the layer's, else block by block.
         if (cover) {
-            if (v[0] >= 0 && v[1] >= 0 && v[2] >= 0 && v[3] >= 0) g.rect(x, y, cell.toDouble(), cell.toDouble(), c.paper)
-            else for (k in 0 until 4) if (v[k] >= 0) g.rect(x + (k and 1) * sub, y + (k shr 1) * sub, sub, sub, c.paper)
+            if (whole) g.rect(x, y, cell.toDouble(), cell.toDouble(), c.paper)
+            else for (k in 0 until mm) if (v[k] >= 0) g.rect(x + (k % m) * sub, y + (k / m) * sub, sub, sub, c.paper)
         }
-        mean /= 4
+        mean /= mm
         if (mean < 0.03) return
-        val ink = if (accent == 0) c.ink else if (accent == VERMILION) c.red else accent        // the ink, the vermilion, or one of the place's own
+        var ink = if (accent == 0) c.ink else if (accent == VERMILION) c.red else accent        // the ink, the vermilion, or one of the place's own
+        if (plane != 0.0) ink = mix(ink, c.paper, if (firm) plane * 0.3 else plane)             // far off: paler, its outline less so
         val pool = pools.script(part, wx, row, seed)
         val faceOf = if (sign != null) "kata" else pool
         val size = round(cell * GlyphPools.faceScale(faceOf))
         val mono = GlyphPools.isMono(faceOf)
-        if (sign != null) { g.text(sign, x + sub, y + sub + 0.5, size, mono, ink); return }
+        if (sign != null) { g.textW(sign, x + cell / 2.0, y + cell / 2.0 + 0.5, size, mono, ink, weight); return }
         if (top >= 0.9 && (formed >= 1 || h2(wx, row + seed + 222) < (formed - 0.5) / 0.4)) {          // arriving: type first, form after
-            for (k in 0 until 4) if (v[k] >= 0.9) g.rect(x + (k and 1) * sub, y + (k shr 1) * sub, sub, sub, ink)
+            for (k in 0 until mm) if (v[k] >= 0.9) g.rect(x + (k % m) * sub, y + (k / m) * sub, sub, sub, ink)
             if (mean > 0.6) return                                  // a cell that is mostly solid is only solid
         }
+        if (noType) return                                          // what is drawn in pixels (a crown) has no type among it
         val t = min(1.0, mean / 0.6)
-        if (h2(wx, row * 13 + seed + 5) > doubleArrayOf(0.12, 0.22, 0.3, 0.44)[theme.level] + 0.95 * t) return
+        if (h2(wx, row * 13 + seed + 5) > doubleArrayOf(0.12, 0.22, 0.3, 0.44)[theme.level] + 0.95 * t + dense) return
         val turn = floorDiv(world.epoch + (h2(wx, row * 5 + seed + 11) * 12).toInt(), 12) + (if (formed < 1) 3 + floor(formed * GlyphWorld.FORM).toInt() * 5 else 0)
         val e = world.echo
         var ch: String
@@ -1084,7 +1129,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             }
         }
         val loose = if (pool == "pixel") 0.0 else 1.0                // a pixel stays on its grid; only the grace notes are nudged
-        g.text(ch, x + sub + loose * (h2(wx, row + seed + 91) - 0.5) * cell * 0.34, y + sub + 0.5 + loose * (h2(wx, row + seed + 57) - 0.5) * cell * 0.3, size, mono, color)
+        g.textW(ch, x + cell / 2.0 + loose * (h2(wx, row + seed + 91) - 0.5) * cell * 0.34, y + cell / 2.0 + 0.5 + loose * (h2(wx, row + seed + 57) - 0.5) * cell * 0.3, size, mono, color, weight)
     }
 
     companion object {
@@ -1092,6 +1137,16 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         const val FADE = 46.0
         /** Where the cats' ridge lies on the prototype's keyboard, in points. */
         const val PROTOTYPE_RIDGE = 149.0
+        /** The pixel of the picture, in points, with depth (see [GlyphTheme.deep]). */
+        const val FINE = 2.0
+        /** How far toward the paper the middle and the far planes go, and the mist's height and strength between planes. */
+        const val AIR_MID = 0.14
+        const val AIR_FAR = 0.3
+        const val MIST_HEIGHT = 26.0
+        const val MIST_SHARE = 0.8
+        /** On the ground: how much closer the type is set at the viewer's feet, how much thinner at the horizon. */
+        const val NEAR_CLOSE = 0.7
+        const val NEAR_FAR = 0.14
         /** The marker for the vermilion where a cell is drawn in an accent: any other non-zero value is the ARGB of a place's own ink. */
         private const val VERMILION = 1
         /** The skyline framing's ridge is never higher than this: the cats stand on it and are thirty points tall. */

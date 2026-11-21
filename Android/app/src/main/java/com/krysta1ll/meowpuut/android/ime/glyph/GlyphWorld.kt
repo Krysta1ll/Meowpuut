@@ -13,6 +13,12 @@ import kotlin.math.min
  *   1 標準  the land scrolls, the cats walk, words rise                 3 極致  + finer type, drifting sky, moving water, stars that flicker
  */
 internal class GlyphTheme(var dark: Boolean = false, var still: Boolean = false, var level: Int = 1, var opaque: Boolean = false) {
+    /**
+     * 縱深: the picture in pixels of one small size, apart from the size of the type, with planes that are paler the farther they are,
+     * mist between them, a ground whose type is set closer where it is near, and a corner of something close (see GLYPH-DEPTH.md). Off, the picture is
+     * the one of the first version, pixel for pixel (the tests that hold it to the prototype's numbers run that way).
+     */
+    var deep = false
     /** Good pictures in type keep to one small size and let weight and spacing do the shading; so does this one. */
     fun sized(cell: Int): Int = intArrayOf(cell + 4, cell + 2, min(cell, 6), 4)[level]
 }
