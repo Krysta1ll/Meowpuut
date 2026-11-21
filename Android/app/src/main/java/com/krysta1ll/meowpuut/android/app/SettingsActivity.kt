@@ -87,6 +87,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private lateinit var glassRow: View
     private lateinit var catsSwitch: Switch
     private lateinit var festivalSwitch: Switch
+    private lateinit var glyphCrabSwitch: Switch
     private lateinit var festivalHint: TextView
     private val updateChoices = mutableMapOf<String, () -> Unit>()
     private val density get() = resources.displayMetrics.density
@@ -309,6 +310,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         catsSwitch = toggle(look, R.string.cats, prefs.cats) { prefs.cats = it }
         festivalSwitch = toggle(look, R.string.festivals, prefs.festivals) { prefs.festivals = it }
         festivalHint = note(look, R.string.festivals_note)
+        // The guest crab of 字景 is Anthropic's mascot: off, and offered in debug builds only, until it is licensed.
+        glyphCrabSwitch = toggle(look, R.string.glyph_crab_title, prefs.glyphCrab) { prefs.glyphCrab = it }
         choice(look, R.string.pet_moments, Prefs.PET_MOMENTS, PetMoments.entries.map { it.label to it }, { prefs.petMoments }) { prefs.petMoments = it }
         note(look, R.string.pet_moments_note)
         look.addView(action(R.string.clear_pets) {
@@ -421,11 +424,13 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         customSkinNote.text = if (custom == null) "" else getString(R.string.cs_in_use_note, custom)
         customSkinNote.visibility = if (custom == null) View.GONE else View.VISIBLE
         shapeRow.visibility = if (custom != null || skin.fixedShape == null) View.VISIBLE else View.GONE
-        paletteRow.visibility = if (custom == null && skin != KeyboardSkin.CENTENARY) View.VISIBLE else View.GONE
+        // 字景 has its own paper and ink: the palette would change nothing in it.
+        paletteRow.visibility = if (custom == null && skin != KeyboardSkin.CENTENARY && skin != KeyboardSkin.GLYPH) View.VISIBLE else View.GONE
         commemorativeColorNote.visibility = if (custom == null && skin == KeyboardSkin.CENTENARY) View.VISIBLE else View.GONE
         glassRow.visibility = if (custom == null && skin.material == SkinMaterial.GLASS) View.VISIBLE else View.GONE
         festivalSwitch.visibility = if (skin.supportsFestivals) View.VISIBLE else View.GONE
         festivalHint.visibility = festivalSwitch.visibility
+        glyphCrabSwitch.visibility = if (skin == KeyboardSkin.GLYPH && CustomSkinLoader.debuggable(this)) View.VISIBLE else View.GONE
         for (key in listOf(Prefs.TONE, Prefs.PALETTE, Prefs.STRENGTH)) updateChoices[key]?.invoke()
         if (catsSwitch.isChecked != prefs.cats) catsSwitch.isChecked = prefs.cats
     }
@@ -442,9 +447,10 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     private fun showLicenses() {
-        val files = assets.list("licenses")?.sorted().orEmpty()
-        val text = files.joinToString("\n\n") { name ->
-            val body = runCatching { assets.open("licenses/$name").use { it.readBytes().decodeToString() } }.getOrDefault("")
+        // The lexicon's licences, then those of the fonts the app carries (the app pages' and the 字景 skin's pixel type).
+        val files = listOf("licenses", "font-licenses").flatMap { dir -> assets.list(dir)?.sorted().orEmpty().map { "$dir/$it" to it } }
+        val text = files.joinToString("\n\n") { (path, name) ->
+            val body = runCatching { assets.open(path).use { it.readBytes().decodeToString() } }.getOrDefault("")
             "■ $name\n\n$body"
         }
         val view = TextView(this).apply {

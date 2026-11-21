@@ -32,6 +32,13 @@ import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.NativePets
 import kotlin.math.PI
+import com.krysta1ll.meowpuut.android.ime.glyph.CandidateCap
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphCanvasSink
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphColors
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphController
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyPainter
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelFonts
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelType
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -97,6 +104,8 @@ class CandidateBarView(
     )
 
     var listener: Listener? = null
+    /** The 字景 world, while that skin is on: it is told when there are candidates, so the land thins round them. */
+    internal var glyph: GlyphController? = null
     /** A null cat identifies the equivalent accessibility action rather than a fall. */
     var onDismissKeyboard: ((Cat?) -> Unit)? = null
     var firstKeyTop = Float.POSITIVE_INFINITY
@@ -140,6 +149,8 @@ class CandidateBarView(
                 particles.clear()
             }
             if (effectsChanged || catsChanged || skinChanged) scheduleCatSleep()
+            // 字景 sets the candidates in its own type: the widths of the row are measured in it.
+            if (skinChanged) { widthCache.clear(); layoutRow() }
             caches = null
             lensPaint = null
             seats = null
@@ -169,7 +180,10 @@ class CandidateBarView(
 
     private val density = resources.displayMetrics.density
     private val fontScale = resources.configuration.fontScale
-    private val candidateFont get() = candidateTextSize.fontSize(region.fontSize, fontScale)
+    private val candidateFont get() = if (look.isGlyph) glyphEm else candidateTextSize.fontSize(region.fontSize, fontScale)
+    /** Points to a pixel of the pixel type 字景 sets the candidates in: a whole number, near twice the grid, scaled by the person's text size. */
+    private val glyphUnit get() = Math.round(candidateTextSize.fontSize(GLYPH_PIXELS * GLYPH_UNIT, fontScale) / GLYPH_PIXELS).coerceAtLeast(1).toFloat()
+    private val glyphEm get() = GLYPH_PIXELS * glyphUnit
     private val statusFont get() = candidateTextSize.fontSize(region.statusFontSize, fontScale)
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
     private val selectedPaint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
@@ -376,16 +390,30 @@ class CandidateBarView(
         }
         scroll = scroll.coerceIn(0f, maxScroll)
         if (accessibility.assistiveCached) accessibility.invalidateAll()
+        glyph?.setCandidates(next.candidates.isNotEmpty() || next.predictions.isNotEmpty())
         invalidate()
     }
 
     // ---------------------------------------------------------------- layout
 
     private fun measureText(text: String, paint: Paint): Float {
+        if (look.isGlyph) return glyphPainter.candidateWidth(text, GlyphKeyPainter.CandidateFace(GLYPH_PIXELS, glyphUnit.toDouble())).toFloat()
         val size = paint.textSize
         if (size != widthCacheSize || widthCache.size > 512) { widthCache.clear(); widthCacheSize = size }
         val key = if (paint === selectedPaint) "\u0001" + text else text
         return widthCache.getOrPut(key) { paint.measureText(text) }
+    }
+
+    /** The text cut in the middle to fit [avail] points; in 字景's pixel type it is measured in that type. */
+    private fun ellipsizeFor(text: CharSequence, paint: TextPaint, avail: Float): CharSequence {
+        if (!look.isGlyph) return TextUtils.ellipsize(text, paint, avail, TextUtils.TruncateAt.MIDDLE)
+        val s = text.toString()
+        if (measureText(s, paint) <= avail) return s
+        for (keep in s.length - 1 downTo 1) {
+            val cut = s.take((keep + 1) / 2) + "…" + s.takeLast(keep / 2)
+            if (measureText(cut, paint) <= avail) return cut
+        }
+        return "…"
     }
 
     private fun layoutRow() {
@@ -442,9 +470,9 @@ class CandidateBarView(
                 val shown = if (textWidth(candidate.text + suffix) > labelRoom) {
                     val wider = if (measureText(candidate.text, selectedPaint) >= measureText(candidate.text, textPaint)) selectedPaint else textPaint
                     val availableForText = (labelRoom - textWidth(suffix)).coerceAtLeast(0f)
-                    val label = TextUtils.ellipsize(candidate.text, wider, availableForText, TextUtils.TruncateAt.MIDDLE).toString()
+                    val label = ellipsizeFor(candidate.text, wider, availableForText).toString()
                     if (continues && (label.isEmpty() || label == "…")) {
-                        TextUtils.ellipsize(candidate.text, wider, labelRoom, TextUtils.TruncateAt.MIDDLE).toString()
+                        ellipsizeFor(candidate.text, wider, labelRoom).toString()
                     } else label + suffix
                 } else candidate.text + suffix
                 val width = (textWidth(shown) + 24f + if (japanese) mark else 0f).coerceIn(MIN_CANDIDATE_WIDTH, cellLimit)
@@ -474,7 +502,7 @@ class CandidateBarView(
             for ((i, text) in c.predictions.withIndex()) {
                 val labelRoom = maxCell - 22f
                 val shown = if (measureText(text, textPaint) > labelRoom) {
-                    TextUtils.ellipsize(text, textPaint, labelRoom, TextUtils.TruncateAt.MIDDLE).toString()
+                    ellipsizeFor(text, textPaint, labelRoom).toString()
                 } else text
                 val width = (measureText(shown, textPaint) + 22f).coerceIn(MIN_CANDIDATE_WIDTH, maxCell)
                 list += Item(1, i, text, shown, x, width, false)
@@ -575,6 +603,11 @@ class CandidateBarView(
             val previousScroll = scroll
             scroll = (scroller.currX / density).coerceIn(0f, maxScroll)
             if (scroll > previousScroll) maybeLoadMore()
+        }
+        if (look.isGlyph) {
+            drawGlyphBar(canvas)
+            if (scrolling) postInvalidateOnAnimation()
+            return
         }
         val refraction = refractionPaint(canvas)
         ensureCaches(needsGlass = refraction == null)
@@ -1034,6 +1067,63 @@ class CandidateBarView(
         if (scroll < maxScroll - 0.5f) {
             fadePaint.shader = fadeRight
             canvas.drawRect(row.right - ROW_FADE, top, row.right, bottom, fadePaint)
+        }
+    }
+
+    private var lastLabel: Pair<Double, Double>? = null
+    private val glyphPainter by lazy { GlyphKeyPainter(GlyphPixelFonts(context)) }
+    private val glyphSink by lazy { GlyphCanvasSink(density, gather = false) }
+
+    /** The middle of the bar, in dp from the keyboard's top: where the land's own type gives way to the candidates. */
+    internal fun glyphMid(): Float = rowCenterY()
+
+    /**
+     * 字景: the candidates stand on the land in the open style (no pill, no glass): pixel type with a paper halo, the chosen one a
+     * block of ink. With high contrast the bar is a ruled sheet of paper and the land is gone.
+     */
+    private fun drawGlyphBar(canvas: Canvas) {
+        val c = GlyphColors.of(look.dark)
+        val chips = look.opaque
+        val row = candidateRow
+        val cy = rowCenterY().toDouble()
+        val top = region.glass.top - 2
+        val bottom = region.glass.bottom + 2
+        glyphSink.begin(canvas)
+        glyphSink.eclipse = if (chips) null else glyph?.eclipse(c, 0.0, 0.0)
+        if (chips) glyphPainter.barSheet(glyphSink, c, region.width.toDouble(), region.glass.top.toDouble(), region.glass.height.toDouble())
+        canvas.save()
+        canvas.clipRect(row.left * density, top * density, row.right * density, bottom * density)
+        val content = content
+        val face = GlyphKeyPainter.CandidateFace(GLYPH_PIXELS, glyphUnit.toDouble())
+        var labelAt: Pair<Double, Double>? = null
+        if (content.status.isNotEmpty() && content.candidates.isEmpty() && content.predictions.isEmpty()) {
+            val w = glyphPainter.mask(content.status, GlyphPixelType.EM, 400, false).w.toDouble()
+            if (items.isEmpty() || contentWidth + w + 8f <= row.width) {
+                glyphPainter.label(glyphSink, c, content.status, row.right - w - 8.0, cy, 1.0, 1.0, centre = false, halo = !chips)
+                labelAt = (row.right - w - 8.0) to (row.right - 8.0)
+            }
+        }
+        if (labelAt != lastLabel) {
+            lastLabel = labelAt
+            glyph?.setBarLabel(labelAt?.first, labelAt?.second ?: 0.0)
+        }
+        val edges = ArrayList<Double>(8)
+        var sig = 0
+        for ((n, item) in items.withIndex()) {
+            if (!shows(item)) continue
+            val selected = item.kind == 0 && item.index == content.highlighted
+            val cap = CandidateCap((row.left + item.x - scroll).toDouble(), item.width.toDouble(), item.shown, selected, item.japanese, pressed = n == pressedItem)
+            glyphPainter.candidate(glyphSink, c, cap, face, cy, region.pillHeight.toDouble(), chips)
+            if (item.kind == 0) {          // the candidates themselves: a bird settles on the top of one
+                val (l, r) = glyphPainter.candidateSpan(cap, face)
+                edges += l; edges += r
+                sig = sig * 31 + item.shown.hashCode()
+            }
+        }
+        if (!chips) glyph?.setPerches(sig + edges.size, edges.toDoubleArray(), cy - 10.0)
+        canvas.restore()
+        if (content.canExpand || content.expanded) {
+            glyphPainter.chevron(glyphSink, c, expandButton.centerX.toDouble(), cy, up = content.expanded, halo = !chips)
         }
     }
 
@@ -1857,6 +1947,9 @@ class CandidateBarView(
     override fun dispatchHoverEvent(event: MotionEvent): Boolean = accessibility.onHover(event) || super.dispatchHoverEvent(event)
 
     companion object {
+        /** The one-bit grid 字景 sets its candidates on: 12 pixels to the em, each a whole number of points. */
+        const val GLYPH_PIXELS = GlyphPixelType.EM
+        const val GLYPH_UNIT = 2f
         private const val TARGET_NONE = 0
         private const val TARGET_ROW = 1
         private const val TARGET_CHEVRON = 2

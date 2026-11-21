@@ -154,6 +154,8 @@ class MeowpuutIME : InputMethodService(),
             requestHideSelf(0)
         }
         view.panel.listener = this
+        // 字景 keeps one number of what is typed: how far the journey has got. Nothing typed is stored.
+        view.onGlyphDistance = { prefs.glyphDistance = it }
         keyboard = view
         val host = KeyboardWindowView(this, view, prefs)
         keyboardWindow = host
@@ -330,7 +332,7 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onSharedPreferenceChanged(store: SharedPreferences?, key: String?) {
         when (key) {
-            Prefs.FLOATING_X, Prefs.FLOATING_Y -> return
+            Prefs.FLOATING_X, Prefs.FLOATING_Y, Prefs.GLYPH_DISTANCE -> return
             Prefs.MODE -> {
                 finishComposition()
                 pending.clear()
@@ -494,6 +496,8 @@ class MeowpuutIME : InputMethodService(),
     private fun commit(text: String, connection: InputConnection? = currentInputConnection): Boolean {
         if (text.isEmpty() || connection?.commitText(text, 1) != true) return false
         moments.committed(text)
+        // The distance of 字景's journey, and its words that do something, which are read only in a field that may be learned from.
+        keyboard?.glyphCommitted(text, TextUnits.graphemeCount(text), mode == InputMode.JAPANESE || prefs.mixedJapanese, editorAllowsLearning)
         return true
     }
 
@@ -1236,6 +1240,11 @@ class MeowpuutIME : InputMethodService(),
             overlay?.strength ?: prefs.strength, prefs.cats, festivalPill,
             wantsMoreContrast(this), prefs.effects, skin, overlay)
         keyboard?.let {
+            it.glyphDistance = prefs.glyphDistance
+            it.glyphCrab = prefs.glyphCrab
+            it.glyphScene = prefs.glyphScene
+            it.glyphForm = prefs.glyphForm
+            it.glyphFx = prefs.glyphFx
             it.look = look
             it.bar.festival = festivalArt
             it.bar.candidateTextSize = prefs.candidateTextSize
@@ -1348,6 +1357,7 @@ class MeowpuutIME : InputMethodService(),
         // Zhuyin's five rows set the height for its symbol pages too.
         view.setRows(set.rows.size, if (mode == InputMode.ZHUYIN && !english) 5 else 4)
         view.keys.setKeys(set, view.metrics(), view.idiomFor())
+        view.keys.composing = composer.composing || pending.isNotEmpty()
         val syllables = if (context.showsNineKey) composer.nineKeySyllables else emptyList()
         view.setNineKeySyllables(syllables, context.showsNineKey && !showPanel, words)
 

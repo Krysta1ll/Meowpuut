@@ -59,7 +59,7 @@ enum class EffectsLevel(val key: String) {
     }
 }
 
-enum class SkinMaterial { GLASS, PIXEL }
+enum class SkinMaterial { GLASS, PIXEL, GLYPH }
 enum class GlassOptics { NEUTRAL, TINTED }
 enum class CatSeating { PERCHED, EDGE_HUGGING }
 enum class SkinCatArtwork { SCULPTED, LEGACY, PIXEL, CENTENARY }
@@ -81,7 +81,10 @@ enum class KeyboardSkin(
         fixedShape = GlassShape.CLOUD, optics = GlassOptics.TINTED),
     PIXEL("pixel", R.string.skin_pixel, material = SkinMaterial.PIXEL, catArtwork = SkinCatArtwork.PIXEL,
         fixedShape = GlassShape.CAPSULE, requiresQuiz = true),
-    CENTENARY("centenary", R.string.skin_centenary, catArtwork = SkinCatArtwork.CENTENARY, fixedShape = GlassShape.CAPSULE);
+    CENTENARY("centenary", R.string.skin_centenary, catArtwork = SkinCatArtwork.CENTENARY, fixedShape = GlassShape.CAPSULE),
+    /** 字景: the whole keyboard is a landscape set in type, with the two cats walking through it (ime/glyph/). */
+    GLYPH("glyph", R.string.skin_glyph, material = SkinMaterial.GLYPH, catArtwork = SkinCatArtwork.PIXEL,
+        fixedShape = GlassShape.CAPSULE);
 
     fun shape(preferred: GlassShape) = fixedShape ?: preferred
 
@@ -107,19 +110,34 @@ data class Look(
     /** A verified custom skin (CustomSkin.kt), or null. Its colours replace the palette's. */
     val overlay: SkinOverlay? = null,
 ) {
-    val usesSteppedMaterial get() = skin.material == SkinMaterial.PIXEL
+    val usesSteppedMaterial get() = skin.material == SkinMaterial.PIXEL || skin.material == SkinMaterial.GLYPH
+    /** 字景: the paper-and-ink skin whose keys, bar and land are all set in type (its own colours are [glyphPalette]). */
+    val isGlyph get() = skin == KeyboardSkin.GLYPH && overlay == null
+    /**
+     * What a skin that thins into whatever is behind it paints first, under its picture: for 字景, the system's own ground colour (white by day,
+     * black by night), so the paper scatters into what most apps are painted on. Null for every other skin.
+     */
+    val groundPlate: Int? get() = if (isGlyph) (if (dark) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()) else null
     /** The classic skin's edge-hugging cats; an overlay asks for them only where the base has that artwork. */
     val edgeHuggingCats get() = if (overlay != null) overlay.seatingEdges && skin.catArtwork == SkinCatArtwork.LEGACY
         else skin.catSeating == CatSeating.EDGE_HUGGING
     val supportsFestivals get() = overlay?.festivalsAllowed ?: skin.supportsFestivals
     val isCentenary get() = skin == KeyboardSkin.CENTENARY && overlay == null
-    private val colors: SkinPalette? = overlay?.palette(dark) ?: if (isCentenary) {
+    private val colors: SkinPalette? = overlay?.palette(dark) ?: if (isGlyph) {
+        if (dark) SkinPalette(0xFF151413.toInt(), 0xFF151413.toInt(), 0xFFE9E4D6.toInt(), 0xFFA8A397.toInt(),
+            0xFFE9E4D6.toInt(), 0xFFE9E4D6.toInt(), 0xFF151413.toInt(), 0xFFE9E4D6.toInt(), 0xFFE2573A.toInt())
+        else SkinPalette(0xFFECE8DC.toInt(), 0xFFECE8DC.toInt(), 0xFF1E1C1A.toInt(), 0xFF5E5A50.toInt(),
+            0xFF1E1C1A.toInt(), 0xFF1E1C1A.toInt(), 0xFFECE8DC.toInt(), 0xFF1E1C1A.toInt(), 0xFFC4402A.toInt())
+    } else if (isCentenary) {
         if (dark) SkinPalette(0xFF1D2838.toInt(), 0xFF0F1724.toInt(), 0xFFF8EFDC.toInt(), 0xFFD4BE96.toInt(),
             0xFF836132.toInt(), 0xFF66471E.toInt(), 0xFFFFFFFF.toInt(), 0xFFDFBD7A.toInt(), 0xFF76542A.toInt())
         else SkinPalette(0xFFF7EFE0.toInt(), 0xFFE9DBC3.toInt(), 0xFF302A22.toInt(), 0xFF6D5D48.toInt(),
             0xFF836132.toInt(), 0xFF66471E.toInt(), 0xFFFFFFFF.toInt(), 0xFFA67C3D.toInt(), 0xFF76542A.toInt())
     } else null
-    private val keyColors: SkinKeys? = overlay?.keys(dark) ?: if (isCentenary) {
+    private val keyColors: SkinKeys? = overlay?.keys(dark) ?: if (isGlyph) {
+        if (dark) SkinKeys(0xFF151413.toInt(), 0xFF151413.toInt(), 0xFFE9E4D6.toInt())
+        else SkinKeys(0xFFECE8DC.toInt(), 0xFFECE8DC.toInt(), 0xFF1E1C1A.toInt())
+    } else if (isCentenary) {
         if (dark) SkinKeys(0xFF37465B.toInt(), 0xFF243142.toInt(), 0xFFF8EFDC.toInt())
         else SkinKeys(0xFFFFFDFA.toInt(), 0xFFEDE0C8.toInt(), 0xFF302A22.toInt())
     } else null
@@ -194,7 +212,7 @@ data class Look(
     val balloonFace get() = keyColors?.character ?: if (dark) 0xFF6B6A70.toInt() else 0xFFFFFFFF.toInt()
     val pixelSurface = if (keyColors != null) keyColors.character else blend(if (dark) 0xFF3B3352.toInt() else 0xFFFFF8F5.toInt(), tint, 0.06f)
     val pixelUtility = if (keyColors != null) keyColors.utility else blend(if (dark) 0xFF4F4165.toInt() else 0xFFF1E3EA.toInt(), tint, 0.10f)
-    val pixelEdge = colors?.inkSecondary ?: if (dark) 0xFFAC95CE.toInt() else 0xFF72617F.toInt()
+    val pixelEdge = if (isGlyph) colors?.ink ?: 0 else colors?.inkSecondary ?: if (dark) 0xFFAC95CE.toInt() else 0xFF72617F.toInt()
     val pixelAccent = colors?.accent ?: blend(if (dark) 0xFF5E487B.toInt() else 0xFF674874.toInt(), tint, 0.14f)
     val pixelAccentPress = darken(pixelAccent, 0.22f)
     val pixelPress = if (keyColors != null) darken(keyColors.character, 0.12f) else if (dark) 0xFF685481.toInt() else 0xFFDBC7E2.toInt()

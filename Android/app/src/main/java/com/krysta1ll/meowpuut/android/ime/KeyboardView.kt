@@ -26,6 +26,9 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.krysta1ll.meowpuut.android.R
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphController
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphLayout
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphSeam
 import kotlin.math.roundToInt
 
 /**
@@ -57,13 +60,101 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             field = value
             clipToOutline = !value && !look.usesSteppedMaterial
             backgroundHeight = 0
+            if (glyph != null) configureGlyph()
             requestLayout()
         }
+    /** 字景, while that skin is on: a world drawn under the keys and over them, on its own thread. Null for every other skin. */
+    internal var glyph: GlyphController? = null
+        private set
+    /** How far the 字景 journey has got (committed characters), read from the settings before the skin is first shown. */
+    var glyphDistance = 0L
+    var onGlyphDistance: ((Long) -> Unit)? = null
+    /**
+     * The sky at the top of the keyboard that the seam thins into, in points: the paper does not end in a line but scatters into the plate
+     * behind it ([Look.groundPlate]). Nothing is added above the keyboard, so the window, its insets and its touches are as for any skin.
+     */
+    internal val glyphInset: Double get() = if (glyph != null) GlyphSeam.inset(look.opaque, floating) else 0.0
+
+    /** Debug builds: hold one moment (0..1) of the arrival to look at it; null lets it run. */
+    var glyphForm: Double? = null
+        set(value) { if (field != value) { field = value; glyph?.holdForm(value) } }
+
+    /** Debug builds: hold one moment of an effect ("storm:6", "burst:5", "run"); null lets them happen. */
+    var glyphFx: String? = null
+        set(value) { if (field != value) { field = value; glyph?.holdFx(value) } }
+
+    /** The guest crab (a debug build's setting). */
+    var glyphCrab = false
+        set(value) { if (field != value) { field = value; configureGlyph() } }
+    /** Debug builds: stay in one place (0..5) to look at it; null travels as usual. */
+    var glyphScene: Int? = null
+        set(value) { if (field != value) { field = value; glyph?.force(value) } }
+
+    private fun configureGlyph() {
+        glyph?.configure(look.dark, look.effects.ordinal, look.opaque, glyphCrab, cats, arrival = !floating)
+    }
+
+    /** Puts the 字景 views in, or takes them out, as the skin asks. */
+    private fun updateGlyph() {
+        val want = look.isGlyph
+        if (want && glyph == null) {
+            val controller = GlyphController(context)
+            controller.onDistance = { onGlyphDistance?.invoke(it) }
+            glyph = controller
+            controller.warm()
+            addView(controller.scene, 0)
+            // The cats and the words that rise are under the bar and the keys: a legend, with its halo, is always the clearest thing.
+            addView(controller.front, 1)
+            keys.glyph = controller
+            bar.glyph = controller
+            controller.overlays = listOf(bar, keys)
+            controller.signs = keys
+            controller.scene.paper = if (look.dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()
+            configureGlyph()
+            controller.force(glyphScene)
+            controller.holdForm(glyphForm)
+            controller.holdFx(glyphFx)
+            if (isAttachedToWindow) controller.start(glyphDistance)
+            requestLayout()
+        } else if (!want && glyph != null) {
+            val controller = glyph ?: return
+            keys.glyph = null
+            bar.glyph = null
+            removeView(controller.scene)
+            removeView(controller.front)
+            controller.stop()
+            glyph = null
+            requestLayout()
+        } else if (want) {
+            glyph?.scene?.paper = if (look.dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()
+            configureGlyph()
+        }
+    }
+
+    /** What 字景 is told about the keyboard it is drawn behind, in dp from the keyboard's top left. */
+    private fun glyphLayout(): GlyphLayout? {
+        val rows = keys.rowCentersDp()
+        if (rows.isEmpty() || width == 0) return null
+        val top = bar.measuredHeight / density.toDouble()
+        for (i in rows.indices) rows[i] += top
+        return GlyphLayout(width / density.toDouble(), (bar.measuredHeight + keys.measuredHeight) / density.toDouble(), rows,
+            GLYPH_LEGEND_HEIGHT, bar.glyphMid().toDouble(), bar.region.glass.top.toDouble(), bar.region.glass.height.toDouble(),
+            lift = GlyphSeam.lift(look.opaque, floating), inset = glyphInset,
+            horizon = rows[0] - GLYPH_LEGEND_HEIGHT / 2 - 1,
+            tail = glyph?.scene?.let { (it.measuredHeight - bar.measuredHeight - keys.measuredHeight) / density.toDouble() }?.coerceAtLeast(0.0) ?: 0.0)
+    }
+
+    /** Text was committed to the editor: the journey goes on, and the words that do something are looked for. */
+    fun glyphCommitted(text: String, graphemes: Int, japanese: Boolean, secret: Boolean) {
+        glyph?.committed(text, graphemes, japanese, secret)
+    }
+
     var look: Look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
         set(value) {
             if (field == value) return
             val shapeChanged = field.shape != value.shape || field.skin != value.skin
             field = value
+            updateGlyph()
             clipToOutline = !floating && !value.usesSteppedMaterial
             bar.look = value
             keys.look = value
@@ -78,7 +169,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     var idiom = Idiom.PHONE
         private set
     var cats = true
-        set(value) { if (field != value) { field = value; requestLayout() } }
+        set(value) { if (field != value) { field = value; configureGlyph(); requestLayout() } }
     var keyHeight = KeyboardHeight.STANDARD
         set(value) { if (field != value) { field = value; requestLayout() } }
     private var panelHeightDelta: Int? = null
@@ -205,6 +296,12 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         // insets by itself, and the bottom row would end up under the
         // navigation bar.
         requestApplyInsets()
+        glyph?.start(glyphDistance)
+    }
+
+    override fun onDetachedFromWindow() {
+        glyph?.stop()
+        super.onDetachedFromWindow()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -243,6 +340,13 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         val panelPx = (panelHeight(metrics) * density).roundToInt()
         keys.coveredHeight = if (expanded) panelHeight(metrics) else 0f
         panel.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(panelPx, MeasureSpec.EXACTLY))
+        glyph?.let {
+            val h = MeasureSpec.makeMeasureSpec(regionPx + keysPx, MeasureSpec.EXACTLY)
+            // The picture runs on, faintly, under the navigation strip and the dock's gap.
+            val tailPx = if (floating) 0 else total - regionPx - keysPx
+            it.scene.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
+            it.front.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), h)
+        }
         previews.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(total, MeasureSpec.EXACTLY))
         setMeasuredDimension(width, total)
     }
@@ -251,8 +355,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     private fun regionFor(widthDp: Float, idiom: Idiom): CandidateRegionLayout {
         val current = bar.region
         val rim = GlassOutline.contentBand(look.shape, 1f).first
-        if (current.width == widthDp && current.idiom == idiom && current.cats == cats && current.rim == rim) return current
-        return CandidateRegionLayout(widthDp, idiom, cats, rim).also { bar.region = it }
+        // 字景 has its own cats, walking in the land: the bar keeps none.
+        val barCats = cats && !look.isGlyph
+        if (current.width == widthDp && current.idiom == idiom && current.cats == barCats && current.rim == rim) return current
+        return CandidateRegionLayout(widthDp, idiom, barCats, rim).also { bar.region = it }
     }
 
     /** The panel covers the key rows above the bottom row. */
@@ -274,6 +380,11 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             }
         }
         panel.layout(0, bar.measuredHeight, width, bar.measuredHeight + panel.measuredHeight)
+        glyph?.let {
+            it.scene.layout(0, 0, width, it.scene.measuredHeight)
+            it.front.layout(0, 0, width, it.front.measuredHeight)
+            glyphLayout()?.let(it::setLayout)
+        }
         previews.layout(0, 0, width, previews.measuredHeight)
     }
 
@@ -456,6 +567,20 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             }
             updateSeam(rim)
         }
+        val plate = look.groundPlate
+        if (plate != null && glyph != null && !look.opaque && !floating) {
+            // 字景: the plate lies behind its picture, and the paper thins out into it at the top. The navigation area under the keys is paper.
+            val under = (bar.measuredHeight + keys.measuredHeight).toFloat()
+            background.shader = null
+            background.color = plate
+            canvas.drawRect(0f, 0f, width.toFloat(), under, background)
+            if (under < height) {
+                background.color = look.keyboardBottom
+                canvas.drawRect(0f, under, width.toFloat(), height.toFloat(), background)
+            }
+            backgroundHeight = 0
+            return
+        }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
         if (light.shader != null) canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), light)
         if (seam.shader != null) canvas.drawPath(seamRim, seam)
@@ -485,8 +610,12 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     override fun onVisibilityAggregated(isVisible: Boolean) {
         super.onVisibilityAggregated(isVisible)
         if (!isVisible) previews.clear()
+        if (isVisible) glyph?.resume() else glyph?.pause()
     }
 }
+
+/** How tall the legend of a key is in 字景 (seven pixels of three points, and a halo): the cats are as tall as the gap that leaves. */
+private const val GLYPH_LEGEND_HEIGHT = 27.0
 
 /** A full input window with one movable, touchable card. */
 @SuppressLint("ViewConstructor")

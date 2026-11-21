@@ -1,0 +1,550 @@
+package com.krysta1ll.meowpuut.android.ime.glyph
+
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.h2
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.round
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+
+/**
+ * How the keyboard's own effects setting reads here. Higher means smaller, denser type, more trees and landmarks, and more
+ * that moves:
+ *   0 輕量  large type, one redraw a key, nothing moves by itself       2 完整  + rings from the keys, type that turns by itself
+ *   1 標準  the land scrolls, the cats walk, words rise                 3 極致  + finer type, drifting sky, moving water, stars that flicker
+ */
+internal class GlyphTheme(var dark: Boolean = false, var still: Boolean = false, var level: Int = 1, var opaque: Boolean = false) {
+    /** Good pictures in type keep to one small size and let weight and spacing do the shading; so does this one. */
+    fun sized(cell: Int): Int = intArrayOf(cell + 4, cell + 2, min(cell, 6), 4)[level]
+}
+
+/** What the picture is told about the keyboard it is drawn behind: sizes and rows, in dp from the keyboard's top-left. */
+internal class GlyphLayout(
+    val width: Double,
+    val height: Double,
+    /** The vertical middle of each row of keys. */
+    val rowCenters: DoubleArray,
+    /** How tall the visible legend of a key is: the cats are as tall as the gap that leaves between two rows. */
+    val chipHeight: Double,
+    /** The middle of the candidate bar, and its top and height. */
+    val barMid: Double,
+    val barTop: Double,
+    val barHeight: Double,
+    /** The skyline framing's ridge is never higher than this (the cats stand on it and are thirty points tall). The prototype has none. */
+    val skylineFloor: Double = GlyphScape.MIN_SKYLINE_RIDGE,
+    /** The strip above the keyboard that the picture also paints (the seam), in points; 0 for none. */
+    val lift: Double = 0.0,
+    /** Sky the keyboard already has above its keys (no height added): the seam thins into that instead of a strip. */
+    val inset: Double = 0.0,
+    /** Where the skyline places put their ridge (the cats' feet): just above the first row's legends, under the candidate bar. 0 keeps the old high ridge. */
+    val horizon: Double = 0.0,
+    /** How far below the keys the picture runs on, under the system's navigation strip (very faint). 0 when the keyboard ends there. */
+    val tail: Double = 0.0,
+) {
+    /** Where the cats' feet are in the gap under key row [n] (0 = between the first two rows). Null when there is no such gap. */
+    fun laneFeet(n: Int): Double? =
+        if (n < 0 || n + 1 >= rowCenters.size) null else (rowCenters[n] + rowCenters[n + 1]) / 2 + chipHeight / 2
+
+    val rows: Boolean get() = rowCenters.size >= 3
+
+    override fun equals(other: Any?): Boolean = other is GlyphLayout && width == other.width && height == other.height &&
+        rowCenters.contentEquals(other.rowCenters) && chipHeight == other.chipHeight && barMid == other.barMid &&
+        barTop == other.barTop && barHeight == other.barHeight && skylineFloor == other.skylineFloor && lift == other.lift && inset == other.inset &&
+        horizon == other.horizon && tail == other.tail
+
+    override fun hashCode(): Int = width.hashCode() * 31 + height.hashCode()
+
+    companion object {
+        val NONE = GlyphLayout(393.0, 298.0, doubleArrayOf(109.0, 163.0, 217.0, 271.0), 30.0, 57.0, 34.0, 46.0)
+    }
+}
+
+internal class Ripple(val x: Double, val y: Double, val t: Int)
+internal class Mote(val ch: String, val x: Double, val y: Double, val top: Double, val rise: Double, val life: Int, val t: Int, val sky: Int)
+internal class LaneState { var y: Double? = null; var from = 0.0; var to = 0.0; /** 0 is the ridge; the lanes below it have a little ground to stand on. */ var lane = 0 }
+
+internal enum class CatId(val key: String) { MOMO("momo"), MIMI("mimi") }
+
+internal class CatState(val pose: String, val face: String, val z: Boolean = false, val hop: Boolean = false)
+
+/** How a cat is drawn this frame: the front layer reads this and nothing else. */
+internal class CatDraw(
+    val cat: CatId, val pose: String, val face: String, val x: Int, val feetY: Int, val hopY: Int,
+    val night: Boolean, val platform: Boolean, val afterImageDx: Int?, val zzz: Boolean, val zPhase: Int,
+)
+
+internal class MoteDraw(val ch: String, val x: Double, val y: Double, val alpha: Float)
+
+/** Everything that is drawn on top of the keys, resolved: the cats, rising words, a guest, the name of the place. */
+internal data class GlyphFrontFrame(
+    val cats: List<CatDraw>,
+    val motes: List<MoteDraw>,
+    val crabFrame: Int,
+    val crabX: Int,
+    val crabFeetY: Int,
+    val fish: Pair<Int, Int>?,
+    /** The name of the place, 0..1: how much of it is still to show; 0 when it is not shown. */
+    val bannerAlpha: Float,
+    val bannerText: String,
+    /** The grains the running cats kick up. */
+    val dust: List<DustDraw> = emptyList(),
+) {
+    companion object {
+        val EMPTY = GlyphFrontFrame(emptyList(), emptyList(), -1, 0, 0, null, 0f, "")
+    }
+}
+
+/**
+ * The journey: the place is wherever the two cats have walked to. How far they have gone is the count of what was committed
+ * (a single number, kept), and how long each place lasts is decided by the journey itself and shown to nobody. Near a border the
+ * land thins into fog; on the far side of the fog is somewhere else. One place in ten is the rare one.
+ */
+internal class GlyphJourney {
+    class Place(val scene: Int, val len: Int)
+
+    var step = -1
+    private val places = ArrayList<Place>()
+    /** Debug and tests: stay in one place. */
+    var forced: Int? = null
+
+    fun placeAt(n: Int): Place {
+        for (k in places.size..n) {
+            val before = if (k > 0) places[k - 1].scene else -1
+            val pick = GlyphScenes.COMMON.filter { it != before }
+            val rare = GlyphScenes.RARE
+            val scene = if (k > 1 && rare >= 0 && before != rare && h2(k, 4242) < 0.1) rare else pick[(h2(k, 99) * pick.size).toInt()]
+            places += Place(scene, MIN_LEN + (h2(k, 777) * SPAN).toInt())
+        }
+        return places[n]
+    }
+
+    private var cursorN = 0
+    private var cursorFrom = 0L
+
+    /** The place that a total distance falls in (its number, and the distance at which it begins). Walks on from the last answer. */
+    fun at(distance: Long): Pair<Int, Long> {
+        if (distance < cursorFrom) { cursorN = 0; cursorFrom = 0L }
+        while (distance >= cursorFrom + placeAt(cursorN).len) { cursorFrom += placeAt(cursorN).len; cursorN++ }
+        return cursorN to cursorFrom
+    }
+
+    /** The fog (0 thick .. 1 clear) that [distance] stands in: it thickens toward the end of a place and thins out of the start of one. */
+    fun fogAt(distance: Long): Double {
+        val (n, from) = at(distance)
+        val len = placeAt(n).len
+        val out = (from + len - distance).toDouble() / FOG
+        val into = if (n > 0) (distance - from + 1).toDouble() / FOG else 1.0
+        return max(0.0, min(1.0, min(out, into)))
+    }
+
+    companion object {
+        /** In committed characters. A place lasts about as long as a few messages. */
+        const val MIN_LEN = 90
+        const val SPAN = 180
+        const val FOG = 16
+    }
+}
+
+/**
+ * A word that does something. Nobody is told which. Matched against the last few characters committed, in memory only: nothing
+ * typed is ever stored, and what has been read is dropped as soon as it has done its work, after a pause, or when the keyboard goes.
+ * The pause is measured in wall-clock time, because the world's own clock stops when nothing moves.
+ */
+internal class GlyphSecrets {
+    enum class Trigger { GUEST, GLITCH, GOODNIGHT, MEOW, FISH }
+
+    private val tail = StringBuilder()
+    private var lastAt = Long.MIN_VALUE / 2
+
+    /** [text] was just committed at [nowMs]. [japanese]: the word came from the Japanese candidates. Returns what it woke. */
+    fun feed(text: String, nowMs: Long, japanese: Boolean): List<Trigger> {
+        if (nowMs - lastAt > FORGET_MS) tail.setLength(0)
+        lastAt = nowMs
+        tail.append(text)
+        if (tail.length > MAX_TAIL) tail.delete(0, tail.length - MAX_TAIL)
+        val seen = tail.toString()
+        val found = ArrayList<Trigger>(1)
+        if (seen.contains("claude", ignoreCase = true)) found += Trigger.GUEST
+        if (seen.contains("glitch", true) || seen.contains("bug", true) || seen.contains("404")) found += Trigger.GLITCH
+        if (seen.contains("晚安")) found += Trigger.GOODNIGHT
+        if (seen.contains("喵")) found += Trigger.MEOW
+        if (japanese && text == "寿司") found += Trigger.FISH
+        // What has done its work is dropped, so a word does not fire again with the next letter.
+        if (found.isNotEmpty()) tail.setLength(0)
+        return found
+    }
+
+    fun clear() = tail.setLength(0)
+
+    /** How many characters are held, for the tests: never more than [MAX_TAIL]. */
+    val held: Int get() = tail.length
+
+    companion object {
+        const val MAX_TAIL = 12
+        /** A pause (half a minute) after which what was typed is forgotten. */
+        const val FORGET_MS = 30_000L
+    }
+}
+
+/**
+ * Everything that changes while the keyboard is up: where the world is, the ripples from the keys, the cats' moods, the journey.
+ * One thread owns it (the engine's), and it never touches the screen: it answers [tick] with whether the picture changed.
+ */
+internal class GlyphWorld(
+    val theme: GlyphTheme,
+    private val clockHm: () -> Int = { -1 },
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+) {
+    var pos = 0
+    var target = 0
+    var tick = 0
+    val ripples = ArrayList<Ripple>()
+    val motes = ArrayList<Mote>()
+    var lastKey = -1_000_000_000
+    var lastMove = 0
+    var rate = 0.0
+    var mood: Map<CatId, String>? = null
+    var moodUntil = 0
+    var hop = false
+    var hopAt = 0
+    var epoch = 0
+    var echo: Echo? = null
+    var fog = 1.0
+    private var fogTarget = 1.0
+    var arrive = -1_000_000_000
+    var guest = 0
+    var goodnight = 0
+    var fish = -1_000_000_000
+    var glitch = 0
+    private val backs = ArrayList<Int>()
+    var dirty = true
+    var lanes: HashMap<CatId, LaneState>? = null
+    val journey = GlyphJourney()
+    /** The wind, the run, the storm, the firework, the birds on the candidates (see [GlyphSpectacle]). */
+    val spectacle = GlyphSpectacle(this)
+    val secrets = GlyphSecrets()
+    /** The place the picture shows, and the one the journey asks for. Set by [travel]. */
+    var scene = 0
+    /** How far the journey has got, in committed characters. */
+    var distance = 0L
+    /** The guest crab (Anthropic's mascot) is allowed: off unless the build and the setting both say so. */
+    var crabAllowed = false
+    /** The tick at which the keyboard was called up: the picture is typed into being over [FORM] ticks from then. */
+    var born = -1_000_000_000
+    /** Debug and tests: hold one moment of the arrival (0..1). */
+    var formFix: Double? = null
+    /** The width the cats' places are a part of: the keyboard's, up to [CAT_SPACE]. Set with the layout. */
+    var catSpace = 393.0
+
+    fun catX(cat: CatId): Double = catSpace * (if (cat == CatId.MOMO) MOMO_AT else MIMI_AT)
+
+    class Echo(val ch: String, val t: Int, val n: Int)
+
+    /**
+     * How far the picture has come, 0..1: the keys and the candidates are there at once, the picture is set from left to right, first as type
+     * alone, then the heavy tones close into blocks, the sun or moon fills in, the cats open their eyes. Not at the lowest effects level, and not
+     * with a still picture.
+     */
+    fun formed(): Double {
+        if (theme.still || theme.level == 0) return 1.0
+        formFix?.let { return it }
+        return max(0.0, min(1.0, (tick - born).toDouble() / FORM))
+    }
+
+    /** The keyboard was called up: the place begins to be typed. */
+    fun arrive() {
+        if (tick - born <= FORM) return          // already arriving: being asked twice (attached, then shown) is one arrival
+        born = tick
+        dirty = true
+    }
+
+    val idleSeconds: Double get() = (tick - lastMove) / FPS.toDouble()
+
+    // ---- what the person does ------------------------------------------------------------------------
+
+    /** The keys moved the world by [amount]; [at] is where a ring runs out from. */
+    fun moved(amount: Int, at: Pair<Double, Double>?) {
+        val now = tick
+        rate = rate * 0.6 + (FPS.toDouble() / max(1, now - lastKey)) * 0.4
+        lastKey = now
+        lastMove = now
+        target += amount
+        if (theme.still || theme.level == 0) pos = target
+        else if (at != null && theme.level >= 2) ripples += Ripple(at.first, at.second, now)
+        dirty = true
+    }
+
+    fun feel(m: Map<CatId, String>, ticks: Int, jump: Boolean) {
+        mood = m; moodUntil = tick + ticks; hop = jump; hopAt = tick; dirty = true
+    }
+
+    /** A letter key. */
+    fun letter(ch: String, at: Pair<Double, Double>?) {
+        if (!theme.still && theme.level >= 1) {
+            epoch++
+            echo = Echo(ch, tick, epoch)
+        }
+        moved(3, at)
+    }
+
+    /** Backspace: the cat looks aside; five in quick succession tear the picture. */
+    fun backspace(at: Pair<Double, Double>?) {
+        feel(mapOf(CatId.MIMI to "left", CatId.MOMO to "neutral"), 6, false)
+        moved(0, at)
+        backs.removeAll { tick - it >= 14 }
+        backs += tick
+        if (backs.size >= 5) { backs.clear(); glitch(10) }
+    }
+
+    /** Space or return with nothing being composed. */
+    fun plain(at: Pair<Double, Double>?, enter: Boolean) {
+        if (enter) { feel(mapOf(CatId.MIMI to "meow", CatId.MOMO to "meow"), 8, false); spectacle.sent() }
+        moved(1, at)
+    }
+
+    /** Any other key. */
+    fun other(at: Pair<Double, Double>?) = moved(0, at)
+
+    /**
+     * Text was committed. [graphemes] carry the journey on; [secret] says whether the text may be read for passwords (never in a field
+     * that asked not to be learned from). [skyOffset] anchors the rising words to the drifting sky; [barY] is where they rise from.
+     */
+    fun committed(text: String, graphemes: Int, japanese: Boolean, secret: Boolean, skyOffset: Int, barY: Double, top: Double = 10.0) {
+        distance += max(0, graphemes)
+        feel(if (japanese) mapOf(CatId.MIMI to "sparkle", CatId.MOMO to "sparkle") else mapOf(CatId.MIMI to "happy", CatId.MOMO to "happy"), 12, true)
+        if (secret) for (t in secrets.feed(text, nowMs(), japanese)) when (t) {
+            GlyphSecrets.Trigger.GUEST -> if (crabAllowed) guest = tick + 30 * FPS
+            GlyphSecrets.Trigger.GLITCH -> glitch(22)
+            GlyphSecrets.Trigger.GOODNIGHT -> goodnight = tick + 40 * FPS
+            GlyphSecrets.Trigger.MEOW -> feel(mapOf(CatId.MIMI to "meow", CatId.MOMO to "meow"), 14, true)
+            GlyphSecrets.Trigger.FISH -> fish = tick + 2
+        }
+        if (!theme.still && theme.level >= 1) {
+            var n = 0
+            var i = 0
+            while (i < text.length && n < MAX_MOTES) {
+                val cp = text.codePointAt(i)
+                val s = String(Character.toChars(cp))
+                if (!Character.isWhitespace(cp)) motes += Mote(s, 44.0 + n * 22.0, barY + 12, top, 2.4, 26, tick + n, skyOffset)
+                i += Character.charCount(cp); n++
+            }
+        }
+        moved(2, null)
+    }
+
+    fun glitch(ticks: Int) {
+        if (theme.still || theme.level < 2) return
+        glitch = max(glitch, tick + ticks)
+        dirty = true
+    }
+
+    /** The keyboard went away: nothing typed is remembered. */
+    fun forget() {
+        secrets.clear()
+        ripples.clear(); motes.clear()
+        spectacle.reset()
+    }
+
+    // ---- the journey -----------------------------------------------------------------------------------
+
+    /** Sets the journey's place from the distance it has gone, and the fog from how near a border it is. */
+    fun travel() {
+        val forced = journey.forced
+        if (forced != null) {
+            if (scene != forced) { scene = forced; sceneChanged = true; dirty = true }
+            fogTarget = 1.0; fog = 1.0
+            return
+        }
+        val (n, _) = journey.at(distance)
+        if (n != journey.step) {
+            val arrived = journey.step >= 0
+            journey.step = n
+            scene = journey.placeAt(n).scene
+            sceneChanged = true
+            dirty = true
+            // The name of the place shows only when the places change under the person's hands, not when the keyboard first appears.
+            if (arrived) {
+                arrive = tick
+                if (h2(n, 5) < 0.3) glitch(8)
+            }
+        }
+        fogTarget = journey.fogAt(distance)
+        // The fog gathers and clears over a few frames, so it is never a jump.
+        if (abs(fog - fogTarget) > 0.004) {
+            fog += (fogTarget - fog) * 0.3
+            if (abs(fog - fogTarget) < 0.01) fog = fogTarget
+            dirty = true
+        }
+    }
+
+    /** True until the picture has been rebuilt for the place that [travel] chose. */
+    var sceneChanged = true
+
+    // ---- lanes ---------------------------------------------------------------------------------------
+
+    private fun laneWant(cat: CatId, layout: GlyphLayout): Int {
+        val idle = idleSeconds
+        val fast = if (idle < 1.5) rate else 0.0
+        val calm = theme.still || theme.level == 0
+        if (calm) return 0
+        val lanes = max(0, layout.rowCenters.size - 2)
+        val want = when (cat) {
+            CatId.MOMO -> if (fast > 8) 1 else 0
+            CatId.MIMI -> if (idle > 5) 0 else if (fast > 6) 2 else intArrayOf(0, 1, 0, 2)[(pos / 45) and 3]
+        }
+        return min(want, lanes)
+    }
+
+    /** Where each cat stands: the ridge, or a lane lower down. Lane 0 is the ridge; a change of lane is a small jump. */
+    fun lanes(layout: GlyphLayout, rows: Boolean, ready: Boolean, ridgeY: (Double) -> Double) {
+        if (!rows || !ready) { lanes = null; return }
+        val calm = theme.still || theme.level == 0
+        val map = lanes ?: HashMap<CatId, LaneState>().also {
+            it[CatId.MOMO] = LaneState(); it[CatId.MIMI] = LaneState(); lanes = it
+        }
+        for (cat in CatId.entries) {
+            val l = map.getValue(cat)
+            val want = laneWant(cat, layout)
+            val lowerFeet = if (want > 0) layout.laneFeet(want) else null
+            l.lane = if (lowerFeet != null) want else 0
+            val target = lowerFeet ?: (ridgeY(catX(cat) + 20.0) + 2)
+            if (l.y == null || calm) { l.y = target; l.from = target; l.to = target; continue }
+            if (l.to != target) {
+                if (abs(l.to - target) > 12) l.from = l.y!!
+                l.to = target
+            }
+            if (abs(l.y!! - target) > 0.5) {
+                l.y = l.y!! + (target - l.y!!) * 0.45
+                if (abs(l.y!! - target) <= 0.5) l.y = target
+                dirty = true
+            }
+        }
+    }
+
+    // ---- the clock -------------------------------------------------------------------------------------
+
+    /** One step of the world, twelve a second. Returns whether the picture needs drawing again. */
+    fun step(layout: GlyphLayout, rows: Boolean, ready: Boolean, ridgeY: (Double) -> Double): Boolean {
+        tick++
+        if (pos < target) {
+            pos += max(1, min(6, round((target - pos) * 0.42)))
+            lastMove = tick
+            dirty = true
+        }
+        travel()
+        lanes(layout, rows, ready, ridgeY)
+        if (spectacle.step()) dirty = true
+        ripples.removeAll { tick - it.t >= 7 }; if (ripples.isNotEmpty()) dirty = true
+        motes.removeAll { tick - it.t >= it.life }; if (motes.isNotEmpty()) dirty = true
+        if (mood != null && tick <= moodUntil + 1) dirty = true
+        if (tick - born <= FORM + 1) dirty = true
+        if (tick - arrive <= 31 || tick - fish <= 19 || tick == guest || tick == goodnight) dirty = true
+        val idle = idleSeconds
+        val beat = tick % 46
+        val turn = intArrayOf(0, 0, 6, 3)[theme.level]
+        if (!theme.still && turn != 0 && idle < 20 && tick % turn == 0) {
+            epoch++; dirty = true
+            val hm = clockHm()
+            if (h2(epoch, 909) < 0.008 || (hm == 404 && epoch % 9 == 0)) glitch(5)
+        }
+        if (tick <= glitch) dirty = true
+        if (!theme.still && (abs(idle - 1.2) < 0.05 || abs(idle - 7) < 0.05 || abs(idle - 12) < 0.05 || abs(idle - 16) < 0.05 ||
+                (idle < 12 && (beat == 0 || beat == 2 || beat == 17 || beat == 19)) || (idle in 12.0..<20.0 && tick % 8 == 0))) dirty = true
+        val was = dirty
+        dirty = false
+        return was
+    }
+
+    /** Whether more steps are worth taking: something moves, or the cats are still going through their idle changes. */
+    fun busy(): Boolean {
+        if (pos < target || mood != null && tick <= moodUntil + 1 || ripples.isNotEmpty() || motes.isNotEmpty()) return true
+        if (tick - born <= FORM + 1) return true
+        if (spectacle.busy()) return true
+        if (tick <= glitch + 1 || tick - arrive <= 32 || tick - fish <= 20 || tick <= guest + 1 || tick <= goodnight + 1) return true
+        if (abs(fog - fogTarget) > 0.004) return true
+        lanes?.let { map -> if (map.values.any { l -> l.y != null && abs(l.y!! - l.to) > 0.5 }) return true }
+        // The cats' own small changes (sit, blink, doze) go on for twenty seconds after the last key.
+        return !theme.still && idleSeconds < 20.8
+    }
+
+    // ---- the cats ------------------------------------------------------------------------------------
+
+    fun catState(cat: CatId): CatState {
+        val idle = idleSeconds
+        val moving = pos < target && !theme.still
+        val g = goodnight
+        if (tick < g && !moving) return CatState("sleep", "neutral", z = cat == CatId.MIMI)
+        val m = mood
+        if (m != null && tick < moodUntil) return CatState(if (moving) (if (tick and 1 != 0) "walkA" else "walkB") else "sit", m[cat] ?: "neutral", hop = hop)
+        if (moving) return CatState(if ((tick + (if (cat == CatId.MOMO) 1 else 0)) and 1 != 0) "walkA" else "walkB",
+            if (rate > 7) "wide" else if (cat == CatId.MIMI) "focus" else "neutral")
+        if (idle < 1.2) return CatState("walkA", "neutral")
+        if (cat == CatId.MIMI && idle > 12) return CatState("sleep", "neutral", z = true)
+        if (cat == CatId.MOMO && idle > 16) return CatState("sleep", "neutral")
+        val blink = ((tick + (if (cat == CatId.MOMO) 17 else 0)) % 46) < 2
+        return CatState("sit", if (blink) "blink" else if (cat == CatId.MIMI && idle > 7) "smug" else "neutral")
+    }
+
+    /** The picture of the front layer for this frame. [ridgeY] answers where the walking ridge is at x; [skyOffset] anchors the words. */
+    fun front(rows: Boolean, ridgeY: (Double) -> Double, skyOffset: Int, groundY: Double, sceneName: String, showCats: Boolean, form: Double = 1.0): GlyphFrontFrame {
+        val cats = ArrayList<CatDraw>(2)
+        val dust = ArrayList<DustDraw>(0)
+        // The cats come last, eyes first.
+        if (showCats && form >= 0.45) for (cat in listOf(CatId.MOMO, CatId.MIMI)) {
+            val st = catState(cat)
+            val x = catX(cat)
+            val lane = lanes?.get(cat)
+            var feet: Double
+            var moving = false
+            var platform = false
+            if (rows && lane?.y != null) {
+                val span = abs(lane.to - lane.from)
+                val left = abs(lane.to - lane.y!!)
+                val jump = if (span > 12 && left > 0.5) Math.sin(Math.PI * (1 - left / span)) * 7 else 0.0
+                feet = lane.y!! - jump
+                moving = left > 0.5
+                platform = left <= 0.5 && lane.lane > 0
+            } else feet = ridgeY(x + 20.0) + 2
+            // Running: the cats bound along, a little forward on every other step.
+            val run = spectacle.hurrying && st.pose != "sleep"
+            val hopY = if (run) -(tick and 1) * 3 else if (st.hop) intArrayOf(0, -3, -5, -3, 0)[min(4, max(0, tick - hopAt))] else 0
+            var pose = st.pose
+            if (moving && pose != "sleep") pose = if (tick and 1 != 0) "walkA" else "walkB"
+            val night = (theme.dark && cat == CatId.MIMI && !(mood != null && tick < moodUntil)) || form < 0.8
+            val after = if (tick < glitch) -(6 + (10 * h2(tick, round(x))).toInt()) else null
+            cats += CatDraw(cat, pose, st.face, round(x) + (if (run) (tick and 1) * 2 else 0), round(feet), hopY, night, platform, after, st.z, (tick / 8) and 0xFFFF)
+            if (run) dust += spectacle.dust(x, feet, if (cat == CatId.MOMO) 0 else 1)
+        }
+        val motesOut = ArrayList<MoteDraw>(motes.size)
+        for (m in motes) {
+            val age = tick - m.t
+            if (age < 0) continue
+            val x = m.x - (skyOffset - m.sky) * 3.0 - age * 0.6
+            val y = max(m.top, m.y - age * m.rise)
+            motesOut += MoteDraw(m.ch, x, y, max(0.0, min(1.0, 1.4 - 1.4 * age / m.life)).toFloat())
+        }
+        val crabOn = tick < guest && crabAllowed
+        val crabX = 62
+        val crabFeet = round(ridgeY(crabX + 10.0) + 2)
+        val age = tick - fish
+        val fishAt = if (age in 0..17) {
+            val fx = crabX - 40 + age * 9
+            val fy = crabFeet - 8 - Math.sin(age / 18.0 * Math.PI) * 46
+            fx to round(fy)
+        } else null
+        val since = tick - arrive
+        val bannerAlpha = if (since in 0..29 && sceneName.isNotEmpty()) min(1.0, (30 - since) / 8.0).toFloat() * 0.9f else 0f
+        return GlyphFrontFrame(cats, motesOut, if (crabOn) (if (pos < target) tick and 1 else 0) else -1, crabX, crabFeet, fishAt, bannerAlpha, sceneName, dust)
+    }
+
+    companion object {
+        const val FPS = 12
+        /** Where the cats sit, as a part of the keyboard's width (104 and 172 points on the prototype's 393). */
+        const val MOMO_AT = 104.0 / 393.0
+        const val MIMI_AT = 172.0 / 393.0
+        /** Past this width the cats do not drift further apart: a tablet keeps them together. */
+        const val CAT_SPACE = 480.0
+        const val MAX_MOTES = 8
+        /** Ticks the arrival takes: a little over half a second at twelve a second. */
+        const val FORM = 7
+    }
+}

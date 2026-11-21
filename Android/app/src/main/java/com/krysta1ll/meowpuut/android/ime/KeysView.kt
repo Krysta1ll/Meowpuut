@@ -19,6 +19,16 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeProvider
 import com.krysta1ll.meowpuut.android.R
+import com.krysta1ll.meowpuut.android.ime.glyph.CapRole
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphCanvasSink
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphColors
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphController
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKey
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyArt
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyPainter
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelFonts
+import com.krysta1ll.meowpuut.android.ime.glyph.KeyCap
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -65,6 +75,13 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     /** Hides the three left-column punctuation caps when the nine-key syllable rail covers them. */
     var hideLeftMarks = false
         set(value) { if (field != value) { field = value; if (accessibility.assistiveCached) accessibility.invalidateAll(); invalidate() } }
+
+    /** The 字景 world, while that skin is on: it hears every key that goes down. */
+    internal var glyph: GlyphController? = null
+
+    /** A reading is being typed: the space bar of 字景 shows it by its shape. */
+    var composing = false
+        set(value) { if (field != value) { field = value; if (look.isGlyph) invalidate() } }
 
     private val touches = KeyTouches(this)
     var topTouchExtension: Float
@@ -285,8 +302,70 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         return min(base + extra, min(frame.width, frame.height) * 0.37f)
     }
 
+    // ---------------------------------------------------------------- 字景
+
+    private val glyphPainter by lazy { GlyphKeyPainter(GlyphPixelFonts(context)) }
+    private val glyphSink by lazy { GlyphCanvasSink(density, gather = false) }
+
+    /** The vertical middle of each row of keys, in dp from this view's top. */
+    internal fun rowCentersDp(): DoubleArray {
+        val out = ArrayList<Double>(5)
+        for (row in touches.placements) row.firstOrNull()?.let { out += it.frame.centerY.toDouble() }
+        return out.toDoubleArray()
+    }
+
+    private fun glyphArt(key: Key): String? = when (key.icon) {
+        KeyIcon.SHIFT -> "SHIFT"
+        KeyIcon.SHIFT_ON -> "SHIFT_ON"
+        KeyIcon.CAPS_LOCK -> "CAPS_LOCK"
+        KeyIcon.DELETE -> "DELETE"
+        KeyIcon.GLOBE -> "GLOBE"
+        null -> key.label.takeIf(GlyphKeyArt::hasBits)
+    }
+
+    /** The keys of 字景 in the open style: no caps, only legends cut in pixels, over whatever the land is doing behind them. */
+    private fun drawGlyphKeys(canvas: Canvas, set: KeySet) {
+        val colors = GlyphColors.of(look.dark)
+        val cursorMode = touches.cursorMode
+        val fingers = touches.active
+        glyphSink.begin(canvas)
+        glyphSink.eclipse = if (look.opaque) null else glyph?.eclipse(colors, left / density.toDouble(), top / density.toDouble())
+        val frame = glyph?.frame
+        val street = !look.opaque && frame?.scene == GlyphController.STREET
+        // At night one sign in the street now and then goes out for a moment, and comes back.
+        val out = if (street && look.dark) frame!!.tick.let { n -> if (n % 12 in OUT_BEATS) (GlyphNoise.h2(n / 12, 5) * 45).toInt() else -1 } else -1
+        for ((r, row) in touches.placements.withIndex()) {
+            val held = if (fingers) touches.pressedColumns(r) else 0
+            for (placement in row) {
+                if (hideLeftMarks && r in 0..2 && placement.column == 0) continue
+                val key = set.rows.getOrNull(r)?.getOrNull(placement.column) ?: continue
+                val f = placement.frame
+                val pressed = !cursorMode && key.enabled && (held and (1 shl placement.column) != 0 ||
+                    r == feedbackRow && placement.column == feedbackColumn)
+                val role = when (key.action) {
+                    KeyAction.Return -> CapRole.ACCENT
+                    KeyAction.Space -> CapRole.SPACE
+                    else -> CapRole.PLAIN
+                }
+                val cap = KeyCap(f.left.toDouble(), f.top.toDouble(), f.width.toDouble(), f.height.toDouble(), key.label,
+                    glyphArt(key), role, pressed, enabled = key.enabled && !cursorMode)
+                val sign = when {
+                    !street -> GlyphKeyPainter.Sign.NONE
+                    !look.dark -> GlyphKeyPainter.Sign.DAY
+                    r * 10 + placement.column == out -> GlyphKeyPainter.Sign.OUT
+                    else -> GlyphKeyPainter.Sign.LIT
+                }
+                glyphPainter.key(glyphSink, colors, cap, composing, chips = look.opaque, sign = sign)
+            }
+        }
+    }
+
     override fun onDraw(canvas: Canvas) {
         val set = keySet ?: return
+        if (look.isGlyph) {
+            drawGlyphKeys(canvas, set)
+            return
+        }
         hintOpacity = if (set.hasZhuyinPinyinHints && coveredHeight <= 0f && !touches.cursorMode &&
             !look.opaque && look.effects != EffectsLevel.LIGHTWEIGHT && ValueAnimator.areAnimatorsEnabled() &&
             isShown && getLocalVisibleRect(visibleHintBounds)) {
@@ -630,6 +709,21 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
 
     override fun redraw() = invalidate()
 
+    override fun keyDown(key: Key, centerX: Float, centerY: Float) {
+        val world = glyph ?: return
+        val kind = when {
+            key.action == KeyAction.Delete -> GlyphKey.DELETE
+            key.action == KeyAction.Space -> GlyphKey.SPACE
+            key.action == KeyAction.Return -> GlyphKey.RETURN
+            key.isCharacter || key.action == KeyAction.Segment || key.action is KeyAction.PinyinTone -> GlyphKey.LETTER
+            else -> GlyphKey.OTHER
+        }
+        // In the keyboard's own dp: this view sits at (left, top) in it.
+        val x = left / density + (if (centerX.isNaN()) 0f else centerX)
+        val y = top / density + (if (centerY.isNaN()) 0f else centerY)
+        world.key(kind, x, y, composing, key.label.take(1))
+    }
+
     // ---------------------------------------------------------------- accessibility
 
     private fun accessibleKeys(): List<VirtualAccessibility.Item> {
@@ -668,5 +762,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     companion object {
         const val BALLOON_FONT = 34f
         const val ALTERNATES_FONT = 24f
+        /** The beats (of twelve ticks) on which a lit sign of the street has gone out. */
+        val OUT_BEATS = setOf(1, 2, 4)
     }
 }

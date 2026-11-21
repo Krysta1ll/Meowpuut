@@ -114,6 +114,9 @@ class Prefs(context: Context) {
     /** Whether the person has chosen a glass shape themselves (a custom skin's own shape applies until then). */
     val hasShape: Boolean get() = store.contains(SHAPE)
 
+    /** The debug-only settings (the guest crab, holding one place or one moment of 字景) answer only in a debuggable build. */
+    private val debuggable = CustomSkinLoader.debuggable(context)
+
     fun isSkinUnlocked(skin: KeyboardSkin): Boolean {
         if (!skin.requiresQuiz) return true
         val unlocked = store.getStringSet(UNLOCKED_SKINS, emptySet()).orEmpty()
@@ -171,6 +174,27 @@ class Prefs(context: Context) {
         val value = store.getFloat(key, fallback)
         return if (value.isFinite()) value.coerceIn(0f, 1f) else fallback
     }
+
+    /**
+     * How far the 字景 journey has got, in committed characters: a single number, and the only thing of what is typed that the
+     * skin keeps. The text itself is never stored.
+     */
+    var glyphDistance: Long
+        get() = store.getLong(GLYPH_DISTANCE, 0L).coerceAtLeast(0L)
+        set(value) = store.edit().putLong(GLYPH_DISTANCE, value.coerceAtLeast(0L)).apply()
+    /** The guest crab of 字景 (Anthropic's mascot): off, and offered in debug builds only, until it is licensed. */
+    var glyphCrab: Boolean
+        get() = debuggable && store.getBoolean(GLYPH_CRAB, false)
+        set(value) = store.edit().putBoolean(GLYPH_CRAB, value).apply()
+
+    /** Debug builds only: -1 travels as usual, 0..5 stays in that place of 字景. */
+    val glyphScene: Int? get() = if (debuggable) store.getInt(GLYPH_SCENE, -1).takeIf { it >= 0 } else null
+
+    /** Debug builds only: holds one moment of one of 字景's effects, as "storm:6"; unset lets them happen. */
+    val glyphFx: String? get() = if (debuggable) store.getString("glyphFx", null) else null
+
+    /** Debug builds only: holds one moment of 字景's arrival, 0..1; unset lets it run. */
+    val glyphForm: Double? get() = if (debuggable && store.contains(GLYPH_FORM)) store.getFloat(GLYPH_FORM, 1f).toDouble() else null
 
     var cats: Boolean
         get() = store.getBoolean(skinKey(CATS), true)
@@ -233,6 +257,10 @@ class Prefs(context: Context) {
         const val FLOATING_X = "floatingKeyboardX"
         const val FLOATING_Y = "floatingKeyboardY"
         const val CATS = "cats"
+        const val GLYPH_DISTANCE = "glyphDistance"
+        const val GLYPH_CRAB = "glyphCrab"
+        const val GLYPH_SCENE = "glyphScene"
+        const val GLYPH_FORM = "glyphForm"
         const val FESTIVALS = "festivals"
         const val KEY_POPUPS = "keyPopups"
         const val HAPTICS = "haptics"

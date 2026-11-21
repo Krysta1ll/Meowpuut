@@ -19,6 +19,10 @@ import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeProvider
 import android.widget.OverScroller
 import com.krysta1ll.meowpuut.android.engine.Candidate
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphCanvasSink
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyPainter
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelFonts
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelType
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
@@ -61,6 +65,11 @@ class ExpandedPanelView(context: Context) : View(context) {
     private var japaneseMarks = true
     private var emoji = false
     private val density = resources.displayMetrics.density
+    private val glyphPainter by lazy { GlyphKeyPainter(GlyphPixelFonts(context)) }
+    private val glyphSink by lazy { GlyphCanvasSink(density, gather = false) }
+    /** 字景 sets the candidates in its pixel type: a whole number of points to a pixel, near twice the grid, scaled by the person's text size. */
+    private val glyphUnit get() = Math.round(candidateTextSize.fontSize(2f * GlyphPixelType.EM, resources.configuration.fontScale) / GlyphPixelType.EM).coerceAtLeast(1).toFloat()
+    private fun glyphWidth(text: String) = glyphPainter.candidateWidth(text, GlyphKeyPainter.CandidateFace(GlyphPixelType.EM, glyphUnit.toDouble())).toFloat()
     private val text = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply { typeface = Typeface.DEFAULT }
     private val bold = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
         typeface = if (android.os.Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, 500, false) else Typeface.DEFAULT
@@ -123,10 +132,30 @@ class ExpandedPanelView(context: Context) : View(context) {
         relayout()
     }
 
+    /** [label] cut in the middle to fit [room] points, measured in the pixel type for 字景. */
+    private fun ellipsize(label: String, room: Float): String {
+        if (!look.isGlyph) return TextUtils.ellipsize(label, text, room, TextUtils.TruncateAt.MIDDLE).toString()
+        if (glyphWidth(label) <= room) return label
+        for (keep in label.length - 1 downTo 1) {
+            val cut = label.take((keep + 1) / 2) + "…" + label.takeLast(keep / 2)
+            if (glyphWidth(cut) <= room) return cut
+        }
+        return "…"
+    }
+
+    /** One run of pixel type at [x] (points, left) with its middle on [cy], in [color]: drawn whole pixels at a time under the view's own scale. */
+    private fun drawGlyphText(canvas: Canvas, label: String, x: Float, cy: Float, color: Int) {
+        canvas.save()
+        canvas.scale(1f / density, 1f / density)
+        glyphSink.begin(canvas)
+        glyphPainter.run(glyphSink, label, x.toDouble(), cy.toDouble(), glyphUnit.toDouble(), color, null, centre = false)
+        canvas.restore()
+    }
+
     private fun relayout() {
         val width = this.width / density
         if (width <= 0) return
-        val fontSize = candidateTextSize.fontSize(18f, resources.configuration.fontScale)
+        val fontSize = if (look.isGlyph) GlyphPixelType.EM * glyphUnit else candidateTextSize.fontSize(18f, resources.configuration.fontScale)
         text.textSize = fontSize
         bold.textSize = fontSize
         val margin = 10f
@@ -139,7 +168,7 @@ class ExpandedPanelView(context: Context) : View(context) {
             bold.textSize = candidateTextSize.fontSize(14.5f, resources.configuration.fontScale)
             var cx = margin
             chips = syllables.mapIndexed { idx, syl ->
-                val cw = max(44f, bold.measureText(syl) + 22f)
+                val cw = max(44f, (if (look.isGlyph) glyphWidth(syl) else bold.measureText(syl)) + 22f)
                 Chip(idx, cx, cw, syl).also { cx += cw + 6f }
             }
             chipWidth = cx + margin - 6f
@@ -157,11 +186,11 @@ class ExpandedPanelView(context: Context) : View(context) {
             val japanese = c.japanese && japaneseMarks
             val continues = c.continues(segmentLength)
             val label = if (continues) c.text + words("（續）", "（续）") else c.text
-            val natural = bold.measureText(label) + 28f + if (japanese) mark else 0f
+            val natural = (if (look.isGlyph) glyphWidth(label) else bold.measureText(label)) + 28f + if (japanese) mark else 0f
             val columns = if (emoji) 1 else min(totalColumns, max(1, ceil((natural + GAP) / (unit + GAP)).toInt()))
             if (columnsUsed + columns > totalColumns) { y += ROW; x = 0f; columnsUsed = 0 }
             val w = columns * unit + (columns - 1) * GAP
-            val shown = if (!emoji && natural > w) TextUtils.ellipsize(label, text, w - 28f - (if (japanese) mark else 0f), TextUtils.TruncateAt.MIDDLE).toString() else label
+            val shown = if (!emoji && natural > w) ellipsize(label, w - 28f - (if (japanese) mark else 0f)) else label
             list += Cell(i, margin + x, y, w, shown, japanese, continues)
             x += w + GAP
             columnsUsed += columns
@@ -222,12 +251,12 @@ class ExpandedPanelView(context: Context) : View(context) {
             }
             val p = if (selected) bold else text
             p.color = if (selected) look.pillText else look.candidateText
-            val textWidth = p.measureText(cell.shown)
+            val textWidth = if (look.isGlyph) glyphWidth(cell.shown) else p.measureText(cell.shown)
             val pawSize = p.textSize * 0.45f
             val markWidth = if (cell.japanese) pawSize + CandidateBarView.PAW_GAP else 0f
             val tx = cell.left + (cell.width - textWidth - markWidth) / 2
             val cy = top + cellHeight / 2
-            canvas.drawText(cell.shown, tx, cy - (p.ascent() + p.descent()) / 2, p)
+            if (look.isGlyph) drawGlyphText(canvas, cell.shown, tx, cy, p.color) else canvas.drawText(cell.shown, tx, cy - (p.ascent() + p.descent()) / 2, p)
             if (cell.japanese) {
                 paint.color = if (selected) Look.withAlpha(look.pillText, 0.85f) else look.candidateSecondary
                 Glyphs.paw(canvas, tx + textWidth + CandidateBarView.PAW_GAP + pawSize / 2, cy, pawSize, paint)
@@ -242,7 +271,8 @@ class ExpandedPanelView(context: Context) : View(context) {
         if (candidates.isEmpty()) {
             text.color = look.candidateSecondary
             val label = words("暫無候選", "暂无候选")
-            canvas.drawText(label, (w - text.measureText(label)) / 2, h / 2, text)
+            if (look.isGlyph) drawGlyphText(canvas, label, (w - glyphWidth(label)) / 2, h / 2, text.color)
+            else canvas.drawText(label, (w - text.measureText(label)) / 2, h / 2, text)
         }
         canvas.restore()
         if (chips.isNotEmpty()) drawSyllableBar(canvas, w)
@@ -278,7 +308,8 @@ class ExpandedPanelView(context: Context) : View(context) {
             else canvas.drawRoundRect(rect, ch / 2f, ch / 2f, paint)
             bold.color = look.candidateText
             val cy = top + ch / 2f
-            canvas.drawText(chip.text, chip.left + (chip.width - bold.measureText(chip.text)) / 2f, cy - (bold.ascent() + bold.descent()) / 2f, bold)
+            if (look.isGlyph) drawGlyphText(canvas, chip.text, chip.left + (chip.width - glyphWidth(chip.text)) / 2f, cy, bold.color)
+            else canvas.drawText(chip.text, chip.left + (chip.width - bold.measureText(chip.text)) / 2f, cy - (bold.ascent() + bold.descent()) / 2f, bold)
         }
         bold.textSize = oldBold
         canvas.restore()

@@ -4,6 +4,8 @@
     <string name="skin_current">喵撲玻璃</string>
     <string name="skin_classic_cloud">經典雲玻璃</string>
     <string name="skin_pixel">像素</string>
+    <string name="skin_glyph">字景</string>
+    <string name="glyph_crab_title">客串小螃蟹（僅 debug）</string>
     <string name="skin_centenary">百爪典藏</string>
     <string name="skin_centenary_note">銷量破百紀念 · 免費收藏</string>
     <string name="skin_centenary_thanks">謝謝每一次相遇</string>

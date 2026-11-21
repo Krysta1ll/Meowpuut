@@ -25,6 +25,10 @@ import android.widget.RadioButton
 import android.widget.TextView
 import com.krysta1ll.meowpuut.android.R
 import com.krysta1ll.meowpuut.android.ime.KeyboardSkin
+import com.krysta1ll.meowpuut.android.ime.glyph.CatId
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphCats
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphColors
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyArt
 import com.krysta1ll.meowpuut.android.ime.Look
 import com.krysta1ll.meowpuut.android.ime.GlassShape
 import com.krysta1ll.meowpuut.android.ime.GlassStrength
@@ -277,9 +281,58 @@ private class SkinSwatch(context: Context, private val skin: KeyboardSkin, dark:
         invalidate()
     }
 
+    /** 字景: a few blocks of land, a red sun, the two cats between rows of hand-cut letters, all on paper. */
+    private fun drawGlyphSwatch(canvas: Canvas, scale: Float) {
+        val c = GlyphColors.of(isDark)
+        paint.style = Paint.Style.FILL
+        box(canvas, 0f, 0f, width.toFloat(), height.toFloat(), 5f * scale, c.paper)
+        canvas.save()
+        canvas.translate((width - 88f * scale) / 2, (height - 48f * scale) / 2)
+        canvas.scale(scale, scale)
+        paint.isFilterBitmap = false
+        paint.color = c.red
+        for (y in 4..16 step 2) for (x in 56..74 step 2) {
+            val dx = x + 1 - 65f
+            val dy = y + 1 - 10f
+            if (dx * dx + dy * dy <= 42f) canvas.drawRect(x.toFloat(), y.toFloat(), x + 2f, y + 2f, paint)
+        }
+        paint.color = c.ink
+        for (i in 0 until 44) {                           // a ridge of blocks, higher at the left
+            val h = 3 + ((i * 7) % 5) + (if (i < 18) 3 else 0)
+            canvas.drawRect(i * 2f, 28f - h, i * 2f + 2f, 28f - h + 2f, paint)
+            if (i % 3 == 0) canvas.drawRect(i * 2f, 30f - h, i * 2f + 2f, 31f - h, paint)
+        }
+        for ((n, cat) in listOf(CatId.MOMO to 26f, CatId.MIMI to 46f).withIndex()) {
+            val r = GlyphCats.raster(cat.first, "sit", "neutral", isDark, false, c)
+            for (py in 0 until r.h) for (px in 0 until r.w) {
+                val color = r.pixels[py * r.w + px]
+                if (color ushr 24 == 0) continue
+                paint.color = color
+                canvas.drawRect(cat.second + px - 2f, 12f + py - 2f + n * 0f, cat.second + px - 1f, 13f + py - 2f, paint)
+            }
+        }
+        paint.color = c.ink
+        for ((r, letters) in listOf("qwertyui", "asdfghjk").withIndex()) for ((i, ch) in letters.withIndex()) {
+            val rows = GlyphKeyArt.bits(ch.toString()) ?: continue
+            for (py in rows.indices) for (px in rows[py].indices) if (rows[py][px] == 'X') {
+                val x = 8f + i * 9.5f + px * 0.7f
+                val y = 31f + r * 8.5f + py * 0.7f
+                canvas.drawRect(x, y, x + 0.7f, y + 0.7f, paint)
+            }
+        }
+        paint.color = c.red
+        canvas.drawRect(70f, 41f, 83f, 46f, paint)
+        if (locked || active) drawStatus(canvas)
+        canvas.restore()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val scale = minOf(width / 88f, height / 48f)
+        if (skin == KeyboardSkin.GLYPH) {
+            drawGlyphSwatch(canvas, scale)
+            return
+        }
         box(canvas, 0f, 0f, width.toFloat(), height.toFloat(), (if (pixel) 5f else 9f) * scale, deck)
         canvas.save()
         canvas.translate((width - 88f * scale) / 2, (height - 48f * scale) / 2)

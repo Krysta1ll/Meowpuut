@@ -43,6 +43,8 @@ class KeyTouches(private val host: Host) {
         fun hideAlternates()
         fun clearVisuals()
         fun redraw()
+        /** A key went down (or was activated): its centre, in the keys view's own dp. Skins that react to typing listen here. */
+        fun keyDown(key: Key, centerX: Float, centerY: Float) {}
     }
 
     var listener: KeyListener? = null
@@ -265,7 +267,7 @@ class KeyTouches(private val host: Host) {
         }
         if (key.isCharacter) showPressed(p)
         host.redraw()
-        feedback(key, p.frame.centerX)
+        feedback(key, p.frame.centerX, p.frame.centerY)
         when (val action = key.action) {
             is KeyAction.Engine, is KeyAction.Text, KeyAction.Segment -> scheduleAlternates(p)
             KeyAction.Space -> scheduleHold(p, CURSOR_DELAY) { enterCursor(p) }
@@ -611,7 +613,8 @@ class KeyTouches(private val host: Host) {
         val key = keyOf(row, column) ?: return
         if (!key.enabled) return
         host.pulseKeyPress(row, column)
-        feedback(key, frameOf(row, column)?.centerX ?: width / 2)
+        val frame = frameOf(row, column)
+        feedback(key, frame?.centerX ?: width / 2, frame?.centerY ?: Float.NaN)
         when (val action = key.action) {
             KeyAction.Shift -> { listener?.onShiftDown(); listener?.onShiftUp(false) }
             KeyAction.Delete -> listener?.onDelete(false)
@@ -620,9 +623,10 @@ class KeyTouches(private val host: Host) {
         }
     }
 
-    private fun feedback(key: Key, centerX: Float) {
+    private fun feedback(key: Key, centerX: Float, centerY: Float) {
         val fraction = if (width > 0f) (centerX / width).coerceIn(0f, 1f) else 0.5f
         listener?.onKeyDown(key, fraction)
+        host.keyDown(key, centerX, centerY)
     }
 
     companion object {
