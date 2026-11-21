@@ -107,6 +107,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        if (savedInstanceState == null && com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.due(this, prefs.store)) startActivity(Intent(this, OnboardingActivity::class.java))   // 第一行字: a new install sees the guide first
         ui = PaperUi(this, PaperTheme.fromKey(prefs.palette.key), dark)
         stamp = StampToast(this, ui)
         val column = object : LinearLayout(this) {
@@ -361,6 +362,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                     typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 }, weighted())
             }
+        column.addView(action(R.string.onboarding_replay) { startActivity(Intent(this, OnboardingActivity::class.java)) })   // 第一行字: see the guide again
         column.addView(action(R.string.licenses, ::showLicenses), LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
 

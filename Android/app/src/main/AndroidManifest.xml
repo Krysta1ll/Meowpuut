@@ -27,6 +27,16 @@
             </intent-filter>
         </activity>
 
+        <!-- 第一行字: the first-run guide. Opened by SettingsActivity for a new install, and from its settings. Portrait: the page is a tall one. -->
+        <activity
+            android:name=".app.OnboardingActivity"
+            android:exported="false"
+            android:label="@string/onboarding_title"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+
         <!-- The custom-skins page. Its filters name only our own MIME types and file extensions (never */* or
              application/octet-stream); only content:// is read, with a size cap, and a package must still be
              signed by the developer and issued for this phone (plans/custom-skins.md §8.3). The in-app file
