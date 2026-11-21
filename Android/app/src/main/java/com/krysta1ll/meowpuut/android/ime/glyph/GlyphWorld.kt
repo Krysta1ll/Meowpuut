@@ -299,7 +299,7 @@ internal class GlyphWorld(
         lastMove = now
         target += amount
         if (theme.still || theme.level == 0) pos = target
-        else if (at != null && theme.level >= 2) ripples += Ripple(at.first, at.second, now)
+        else if (at != null && theme.level >= 2 && !theme.deep) ripples += Ripple(at.first, at.second, now)   // deep: the ring is its own view, by the screen (GlyphRingView)
         dirty = true
     }
 
@@ -325,7 +325,7 @@ internal class GlyphWorld(
 
     /** A key that types a letter, a sign, a kana: the picture goes on by a stride. */
     fun letter(ch: String, at: Pair<Double, Double>?) {
-        if (!theme.still && theme.level >= 1) {
+        if (!theme.still && theme.level >= 1 && !theme.deep) {      // deep: the type turns by the clock only, never by a key (that is a flicker the eye reads as noise)
             epoch++
             echo = Echo(ch, tick, epoch)
         }
@@ -489,7 +489,7 @@ internal class GlyphWorld(
         if (tick - arrive <= 31 || tick - fish <= 19 || tick == guest || tick == goodnight) dirty = true
         val idle = idleSeconds
         val beat = tick % 46
-        val turn = intArrayOf(0, 0, 6, 3)[theme.level]
+        val turn = (if (theme.deep) intArrayOf(0, 6, 6, 3) else intArrayOf(0, 0, 6, 3))[theme.level]   // deep: twice a second from the standard level, four at the highest
         if (!theme.still && turn != 0 && idle < 20 && tick % turn == 0) {
             epoch++; dirty = true
             val hm = clockHm()

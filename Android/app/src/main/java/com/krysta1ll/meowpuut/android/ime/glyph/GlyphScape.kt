@@ -88,11 +88,27 @@ internal class GlyphBottomClip(val g: GlyphSink, val maxY: Double) : GlyphSink {
     override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
 }
 
-/** What is nearest, as the views that draw it live need it: the place, the picture's size, the light, and how much of the motion is on. */
-internal class GlyphNear(val scene: String, val width: Double, val height: Double, val lift: Double, val dark: Boolean, val still: Boolean, val level: Int) {
+/** Everything drawn through it is thinner by [alpha] (0..1): the corner's bank dissolves with the fog at a border. */
+internal class GlyphFadeSink(val g: GlyphSink, val alpha: Double) : GlyphSink {
+    private fun fade(color: Int): Int {
+        val a = ((color ushr 24) * alpha).toInt().coerceIn(0, 255)
+        return (a shl 24) or (color and 0xFFFFFF)
+    }
+    override fun rect(x: Double, y: Double, w: Double, h: Double, color: Int) = g.rect(x, y, w, h, fade(color))
+    override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, fade(color))
+}
+
+/**
+ * What is nearest, as the views that draw it live need it: the place, the picture's size, the light, and how much of the motion is on.
+ * [fog]: how much of the land is there (see [GlyphWorld.fog]): at a border the corner thins with it and nothing passes while it is not whole.
+ */
+internal class GlyphNear(val scene: String, val width: Double, val height: Double, val lift: Double, val dark: Boolean, val still: Boolean, val level: Int, val fog: Double = 1.0) {
+    /** What passes in front shows only when the land is whole: a fog that thickens is no time for it. */
+    val clear: Boolean get() = fog >= FOG_CLEAR
     /** Something passes in front of the place at all: not with the lightest setting, and not with the system's reduced motion. */
-    val passes: Boolean get() = level >= 1 && !still && GlyphDepthFore.hasFore(scene)
+    val passes: Boolean get() = level >= 1 && !still && clear && GlyphDepthFore.hasFore(scene)
     fun state(clockMs: Double, keyAtMs: Double) = GlyphDepthFore.State(scene, width, height, lift, dark, still, clockMs, keyAtMs, !still)
+    companion object { const val FOG_CLEAR = 0.95 }
 }
 
 /** A band of the picture that tears sideways in a glitch, and the band that turns to its negative. */
@@ -486,25 +502,54 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     /** With depth in the keyboard, the corner and what passes are drawn live by their own view (see [GlyphNear]), not into this picture. */
     var liveNear = false
 
-    /** The sun or the moon on the water, when the ground is drawn live: its sparks stay under it, whatever the water does. */
+    /**
+     * What lies on the water by the screen and not by the ground, when the ground is drawn live: the sun's or the moon's sparks under it (each row
+     * changes its own now and then, staggered, with the turn of the type) and the sail far out. A cell with a spark in it has no type: it is
+     * laid in paper first, and the spark on that.
+     */
     private fun drawGlitter(g: GlyphSink, c: GlyphColors) {
         val spec = groundSpec ?: return
-        val dx = discX ?: return
         if (spec.kind != GroundKind.SEA || world.fog < 0.9 || formed < 1) return
         val geo = groundGeometry() ?: return
         val sub = FINE
         val color = if (!theme.dark) c.red else c.ink
-        for (row in 0 until geo.rows) for (b in 0 until geo.m) {
-            val y = geo.y(row) + b * sub
-            val gg = min(1.0, (y + sub / 2 - groundY) / geo.span)
-            val half = 8 + 70 * gg
-            val fineRow = row * geo.m + b
-            val run = 1 + (h2(fineRow, 5) * 2).toInt()
-            var bx = floor((dx - half) / sub).toInt()
-            while (bx * sub < dx + half) {
-                val px = bx * sub + sub / 2
-                if (abs(px - dx) < half && h2(floorDiv(bx, run), fineRow * 3) > 0.54 + 0.26 * gg) g.rect(bx * sub, y, sub, sub, color)
-                bx++
+        val dx = discX
+        val cell = geo.cell.toDouble()
+        for (row in 0 until geo.rows) {
+            val y0 = geo.y(row)
+            val sparkCols = HashSet<Int>()
+            for (b in 0 until geo.m) {
+                val y = y0 + b * sub
+                val gg = min(1.0, (y + sub / 2 - groundY) / geo.span)
+                val fineRow = row * geo.m + b
+                if (dx != null) {
+                    val half = 8 + 70 * gg
+                    val run = 1 + (h2(fineRow, 5) * 2).toInt()
+                    val turn = floorDiv(world.epoch + row * 5, 12)              // each row turns by itself, not all at once
+                    var bx = floor((dx - half) / sub).toInt()
+                    while (bx * sub < dx + half) {
+                        val px = bx * sub + sub / 2
+                        if (abs(px - dx) < half && h2(floorDiv(bx, run) + turn * 7, fineRow * 3) > 0.54 + 0.26 * gg) {
+                            val col = floor(bx * sub / cell).toInt()
+                            if (sparkCols.add(col)) g.rect(col * cell, y0, cell, cell, c.paper)
+                            g.rect(bx * sub, y, sub, sub, color)
+                        }
+                        bx++
+                    }
+                }
+                if (gg < 0.07) {                                              // far out, a small sail that keeps its place as the shore goes by
+                    val sy = gg / 0.07
+                    var bx = floor((width * 0.84 - 8) / sub).toInt()
+                    while (bx * sub < width * 0.84 + 8) {
+                        val sx = width * 0.84 - (bx * sub + sub / 2)
+                        if (sx > -7 && sx < 7 && sy < 0.9 && abs(sx) < 7 * sy + 0.5) {
+                            val col = floor(bx * sub / cell).toInt()
+                            if (sparkCols.add(col)) g.rect(col * cell, y0, cell, cell, c.paper)
+                            g.rect(bx * sub, y, sub, sub, c.ink)
+                        }
+                        bx++
+                    }
+                }
             }
         }
     }
@@ -529,8 +574,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     fun drawNear(g: GlyphSink, c: GlyphColors, front: Boolean) {
         val clip = GlyphTopClip(g, 0.0)
         val st = nearState()
-        if (!front && !noFrame) GlyphDepthFore.drawFrame(clip, c, st)
-        if (GlyphDepthFore.hasFore(preset.name)) GlyphDepthFore.drawFore(clip, c, st, foreAt(), 0.0)
+        if (!front && !noFrame) GlyphDepthFore.drawFrame(if (world.fog < 1.0) GlyphTopClip(GlyphFadeSink(g, world.fog), 0.0) else clip, c, st)
+        if (world.fog >= GlyphNear.FOG_CLEAR && GlyphDepthFore.hasFore(preset.name)) GlyphDepthFore.drawFore(clip, c, st, foreAt(), 0.0)
     }
 
 
@@ -934,7 +979,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             GroundKind.SEA -> {
                 p.pool = "wave"
                 if (row == 0) { p.rim = true; return 1.0 }          // the horizon is one ruled line
-                if (g < 0.07) {                                      // far out, a small sail that keeps its place as the shore goes by
+                if (g < 0.07 && !liveGroundActive()) {                // far out, a small sail that keeps its place as the shore goes by (live: drawn apart, by the screen)
                     val sx = width * 0.84 - px
                     val sy = g / 0.07
                     if (sx > -7 && sx < 7 && sy < 0.9 && abs(sx) < 7 * sy + 0.5) { p.rim = true; p.lit = true; return 1.0 }
@@ -1019,7 +1064,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         fun y(row: Int) = top + row * cell
         fun g0(row: Int) = min(1.0, (y(row) + cell / 2.0 - top) / span)
         /** How fast the row goes by, against the world's mileage (the near rows faster): the speed of the ground in the picture. */
-        fun speed(row: Int) = 0.5 + 2.2 * g0(row)
+        fun speed(row: Int) = 0.5 + GROUND_RUSH * g0(row)
     }
 
     /** The ground's rows for this place, or null when it has none (or the picture is not a deep one). */
@@ -1529,6 +1574,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         const val AIR_FAR = 0.3
         const val MIST_HEIGHT = 26.0
         const val MIST_SHARE = 0.8
+        /** How much faster the ground's rows go by at the viewer's feet than at the horizon (the horizon: half a unit of the world's mileage a unit). */
+        const val GROUND_RUSH = 0.9
         /** On the ground: how much closer the type is set at the viewer's feet, how much thinner at the horizon. */
         const val NEAR_CLOSE = 0.7
         const val NEAR_FAR = 0.14

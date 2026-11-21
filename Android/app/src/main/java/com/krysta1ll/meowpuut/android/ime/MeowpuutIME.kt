@@ -322,6 +322,7 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) keyboard?.glyph?.trim()   // the picture's strips and rows go back; it is drawn whole
         // In the background the lexicon is given back; the next field loads it again.
         if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && !isInputViewShown) {
             composer.detach()

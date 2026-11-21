@@ -106,9 +106,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             controller.warm()
             addView(controller.groundView, 0)
             addView(controller.scene, 1)
-            addView(controller.nearView, 2)
+            addView(controller.ringView, 2)
+            addView(controller.nearView, 3)
             // The cats and the words that rise are under the bar and the keys: a legend, with its halo, is always the clearest thing.
-            addView(controller.front, 3)
+            addView(controller.front, 4)
             keys.glyph = controller
             bar.glyph = controller
             controller.overlays = listOf(bar, keys)
@@ -128,6 +129,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             bar.glyph = null
             removeView(controller.groundView)
             removeView(controller.scene)
+            removeView(controller.ringView)
             removeView(controller.nearView)
             removeView(controller.front)
             controller.stop()
@@ -397,6 +399,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             it.scene.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
             it.groundView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
             it.nearView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
+            it.ringView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
             it.front.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), h)
         }
         previews.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(total, MeasureSpec.EXACTLY))
@@ -435,6 +438,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         glyph?.let {
             it.scene.layout(0, 0, width, it.scene.measuredHeight)
             it.nearView.layout(0, 0, width, it.scene.measuredHeight)
+            it.ringView.layout(0, 0, width, it.scene.measuredHeight)
             it.groundView.layout(0, 0, width, it.scene.measuredHeight)
             it.front.layout(0, 0, width, it.front.measuredHeight)
             glyphLayout()?.let(it::setLayout)

@@ -78,6 +78,8 @@ internal class GlyphController(private val context: Context) {
     private var nearSink: GlyphCanvasSink? = null
     /** The corner's bank and what passes: drawn live between the land and the cats, at the display's rate while anything moves. */
     val nearView = GlyphNearView(context, this)
+    /** The ring a key press runs out through the picture, by the screen, between the land and what is near. */
+    val ringView = GlyphRingView(context, this)
     /** The ground with depth, drawn live under the picture (see [GlyphGround]). */
     val groundView = GlyphGroundView(context, this)
     private val ground = GlyphGround(renderScale)
@@ -138,6 +140,8 @@ internal class GlyphController(private val context: Context) {
             engine = e
             sink = GlyphCanvasSink(renderScale, gather = true)
             e.restore(startDistance)
+            val carried = carriedTarget                           // the picture goes on from where the last showing left it (the records only count what was committed)
+            if (carried > e.world.target) { e.world.target = carried; e.world.pos = max(e.world.pos, carried) }
             forced?.let { e.force(it) }
             held?.let { e.hold(it) }
             heldFx?.let { e.holdFx(it) }
@@ -160,12 +164,14 @@ internal class GlyphController(private val context: Context) {
     /** The cats' records were cleared, and the journey with them: the world goes back to its first place. */
     fun rewind() {
         startDistance = 0L
+        carriedTarget = 0
         handler?.post { engine?.restore(0L, reset = true); requestTick() }
     }
 
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */
     fun stop() {
         val t = thread ?: return
+        carriedTarget = max(carriedTarget, worldTarget)
         choreographer.removeFrameCallback(vsync); driving = false; motion.reset(); ground.clear(); groundExact = DoubleArray(0)
         hiddenAt = SystemClock.uptimeMillis()
         val h = handler
@@ -183,10 +189,33 @@ internal class GlyphController(private val context: Context) {
         frame = null
     }
 
+    /**
+     * The system is short of memory: the land's strips, the ground's rows and the rings' frames are given back, and the picture is drawn whole
+     * (as it is with the strips off: the same picture, only dearer to make) until the next showing.
+     */
+    fun trim() {
+        ringView.release()
+        val h = handler
+        if (h == null) { ground.clear(); return }
+        h.post {
+            val e = engine ?: return@post
+            layersOn = false
+            e.scape.groundLive = false
+            layerStrips.release(e.scape)
+            ground.clear(); groundExact = DoubleArray(0)
+            for (i in ring.indices) ring[i] = null
+            e.world.dirty = true
+            requestTick()
+        }
+        groundView.postInvalidateOnAnimation()
+    }
+
     /** The keyboard is hidden, but the view stays: the clock stops, what was typed is dropped, the distance is saved. */
     fun pause() {
         val h = handler ?: return
         hiddenAt = SystemClock.uptimeMillis()
+        choreographer.removeFrameCallback(vsync); driving = false          // nothing is drawn while the keyboard is away
+        ringView.clear()
         h.removeCallbacks(tick)
         h.post {
             val e = engine ?: return@post
@@ -278,7 +307,7 @@ internal class GlyphController(private val context: Context) {
     internal fun drawNearLive(g: GlyphSink, c: GlyphColors, n: GlyphNear, front: Boolean) {
         val clip = GlyphTopClip(g, 0.0)
         val st = liveState(n)
-        if (!front) GlyphDepthFore.drawFrame(clip, c, st)
+        if (!front) GlyphDepthFore.drawFrame(if (n.fog < 1.0) GlyphTopClip(GlyphFadeSink(g, n.fog), 0.0) else clip, c, st)
         if (n.passes || foreHold != null) GlyphDepthFore.drawFore(clip, c, st, liveForeAt(n), 0.0)
     }
 
@@ -337,7 +366,7 @@ internal class GlyphController(private val context: Context) {
         h = h * 31 + e.theme.level; h = h * 31 + (if (e.theme.dark) 1 else 0); h = h * 31 + (if (e.theme.still) 1 else 0)
         h = h * 31 + l.hashCode(); h = h * 31 + (if (e.hasCandidates) 1 else 0); h = h * 31 + (e.barLabel?.contentHashCode() ?: 0)
         h = h * 31 + Math.round(e.scape.formed * 20); h = h * 31 + Math.round(e.world.fog * 20)
-        h = h * 31 + (if (e.world.ripples.isNotEmpty()) e.world.tick.toLong() else 0L)          // a ring is running out through the land
+        if (!e.theme.deep) h = h * 31 + (if (e.world.ripples.isNotEmpty()) e.world.tick.toLong() else 0L)   // a ring is running out through the land
         h = h * 31 + (if (e.world.tick < e.world.glitch) e.world.tick.toLong() else 0L)
         return h
     }
@@ -435,6 +464,7 @@ internal class GlyphController(private val context: Context) {
     /** A key went down. Called on the touch path: it allocates one message and does nothing else. */
     fun key(kind: GlyphKey, x: Float, y: Float, composing: Boolean, letter: String) {
         motion.keyed()
+        ringView.start(x, y)
         handler?.post { engine?.let { it.key(kind, x.toDouble(), y.toDouble(), composing, letter); worldTarget = it.world.target; worldEpoch = it.world.epoch }; requestTick() }
         kick()
     }
@@ -639,6 +669,8 @@ internal class GlyphController(private val context: Context) {
         /** The place whose keys hang as signs. */
         const val STREET = "街"
         @Volatile private var sharedPools: GlyphPools? = null
+        /** Where the picture had got to when the last showing ended, for the next one to go on from (this process only; the journey's own count is the records'). */
+        @Volatile private var carriedTarget = 0
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
