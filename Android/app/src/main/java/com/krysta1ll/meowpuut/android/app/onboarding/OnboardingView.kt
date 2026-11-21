@@ -33,7 +33,7 @@ internal class OnboardingView(context: Context) : View(context) {
     /** Device pixels to a point: the page is always 393 points wide. */
     val scale: Float get() = width / 393f
 
-    class Setup(val copy: OnboardingCopy, val host: OnboardingHost, val topInset: Double, val bottomInset: Double, val dark: Boolean, val still: Boolean, val contrast: Boolean, val big: Boolean)
+    class Setup(val copy: OnboardingCopy, val host: OnboardingHost, val topInset: Double, val bottomInset: Double, val dark: Boolean, val still: Boolean, val contrast: Boolean, val big: Boolean, val resume: Onboarding.Progress? = null)
 
     /** Begins the guide. Call once, on the main thread, when the view has its size. */
     fun begin(setup: Setup) {
@@ -51,7 +51,7 @@ internal class OnboardingView(context: Context) : View(context) {
             s.still = setup.still
             painter = p; state = s; sink = GlyphCanvasSink(perPoint, gather = true)
             synchronized(lock) { front = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); back = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }
-            s.start()
+            if (setup.resume != null) s.resume(setup.resume.act, setup.resume.pick) else s.start()
             if (running) worker.post(tick)
         }
     }

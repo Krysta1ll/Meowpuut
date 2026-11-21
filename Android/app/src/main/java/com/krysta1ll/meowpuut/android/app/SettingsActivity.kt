@@ -123,7 +123,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         com.krysta1ll.meowpuut.android.app.stats.DemoHooks.enable(this, intent)   // (debug builds only)
-        if (savedInstanceState == null && com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.due(this, prefs.store)) startActivity(Intent(this, OnboardingActivity::class.java))   // 第一行字: a new install sees the guide first
+        if ((savedInstanceState == null && com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.due(this, prefs.store)) || com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.resumable(prefs.store)) startActivity(Intent(this, OnboardingActivity::class.java))   // 第一行字: every device sees the guide once; one the system ended (even a crash that brings only this page back) is taken up again where it was
         ui = PaperUi(this, AppSkins.worn(prefs, dark), dark)
         stamp = StampToast(this, ui)
         val column = object : LinearLayout(this) {
@@ -362,7 +362,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                     typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 }, weighted())
             }
-        column.addView(action(R.string.onboarding_replay) { startActivity(Intent(this, OnboardingActivity::class.java)) })   // 第一行字: see the guide again
+        column.addView(action(R.string.onboarding_replay) { startActivity(Intent(this, OnboardingActivity::class.java).putExtra(OnboardingActivity.EXTRA_REPLAY, true)) })   // 第一行字: see the guide again
         column.addView(action(R.string.licenses, ::showLicenses), LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
 

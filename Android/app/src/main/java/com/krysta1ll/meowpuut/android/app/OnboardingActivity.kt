@@ -64,10 +64,18 @@ class OnboardingActivity : Activity() {
     private var lastEnabled: Boolean? = null
     private var lastOurs: Boolean? = null
     private var hots: List<Hot> = emptyList()
+    /** Someone already using the app: what is done is not asked again, and nothing of theirs is changed unless they choose it. */
+    private var using = false
+    /** A guide the system ended a moment ago, taken up where it was. */
+    private var resume: Onboarding.Progress? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        val replay = intent.getBooleanExtra(EXTRA_REPLAY, false)
+        if (replay && savedInstanceState == null) Onboarding.forget(prefs.store)       // asked for again: from the beginning, not from an old stop
+        using = Onboarding.usingNow(prefs.store, replay)
+        resume = Onboarding.progress(prefs.store)                                       // nothing was saved of the page itself: this is all there is to go on
         val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val colors = GlyphColors.of(dark)
         window.decorView.setBackgroundColor(colors.paper)               // the decor first: the bars' appearance is asked of it
@@ -146,7 +154,7 @@ class OnboardingActivity : Activity() {
             val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
             val copy = onboardingCopy { key -> getString(STRINGS.getValue(key)) }
             page.begin(OnboardingView.Setup(copy, host, topInset / scale.toDouble(), barsBottom / scale.toDouble(), dark, still = !ValueAnimator.areAnimatorsEnabled(), contrast = wantsMoreContrast(this),
-                big = resources.configuration.fontScale >= 1.3f))
+                big = resources.configuration.fontScale >= 1.3f, resume = resume))
             // The line to type on: the field lies just above the rule the page draws, in the page's own pixel type.
             val lineY = topInset / scale + 198
             field.setTextSize(TypedValue.COMPLEX_UNIT_PX, 36 * scale)
@@ -249,6 +257,13 @@ class OnboardingActivity : Activity() {
     }
 
     override fun chose(scheme: Scheme) = runOnUiThread { prefs.mode = InputMode.of(scheme.key) }
+    override fun current(): Scheme? = if (!using) null else when (prefs.mode) {
+        InputMode.ZHUYIN -> Scheme.ZHUYIN
+        InputMode.PINYIN -> Scheme.PINYIN
+        InputMode.NINE_KEY -> Scheme.NINE_KEY
+        else -> null                                                  // Japanese is none of the three roads: none is marked
+    }
+    override fun reached(act: Int, pick: Int) = Onboarding.reached(prefs.store, act, pick)
     override fun keepSkin() = runOnUiThread { prefs.skin = KeyboardSkin.GLYPH }
     override fun done() = runOnUiThread { Onboarding.markDone(prefs.store) }
     override fun leave() = runOnUiThread { leaveNow() }
@@ -272,9 +287,12 @@ class OnboardingActivity : Activity() {
         }
     }
 
-    private companion object {
+    companion object {
+        /** Set by the settings' "see it again": from the beginning, as for someone who is already using the app. */
+        const val EXTRA_REPLAY = "replay"
+
         /** The guide's strings by name: named one by one so the release build's resource shrinker keeps them. */
-        val STRINGS: Map<String, Int> = mapOf(
+        private val STRINGS: Map<String, Int> = mapOf(
             "skip" to R.string.onboarding_skip, "skip_label" to R.string.onboarding_skip_label,
             "a1_line" to R.string.onboarding_a1_line, "a1_hint" to R.string.onboarding_a1_hint, "a1_after" to R.string.onboarding_a1_after,
             "a1_alt" to R.string.onboarding_a1_alt, "a1_alt_after" to R.string.onboarding_a1_alt_after,

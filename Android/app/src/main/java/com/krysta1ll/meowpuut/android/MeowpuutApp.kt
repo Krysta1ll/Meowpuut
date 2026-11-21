@@ -7,6 +7,7 @@ import com.krysta1ll.meowpuut.android.app.BundledSkins
 class MeowpuutApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.processStarted(this)   // the guide's temporary skin cannot outlive the process that was showing it
         BundledSkins.installAsync(this)
     }
 }

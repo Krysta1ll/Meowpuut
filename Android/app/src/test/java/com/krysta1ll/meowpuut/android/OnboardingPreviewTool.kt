@@ -39,7 +39,10 @@ internal class RecordingHost : OnboardingHost {
     override fun say(text: String) { said += text }
     override fun describe(text: String) { described = text }
     override fun hots(list: List<Hot>) { hots = list }
-    override fun chose(scheme: Scheme) { chosen = scheme }
+    var inUse: Scheme? = null; var reachedLog = ArrayList<Pair<Int, Int>>(); var chosenCount = 0
+    override fun chose(scheme: Scheme) { chosen = scheme; chosenCount++ }
+    override fun current(): Scheme? = inUse
+    override fun reached(act: Int, pick: Int) { reachedLog += act to pick }
     override fun keepSkin() { kept = true }
     override fun done() { done = true }
     override fun leave() { left = true }

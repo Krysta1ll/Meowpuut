@@ -23,12 +23,24 @@ class OnboardingTest {
 
     // ---- when it comes up ---------------------------------------------------------------------------------
     @Test
-    fun onlyANewInstallIsShownTheGuideUnasked() {
-        assertEquals(true to Onboarding.DUE, Onboarding.decide(null, fresh = true))
-        assertEquals(false to Onboarding.DONE, Onboarding.decide(null, fresh = false))     // someone who already had the app: never interrupted
-        assertEquals(true to null, Onboarding.decide(Onboarding.DUE, fresh = false))       // decided once: a later update does not change it
-        assertEquals(false to null, Onboarding.decide(Onboarding.DONE, fresh = true))
-        assertEquals(false to Onboarding.DONE, Onboarding.decide("something else", fresh = false))
+    fun everyDeviceIsShownTheGuideOnceWhoeverItIsFor() {
+        assertEquals(true to Onboarding.DUE, Onboarding.decide(null))                      // no record: shown, new or not, and noted as due
+        assertEquals(true to null, Onboarding.decide(Onboarding.DUE))                      // shown and not finished: shown again
+        assertEquals(false to null, Onboarding.decide(Onboarding.DONE))                    // seen or skipped: never again by itself
+        assertEquals(true to Onboarding.DUE, Onboarding.decide("something else"))
+    }
+
+    @Test
+    fun aGuideTheSystemEndedIsTakenUpWhereItWasOnlyForAWhile() {
+        val at = 5_000_000L
+        val p = Onboarding.readProgress("3,-1,$at", at + 60_000)!!
+        assertEquals(3, p.act); assertEquals(-1, p.pick)
+        assertEquals(2, Onboarding.readProgress("5,2,$at", at + Onboarding.RESUME_MS)!!.pick)
+        assertNull(Onboarding.readProgress("3,-1,$at", at + Onboarding.RESUME_MS + 1))     // too long ago: from the beginning
+        assertNull(Onboarding.readProgress("3,-1,$at", at - 1))                            // the clock was set back
+        assertNull(Onboarding.readProgress("1,-1,$at", at)); assertNull(Onboarding.readProgress("7,-1,$at", at))
+        assertNull(Onboarding.readProgress("3,5,$at", at)); assertNull(Onboarding.readProgress("3,-1", at)); assertNull(Onboarding.readProgress("x,y,z", at))
+        assertNull(Onboarding.readProgress(null, at))
     }
 
     @Test
@@ -48,6 +60,73 @@ class OnboardingTest {
         assertFalse(Onboarding.wearing(now, now))                                           // run out
         assertFalse(Onboarding.wearing(0, now))                                             // never set
         assertFalse(Onboarding.wearing(now + Onboarding.WEAR_MS + 1, now))                  // the clock was set back: not for ever
+    }
+
+    // ---- someone already using the app ----------------------------------------------------------------------
+    @Test
+    fun somebodyAlreadyUsingTheKeyboardIsNotAskedToDoWhatIsDone() {
+        val host = RecordingHost().apply { inUse = Scheme.PINYIN }
+        val g = guide(host)
+        g.enabled(true); g.keyboardIsOurs(true); g.start(); g.tap("paper"); g.run(90)
+        g.run(60)                                                           // enabled already: the sun comes up by itself, no trip to the settings
+        assertTrue(g.sunrise); assertEquals(0, host.settings); assertEquals(3, g.act)
+        assertEquals(1, g.mimiStage); assertFalse(host.has("tag"))          // already the keyboard in use: eyes at once, nothing asked
+        repeat(3) { g.typed() }; g.committed(); g.run(120)
+        assertEquals(4, g.act)
+        assertEquals(copy.order.indexOf(Scheme.PINYIN), g.youAre)           // the road in use is marked
+        g.tap("road${g.youAre}")
+        assertNull(host.chosen); assertEquals(0, host.chosenCount)          // the road already in use writes nothing
+        g.run(200); assertTrue(g.atHome); assertFalse(host.kept)            // and the skin is what it was unless asked
+    }
+
+    @Test
+    fun anotherRoadIsWrittenAndAWayThatIsNoneOfTheThreeMarksNothing() {
+        val host = RecordingHost().apply { inUse = Scheme.ZHUYIN }
+        val g = guide(host)
+        g.resume(4, -1)
+        assertEquals(copy.order.indexOf(Scheme.ZHUYIN), g.youAre)
+        val other = (0..2).first { it != g.youAre }
+        g.tap("road$other"); assertEquals(copy.order[other], host.chosen); assertEquals(1, host.chosenCount)
+        val none = RecordingHost().apply { inUse = null }                  // Japanese, or a new install
+        val h = guide(none); h.resume(4, -1)
+        assertEquals(-1, h.youAre)
+        h.tap("road0"); assertEquals(copy.order[0], none.chosen)           // nothing is marked, so any road is written
+    }
+
+    @Test
+    fun theGuideSaysWhereItHasGotToAndASkipIsSeenAtOnce() {
+        val host = RecordingHost()
+        val g = guide(host)
+        g.start(); g.tap("paper"); g.run(90)
+        assertEquals(listOf(1 to -1, 2 to -1), host.reachedLog)
+        g.enabled(true); g.run(90); g.keyboardIsOurs(true); repeat(3) { g.typed() }; g.committed(); g.run(90)
+        assertEquals(4, g.act); assertEquals(listOf(1 to -1, 2 to -1, 3 to -1, 4 to -1), host.reachedLog)
+        g.tap("road2"); g.run(60)
+        assertEquals(5 to 2, host.reachedLog.last())
+        val h = RecordingHost(); val s = guide(h)
+        s.start(); s.tap("skip"); assertTrue(h.done)                        // before the last page has been typed
+    }
+
+    @Test
+    fun aGuideTheSystemEndedIsTakenUpAsIfJustComeBack() {
+        for (act in 2..5) {
+            val host = RecordingHost()
+            val g = guide(host)
+            g.resume(act, if (act == 5) 1 else -1)
+            assertEquals("act $act", act, g.act); assertEquals(1.0, g.pile, 0.0)
+            assertEquals(false, g.atHome); assertTrue(host.has("skip"))
+            if (act >= 3) assertTrue(g.sunrise)
+            if (act == 3) assertTrue(host.keyboardUp)
+            if (act == 4) assertTrue(host.has("road0"))
+            if (act == 5) assertEquals(copy.order[1], g.scheme)
+        }
+        val host = RecordingHost(); val g = guide(host)
+        g.resume(2, -1); g.run(5)
+        assertTrue(host.has("post")); assertFalse(g.sunrise)                // still waiting for the keyboard to be enabled
+        g.enabled(true); g.run(120); assertEquals(3, g.act)                 // and goes on when it is
+        val last = RecordingHost(); val e = guide(last)
+        e.resume(5, 0); e.run(200)
+        assertTrue(e.atHome); assertTrue(last.done)
     }
 
     // ---- what is typed is not kept ------------------------------------------------------------------------

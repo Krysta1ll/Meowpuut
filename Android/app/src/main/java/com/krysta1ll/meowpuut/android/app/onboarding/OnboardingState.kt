@@ -66,7 +66,12 @@ internal interface OnboardingHost {
     /** What the picture now shows, for someone who cannot see it. */
     fun describe(text: String)
     fun hots(list: List<Hot>)
+    /** The road taken is a different one from the way of typing now in use (or there was none in use): write it. Not called for the one already in use. */
     fun chose(scheme: Scheme)
+    /** The way of typing in use now, for someone already using the app; null for a new install, or a way that is none of the three roads. */
+    fun current(): Scheme?
+    /** The guide has got to act [act] (2…6) and the road [pick] (-1: none yet): kept, so a guide the system ends can be taken up there. */
+    fun reached(act: Int, pick: Int)
     fun keepSkin()
     /** The guide has been seen through, or skipped: it does not come up by itself again. */
     fun done()
@@ -123,6 +128,8 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
     var worn = false; private set
     var pick = -1; private set
     var scheme: Scheme? = null; private set
+    /** The road marked as the one already in use (index into the order), or -1: for someone already using the app, set as the roads part. */
+    var youAre = -1; private set
     var sunrise = false; private set
     var pos = START; private set
     var target = START; private set
@@ -271,8 +278,23 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
     /** Begins at the beginning. */
     fun start() { enter(1) }
 
+    /**
+     * Takes the guide up where the system's ending of it left it: act [n] (2…6), road [road] taken (-1 none), as if just come back. Nothing
+     * waits for the land to grow; what the person has already done is not asked again.
+     */
+    fun resume(n: Int, road: Int) {
+        instant = true
+        pile = 1.0
+        if (n >= 3) { stars = 1.0; horizon = 1.0; sun = 1.0; rise = 1.0; far = 1.0; mid = 1.0; near = 1.0; sunrise = true }
+        if (n >= 4) { trees = 1.0; sky = 1.0; mimi.on = 2; momo.on = 2; pos += 40; target = pos }
+        if (n >= 5) { pick = road; scheme = copy.order.getOrNull(road); pos += 120; target = pos }
+        if (n >= 6) arrive(direct = true) else enter(n)
+        pos = target; instant = false; dirty = true
+    }
+
     private fun enter(n: Int) {
         act = n; dirty = true
+        host.reached(n, pick)
         when (n) {
             1 -> {
                 host.describe(copy.a1Alt)
@@ -298,6 +320,7 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
             }
             4 -> {
                 host.describe(copy.a4Alt.format(copy.order.joinToString("、") { copy.schemes.getValue(it) }))
+                youAre = host.current()?.let { copy.order.indexOf(it) } ?: -1
                 grove = 0.0; target += 24; signPos = target
                 hots()
                 narrate(copy.a4Lines.map { Line(it) } + Line(copy.a4Note, small = true, mute = true))
@@ -395,7 +418,7 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
         if (act != 4 || pick >= 0 || k !in copy.order.indices) return
         val s = copy.order[k]
         val name = copy.schemes.getValue(s)
-        pick = k; scheme = s; host.chose(s); hots(); host.say(copy.a4Announce.format(name)); narrate(copy.a4Chosen.format(name))
+        pick = k; scheme = s; if (k != youAre) host.chose(s); hots(); host.say(copy.a4Announce.format(name)); narrate(copy.a4Chosen.format(name))
         for (j in 0..2) if (j != k) tween({ roadWide[j] }, { roadWide[j] = it }, 0.0, 7)
         tween(::signDrop, 1.0, 8); tween({ roadEnd[k] }, { roadEnd[k] = it }, 196.0, 16, 5)
         after(7) { target += 96 }
@@ -510,6 +533,7 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
 
     fun skip() {
         if (atHome) return
+        host.done()                                                  // skipped is seen: not later, when the last page has been typed
         tweens.clear(); timers.clear(); falls.clear(); rain.clear(); narThen = null
         if (act == 3) host.keyboard(false)
         pile = 1.0; cam = 0.0; hint = 0.0; fog = 1.0
