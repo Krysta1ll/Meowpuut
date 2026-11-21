@@ -56,6 +56,10 @@ internal class CatMoments(
         affinity.onReady = { if (presented) bar()?.let { appear(it) } }
     }
 
+    /** The cats' own count of committed characters (0 until their book has been read), and a call for when it has. */
+    fun committedCharacters(): Long = affinity.committedCharacters()
+    fun whenBookOpened(block: () -> Unit) { affinity.onOpened = block }
+
     private val handler = Handler(Looper.getMainLooper())
     private val clock = PetClock()
     private val ambience = PetAmbience()

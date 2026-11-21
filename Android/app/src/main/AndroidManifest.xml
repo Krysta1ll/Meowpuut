@@ -37,6 +37,12 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode|fontScale"
             android:windowSoftInputMode="adjustResize|stateHidden" />
 
+        <!-- 行旅: what the cats' records add up to. Reads this app's own files only; nothing leaves the phone. -->
+        <activity
+            android:name=".app.StatsActivity"
+            android:exported="false"
+            android:label="@string/stats_title" />
+
         <!-- The custom-skins page. Its filters name only our own MIME types and file extensions (never */* or
              application/octet-stream); only content:// is read, with a size cap, and a package must still be
              signed by the developer and issued for this phone (plans/custom-skins.md §8.3). The in-app file

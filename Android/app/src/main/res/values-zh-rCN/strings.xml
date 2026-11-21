@@ -276,4 +276,72 @@
     <string name="onboarding_a6_announce">引导结束，这里是首页。</string>
     <string name="onboarding_replay">再看一遍“第一行字”</string>
     <string name="onboarding_title">第一行字</string>
+    <!-- 行旅 (the statistics page) and the home page's pictures -->
+    <string name="stats_title">行旅</string>
+    <string name="stats_open">行旅</string>
+    <string name="stats_open_value">%1$d 座山</string>
+    <string name="stats_open_none">还没出发</string>
+    <string name="stats_back">返回</string>
+    <string name="stats_since">%1$d 年 %2$s起</string>
+    <string name="stats_words_sub">个字，一路打过来。走过 %1$d 个地方。</string>
+    <string name="stats_words_desc">一共打了 %1$s 个字。走过 %2$d 个地方，现在在%3$s。</string>
+    <string name="stats_hero_desc">两只猫现在走到“%1$s”，第 %2$d 站。</string>
+    <string name="stats_year_month">%1$d 年%2$s</string>
+    <string name="stats_ridge_title">日子的山</string>
+    <string name="stats_ridge_note">打过字的每一天是一座山。字越多，山越高。空白的日子不在这里。</string>
+    <string name="stats_ridge_desc">日子的山。有 %1$d 座山，每一座是一天打过字的日子，字越多越高。从%2$s开始，一直到今天。其中字数在四千以上的有 %3$d 天。图是装饰，可以左右滑动往回看。</string>
+    <string name="stats_places_title">去过的地方</string>
+    <string name="stats_places_note">走得够远就会到下一个地方。有些地方，很少遇见。</string>
+    <string name="stats_place_seen">%1$s，到过 %2$d 次</string>
+    <string name="stats_place_unseen">还没遇见的地方</string>
+    <string name="stats_place_times">到过 %1$d 次</string>
+    <string name="stats_place_not_yet">还没遇见</string>
+    <string name="stats_parts_title">一天里的时刻</string>
+    <string name="stats_parts_note">清晨、白天、傍晚、晚上、深夜，各有几个日子打过字。</string>
+    <string name="stats_parts_desc">一天里的时刻。清晨 %1$d 天，白天 %2$d 天，傍晚 %3$d 天，晚上 %4$d 天，深夜 %5$d 天打过字。</string>
+    <string name="stats_cats_title">两只猫</string>
+    <string name="stats_cats_note">山有多高，是它们和你有多熟。一笔一笔，记的是摸摸。</string>
+    <string name="stats_cats_desc">两只猫。米米莫：熟度 %1$d，摸摸 %2$d 次，玩耍 %3$d 次。莫莫：熟度 %4$d，摸摸 %5$d 次，玩耍 %6$d 次。</string>
+    <string name="stats_cat_facts">熟度 %1$d　摸摸 %2$d　玩耍 %3$d</string>
+    <string name="stats_bands_title">山有多高</string>
+    <string name="stats_bands_note">按那一天的字数，日子分成五种山。山顶的数字，是至少这么高的日子有几个。</string>
+    <string name="stats_bands_desc">山有多高。有打字的日子 %1$d 天，百字以上 %2$d 天，五百字以上 %3$d 天，一千五百字以上 %4$d 天，四千字以上 %5$d 天。</string>
+    <string name="stats_festivals_title">遇见的节日</string>
+    <string name="stats_festivals_note">那一天打了字，那个节日就在路边留下一样它自己的东西。</string>
+    <string name="stats_festivals_none">到了节日那天打字，路边就会留下它的图样。</string>
+    <string name="stats_festivals_desc">遇见的节日：%1$s。</string>
+    <string name="stats_festival_times">%1$s ×%2$d</string>
+    <string name="stats_footer">这些只在这部手机里。只记数量，不记你打的字。\n清除猫咪记录时，这一页也一起清空。</string>
+    <string name="stats_empty_new">还没有行旅。打几个字，两只猫就上路了。</string>
+    <string name="stats_empty_cleared">记录已经清除。新的字，会从头记起。</string>
+    <string-array name="stats_months">
+        <item>一月</item><item>二月</item><item>三月</item><item>四月</item><item>五月</item><item>六月</item>
+        <item>七月</item><item>八月</item><item>九月</item><item>十月</item><item>十一月</item><item>十二月</item>
+    </string-array>
+    <string-array name="stats_part_names">
+        <item>清晨</item><item>白天</item><item>傍晚</item><item>晚上</item><item>深夜</item>
+    </string-array>
+    <string-array name="stats_band_names">
+        <item>小丘</item><item>山坡</item><item>山</item><item>高山</item><item>雪峰</item>
+    </string-array>
+    <string-array name="stats_band_notes">
+        <item>有打字</item><item>百字起</item><item>五百起</item><item>千五起</item><item>四千起</item>
+    </string-array>
+    <string name="home_where">— %1$s —</string>
+    <string name="home_stop">第 %1$d 站</string>
+    <string name="home_hero_desc">两只猫现在走到%1$s，第 %2$d 站。点一下，它们会走几步。</string>
+    <string name="home_mark_desc">喵扑 Meowpuut</string>
+    <string name="home_sign_settings">键盘设置</string>
+    <string name="home_sign_wardrobe">键盘衣橱</string>
+    <string name="home_sign_setup">添加键盘</string>
+    <string name="home_photos_type_note">先是字，点一下才是照片。</string>
+    <string name="home_photo_type_desc">%1$s。目前是字画，点一下显示照片。</string>
+    <string name="home_photo_real_desc">%1$s。点一下放大。</string>
+    <string name="home_setup_off">还没启用</string>
+    <string name="home_setup_on">已启用</string>
+    <string name="home_setup_selected">使用中</string>
+    <string name="stats_festivals_desc_more">遇见的节日：共 %1$d 个，最近的是%2$s。图是一条路，可以往左滑看更早的。</string>
+    <string name="stats_festivals_count">遇见 %1$d 个。</string>
+    <string name="stats_festivals_count_more">遇见 %1$d 个。往左滑，看更早的。</string>
+    <string name="home_festival_desc">今天是%1$s。</string>
 </resources>

@@ -345,12 +345,13 @@ class GlyphEngineTest {
     // ---- the journey and what is kept ------------------------------------------------------------------------------
 
     @Test
-    fun theDistanceIsTheCountOfCommittedCharacters() {
+    fun theDistanceIsEightUnitsForEachCommittedCharacter() {
         val e = engine()
         e.committed("你好", 2, false, true)
         e.committed("世界", 2, false, true)
         e.committed("x", -4, false, true)
-        assertEquals(4L, e.distance)
+        assertEquals(4L * GlyphJourney.UNITS_PER_CHARACTER, e.distance)
+        assertEquals(32L, e.distance)
         e.restore(1000)
         assertEquals(1000L, e.distance)
         e.restore(-5)
@@ -364,7 +365,8 @@ class GlyphEngineTest {
         e.step()
         assertEquals(journey.placeAt(0).scene, e.world.scene)
         assertEquals("the first place is not announced", 0f, e.front().bannerAlpha, 0f)
-        e.committed("x", journey.placeAt(0).len + 5, false, false)
+        // characters enough to walk past the first place (eight units each)
+        e.committed("x", (journey.placeAt(0).len + 5) / GlyphJourney.UNITS_PER_CHARACTER.toInt() + 1, false, false)
         e.step()
         assertEquals(journey.placeAt(1).scene, e.world.scene)
         val banner = e.front()

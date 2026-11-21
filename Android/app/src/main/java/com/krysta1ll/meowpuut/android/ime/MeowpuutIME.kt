@@ -120,6 +120,8 @@ class MeowpuutIME : InputMethodService(),
         keySounds.update(prefs.keySound)
         keyHaptics = KeyHaptics(this).apply { update(prefs.haptics, prefs.hapticStrength) }
         moments = CatMoments(catAffinity, prefs, keyHaptics) { keyboard?.bar }
+        // The cats' book is read in the background: a world that started before it was read takes up the journey from it when it is.
+        moments.whenBookOpened { keyboard?.let { it.glyphDistance = journeyStart(); it.glyph?.rebase(it.glyphDistance) } }
         prefs.store.registerOnSharedPreferenceChangeListener(this)
         lexicons = Lexicons(this)
         sprites = CatSprites(resources)
@@ -154,8 +156,7 @@ class MeowpuutIME : InputMethodService(),
             requestHideSelf(0)
         }
         view.panel.listener = this
-        // 字景 keeps one number of what is typed: how far the journey has got. Nothing typed is stored.
-        view.onGlyphDistance = { prefs.glyphDistance = it }
+        // 字景's journey is the cats' own count of characters (eight units each); nothing of it is stored by the skin.
         keyboard = view
         val host = KeyboardWindowView(this, view, prefs)
         keyboardWindow = host
@@ -332,7 +333,7 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onSharedPreferenceChanged(store: SharedPreferences?, key: String?) {
         when (key) {
-            Prefs.FLOATING_X, Prefs.FLOATING_Y, Prefs.GLYPH_DISTANCE -> return
+            Prefs.FLOATING_X, Prefs.FLOATING_Y -> return
             Prefs.MODE -> {
                 finishComposition()
                 pending.clear()
@@ -383,6 +384,9 @@ class MeowpuutIME : InputMethodService(),
             }
             Prefs.CLEAR_PETS -> {
                 moments.clear()
+                // The journey is the cats' count of characters, so it starts again with the records: 字景's world goes back to its first place.
+                keyboard?.glyphDistance = 0L
+                keyboard?.glyph?.rewind()
                 return
             }
             Prefs.HAPTICS, Prefs.HAPTIC_STRENGTH -> {
@@ -1218,6 +1222,9 @@ class MeowpuutIME : InputMethodService(),
         keySounds.useSkin(loaded?.sounds)
     }
 
+    /** How far the cats have walked, from their own count of characters: the journey is the same whichever skin has been worn. */
+    private fun journeyStart(): Long = com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney.distanceOf(moments.committedCharacters())
+
     private fun applyLook() {
         val dark = when (prefs.tone) {
             Tone.SYSTEM -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -1240,7 +1247,7 @@ class MeowpuutIME : InputMethodService(),
             overlay?.strength ?: prefs.strength, prefs.cats, festivalPill,
             wantsMoreContrast(this), prefs.effects, skin, overlay)
         keyboard?.let {
-            it.glyphDistance = prefs.glyphDistance
+            it.glyphDistance = journeyStart()
             it.glyphCrab = prefs.glyphCrab
             it.glyphScene = prefs.glyphScene
             it.glyphForm = prefs.glyphForm

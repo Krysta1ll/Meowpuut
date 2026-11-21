@@ -41,6 +41,8 @@ internal class GlyphLayout(
     val tail: Double = 0.0,
     /** How many points one pixel of a cat is: two, or less where the keys stand too close for a cat of two to walk between them. */
     val catUnit: Double = 2.0,
+    /** The app pages' pictures (home, 行旅): the place framed as a picture of its own, not for a keyboard (see [Framing.WIDE]). */
+    val wide: Boolean = false,
 ) {
     /** Where the cats' feet are in the gap under key row [n] (0 = between the first two rows). Null when there is no such gap. */
     fun laneFeet(n: Int): Double? =
@@ -51,7 +53,7 @@ internal class GlyphLayout(
     override fun equals(other: Any?): Boolean = other is GlyphLayout && width == other.width && height == other.height &&
         rowCenters.contentEquals(other.rowCenters) && chipHeight == other.chipHeight && barMid == other.barMid &&
         barTop == other.barTop && barHeight == other.barHeight && skylineFloor == other.skylineFloor && lift == other.lift && inset == other.inset &&
-        horizon == other.horizon && tail == other.tail && catUnit == other.catUnit
+        horizon == other.horizon && tail == other.tail && catUnit == other.catUnit && wide == other.wide
 
     override fun hashCode(): Int = width.hashCode() * 31 + height.hashCode()
 
@@ -121,7 +123,9 @@ internal class GlyphJourney {
                     if (u >= lo && u < lo + GlyphScenes.ALL[i].rare) { rare = i; break }
                 }
             }
-            val scene = if (rare >= 0) rare else pick[(h2(k, 99) * pick.size).toInt()]
+            // The first place is always the sea, where the first-run guide sets the two cats down; the others are as they were, and each one is
+            // not the one before it (the sea, for the second) and may be a rare one only from the third on.
+            val scene = if (k == 0 && START >= 0) START else if (rare >= 0) rare else pick[(h2(k, 99) * pick.size).toInt()]
             places += Place(scene, MIN_LEN + (h2(k, 777) * SPAN).toInt())
         }
         return places[n]
@@ -147,7 +151,17 @@ internal class GlyphJourney {
     }
 
     companion object {
-        /** In committed characters. A place lasts about as long as a few messages. */
+        /** The place every journey begins in: the sea (found by its name, so a reordering of the scenes does not move it). -1 if there is none. */
+        val START: Int = GlyphScenes.ALL.indexOfFirst { it.name == "海" }
+
+        /** Units of the journey a committed character is worth (a Chinese character's worth of keys); the same on the iPhone. */
+        const val UNITS_PER_CHARACTER = 8L
+
+        /** How far the cats have walked for this many committed characters (the cats' own count; saturating). */
+        fun distanceOf(characters: Long): Long =
+            if (characters <= 0L) 0L else if (characters > Long.MAX_VALUE / UNITS_PER_CHARACTER) Long.MAX_VALUE else characters * UNITS_PER_CHARACTER
+
+        /** In units of the journey. */
         const val MIN_LEN = 90
         const val SPAN = 180
         const val FOG = 16
@@ -319,7 +333,7 @@ internal class GlyphWorld(
      * that asked not to be learned from). [skyOffset] anchors the rising words to the drifting sky; [barY] is where they rise from.
      */
     fun committed(text: String, graphemes: Int, japanese: Boolean, secret: Boolean, skyOffset: Int, barY: Double, top: Double = 10.0) {
-        distance += max(0, graphemes)
+        distance += max(0, graphemes).toLong() * GlyphJourney.UNITS_PER_CHARACTER
         feel(if (japanese) mapOf(CatId.MIMI to "sparkle", CatId.MOMO to "love") else mapOf(CatId.MIMI to "happy", CatId.MOMO to "happy"), 12, true)
         if (secret) for (t in secrets.feed(text, nowMs(), japanese)) when (t) {
             GlyphSecrets.Trigger.GUEST -> if (crabAllowed) guest = tick + 30 * FPS

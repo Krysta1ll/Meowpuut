@@ -76,7 +76,8 @@ internal enum class GroundKind { PLAIN, SEA, STREET, FLOOR, SNOW, REGOLITH, SAND
 /** [lava]: the field has a river of fire; [reflect]: the sea has the mountain of that layer (1-based, in back) upside down in it; [red]: what has fallen is the trees' colour. */
 internal data class GroundSpec(val kind: GroundKind, val top: Double = 0.0, val mass: Double = 0.0, val pool: String = "wave", val lava: Boolean = false, val reflect: Int = 0, val red: Boolean = false)
 
-internal enum class Framing { ROWS, SKYLINE }
+/** WIDE: the picture as a picture of its own (the app's home and statistics): heights are parts of the picture, as the scenes give them. */
+internal enum class Framing { ROWS, SKYLINE, WIDE }
 
 internal data class SceneSpec(
     val name: String,

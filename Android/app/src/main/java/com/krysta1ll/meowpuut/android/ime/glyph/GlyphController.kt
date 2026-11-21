@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.view.View
 import java.util.Calendar
 import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.min
 
 /** One finished picture, handed from the render thread to the views. Immutable once published. */
@@ -55,16 +56,13 @@ internal class GlyphController(private val context: Context) {
     @Volatile var frame: GlyphFrame? = null
         private set
 
-    /** Called on the main thread with the journey's distance now and then, and when the keyboard goes away. */
-    var onDistance: ((Long) -> Unit)? = null
-
     private class Settings(val dark: Boolean, val level: Int, val opaque: Boolean, val crab: Boolean, val cats: Boolean, val arrival: Boolean)
 
     @Volatile private var settings = Settings(false, 1, false, false, true, true)
     @Volatile private var layout = GlyphLayout.NONE
     @Volatile private var hasCandidates = false
     @Volatile private var systemStill = false
-    private var savedDistance = 0L
+    /** Where the journey stood when the world started (from the cats' count of characters). */
     private var startDistance = 0L
 
     private var thread: HandlerThread? = null
@@ -95,7 +93,6 @@ internal class GlyphController(private val context: Context) {
     fun start(distance: Long) {
         if (thread != null) return
         startDistance = distance
-        savedDistance = distance
         refreshSystemState()
         val t = HandlerThread("glyph-render", android.os.Process.THREAD_PRIORITY_BACKGROUND).also { it.start() }
         thread = t
@@ -115,6 +112,22 @@ internal class GlyphController(private val context: Context) {
         }
     }
 
+    /**
+     * The cats' book was read after the world started: the journey stands where it stands from the book's count, plus what this world has
+     * walked since it started on its own.
+     */
+    fun rebase(distance: Long) {
+        val earlier = startDistance
+        startDistance = distance
+        handler?.post { engine?.let { e -> e.restore(distance + max(0L, e.distance - earlier)); requestTick() } }
+    }
+
+    /** The cats' records were cleared, and the journey with them: the world goes back to its first place. */
+    fun rewind() {
+        startDistance = 0L
+        handler?.post { engine?.restore(0L); requestTick() }
+    }
+
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */
     fun stop() {
         val t = thread ?: return
@@ -124,7 +137,7 @@ internal class GlyphController(private val context: Context) {
         handler = null
         h?.removeCallbacksAndMessages(null)
         h?.post {
-            engine?.let { e -> e.forget(); val d = e.distance; main.post { saveDistance(d, force = true) } }
+            engine?.forget()
             engine = null
             sink?.release(); sink = null
             for (i in ring.indices) ring[i] = null
@@ -143,8 +156,6 @@ internal class GlyphController(private val context: Context) {
             val e = engine ?: return@post
             e.forget()
             scheduled = false
-            val d = e.distance
-            main.post { saveDistance(d, force = true) }
         }
     }
 
@@ -174,12 +185,6 @@ internal class GlyphController(private val context: Context) {
     /** When the keyboard was last put away (uptime), 0 when it has not been. */
     @Volatile private var hiddenAt = 0L
 
-    private fun saveDistance(d: Long, force: Boolean) {
-        if (!force && d - savedDistance < SAVE_EVERY) return
-        if (d == savedDistance) return
-        savedDistance = d
-        onDistance?.invoke(d)
-    }
 
 
     /** Reduced motion and power saving ask for a still picture. */
@@ -252,8 +257,6 @@ internal class GlyphController(private val context: Context) {
         handler?.post {
             val e = engine ?: return@post
             e.committed(text, graphemes, japanese, secret)
-            val d = e.distance
-            if (d - savedDistance >= SAVE_EVERY) main.post { saveDistance(d, force = false) }
             requestTick()
         }
     }
@@ -395,8 +398,6 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
-        /** The journey's distance is written to the settings no more often than every this many characters. */
-        const val SAVE_EVERY = 25L
         /** A keyboard called up again within this long of going away does not arrive again. */
         const val ARRIVAL_GRACE_MS = 2000L
     }

@@ -204,7 +204,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val p = GlyphScenes.ALL[index]
         preset = p
         val wanted = p.kb ?: Framing.SKYLINE
-        framing = if (wanted == Framing.ROWS && !forLayout.rows) Framing.SKYLINE else wanted
+        framing = if (forLayout.wide) Framing.WIDE else if (wanted == Framing.ROWS && !forLayout.rows) Framing.SKYLINE else wanted
         rowsFraming = framing == Framing.ROWS
         val all = p.front + p.back
         val walk = all[p.walk]
@@ -212,9 +212,9 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         // The prototype's keyboard has about thirty points more sky above its cats than a phone's candidate bar leaves: where the ridge is lower
         // than that, the tall places are drawn a little lower and smaller (see SceneSpec.fit). The prototype's own layout is drawn as it draws it.
         short = framing == Framing.ROWS && ridge < PROTOTYPE_RIDGE - 10
-        fs = (if (framing == Framing.ROWS) 0.62 else 0.22) * (if (short) p.fit else 1.0)
+        fs = if (framing == Framing.WIDE) 1.0 else (if (framing == Framing.ROWS) 0.62 else 0.22) * (if (short) p.fit else 1.0)
         discScale = if (short) p.discFit else 1.0
-        fo = ridge / height - walk.base * fs
+        fo = if (framing == Framing.WIDE) 0.0 else ridge / height - walk.base * fs
         fun make(l: LayerSpec): Layer {
             val cell = theme.sized(l.cell)
             val n = ceil(width / (cell / 2.0)).toInt() + 2
@@ -229,18 +229,19 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             for (l in back) { if (l.amp != 0.0) l.amp *= 0.5; if (l !== walkOn) l.trees = null }
             if (front.contains(walkOn)) walkOn.amp *= 0.5
             walkOn.haze = 0.4; walkOn.big = 1
-        } else {
+        } else if (framing == Framing.ROWS) {
             walkOn.amp = 6 / (height * fs); walkOn.haze = 16 / (height * fs); walkOn.big = 1
         }
-        groundSpec = p.kbGround ?: p.ground
-        groundY = if (groundSpec == null) 1e9 else q(fy(walk.base) + (if (framing == Framing.ROWS) 6 else 10), 4.0)
+        val spec = if (framing == Framing.WIDE) p.ground else p.kbGround ?: p.ground
+        groundSpec = spec
+        groundY = if (spec == null) 1e9 else if (framing == Framing.WIDE) q(fy(spec.top), 4.0) else q(fy(walk.base) + (if (framing == Framing.ROWS) 6 else 10), 4.0)
         groundFirst = framing == Framing.ROWS && p.kbFirst
         val disc = p.sky.disc
         val r = if (disc != null) disc.r * height else 0.0
         discX = disc?.let { (if (short && p.discKbX > 0.0) p.discKbX else it.x) * width }
         discY = when {
             disc == null -> 0.0
-            disc.crescent -> 14.0
+            disc.crescent && framing != Framing.WIDE -> 14.0
             framing == Framing.SKYLINE -> fy(walk.base) + r * (if (disc.r >= 0.25) 0.58 else 0.2)
             else -> if (short) max(fy(disc.y), r + 4.0 - lift) else fy(disc.y)      // on a phone the sun of a place framed in rows stays whole (the strip above counts as picture)
         }
@@ -995,7 +996,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         if (formed < 1 && formed * 1.4 < px / width * 0.4 + h2(px.toInt() shr 3, (py.toInt() shr 3) + 17) * 0.5) return 0.0   // arriving: not set yet
         d *= world.fog                                            // near a border the land dissolves into its own type, then into nothing
         val fade = FADE
-        if (tail <= 0 && py > height - fade) d *= (max(0.0, min(1.0, (height - py) / fade))).pow(1.15)   // and at the keyboard's bottom edge
+        if (framing != Framing.WIDE && tail <= 0 && py > height - fade) d *= (max(0.0, min(1.0, (height - py) / fade))).pow(1.15)   // and at the keyboard's bottom edge
         val m = quiet
         return if (m != null && !p.lit && !p.hard) d * m[max(0, min(qh - 1, py.toInt() shr 1)) * qw + min(qw - 1, px.toInt() shr 1)] else d   // and it thins round the keyboard's own type
     }

@@ -19,6 +19,9 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.krysta1ll.meowpuut.android.R
+import com.krysta1ll.meowpuut.android.app.home.Brush
+import com.krysta1ll.meowpuut.android.app.home.Mosaic
+import com.krysta1ll.meowpuut.android.app.home.PictureWorker
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -33,7 +36,9 @@ internal class CatPhotoWall(
     context: Context,
     private val ui: PaperUi,
     private val store: CatPhotoStore,
+    private val brush: Brush,
 ) : LinearLayout(context) {
+    private val typeFirst = ui.skin.slots.photos == PhotoStyle.TYPE_FIRST
     private val density = context.resources.displayMetrics.density
     private val subtitleView: TextView
     private val refreshButton: Button
@@ -44,17 +49,13 @@ internal class CatPhotoWall(
 
     init {
         orientation = VERTICAL
-        addView(ui.labelStrip(context.getString(R.string.photos_title)), LayoutParams(
+        addView(ui.sectionTitle(context.getString(R.string.photos_title)), LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply { bottomMargin = dp(8) })
 
         val card = LinearLayout(context).apply {
             orientation = VERTICAL
-            background = GradientDrawable().apply {
-                setColor(ui.p.paper2)
-                setStroke(dp(1), ui.line)
-                cornerRadius = dp(18).toFloat()
-            }
+            background = ui.surface(18)
             clipToOutline = true
             setPadding(dp(14), dp(12), dp(14), dp(14))
         }
@@ -124,7 +125,7 @@ internal class CatPhotoWall(
             renderOfflineState(loading = true)
             return
         }
-        subtitleView.text = context.getString(R.string.photos_daily_count, photos.size)
+        subtitleView.text = context.getString(if (typeFirst) R.string.home_photos_type_note else R.string.photos_daily_count, photos.size)
         val body = LinearLayout(context).apply { orientation = VERTICAL }
 
         // Lead today's hero card
@@ -132,7 +133,7 @@ internal class CatPhotoWall(
         val heroCard = FrameLayout(context).apply {
             background = GradientDrawable().apply {
                 setColor(ui.p.paper)
-                cornerRadius = dp(14).toFloat()
+                cornerRadius = dp(ui.skin.corner(14)).toFloat()
             }
             clipToOutline = true
             isClickable = true
@@ -146,7 +147,8 @@ internal class CatPhotoWall(
         }
         val heroHeight = dp(220)
         heroCard.addView(heroImage, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heroHeight))
-        store.loadBitmap(hero, 960) { bmp -> if (bmp != null) heroImage.setImageBitmap(bmp) }
+        val heroMosaic = if (typeFirst) mosaicOver(heroCard, 220, 6, hero.subtitle()) { openViewer(0) } else null
+        store.loadBitmap(hero, 960) { bmp -> if (bmp != null) { heroImage.setImageBitmap(bmp); heroMosaic?.invoke(bmp) } }
 
         val badge = TextView(context).apply {
             text = context.getString(R.string.photos_hero_badge, hero.title())
@@ -176,7 +178,7 @@ internal class CatPhotoWall(
                 val tile = FrameLayout(context).apply {
                     background = GradientDrawable().apply {
                         setColor(ui.p.paper)
-                        cornerRadius = dp(10).toFloat()
+                        cornerRadius = dp(ui.skin.corner(10)).toFloat()
                     }
                     clipToOutline = true
                     isClickable = true
@@ -186,7 +188,8 @@ internal class CatPhotoWall(
                 }
                 val iv = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
                 tile.addView(iv, FrameLayout.LayoutParams(thumbSize, thumbSize))
-                store.loadBitmap(photo, 360) { bmp -> if (bmp != null) iv.setImageBitmap(bmp) }
+                val mosaic = if (typeFirst) mosaicOver(tile, 92, 4, photo.subtitle()) { openViewer(index) } else null
+                store.loadBitmap(photo, 360) { bmp -> if (bmp != null) { iv.setImageBitmap(bmp); mosaic?.invoke(bmp) } }
                 row.addView(tile, LayoutParams(thumbSize, thumbSize).apply {
                     marginEnd = if (index < photos.lastIndex) dp(8) else 0
                 })
@@ -197,6 +200,44 @@ internal class CatPhotoWall(
             })
         }
         contentHost.addView(body)
+    }
+
+    /**
+     * A photograph that first shows as type (see [Mosaic]): a sheet of the land's own glyphs over the photograph, the photograph set in them.
+     * A first tap takes the sheet away (in six steps, or at once when animations are off); after that a tap opens it as before. Returns what
+     * to call with the photograph once it has loaded.
+     */
+    private fun mosaicOver(card: FrameLayout, heightDp: Int, cell: Int, name: String, open: () -> Unit): (android.graphics.Bitmap) -> Unit {
+        val sheet = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_XY; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
+        card.addView(sheet, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        var revealed = false
+        card.contentDescription = context.getString(R.string.home_photo_type_desc, name)
+        card.setOnClickListener {
+            if (revealed) { open(); return@setOnClickListener }
+            revealed = true
+            card.contentDescription = context.getString(R.string.home_photo_real_desc, name)
+            if (!android.animation.ValueAnimator.areAnimatorsEnabled()) { sheet.visibility = View.GONE; return@setOnClickListener }
+            var step = 0
+            val fade = object : Runnable {
+                override fun run() {
+                    step++
+                    sheet.alpha = 1f - step / 6f
+                    if (step < 6) sheet.postDelayed(this, 80) else sheet.visibility = View.GONE
+                }
+            }
+            sheet.post(fade)
+        }
+        return { photo ->
+            val make = {
+                val widthDp = card.width / density.toDouble()
+                if (widthDp > 0) PictureWorker.run({ Mosaic.of(brush, photo, widthDp, heightDp.toDouble(), cell) }) { sheet.setImageBitmap(it) }
+            }
+            if (card.width > 0) make() else card.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or2: Int, ob: Int) {
+                    if (r - l > 0) { card.removeOnLayoutChangeListener(this); make() }
+                }
+            })
+        }
     }
 
     private fun renderOfflineState(loading: Boolean = false) {
