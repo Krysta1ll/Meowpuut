@@ -204,6 +204,11 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
         oy = originY
     }
 
+    override fun blit(picture: Any, dx: Int, y: Double) {
+        val b = picture as? Bitmap ?: return
+        canvas?.drawBitmap(b, dx.toFloat(), edge(y + oy), bitmapPaint)
+    }
+
     override fun erase(x: Double, y: Double, w: Double, h: Double) {
         canvas?.drawRect(edge(x), edge(y + oy), edge(x + w), edge(y + h + oy), clear)
     }

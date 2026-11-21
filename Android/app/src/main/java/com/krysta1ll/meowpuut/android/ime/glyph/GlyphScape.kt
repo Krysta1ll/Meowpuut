@@ -22,6 +22,9 @@ internal interface GlyphSink {
     /** One glyph, centred on ([cx], [cy]); [size] in points, [mono]: set in the monospaced face. */
     fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int)
 
+    /** A picture the sink holds ([picture]: what it can draw, a layer's strip) laid in at [dx] device pixels from the left, its top at picture height [y] points. */
+    fun blit(picture: Any, dx: Int, y: Double) {}
+
     /** [text] in a weight of the face (400 regular, 500, 700 heavy): a sink with no weights draws it regular. */
     fun textW(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int, weight: Int) = text(ch, cx, cy, size, mono, color)
 
@@ -76,6 +79,15 @@ internal class GlyphTopClip(val g: GlyphSink, val minY: Double) : GlyphSink {
     override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
 }
 
+/** Nothing below [maxY]: the ground that lies there is drawn live, under the picture, and what is drawn before it must not show through over it. */
+internal class GlyphBottomClip(val g: GlyphSink, val maxY: Double) : GlyphSink {
+    override fun rect(x: Double, y: Double, w: Double, h: Double, color: Int) {
+        if (y >= maxY) return
+        if (y + h > maxY) g.rect(x, y, w, maxY - y, color) else g.rect(x, y, w, h, color)
+    }
+    override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
+}
+
 /** What is nearest, as the views that draw it live need it: the place, the picture's size, the light, and how much of the motion is on. */
 internal class GlyphNear(val scene: String, val width: Double, val height: Double, val lift: Double, val dark: Boolean, val still: Boolean, val level: Int) {
     /** Something passes in front of the place at all: not with the lightest setting, and not with the system's reduced motion. */
@@ -104,6 +116,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         deep: Boolean = false,
     ) {
         var offI = 0
+        /** Drawn into a strip of its own (see [GlyphScape.layerBlit]): where it lies is set by whoever draws the strip, not by the world's position. */
+        var pinned = false
         /**
          * How large a cell of a landmark's picture is, in points: [sub] times [big] (with depth 2 x 2: four points, at every setting, as the prototype has it).
          */
@@ -253,7 +267,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             val fine = theme.deep && cell % FINE.toInt() == 0
             val sub = if (fine) FINE else cell / 2.0
             val m = (cell / sub).toInt()
-            val n = ceil(width / sub).toInt() + 2 + (if (m > 2) m else 0)
+            val n = ceil((width + (if (theme.deep) STRIP_MARGIN_CELLS * cell else 0)) / sub).toInt() + 2 + (if (m > 2) m else 0)
             val speed = l.speed
             val air = if (!theme.deep || l.pool == "dust" || speed >= 0.45) 0.0 else if (speed >= 0.15) AIR_MID else AIR_FAR   // planes: the near one as it is, the middle a little paler, the far one more
             return Layer(l, cell, n, fs, fy(l.base), theme.level, sub, m, air, theme.deep)
@@ -349,6 +363,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val p = world.pos
         formed = world.formed()
         for (l in front + back + listOf(sky)) {
+            if (l.pinned) continue                                            // (its strip has set where it lies)
             l.offI = floor(p * l.spec.speed * 8 / l.cell).toInt() * l.m
             if (l !== sky) when (l.spec.kind) {
                 LayerKind.LAND -> prepareLand(l)
@@ -358,6 +373,68 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         }
         if (theme.level == 3 && !theme.still) sky.offI += sky.m * (world.epoch / 5)       // the sky drifts by itself
         ready = true
+    }
+
+    /** The cache of drawn layers (see [GlyphLayerStrips]): puts a layer it has drawn into the picture and says so, or false for it to be drawn here. */
+    var layerBlit: ((Layer, GlyphSink) -> Boolean)? = null
+
+    /** Every layer is laid out by the world's position again. */
+    internal fun unpin() { for (l in front + back + listOf(sky)) l.pinned = false }
+
+    /** The layers a strip can hold, far to near: the land and the sky that move with the mileage, not the one mountain that stays where it stands, nor a sky with a sun in it. */
+    internal fun strippableLayers(): List<Layer> {
+        if (!theme.deep || theme.opaque || theme.still || theme.level !in 1..2) return emptyList()
+        val all = listOf(sky) + back.reversed() + front.reversed()
+        return all.filter { it.spec.shape != LandShape.CONE && !(it === sky && discX != null && !discLate) && !(it !== sky && it.spec.kind == LayerKind.STEMS) }
+    }
+
+    /** The rows (points, picture coordinates) of a layer that can be seen: from the highest it can reach to where land in front of it takes over. */
+    internal fun stripBand(l: Layer): Pair<Double, Double> {
+        val reach = when (l.spec.kind) {
+            LayerKind.SKYLINE -> l.spec.amp * height * l.fs * 3.6 + 40.0
+            else -> l.spec.amp * height * l.fs + 150.0
+        }
+        val top = if (l === sky) -lift else max(-lift, l.baseY - reach)
+        val later = laterOf(l).filter { it.haze == 0.0 && it.spec.kind != LayerKind.STEMS }
+        var bottom = height + tail
+        if (l !== sky && l.baseY.isFinite()) {
+            // Land that comes after covers it from its own ridge down: the highest of those bases is where this one stops being seen.
+            var cut = if (liveGroundActive() && later.none { true } && front.contains(l).not()) groundY else Double.MAX_VALUE
+            for (o in later) cut = min(cut, o.baseY)
+            if (!groundFirst && groundSpec != null && !front.contains(l)) cut = min(cut, groundY)
+            if (cut < Double.MAX_VALUE / 2) bottom = min(bottom, cut + 2 * l.cell)
+        } else if (l === sky) {
+            var cut = min(groundY, Double.MAX_VALUE)
+            for (o in later) cut = min(cut, o.baseY)
+            if (cut < 1e8) bottom = min(bottom, cut + 2 * l.cell)
+        }
+        return top to max(top + l.cell, bottom)
+    }
+
+    /** The layers drawn after [l]. */
+    internal fun laterOf(l: Layer): List<Layer> = when {
+        l === sky -> front + back
+        back.contains(l) -> front + back.subList(0, back.indexOf(l))
+        else -> emptyList()
+    }
+
+    /** Lays [l] out as it is [off] cells into the world, and draws its cells [colFrom] until [colTo] (and rows within its band) into [g]. */
+    internal fun renderStrip(l: Layer, g: GlyphSink, c: GlyphColors, off: Int, colFrom: Int, colTo: Int, band: Pair<Double, Double>) {
+        l.pinned = true
+        l.offI = off * l.m
+        formed = world.formed()
+        if (l !== sky) when (l.spec.kind) {
+            LayerKind.LAND -> prepareLand(l)
+            LayerKind.SKYLINE -> prepareSkyline(l)
+            LayerKind.STEMS -> Unit
+        }
+        val limit = hiddenBelow(l, laterOf(l), groundFirst = if (liveGroundActive()) false else if (l === sky) null else groundFirst)
+        val deepMist = theme.deep && (if (back.contains(l)) back.indexOf(l) < back.size - 1 else front.contains(l) && back.isNotEmpty())
+        val first = floor(band.first / l.cell).toInt()
+        val last = ceil(band.second / l.cell).toInt()
+        if (deepMist) mist(g, c, l, colFrom * l.m, min(l.n, colTo * l.m))
+        if (l === sky) drawLayer(g, c, sky, cover = false, rowLimit = limit, colFrom = colFrom, colTo = colTo, rowFrom = first, rowTo = last) { ll, i, py -> skySample(ll, i, py) }
+        else drawLayer(g, c, l, cover = true, rowLimit = limit, colFrom = colFrom, colTo = colTo, rowFrom = first, rowTo = last) { ll, k, py -> sample(ll, k, py) }
     }
 
     /** With the ground drawn live by its own view (under this picture): this picture leaves its place bare. Set by the controller. */
@@ -381,17 +458,21 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val liveGround = liveGroundActive()
         g.rect(0.0, -lift, width, (if (liveGround) groundY else height + tail) + lift, c.paper)      // (the live ground lies under this picture, and shows where there is none of it)
         val cull = (theme.deep || CULL_ALWAYS) && !CULL_OFF
-        timed(0) { drawLayer(g, c, sky, cover = false, rowLimit = if (cull) hiddenBelow(sky, front + back, groundFirst = if (liveGround) false else null) else null) { l, i, py -> skySample(l, i, py) } }
+        if (layerBlit?.invoke(sky, g) != true)
+            timed(0) { drawLayer(g, c, sky, cover = false, rowLimit = if (cull) hiddenBelow(sky, front + back, groundFirst = if (liveGround) false else null) else null) { l, i, py -> skySample(l, i, py) } }
         if (early) timed(8) { drawDisc(g, c) }                   // the Earth stands behind everything
         if (groundFirst && !liveGround) timed(3) { drawGround(g, c) }           // where the land in front of the ground is what matters: bamboo
         for (i in back.indices.reversed()) {
             if (discLate && !early && back[i] === walkOn) timed(8) { drawDisc(g, c) }
+            if (layerBlit?.invoke(back[i], g) == true) continue
             if (theme.deep && i < back.size - 1) timed(2) { mist(g, c, back[i]) }
             timed(1) { drawLayer(g, c, back[i], cover = true, rowLimit = if (cull) hiddenBelow(back[i], front + back.subList(0, i), groundFirst = groundFirst) else null) { l, k, py -> sample(l, k, py) } }
         }
         if (discLate && !early && !back.contains(walkOn)) timed(8) { drawDisc(g, c) }
         if (!groundFirst && !liveGround) timed(3) { drawGround(g, c) }
+        if (liveGround) drawGlitter(g, c)
         for (i in front.indices.reversed()) {
+            if (layerBlit?.invoke(front[i], g) == true) continue
             if (theme.deep && back.isNotEmpty()) timed(2) { mist(g, c, front[i]) }
             timed(4) { drawLayer(g, c, front[i], cover = true) { l, k, py -> sample(l, k, py) } }
         }
@@ -403,6 +484,29 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
 
     /** With depth in the keyboard, the corner and what passes are drawn live by their own view (see [GlyphNear]), not into this picture. */
     var liveNear = false
+
+    /** The sun or the moon on the water, when the ground is drawn live: its sparks stay under it, whatever the water does. */
+    private fun drawGlitter(g: GlyphSink, c: GlyphColors) {
+        val spec = groundSpec ?: return
+        val dx = discX ?: return
+        if (spec.kind != GroundKind.SEA || world.fog < 0.9 || formed < 1) return
+        val geo = groundGeometry() ?: return
+        val sub = FINE
+        val color = if (!theme.dark) c.red else c.ink
+        for (row in 0 until geo.rows) for (b in 0 until geo.m) {
+            val y = geo.y(row) + b * sub
+            val gg = min(1.0, (y + sub / 2 - groundY) / geo.span)
+            val half = 8 + 70 * gg
+            val fineRow = row * geo.m + b
+            val run = 1 + (h2(fineRow, 5) * 2).toInt()
+            var bx = floor((dx - half) / sub).toInt()
+            while (bx * sub < dx + half) {
+                val px = bx * sub + sub / 2
+                if (abs(px - dx) < half && h2(floorDiv(bx, run), fineRow * 3) > 0.54 + 0.26 * gg) g.rect(bx * sub, y, sub, sub, color)
+                bx++
+            }
+        }
+    }
 
     /** Debug and shots: hold what passes in front at this part of the width, or null to let it go by with the mileage. */
     var foreFix: Double? = null
@@ -843,7 +947,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                     } else if (hgt > 8 && g * (height - groundY) < hgt * 0.62 && h2(round(ux / 4), row) > 0.22) { p.pool = "flat"; inked("blue"); return 0.36 }
                 }
                 val dx = discX
-                if (dx != null && abs(px - dx) < 8 + 70 * g) {         // the sun on the water, or the moon (with depth: sparks one pixel high, one or two long)
+                if (dx != null && abs(px - dx) < 8 + 70 * g && !liveGroundActive()) {         // the sun on the water, or the moon (with depth: sparks one pixel high, one or two long; with the live ground they are drawn apart, under the sun)
                     val fc = fineCol
                     val spark = if (fc != null) h2(floorDiv(fc, 1 + (h2(fineRow, 5) * 2).toInt()), fineRow * 3) > 0.54 + 0.26 * g else h2(round(ux / 3), row * 3) > 0.52 + 0.3 * g
                     if (spark) { p.lit = true; p.acc = !theme.dark; return 1.0 }
@@ -979,14 +1083,14 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     }
 
     /** The air between two planes: what is behind thins into the paper just above the ridge of the plane about to be drawn. */
-    private fun mist(g: GlyphSink, c: GlyphColors, l: Layer) {
+    private fun mist(g: GlyphSink, c: GlyphColors, l: Layer, iFrom: Int = 0, iTo: Int = Int.MAX_VALUE) {
         val sub = l.sub
         val h = MIST_HEIGHT
         val disc = preset.sky.disc
         val dxc = discX
         val r2 = if (dxc != null && disc != null) (disc.r * height * discScale + 1).let { it * it } else -1.0
         val ep = world.epoch
-        for (i in 0 until l.n) {
+        for (i in iFrom until min(iTo, l.n)) {
             val top = l.ridge[i].toDouble()
             if (!(top > 0) || top > height) continue
             val shiftCol = (i + l.offI) * sub
@@ -1094,7 +1198,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
 
     // ---- the sun or the moon, and what moves in the air ----------------------------------------------
 
-    private fun drawDisc(g: GlyphSink, c: GlyphColors) {
+    private fun drawDisc(out: GlyphSink, c: GlyphColors) {
+        val g: GlyphSink = if (liveGroundActive()) GlyphBottomClip(out, groundY) else out          // the ground comes after the sun and covers its lower part
         val dx0 = discX ?: return
         val P = preset.sky.disc ?: return
         val r = P.r * height * discScale
@@ -1249,7 +1354,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     private fun hiddenBelow(l: Layer, later: List<Layer>, groundFirst: Boolean?): IntArray {
         val cell = l.cell
         val m = l.m
-        val cols = min(ceil(width / cell).toInt(), l.n / m)
+        val cols = l.n / m
         val covers = later.filter { it.haze == 0.0 && it.spec.kind != LayerKind.STEMS && it !== l }
         val groundCut = if (groundFirst == false && groundSpec != null) groundY else Double.MAX_VALUE
         val limit = IntArray(cols)
@@ -1267,20 +1372,20 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         return limit
     }
 
-    private fun drawLayer(g: GlyphSink, c: GlyphColors, l: Layer, cover: Boolean, rowLimit: IntArray? = null, sampler: (Layer, Int, Double) -> Double) {
+    private fun drawLayer(g: GlyphSink, c: GlyphColors, l: Layer, cover: Boolean, rowLimit: IntArray? = null, colFrom: Int = 0, colTo: Int = -1, rowFrom: Int = Int.MIN_VALUE, rowTo: Int = Int.MAX_VALUE, sampler: (Layer, Int, Double) -> Double) {
         val cell = l.cell
         val sub = l.sub
         val m = l.m
         val mm = m * m
-        val rows = ceil((height + tail) / cell).toInt()
-        val cols = min(ceil(width / cell).toInt(), l.n / m)
+        val rows = min(ceil((height + tail) / cell).toInt(), rowTo)
+        val cols = if (colTo >= 0) min(colTo, l.n / m) else min(ceil(width / cell).toInt(), l.n / m)
         val p = probe
         grid = m
         plane = l.air
         // Rows wholly above everything the layer has are skipped: nothing there is the layer's.
-        val firstRow = max(-ceil(lift / cell).toInt(), if (l.spec.kind == LayerKind.STEMS || l === sky) Int.MIN_VALUE else floor(l.minY / cell).toInt() - 1)
-        for (r in firstRow until rows) for (col in 0 until cols) {
-            if (rowLimit != null && r >= rowLimit[col]) continue          // hidden by land that comes after
+        val firstRow = max(max(-ceil(lift / cell).toInt(), rowFrom), if (l.spec.kind == LayerKind.STEMS || l === sky) Int.MIN_VALUE else floor(l.minY / cell).toInt() - 1)
+        for (r in firstRow until rows) for (col in colFrom until cols) {
+            if (rowLimit != null && col < rowLimit.size && r >= rowLimit[col]) continue          // hidden by land that comes after
             var pool = l.pool
             var best = -1
             var accent = 0
@@ -1390,6 +1495,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         var CULL_ALWAYS = false
         /** Tests and shots: draw what is hidden too, to see that leaving it out changes nothing. */
         var CULL_OFF = false
+        /** Cells a layer's strip is drawn beyond the screen on the right. */
+        const val STRIP_MARGIN_CELLS = 6
         /** The pixel of the picture, in points, with depth (see [GlyphTheme.deep]). */
         const val FINE = 2.0
         /** How far toward the paper the middle and the far planes go, and the mist's height and strength between planes. */

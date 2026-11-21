@@ -81,6 +81,10 @@ internal class GlyphController(private val context: Context) {
     /** The ground with depth, drawn live under the picture (see [GlyphGround]). */
     val groundView = GlyphGroundView(context, this)
     private val ground = GlyphGround(renderScale)
+    /** The land drawn once and moved (see [GlyphLayerStrips]); off, the picture is drawn whole twelve times a second as it was. */
+    private val layerStrips = GlyphLayerStrips(renderScale)
+    private var layersOn = LAYER_STRIPS
+    private var lastSyncMs = 0L
     @Volatile private var groundExact = DoubleArray(0)
     private var groundWant = IntArray(0)
     private var groundAdvancing = false
@@ -128,6 +132,7 @@ internal class GlyphController(private val context: Context) {
             val e = GlyphEngine(pools(), clockHm = ::clockHm)
             e.scape.liveNear = true
             e.scape.groundLive = true
+            layersOn = if (perf) context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE).getBoolean("glyphLayers", LAYER_STRIPS) else LAYER_STRIPS
             e.theme.deep = !perf || context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE).getBoolean("glyphDeep", true)   // 縱深: the picture in the finest pixels, with mist, a near corner, what passes
             engine = e
             sink = GlyphCanvasSink(renderScale, gather = true)
@@ -337,6 +342,12 @@ internal class GlyphController(private val context: Context) {
         return h
     }
 
+    private var spN = 0; private var spSum = 0.0; private var spMax = 0.0
+    private fun stripPerf(ms: Double) {
+        spN++; spSum += ms; if (ms > spMax) spMax = ms
+        if (spN == 24) { android.util.Log.i("MeowpuutGlyphPerf", "layer strips sync: ${"%.1f".format(spSum / 24)} ms avg, ${"%.1f".format(spMax)} ms max over 24"); spN = 0; spSum = 0.0; spMax = 0.0 }
+    }
+
     private val gpN = IntArray(2); private val gpSum = DoubleArray(2); private val gpMax = DoubleArray(2)
     private fun groundPerf(what: String, ms: Double) {
         val i = if (what == "rebuild") 0 else 1
@@ -491,8 +502,8 @@ internal class GlyphController(private val context: Context) {
         lastTickAt = started
         val stepped = e.step()
         worldTarget = e.world.target; worldEpoch = e.world.epoch
-        if (stepped) render(e)
-        if (e.busy()) {
+        if (stepped || layerStrips.moving) render(e)
+        if (e.busy() || layerStrips.moving) {
             scheduled = true
             h.postDelayed(tick, (FRAME_MS - (SystemClock.uptimeMillis() - started)).coerceAtLeast(1L))
         }
@@ -515,6 +526,14 @@ internal class GlyphController(private val context: Context) {
         val canvas = Canvas(bitmap)
         val out = sink ?: return
         out.begin(canvas, l.lift)
+        if (layersOn && e.theme.deep && !e.theme.opaque) {                    // the land's strips are brought to where the layers are now, before the picture is made
+            val nowMs = SystemClock.uptimeMillis()
+            val dt = if (lastSyncMs == 0L) 0.084 else ((nowMs - lastSyncMs) / 1000.0).coerceIn(0.005, 0.25)
+            lastSyncMs = nowMs
+            val t0 = System.nanoTime()
+            layerStrips.sync(e.scape, GlyphColors.of(e.theme.dark), l.lift, groundSignature(e, l), e.world.epoch, e.world.target.toDouble(), dt, nowMs)
+            if (perf) stripPerf((System.nanoTime() - t0) / 1e6)
+        } else { layerStrips.release(e.scape); lastSyncMs = 0L }
         if (perf && e.scape.profile == null) e.scape.profile = LongArray(9)
         val drawStart = System.nanoTime()
         val tear = e.drawScene(out)
@@ -616,6 +635,8 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
+        /** Whether the land is drawn as strips (a debug build can ask either way with the setting "glyphLayers"). */
+        const val LAYER_STRIPS = false
         /** The least time between two whole drawings of the ground while only the turn of the type changes. */
         const val GROUND_TURN_MS = 700L
         private val NO_TAU = DoubleArray(0)
