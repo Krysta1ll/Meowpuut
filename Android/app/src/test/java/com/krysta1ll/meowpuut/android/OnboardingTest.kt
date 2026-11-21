@@ -74,6 +74,8 @@ class OnboardingTest {
         repeat(3) { g.typed() }; g.committed(); g.run(120)
         assertEquals(4, g.act)
         assertEquals(copy.order.indexOf(Scheme.PINYIN), g.youAre)           // the road in use is marked
+        assertEquals(copy.schemes.getValue(Scheme.PINYIN) + OnboardingState.IN_USE, host.hots.first { it.id == "road${g.youAre}" }.label)
+        assertEquals(copy.schemes.getValue(copy.order[(g.youAre + 1) % 3]), host.hots.first { it.id == "road${(g.youAre + 1) % 3}" }.label)   // the others say nothing more
         g.tap("road${g.youAre}")
         assertNull(host.chosen); assertEquals(0, host.chosenCount)          // the road already in use writes nothing
         g.run(200); assertTrue(g.atHome); assertFalse(host.kept)            // and the skin is what it was unless asked

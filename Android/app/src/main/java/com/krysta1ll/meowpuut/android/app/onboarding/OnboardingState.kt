@@ -412,7 +412,7 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
 
     private fun forkHots() {
         if (act != 4 || pick >= 0) return
-        hots(*copy.order.mapIndexed { k, s -> Hot("road$k", k * geo.w / 3, geo.ridge - 160, geo.w / 3, geo.h - geo.ridge + 140, copy.schemes.getValue(s)) }.toTypedArray())
+        hots(*copy.order.mapIndexed { k, s -> Hot("road$k", k * geo.w / 3, geo.ridge - 160, geo.w / 3, geo.h - geo.ridge + 140, copy.schemes.getValue(s) + if (k == youAre) IN_USE else "") }.toTypedArray())   // the road in use says so to a screen reader too
     }
     private fun choose(k: Int) {
         if (act != 4 || pick >= 0 || k !in copy.order.indices) return
@@ -606,6 +606,8 @@ internal class OnboardingState(val copy: OnboardingCopy, private val host: Onboa
     }
 
     companion object {
+        /** Said after the name of the road in use; the same words in both scripts. */
+        const val IN_USE = "（目前使用）"
         const val START = 165.0
         const val HOME_POS = 52.0
         const val SUN_X = 166.0

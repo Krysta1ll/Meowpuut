@@ -187,19 +187,23 @@ internal class OnboardingPainter(pools: GlyphPools, private val glyph: (String) 
             else { val icon = if (scheme == Scheme.ZHUYIN) "ㄅㄆㄇ" else "abc"; text(g, icon, Math.floor(cx - width(icon) + 0.5), top + 7, 2, ink) }
             val label = s.copy.schemes.getValue(scheme)
             text(g, label, Math.floor(cx - width(label) + 0.5), top + 36, 2, ink)
-            if (s.youAre == k) flag(g, c, cx + bw / 2 - 25, top)     // the way already in use: a small pennant on a pole standing on the board
+            if (s.youAre == k) flag(g, c, cx + bw / 2 - 32, top)     // the way already in use: the moon's flag, on the board's upper right
         }
     }
 
-    /** A short pole with a red pennant pointing right, its foot on the board whose top edge is at [top]; [x] is the pole's centre. Outlined in ink, so it reads against the sun. */
+    /**
+     * The way in use is marked by the moon's flag (the same picture as 字景's moon scene, [com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes]),
+     * four points to the cell, outlined in paper so it reads against the sun and in the dark; vermilion in both. [x] is where its pole
+     * stands, and the pole's foot is on the board whose top edge is at [top].
+     */
     private fun flag(g: GlyphSink, c: GlyphColors, x: Double, top: Double) {
-        val pole = 28.0
-        val y0 = top - pole
-        g.rect(x - 4, y0 - 2, 8.0, pole + 4, c.paper); g.rect(x - 2, y0, 4.0, pole + 2, c.ink)
-        val widths = doubleArrayOf(6.0, 12.0, 18.0, 18.0, 12.0, 6.0)             // a triangle on the pole, its point to the right, a step to a row
-        for ((i, w) in widths.withIndex()) g.rect(x + 2, y0 + i * 2, w + 2, 2.0, c.ink)
-        for ((i, w) in widths.withIndex()) if (w > 2) g.rect(x + 2, y0 + i * 2, w - 2, 2.0, c.red)
-        g.rect(x + 2, y0 - 2, 8.0, 2.0, c.ink); g.rect(x + 2, y0 + 12, 8.0, 2.0, c.ink)
+        val cell = 4.0
+        val y0 = top - FLAG.size * cell
+        for (r in FLAG.indices) for (k in FLAG[r].indices) if (FLAG[r][k] != '.') g.rect(x + k * cell - 2, y0 + r * cell - 2, cell + 4, cell + 4, c.paper)
+        for (r in FLAG.indices) for (k in FLAG[r].indices) when (FLAG[r][k]) {
+            'X' -> g.rect(x + k * cell, y0 + r * cell, cell, cell, c.ink)
+            'R' -> g.rect(x + k * cell, y0 + r * cell, cell, cell, c.red)
+        }
     }
 
     /** The gate: wooden, under a small roof, its two leaves (vermilion) standing open, a lamp at each eave. */
@@ -348,6 +352,8 @@ internal class OnboardingPainter(pools: GlyphPools, private val glyph: (String) 
         private const val WORD = "meowpuut"
         private const val LAMP = 0xFFF3CF4B.toInt()
         private val BLOBS = listOf(Triple(14.0, 22.0, 26.0), Triple(44.0, 40.0, 36.0), Triple(80.0, 34.0, 34.0), Triple(104.0, 18.0, 22.0), Triple(30.0, 66.0, 22.0), Triple(58.0, 80.0, 20.0), Triple(82.0, 64.0, 20.0))
+        /** The moon scene's flag (GlyphScenes "flag"): a pole, and a pennant pointing right from its top. */
+        private val FLAG = listOf("X....", "XRR..", "XRRRR", "XRR..", "X....", "X....", "X....", "X....")
         private val GATE = listOf("....XXX....", "..XXXXXXX..", "XXXXXXXXXXX", ".X.......X.", ".XRR...RRX.", ".XRR...RRX.", ".XRR...RRX.", ".XRR...RRX.", ".X.......X.")
     }
 }
