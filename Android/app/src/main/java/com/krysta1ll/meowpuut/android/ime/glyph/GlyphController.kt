@@ -90,6 +90,10 @@ internal class GlyphController(private val context: Context) {
     private val copyPaint = Paint().apply { xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC) }
 
     private val tick = Runnable { tickOnce() }
+    private val perf = (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private var perfN = 0
+    private var perfSum = 0.0
+    private var perfMax = 0.0
 
     // ---- the main thread's ---------------------------------------------------------------------------------
 
@@ -350,8 +354,17 @@ internal class GlyphController(private val context: Context) {
         val canvas = Canvas(bitmap)
         val out = sink ?: return
         out.begin(canvas, l.lift)
+        val drawStart = System.nanoTime()
         val tear = e.drawScene(out)
         out.layerEnd()
+        if (perf) {                                                  // a debug build says what a picture costs (measure, do not guess)
+            val ms = (System.nanoTime() - drawStart) / 1e6
+            perfN++; perfSum += ms; if (ms > perfMax) perfMax = ms
+            if (perfN == 24) {
+                android.util.Log.i("MeowpuutGlyphPerf", "scene ${e.scape.sceneName}: ${"%.1f".format(perfSum / perfN)} ms avg, ${"%.1f".format(perfMax)} ms max over $perfN pictures (${w}x$h px)")
+                perfN = 0; perfSum = 0.0; perfMax = 0.0
+            }
+        }
         if (tear != null) applyTear(bitmap, tear, l.lift)
         val near = e.near()
         var mask: Bitmap? = null
