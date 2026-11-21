@@ -123,7 +123,9 @@ internal class GlyphJourney {
                     if (u >= lo && u < lo + GlyphScenes.ALL[i].rare) { rare = i; break }
                 }
             }
-            val scene = if (rare >= 0) rare else pick[(h2(k, 99) * pick.size).toInt()]
+            // The first place is always the sea, where the first-run guide sets the two cats down; the others are as they were, and each one is
+            // not the one before it (the sea, for the second) and may be a rare one only from the third on.
+            val scene = if (k == 0 && START >= 0) START else if (rare >= 0) rare else pick[(h2(k, 99) * pick.size).toInt()]
             places += Place(scene, MIN_LEN + (h2(k, 777) * SPAN).toInt())
         }
         return places[n]
@@ -149,6 +151,9 @@ internal class GlyphJourney {
     }
 
     companion object {
+        /** The place every journey begins in: the sea (found by its name, so a reordering of the scenes does not move it). -1 if there is none. */
+        val START: Int = GlyphScenes.ALL.indexOfFirst { it.name == "海" }
+
         /** Units of the journey a committed character is worth (a Chinese character's worth of keys); the same on the iPhone. */
         const val UNITS_PER_CHARACTER = 8L
 

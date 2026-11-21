@@ -117,9 +117,31 @@ class WorldFestivalsTest {
         // The festival's other days still meet it: only the quiet one is left out.
         val other = JourneyStats.of(ledgerOf(day(2026, 9, 25), day(2026, 9, 26)), listOf(f), quiet)
         assertEquals(day(2026, 9, 26), other.festivals.single().firstDay)
-        // The shipped list is empty for now; nothing is quiet.
-        assertFalse(QuietDays.SHIPPED.isQuiet(day(2026, 6, 4)))
-        assertFalse(QuietDays.NONE.isQuiet(0))
+        assertFalse(QuietDays.NONE.isQuiet(day(2026, 6, 4)))
+    }
+
+    @Test
+    fun theFourthOfJuneIsQuietEveryYearAndNoOtherDayIs() {
+        for (year in 2026..2031) {
+            assertTrue("June 4 $year", QuietDays.SHIPPED.isQuiet(day(year, 6, 4)))
+            for ((m, d) in listOf(6 to 3, 6 to 5, 5 to 20, 10 to 1, 4 to 6, 12 to 6)) assertFalse("$year-$m-$d", QuietDays.SHIPPED.isQuiet(day(year, m, d)))
+        }
+        // A festival that falls on it (the shipped list, the shipped days): typing on the day marks nothing; typing within its drift on another day does.
+        val list = WorldFestivals.load(daysJson, stampsJson, wardrobe).occurrences
+        val onIt = list.filter { it.first <= day(2026, 6, 4) && day(2026, 6, 4) <= it.last }
+        assertTrue("some festival's own days cover June 4 2026", onIt.isNotEmpty())
+        val quietStats = JourneyStats.of(ledgerOf(day(2026, 6, 4)), list)
+        assertTrue(quietStats.festivals.none { f -> onIt.any { it.id == f.id } } || quietStats.days.single().festival == null)
+        assertNull("nothing is marked on the day", quietStats.days.single().festival)
+        val withDrift = list.filter { it.drift > 0 && it.first - it.drift <= day(2026, 6, 4) && day(2026, 6, 4) < it.first }
+        if (withDrift.isNotEmpty()) {
+            val f = withDrift.first()
+            val met = JourneyStats.of(ledgerOf(day(2026, 6, 4), f.first - 1), listOf(f)).festivals
+            assertEquals("a day within its drift that is not the quiet one still meets it", if (f.first - 1 != day(2026, 6, 4)) 1 else 0, met.size)
+        }
+        // The same typing on any other day marks what it meets.
+        val other = JourneyStats.of(ledgerOf(day(2026, 6, 5)), list)
+        assertNotNull(other.days.single().festival ?: other.festivals.firstOrNull())
     }
 
     @Test

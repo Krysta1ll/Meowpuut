@@ -40,8 +40,10 @@ internal fun interface FestivalStamps {
 }
 
 /**
- * The days on which no festival is marked anywhere (the statistics, the home page's scenery): months and days, whatever the year. Which
- * days they are is the product's decision; the list that ships is [SHIPPED], empty until it is decided.
+ * The days on which no festival is marked anywhere (the statistics, the home page's scenery): months and days, whatever the year, by the
+ * device's own date. What is typed on such a day, how high its mountain stands and every other number are as on any day; only the festival
+ * marks are left out, and a festival whose days (and drift) cover one is met on its other days as usual. Which days they are is the
+ * product's decision, kept in one place: [SHIPPED].
  */
 internal class QuietDays(monthDays: Collection<Pair<Int, Int>>) {
     private val set: Set<Int> = monthDays.map { (month, day) -> month * 100 + day }.toSet()
@@ -56,8 +58,8 @@ internal class QuietDays(monthDays: Collection<Pair<Int, Int>>) {
     companion object {
         val NONE = QuietDays(emptyList())
 
-        /** The quiet days that ship, as (month, day). Empty for now. */
-        val SHIPPED = QuietDays(emptyList())
+        /** The quiet days that ship, as (month, day): the fourth of June, every year. To add or take away a day, change this one line. */
+        val SHIPPED = QuietDays(listOf(6 to 4))
     }
 }
 
