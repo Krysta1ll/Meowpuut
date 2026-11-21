@@ -3,6 +3,7 @@ package com.krysta1ll.meowpuut.android.app.home
 import com.krysta1ll.meowpuut.android.app.stats.FestivalStamps
 import com.krysta1ll.meowpuut.android.app.stats.JourneyStats
 import com.krysta1ll.meowpuut.android.ime.glyph.CatId
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphCats
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.h2
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.n1
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.q
@@ -213,8 +214,8 @@ internal object StatsPictures {
         // and the two cats are on today's
         val lastDay = r.days.size - 1
         if (lastDay in first..last) {
-            pen.cat(CatId.MOMO, "sit", "neutral", (r.xs[lastDay] - 22).roundToInt().toDouble(), (r.ys[lastDay] - 15).roundToInt().toDouble(), 1.0)
-            pen.cat(CatId.MIMI, "sit", "neutral", (r.xs[lastDay] + 2).roundToInt().toDouble(), (r.ys[lastDay] - 16).roundToInt().toDouble(), 1.0)
+            pen.cat(CatId.MOMO, "sit", "neutral", (r.xs[lastDay] - 22).roundToInt().toDouble(), (r.ys[lastDay] - GlyphCats.h(CatId.MOMO)).roundToInt().toDouble(), 1.0)
+            pen.cat(CatId.MIMI, "sit", "neutral", (r.xs[lastDay] + 2).roundToInt().toDouble(), (r.ys[lastDay] - GlyphCats.h(CatId.MIMI)).roundToInt().toDouble(), 1.0)
         }
         var x = (floor(from / 8) * 8)
         while (x < to) {
@@ -299,7 +300,7 @@ internal object StatsPictures {
             }
             pen.range(half - 6, CATS_BASE, tops, if (n == 1) "bopo" else "hira", 21 + n, 0.7)
             val ty = q(tops[floor(cx / 3).toInt()].toDouble(), 2.0)
-            pen.cat(id, "sit", "neutral", (cx - 30).roundToInt().toDouble(), (ty - 45).roundToInt().toDouble(), 3.0)       // shown whole even at night: this is a portrait
+            pen.cat(id, "sit", "neutral", (cx - GlyphCats.w(id) * 1.5).roundToInt().toDouble(), (ty - GlyphCats.h(id) * 3.0).roundToInt().toDouble(), 3.0)       // shown whole even at night: this is a portrait
             pen.rect(0.0, CATS_BASE, half - 6, 2.0, pen.ink)
             pen.say(name, 2.0, CATS_BASE + 18, Say(scale = 2.0))
             pen.say(text.catFacts(s), 2.0, CATS_BASE + 40, Say())

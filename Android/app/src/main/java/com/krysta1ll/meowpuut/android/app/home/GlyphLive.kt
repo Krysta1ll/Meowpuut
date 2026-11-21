@@ -215,15 +215,16 @@ internal class GlyphStage private constructor(private val context: Context) {
         private fun drawCats(e: GlyphEngine, g: GlyphCanvasSink, canvas: Canvas, s: Settings) {
             if (!view.spec.cats) return
             val colors = GlyphColors.of(s.dark)
-            val u = GlyphCats.POINTS.toDouble()
+            val u = e.layout.catUnit
+            val k = u / GlyphCats.POINTS                       // the sleeper's z's go with the cat's pixel
             for (d in e.front().cats) {
-                val key = "${d.cat}/${d.pose}/${d.face}/${s.dark}/${d.night}"
+                val key = "${d.cat}/${d.pose}/${d.face}/${s.dark}/${d.night}/${d.suit}"
                 if (rasters.size > 60) rasters.clear()
-                val r = rasters.getOrPut(key) { GlyphCats.raster(d.cat, d.pose, d.face, s.dark, d.night, colors) }
-                val top = d.feetY - GlyphCats.H * u + d.hopY
+                val r = rasters.getOrPut(key) { GlyphCats.raster(d.cat, d.pose, d.face, s.dark, d.night, colors, d.suit) }
+                val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + d.hopY         // each cat has its own height (Mimi is taller, a suit adds a row)
                 g.raster(r, d.x - GlyphCats.MARGIN * u, top - GlyphCats.MARGIN * u, u)
                 if (d.zzz) for (i in 0 until 3) {
-                    painter.label(g, colors, "ㄗ", d.x + 36.0 + i * 11 + ((d.zPhase + i) % 2), d.feetY - 24.0 - i * 12, 1.0, 1.0, centre = true, halo = true)
+                    painter.label(g, colors, "ㄗ", d.x + 36.0 * k + i * 11 + ((d.zPhase + i) % 2), d.feetY - 24.0 * k - i * 12, 1.0, 1.0, centre = true, halo = true)
                 }
             }
         }

@@ -216,12 +216,14 @@ class StatsActivity : Activity() {
     /** The twelve places, two to a row: each a small living picture, how often the cats came there, or a question mark and a veil. */
     private fun places(stats: JourneyStats, simplified: Boolean, level: Int, plain: Boolean): View {
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val count = GlyphScenes.ALL.size
+        // The places on the road are the ones the scene list offers (SceneSpec.enabled): a place that is switched off is never reached, so it has no tile.
+        val offered = GlyphScenes.ALL.indices.filter { GlyphScenes.ALL[it].enabled }
+        val count = offered.size
         var row: LinearLayout? = null
-        for (i in 0 until count) {
-            if (i % 2 == 0) {
+        for ((n, i) in offered.withIndex()) {
+            if (n % 2 == 0) {
                 row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                grid.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = if (i == 0) 0 else dp(12) })
+                grid.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = if (n == 0) 0 else dp(12) })
             }
             val seen = stats.visits[i] > 0
             val tile = LinearLayout(this).apply {
@@ -234,7 +236,7 @@ class StatsActivity : Activity() {
             tile.addView(frame.framed(live, edge = true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             tile.addView(frame.placeName(if (seen) placeName(i, simplified) else "？").also { it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, margins(top = 8, sides = 0))
             tile.addView(frame.placeCount(if (seen) getString(R.string.stats_place_times, stats.visits[i]) else getString(R.string.stats_place_not_yet)).also { it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, margins(top = 4, sides = 0))
-            row!!.addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i % 2 == 0) marginEnd = dp(5) else marginStart = dp(5) })
+            row!!.addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (n % 2 == 0) marginEnd = dp(5) else marginStart = dp(5) })
         }
         if (count % 2 == 1) row?.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         return grid
