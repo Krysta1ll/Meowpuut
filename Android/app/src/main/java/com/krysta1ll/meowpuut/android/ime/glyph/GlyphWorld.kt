@@ -510,7 +510,7 @@ internal class GlyphWorld(
         if (pos < target) {
             if (theme.deep) {
                 // With depth the foot comes down on its own timer (see [land]); this is only the net for a timer that did not come (the keyboard went away).
-                if (tick - lastKey > 4) { pos = target.toDouble(); posMoved = true }
+                if (tick - lastKey > 6) { pos = target.toDouble(); posMoved = true }
             } else {
                 pos += max(1, min(6, round((target - pos) * 0.42)))
                 dirty = true

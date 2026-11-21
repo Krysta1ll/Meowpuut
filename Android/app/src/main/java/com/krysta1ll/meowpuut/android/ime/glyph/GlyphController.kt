@@ -401,7 +401,7 @@ internal class GlyphController(private val context: Context) {
         if (perf && steps) { probeSig = lastSig; probeAt = SystemClock.elapsedRealtimeNanos() }
         if (steps) beginStep()
         ringView.start(x, y)
-        handler?.post { engine?.let { it.key(kind, x.toDouble(), y.toDouble(), composing, letter); worldTarget = it.world.target; worldEpoch = it.world.epoch }; requestTick() }
+        handler?.post { engine?.let { it.key(kind, x.toDouble(), y.toDouble(), composing, letter); worldTarget = it.world.target; worldEpoch = it.world.epoch; publishFront(it) }; requestTick() }
     }
 
     // ---- the feel of a key: a step begins with it, on this thread, in this frame -------------------------------------------
@@ -438,8 +438,34 @@ internal class GlyphController(private val context: Context) {
         if (!lifted) return
         lifted = false
         front.invalidateCats()
-        handler?.post { engine?.let { e -> if (e.land()) render(e); worldTarget = e.world.target
-            if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step down target=${e.world.target} ${e.scape.debugCells()}") } }
+        handler?.post(landRun)
+    }
+
+    // A foot coming down asks for a picture, but only the last of the asks is drawn (one at most is waiting): the picture is always the latest state.
+    private var renderWanted = false
+    private var renderQueued = false
+    private val landRun = Runnable {
+        val e = engine ?: return@Runnable
+        if (e.land()) renderWanted = true
+        worldTarget = e.world.target
+        if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step down target=${e.world.target} ${e.scape.debugCells()}")
+        if (renderWanted && !renderQueued) { renderQueued = true; handler?.post(renderRun) }
+    }
+    private val renderRun = Runnable {
+        renderQueued = false
+        if (!renderWanted) return@Runnable
+        renderWanted = false
+        engine?.let { render(it) }
+    }
+
+    /**
+     * What stands in front (the cats' faces, the words that rise, the name of a place) is published at once, on the last picture: an effect that
+     * a key or a commit starts does not wait for the next picture to be drawn, which may be a while.
+     */
+    private fun publishFront(e: GlyphEngine) {
+        val last = frame ?: return
+        frame = GlyphFrame(last.bitmap, last.index, e.front(), last.layout, last.dark, last.opaque, last.disc, e.near(), e.world.tick, last.scene)
+        front.postInvalidateOnAnimation()
     }
 
     /** What the cats are doing as the keys have made them, for the front view to draw over the last picture: the pose, and a pixel of lift while the foot is in the air. Null when the keys have been idle. */
@@ -469,6 +495,7 @@ internal class GlyphController(private val context: Context) {
         handler?.post {
             val e = engine ?: return@post
             e.committed(text, graphemes, japanese, secret)
+            publishFront(e)
             requestTick()
         }
     }
@@ -528,8 +555,11 @@ internal class GlyphController(private val context: Context) {
         // The world takes twelve steps a second, and the picture is made in a step only when something has changed in it (a layer a cell on).
         var stepped = false
         if (started - lastWorldAt >= FRAME_MS - 10) {
+            // The clock is the wall's: a tick that comes late (a picture took long) takes the steps it missed (up to four), so every effect is as far
+            // along as the time since its event says, and what has run its life is gone, not played late.
+            val behind = if (lastWorldAt == 0L) 1 else ((started - lastWorldAt + 10) / FRAME_MS).toInt().coerceIn(1, 4)
             lastWorldAt = started
-            stepped = e.step()
+            repeat(behind) { if (e.step()) stepped = true }
             worldTarget = e.world.target; worldEpoch = e.world.epoch
         }
         if (stepped) render(e)
