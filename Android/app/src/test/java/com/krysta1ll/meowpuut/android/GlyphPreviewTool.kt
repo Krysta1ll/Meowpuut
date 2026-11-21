@@ -35,11 +35,12 @@ class GlyphPreviewTool {
         val mono = Font(Font.MONOSPACED, Font.PLAIN, 12)
         val pools = GlyphPools { s -> serif.canDisplay(s[0]) }
         for (dark in listOf(false, true)) for (scene in GlyphScenes.ALL.indices) {
-            val theme = GlyphTheme(dark = dark, level = level)
+            val theme = GlyphTheme(dark = dark, level = level).also { it.deep = System.getenv("GLYPH_DEEP") != null }
             val world = GlyphWorld(theme)
             val layout = GlyphLayout.NONE
             world.pos = 40 + scene * 17; world.target = world.pos; world.epoch = 3; world.tick = 100; world.lastMove = 100
             val scape = GlyphScape(world, pools)
+            System.getenv("GLYPH_FORE")?.toDoubleOrNull()?.let { scape.foreFix = it }
             scape.wear(scene, layout)
             scape.hush(hasCandidates = false, enabled = true)
             val colors = GlyphColors.of(dark)
@@ -51,8 +52,11 @@ class GlyphPreviewTool {
                 override fun rect(x: Double, y: Double, w: Double, h: Double, color: Int) {
                     g.color = Color(color, true); g.fill(java.awt.geom.Rectangle2D.Double(x, y, w, h))
                 }
-                override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) {
-                    val f = (if (mono) Font(Font.MONOSPACED, Font.PLAIN, size) else Font("PingFang TC", Font.PLAIN, size))
+                override fun textW(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int, weight: Int) = draw(ch, cx, cy, size, mono, color, weight)
+                override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = draw(ch, cx, cy, size, mono, color, 400)
+                private fun draw(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int, weight: Int) {
+                    val style = if (weight >= 600) Font.BOLD else Font.PLAIN
+                    val f = (if (mono) Font(Font.MONOSPACED, style, size) else Font("PingFang TC", style, size))
                     g.font = f; g.color = Color(color, true)
                     val m = g.fontMetrics
                     g.drawString(ch, (cx - m.stringWidth(ch) / 2.0).toFloat(), (cy + (m.ascent - m.descent) / 2.0).toFloat())

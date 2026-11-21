@@ -163,7 +163,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     var clearMarks: ClosedFloatingPointRange<Double>? = null
 
     private val probe = Probe()
-    private val v = DoubleArray(4)
+    private val v = DoubleArray(144)
     private var quiet: FloatArray? = null
     private var qw = 0
     private var qh = 0
@@ -348,14 +348,52 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         if (groundFirst) drawGround(g, c)                        // where the land in front of the ground is what matters: bamboo
         for (i in back.indices.reversed()) {
             if (discLate && !early && back[i] === walkOn) drawDisc(g, c)
+            if (theme.deep && i < back.size - 1) mist(g, c, back[i])
             drawLayer(g, c, back[i], cover = true) { l, k, py -> sample(l, k, py) }
         }
         if (discLate && !early && !back.contains(walkOn)) drawDisc(g, c)
         if (!groundFirst) drawGround(g, c)
-        for (i in front.indices.reversed()) drawLayer(g, c, front[i], cover = true) { l, k, py -> sample(l, k, py) }
+        for (i in front.indices.reversed()) {
+            if (theme.deep && back.isNotEmpty()) mist(g, c, front[i])
+            drawLayer(g, c, front[i], cover = true) { l, k, py -> sample(l, k, py) }
+        }
         drawSeam(g, c)
         drawAir(g, c)
         g.layerEnd()
+        if (theme.deep && !theme.opaque) drawNear(g, c, front = false)
+    }
+
+    /** Debug and shots: hold what passes in front at this part of the width, or null to let it go by with the mileage. */
+    var foreFix: Double? = null
+    /** Debug and shots: leave out the corner's own foreground. */
+    var noFrame = false
+
+    private fun near(): GlyphDepthFore.State {
+        val live = !theme.still
+        return GlyphDepthFore.State(preset.name, width, height, lift, theme.dark, theme.still, world.tick * 1000.0 / 12, world.lastMove.toDouble() * 1000.0 / 12, live)
+    }
+
+    /** Where what passes in front stands, left edge, in points: [GlyphDepthFore.passesAt] and its sway, or the held place. */
+    fun foreAt(): Double = foreFix?.let { it * width } ?: (GlyphDepthFore.passesAt(world.pos.toDouble(), 0.0) + GlyphDepthFore.sway(near()))
+
+    /**
+     * What is nearest: the corner's bank in the bottom left and, now and then, something that passes in front of everything. Nothing is drawn
+     * above the keyboard's top edge. [front]: the second drawing, in front of the cats (the caller clips it to where they stand).
+     */
+    fun drawNear(g: GlyphSink, c: GlyphColors, front: Boolean) {
+        val clip = TopClip(g, 0.0)
+        val st = near()
+        if (!front && !noFrame) GlyphDepthFore.drawFrame(clip, c, st)
+        if (GlyphDepthFore.hasFore(preset.name)) GlyphDepthFore.drawFore(clip, c, st, foreAt(), 0.0)
+    }
+
+    /** Nothing above [minY]: the picture's strip above the keyboard is not for what is near. */
+    private class TopClip(val g: GlyphSink, val minY: Double) : GlyphSink {
+        override fun rect(x: Double, y: Double, w: Double, h: Double, color: Int) {
+            if (y + h <= minY) return
+            if (y < minY) g.rect(x, minY, w, y + h - minY, color) else g.rect(x, y, w, h, color)
+        }
+        override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
     }
 
     /** The glitch's bands, for the screen to apply to what has been drawn (see [GlyphWorld.glitch]). */
@@ -584,6 +622,21 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             } else {
                 val rr = dx * dx + dy * dy
                 val bloom = trees == TreeKind.SAKURA || trees == TreeKind.MAPLE      // these two are all colour
+                if (theme.deep) {                                                    // a crown in pixels, not in type: clumps of a few and a few alone, close in its heart, thinning to its edge
+                    val edge = 81 + 30 * tall
+                    if (rr > edge) return if (dx == 0.0 && dy > 0) 1.0 else -1.0
+                    val fx = i + l.offI
+                    val fy = floor(py / l.sub).toInt()
+                    val heart = rr <= 26 + 10 * tall
+                    val close = if (heart) 0.7 else 0.62 - 0.42 * rr / edge
+                    val on = n2(fx * 0.55, fy * 0.55, s.seed + 7) * 0.72 + h2(fx, fy + s.seed + 303) * 0.28 > 1 - close
+                    p.bare = true                                                    // no type among them
+                    if (!on) return if (dx == 0.0 && dy > 0) 1.0 else -1.0
+                    p.prio = 2
+                    if (bloom) { p.acc = true; p.lit = true; p.hue = hue(if (trees == TreeKind.SAKURA) "pink" else listOf("", "orange", "gold")[min(2, floor((tall - 1) * 3).toInt())]) }
+                    else if (!heart && tint("leaf")) p.lit = true
+                    return 1.0
+                }
                 val petal = if (!bloom) 0 else hue(if (trees == TreeKind.SAKURA) "pink" else listOf("", "orange", "gold")[min(2, floor((tall - 1) * 3).toInt())])   // a maple wood is three reds; without the second ink, one
                 if (rr <= 26 + 10 * tall) {                                          // the heart of the crown is solid
                     if (bloom) { p.acc = true; p.lit = true; p.hue = petal; p.pool = "leaf"; p.prio = 2; return 0.82 }
@@ -725,6 +778,10 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
      * Drawn in bands that grow from small type at the horizon to large type at the feet, and the nearer a band, the faster it runs.
      * g is 0 at the horizon and 1 at the bottom; ux is the band's own world, in points.
      */
+    /** With depth, the pixel being asked about on the ground: its column and row in the picture's pixels, or null. */
+    private var fineCol: Int? = null
+    private var fineRow = 0
+
     private fun ground(spec: GroundSpec, ux: Double, row: Int, g: Double, px: Double): Double {
         val p = probe
         when (spec.kind) {
@@ -744,10 +801,17 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 if (spec.reflect != 0) {                              // the mountain, upside down in the lake
                     val lay = back[spec.reflect - 1]
                     val hgt = groundY - lay.ridge[max(0, min(lay.n - 1, floor(px / lay.sub).toInt()))]
-                    if (hgt > 8 && g * (height - groundY) < hgt * 0.62 && h2(round(ux / 4), row) > 0.22) { p.pool = "flat"; inked("blue"); return 0.36 }
+                    if (theme.deep) {                                 // it is clear at the shore and breaks up the farther it runs
+                        val far = g * (height - groundY) / max(1.0, hgt * 0.9)
+                        if (hgt > 8 && far < 1 && h2(round(ux / 4), row) > 0.1 + 0.5 * far) { p.pool = "flat"; inked("blue"); return 0.75 - 0.4 * far }
+                    } else if (hgt > 8 && g * (height - groundY) < hgt * 0.62 && h2(round(ux / 4), row) > 0.22) { p.pool = "flat"; inked("blue"); return 0.36 }
                 }
                 val dx = discX
-                if (dx != null && abs(px - dx) < 8 + 70 * g && h2(round(ux / 3), row * 3) > 0.52 + 0.3 * g) { p.lit = true; p.acc = !theme.dark; return 1.0 }   // the sun on the water, or the moon
+                if (dx != null && abs(px - dx) < 8 + 70 * g) {         // the sun on the water, or the moon (with depth: sparks one pixel high, one or two long)
+                    val fc = fineCol
+                    val spark = if (fc != null) h2(floorDiv(fc, 1 + (h2(fineRow, 5) * 2).toInt()), fineRow * 3) > 0.54 + 0.26 * g else h2(round(ux / 3), row * 3) > 0.52 + 0.3 * g
+                    if (spark) { p.lit = true; p.acc = !theme.dark; return 1.0 }
+                }
                 val drift = if (theme.level >= 2 && !theme.still) world.epoch * (if (theme.level == 3) 0.6 else 0.3) else 0.0
                 val wave = sin(row * 1.9 + n2(ux * 0.014, row * 0.6, 3) * 6 + drift)
                 if (wave > 0.45) { if (h2(round(ux / 6), row) < 0.5) tint("water"); return 0.3 + 0.36 * g }
@@ -796,7 +860,95 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         }
     }
 
+    /**
+     * The ground in pixels of one size and type of one size. What tells near from far is how close the type is set, how dark it is, and how
+     * fast it goes by; the pattern itself (the rows the waves, the furrows, the kerb lines are counted in) still opens out toward the viewer.
+     */
+    private fun drawGroundFine(g: GlyphSink, c: GlyphColors) {
+        val spec = groundSpec ?: return
+        val span = height - groundY
+        val level = theme.level
+        val cell = intArrayOf(12, 10, 6, 4)[level]
+        val sub = FINE
+        val m = (cell / sub).toInt()
+        val least = intArrayOf(8, 6, 4, 4)[level]
+        val most = intArrayOf(12, 10, 8, 8)[level]
+        val rowAt = ArrayList<Int>()
+        run {
+            var y = groundY
+            var at = 0.0
+            while (y < height + tail + cell) {
+                val g0 = min(1.0, (y - groundY) / span)
+                rowAt.add(floor(at).toInt())
+                at += 2 * sub / max(least, min(most, round((least + (most - least + 1) * g0.pow(1.15)) / 2) * 2))
+                y += sub
+            }
+        }
+        grid = m
+        firm = false
+        var y = groundY
+        var row = 0
+        while (y < height + tail) {
+            val g0 = min(1.0, (y + cell / 2.0 - groundY) / span)
+            plane = 0.34 * (1 - g0) * (1 - g0)
+            weight = if (g0 > 0.5) 700 else if (g0 > 0.22) 500 else 400
+            dense = NEAR_CLOSE * g0 * g0 - NEAR_FAR * (1 - g0) * (1 - g0)
+            val exact = world.pos * (0.5 + 2.2 * g0) * 8 / cell
+            val off = round(exact)
+            val wide = 2.0 - 1.3 * g0
+            val cols = ceil(width / cell).toInt()
+            for (col in 0 until cols) {
+                var accent = 0
+                var lit = false
+                for (k in 0 until m * m) {
+                    val a = k % m
+                    val b = k / m
+                    val px = (col * m + a) * sub + sub / 2
+                    val py = y + b * sub + sub / 2
+                    probe.reset()
+                    fineCol = (col + off) * m + a
+                    fineRow = row * m + b
+                    v[k] = finish(ground(spec, (px - width / 2 + off * cell) * wide, rowAt[min(rowAt.size - 1, row * m + b)], min(1.0, (py - groundY) / span), px), px, py)
+                    if (probe.acc) accent = if (probe.hue != 0) probe.hue else VERMILION
+                    if (probe.lit) lit = true
+                }
+                firm = lit
+                paintCell(g, c, col * cell.toDouble(), y, cell, probe.pool, col + off, row, 40, true, accent, null)
+            }
+            y += cell; row++
+        }
+        grid = 2; weight = 400; plane = 0.0; dense = 0.0; firm = false; fineCol = null
+        g.layerEnd()
+    }
+
+    /** The air between two planes: what is behind thins into the paper just above the ridge of the plane about to be drawn. */
+    private fun mist(g: GlyphSink, c: GlyphColors, l: Layer) {
+        val sub = l.sub
+        val h = MIST_HEIGHT
+        val disc = preset.sky.disc
+        val dxc = discX
+        val r2 = if (dxc != null && disc != null) (disc.r * height * discScale + 1).let { it * it } else -1.0
+        val ep = world.epoch
+        for (i in 0 until l.n) {
+            val top = l.ridge[i].toDouble()
+            if (!(top > 0) || top > height) continue
+            val shiftCol = (i + l.offI) * sub
+            val thick = 0.7 + 0.6 * n1(shiftCol * 0.015 + ep * 0.04, 81)
+            var y = floor(top - h).toInt()
+            while (y < top) {
+                val share = ((y - (top - h)) / h).pow(1.4) * MIST_SHARE * thick
+                if (share > 0) for (a in 0 until sub.toInt()) {
+                    val x = (i * sub + a)
+                    val xw = ((i + l.offI) * sub).toInt() + a
+                    if (BAYER[(y and 3) * 4 + (xw and 3)] < share && (r2 < 0 || (x - dxc!!).let { it * it } + (y - discY).let { it * it } > r2)) g.rect(x, y.toDouble(), 1.0, 1.0, c.paper)
+                }
+                y++
+            }
+        }
+    }
+
     private fun drawGround(g: GlyphSink, c: GlyphColors) {
+        if (theme.deep) return drawGroundFine(g, c)
         val spec = groundSpec ?: return
         val span = height - groundY
         var y = groundY
@@ -857,7 +1009,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     internal fun drawSeam(g: GlyphSink, c: GlyphColors) {
         val z = seamSpec ?: return
         if ((lift <= 0 && inset <= 0) || theme.opaque) return
-        val u = GlyphSeam.BLOCK
+        val u = if (theme.deep) 1.0 else GlyphSeam.BLOCK           // with depth, the edge in the finest grain
         val cols = ceil(width / u).toInt()
         val reach = lift + inset
         val band = z.band * (1 + 0.6 * (1 - world.fog) + 0.9 * (1 - formed))   // in the fog between two places, and while arriving, the edge loosens further
@@ -889,9 +1041,22 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val dx0 = discX ?: return
         val P = preset.sky.disc ?: return
         val r = P.r * height * discScale
-        val u = 3.0
+        val u = if (theme.deep) 1.0 else 3.0                          // with depth, a rounder sun
         val own = hue(P.hue)
         val color = GlyphColors.withAlpha(if (own != 0) own else if (P.sun && !theme.dark) c.red else c.ink, world.fog)
+        if (theme.deep && !P.earth && formed >= 1) {                  // its own air: a ring of its colour thinning away from it
+            val far = r * 1.7 + 6
+            var yy = floor(discY - far).toInt()
+            while (yy < discY + far) {
+                var xx = floor(dx0 - far).toInt()
+                while (xx < dx0 + far) {
+                    val dd = (hypot(xx + 0.5 - dx0, yy + 0.5 - discY) - r) / (far - r)
+                    if (dd > 0.04 && dd < 1 && BAYER[(yy and 3) * 4 + (xx and 3)] < 0.42 * (1 - dd) * (1 - dd)) g.rect(xx.toDouble(), yy.toDouble(), 1.0, 1.0, color)
+                    xx++
+                }
+                yy++
+            }
+        }
         var y = floor((discY - r) / u) * u
         while (y < discY + r) {
             var x = floor((dx0 - r) / u) * u
@@ -1147,6 +1312,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         /** On the ground: how much closer the type is set at the viewer's feet, how much thinner at the horizon. */
         const val NEAR_CLOSE = 0.7
         const val NEAR_FAR = 0.14
+        /** The 4x4 ordered-dither thresholds (the prototype's BAYER), for the pixel-grained mist and halos. */
+        val BAYER = doubleArrayOf(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0).map { (it + 0.5) / 16 }.toDoubleArray()
         /** The marker for the vermilion where a cell is drawn in an accent: any other non-zero value is the ARGB of a place's own ink. */
         private const val VERMILION = 1
         /** The skyline framing's ridge is never higher than this: the cats stand on it and are thirty points tall. */
