@@ -106,3 +106,14 @@ adb shell ime set com.krysta1ll.meowpuut.android/.ime.MeowpuutIME
 - 實機。模擬器用軟體繪圖，每格畫面的 GPU 時間約 28 ms，所以 `dumpsys gfxinfo` 的卡頓比例在這裡沒有參考價值；主執行緒錄製一格約 0.3 ms。
 - 記憶體：輸入法程序的 PSS 約 160 MB，其中原生堆積約 106 MB，因為核心把詞庫從 APK 複製到記憶體。要降低得在 Rust 核心加上直接映射詞庫的介面。
 - TalkBack 實際朗讀、實體鍵盤、分割畫面與摺疊機。
+
+## 第一行字（新手引導）
+
+全新安裝第一次打開 App 時出現的引導：六幕，沒有「下一步」，做了該做的事才會前進（啟用鍵盤 → 太陽升起；在輸入線上打字、選字 → 兩隻貓出現；選一條路 → 那就是輸入方式）。規格與原型在 `design-preview/onboarding/`（工作區根目錄，不在這個倉庫）。
+
+- 進入點：`app/OnboardingActivity`。`SettingsActivity.onCreate` 只有一行掛接（`Onboarding.due(...)` 為真就先開它）；設定頁最下方有「再看一次「第一行字」」。
+- 只對全新安裝自動出現：沒更新過、也沒有鍵盤自己寫的 `cat_affinity`／`choice-memory` 檔。判斷一次後寫進設定的 `onboarding`（`due`／`done`）。按「跳過」或返回鍵也算看過。
+- 引導在畫面上時鍵盤暫時穿字景（設定裡的 `onboardingSkinUntil`，有期限，離開畫面就清掉）；使用者選的皮膚不動，除非最後點了「鍵盤就穿字景」。
+- 留下來的只有三樣：`onboarding`、選的輸入方式（`mode`）、點了才有的 `skin`。輸入線上打的字不讀內容（只看長度與是否在組字），離開那一幕就清空。
+- 程式在 `app/onboarding/`：`OnboardingState`（不碰畫面的狀態機）、`OnboardingScape`（整頁地景）、`OnboardingPainter`（路牌、牌子、木門、貓、點陣字旁白）、`OnboardingView`（背景執行緒每秒 12 格）、`Onboarding`（何時出現、暫穿皮膚）。只用到字景繪製最底層的東西（雜訊、字池、畫布、貓的像素、點陣字），沒有改 `ime/glyph/`。
+- 測試：`OnboardingTest`（何時出現、暫穿皮膚的期限、不讀打字內容、六幕走得完、繁簡文案齊全）。`ONBOARDING_PREVIEW_DIR=/某個資料夾 ./gradlew :app:testDebugUnitTest --tests "*OnboardingPreviewTool*"` 會在桌機上把每一幕畫成 PNG。

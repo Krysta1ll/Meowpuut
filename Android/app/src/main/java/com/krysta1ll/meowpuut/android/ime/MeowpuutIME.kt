@@ -1226,7 +1226,7 @@ class MeowpuutIME : InputMethodService(),
         }
         // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
         val overlay = customSkin?.overlay
-        val skin = overlay?.base ?: prefs.skin
+        val skin = overlay?.base ?: com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.wornSkin(prefs.store) ?: prefs.skin   // 第一行字: 字景 while the guide is on
         val wardrobe = FestivalWardrobe(on = prefs.festivals)
         // FestivalOverride: debug builds only; the release build's always returns null.
         val today = java.time.LocalDate.now()
