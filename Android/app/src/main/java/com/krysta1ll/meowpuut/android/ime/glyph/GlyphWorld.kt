@@ -39,6 +39,8 @@ internal class GlyphLayout(
     val horizon: Double = 0.0,
     /** How far below the keys the picture runs on, under the system's navigation strip (very faint). 0 when the keyboard ends there. */
     val tail: Double = 0.0,
+    /** How many points one pixel of a cat is: two, or less where the keys stand too close for a cat of two to walk between them. */
+    val catUnit: Double = 2.0,
 ) {
     /** Where the cats' feet are in the gap under key row [n] (0 = between the first two rows). Null when there is no such gap. */
     fun laneFeet(n: Int): Double? =
@@ -49,7 +51,7 @@ internal class GlyphLayout(
     override fun equals(other: Any?): Boolean = other is GlyphLayout && width == other.width && height == other.height &&
         rowCenters.contentEquals(other.rowCenters) && chipHeight == other.chipHeight && barMid == other.barMid &&
         barTop == other.barTop && barHeight == other.barHeight && skylineFloor == other.skylineFloor && lift == other.lift && inset == other.inset &&
-        horizon == other.horizon && tail == other.tail
+        horizon == other.horizon && tail == other.tail && catUnit == other.catUnit
 
     override fun hashCode(): Int = width.hashCode() * 31 + height.hashCode()
 
@@ -69,7 +71,7 @@ internal class CatState(val pose: String, val face: String, val z: Boolean = fal
 /** How a cat is drawn this frame: the front layer reads this and nothing else. */
 internal class CatDraw(
     val cat: CatId, val pose: String, val face: String, val x: Int, val feetY: Int, val hopY: Int,
-    val night: Boolean, val platform: Boolean, val afterImageDx: Int?, val zzz: Boolean, val zPhase: Int,
+    val night: Boolean, val platform: Boolean, val afterImageDx: Int?, val zzz: Boolean, val zPhase: Int, val suit: Boolean = false,
 )
 
 internal class MoteDraw(val ch: String, val x: Double, val y: Double, val alpha: Float)
@@ -110,8 +112,16 @@ internal class GlyphJourney {
         for (k in places.size..n) {
             val before = if (k > 0) places[k - 1].scene else -1
             val pick = GlyphScenes.COMMON.filter { it != before }
-            val rare = GlyphScenes.RARE
-            val scene = if (k > 1 && rare >= 0 && before != rare && h2(k, 4242) < 0.1) rare else pick[(h2(k, 99) * pick.size).toInt()]
+            // The rare places, one after the other along a single draw: the Moon a tenth of the places, the Moon seen from the Moon four in a hundred.
+            var rare = -1
+            if (k > 1 && before !in GlyphScenes.RARES) {
+                val u = h2(k, 4242)
+                for ((n, i) in GlyphScenes.RARES.withIndex()) {
+                    val lo = GlyphScenes.rareFrom(n)
+                    if (u >= lo && u < lo + GlyphScenes.ALL[i].rare) { rare = i; break }
+                }
+            }
+            val scene = if (rare >= 0) rare else pick[(h2(k, 99) * pick.size).toInt()]
             places += Place(scene, MIN_LEN + (h2(k, 777) * SPAN).toInt())
         }
         return places[n]
@@ -292,7 +302,7 @@ internal class GlyphWorld(
         moved(0, at)
         backs.removeAll { tick - it >= 14 }
         backs += tick
-        if (backs.size >= 5) { backs.clear(); glitch(10) }
+        if (backs.size >= 5) { backs.clear(); feel(mapOf(CatId.MIMI to "angry", CatId.MOMO to "neutral"), 16, false); glitch(4) }
     }
 
     /** Space or return with nothing being composed. */
@@ -310,7 +320,7 @@ internal class GlyphWorld(
      */
     fun committed(text: String, graphemes: Int, japanese: Boolean, secret: Boolean, skyOffset: Int, barY: Double, top: Double = 10.0) {
         distance += max(0, graphemes)
-        feel(if (japanese) mapOf(CatId.MIMI to "sparkle", CatId.MOMO to "sparkle") else mapOf(CatId.MIMI to "happy", CatId.MOMO to "happy"), 12, true)
+        feel(if (japanese) mapOf(CatId.MIMI to "sparkle", CatId.MOMO to "love") else mapOf(CatId.MIMI to "happy", CatId.MOMO to "happy"), 12, true)
         if (secret) for (t in secrets.feed(text, nowMs(), japanese)) when (t) {
             GlyphSecrets.Trigger.GUEST -> if (crabAllowed) guest = tick + 30 * FPS
             GlyphSecrets.Trigger.GLITCH -> glitch(22)
@@ -447,7 +457,7 @@ internal class GlyphWorld(
             if (h2(epoch, 909) < 0.008 || (hm == 404 && epoch % 9 == 0)) glitch(5)
         }
         if (tick <= glitch) dirty = true
-        if (!theme.still && (abs(idle - 1.2) < 0.05 || abs(idle - 7) < 0.05 || abs(idle - 12) < 0.05 || abs(idle - 16) < 0.05 ||
+        if (!theme.still && (doubleArrayOf(1.2, 4.0, 5.5, 9.0, 11.0, 12.0, 15.0, 16.0).any { abs(idle - it) < 0.05 } || (idle < 5.6 && (beat == 10 || beat == 14)) ||
                 (idle < 12 && (beat == 0 || beat == 2 || beat == 17 || beat == 19)) || (idle in 12.0..<20.0 && tick % 8 == 0))) dirty = true
         val was = dirty
         dirty = false
@@ -471,17 +481,28 @@ internal class GlyphWorld(
     fun catState(cat: CatId): CatState {
         val idle = idleSeconds
         val moving = pos < target && !theme.still
-        val g = goodnight
-        if (tick < g && !moving) return CatState("sleep", "neutral", z = cat == CatId.MIMI)
+        val mimi = cat == CatId.MIMI
+        if (tick < goodnight && !moving) return CatState("sleep", "neutral", z = mimi)
+        if (tick < glitch) return CatState(if (moving) (if (tick and 1 != 0) "walkA" else "walkB") else "sit", "dizzy")        // when the picture tears, so do they
         val m = mood
         if (m != null && tick < moodUntil) return CatState(if (moving) (if (tick and 1 != 0) "walkA" else "walkB") else "sit", m[cat] ?: "neutral", hop = hop)
-        if (moving) return CatState(if ((tick + (if (cat == CatId.MOMO) 1 else 0)) and 1 != 0) "walkA" else "walkB",
-            if (rate > 7) "wide" else if (cat == CatId.MIMI) "focus" else "neutral")
+        if (moving) return CatState(if ((tick + (if (mimi) 0 else 1)) and 1 != 0) "walkA" else "walkB",
+            if (rate > 7) "wide" else if (mimi) "focus" else "neutral")
         if (idle < 1.2) return CatState("walkA", "neutral")
-        if (cat == CatId.MIMI && idle > 12) return CatState("sleep", "neutral", z = true)
-        if (cat == CatId.MOMO && idle > 16) return CatState("sleep", "neutral")
-        val blink = ((tick + (if (cat == CatId.MOMO) 17 else 0)) % 46) < 2
-        return CatState("sit", if (blink) "blink" else if (cat == CatId.MIMI && idle > 7) "smug" else "neutral")
+        if (tick - arrive < 26) return CatState("sit", "up")                                                                   // somewhere new: they look up at it
+        // Left alone they have an evening of their own: she turns to watch the view, he follows; then the loaf, a yawn, sleep.
+        if (idle > (if (mimi) 12 else 16)) return CatState("sleep", "neutral", z = mimi)
+        if (idle > (if (mimi) 9 else 11)) return CatState("loaf", if (idle > (if (mimi) 11 else 15)) "yawn" else if (mimi) "smug" else "blink")
+        if (idle > (if (mimi) 5.5 else 4.0) && !(mimi && theme.dark && !GlyphScenes.ALL[scene].suit)) return CatState("back", "neutral")
+        val beat = (tick + (if (mimi) 0 else 17)) % 46
+        val turn = tick / 46
+        val face = when {
+            beat < 2 -> "blink"
+            mimi && h2(turn, 31) < 0.18 && beat < 14 -> "blep"
+            !mimi && h2(turn, 32) < 0.12 && beat < 10 -> "wink"
+            else -> "neutral"
+        }
+        return CatState("sit", face)
     }
 
     /** The picture of the front layer for this frame. [ridgeY] answers where the walking ridge is at x; [skyOffset] anchors the words. */
@@ -511,7 +532,7 @@ internal class GlyphWorld(
             if (moving && pose != "sleep") pose = if (tick and 1 != 0) "walkA" else "walkB"
             val night = (theme.dark && cat == CatId.MIMI && !(mood != null && tick < moodUntil)) || form < 0.8
             val after = if (tick < glitch) -(6 + (10 * h2(tick, round(x))).toInt()) else null
-            cats += CatDraw(cat, pose, st.face, round(x) + (if (run) (tick and 1) * 2 else 0), round(feet), hopY, night, platform, after, st.z, (tick / 8) and 0xFFFF)
+            cats += CatDraw(cat, pose, st.face, round(x) + (if (run) (tick and 1) * 2 else 0), round(feet), hopY, night, platform, after, st.z, (tick / 8) and 0xFFFF, GlyphScenes.ALL[scene].suit)
             if (run) dust += spectacle.dust(x, feet, if (cat == CatId.MOMO) 0 else 1)
         }
         val motesOut = ArrayList<MoteDraw>(motes.size)

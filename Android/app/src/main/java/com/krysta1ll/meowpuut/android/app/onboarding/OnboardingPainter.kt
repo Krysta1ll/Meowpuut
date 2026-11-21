@@ -218,11 +218,13 @@ internal class OnboardingPainter(pools: GlyphPools, private val glyph: (String) 
             val look = s.look(cat)
             val px = 3.0
             val x = Math.floor(cat.x + 0.5)
-            val y = Math.floor(scape.ridgeAt((x + 30).coerceIn(0.0, s.geo.w - 1)) + 2 - 15 * px + look.hop + 0.5)
+            val cw = GlyphCats.w(id)                                 // the two cats are not the same size
+            val chh = GlyphCats.h(id)
+            val y = Math.floor(scape.ridgeAt((x + cw * px / 2).coerceIn(0.0, s.geo.w - 1)) + 2 - chh * px + look.hop + 0.5)
             if (on == 1 || cat.form < 1) {
                 val rows = GlyphCats.rows(id, "sit", "neutral")
                 if (on == 1 && s.tick % 38 < 2) continue              // a blink
-                for (cy in 0 until GlyphCats.H) for (cx in 0 until GlyphCats.W) {
+                for (cy in 0 until chh) for (cx in 0 until cw) {
                     val k = rows[cy][cx]
                     if (k == '.') continue
                     if (on == 1) { if (k == 'Y' || k == 'W' || k == 'U' || (k == 'P' && s.atHome)) g.rect(x + cx * px, y + cy * px, px, px, GlyphCatArt.PALETTE.getValue(k)) }

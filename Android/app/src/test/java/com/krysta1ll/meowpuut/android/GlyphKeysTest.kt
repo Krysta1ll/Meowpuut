@@ -275,11 +275,11 @@ class GlyphKeysTest {
     fun theCatsAreTheirPosesAndFacesOnAMargin() {
         for (cat in CatId.entries) for (pose in GlyphCats.POSES) for (face in GlyphCats.FACES) {
             val rows = GlyphCats.rows(cat, pose, face)
-            assertEquals(GlyphCats.H, rows.size)
-            assertTrue(rows.all { it.size == GlyphCats.W })
+            assertEquals(GlyphCats.h(cat), rows.size)
+            assertTrue(rows.all { it.size == GlyphCats.w(cat) })
             val r = GlyphCats.raster(cat, pose, face, dark = false, eyesOnly = false, colors = c)
-            assertEquals(GlyphCats.W + 2 * GlyphCats.MARGIN, r.w)
-            assertEquals(GlyphCats.H + 2 * GlyphCats.MARGIN, r.h)
+            assertEquals(GlyphCats.w(cat) + 2 * GlyphCats.MARGIN, r.w)
+            assertEquals(GlyphCats.h(cat) + 2 * GlyphCats.MARGIN, r.h)
             assertEquals(r.w * r.h, r.pixels.size)
             assertTrue("every colour is a colour of the palette, the margin or the edge", r.pixels.all {
                 it == 0 || it == c.paper || it == 0xFF5C3D2E.toInt() || it in GlyphCatArt.PALETTE.values

@@ -45,6 +45,12 @@ internal object GlyphSeam {
         "竹林" to SeamSpec(Grain.COLS, band = 26.0, inner = 12.0, leak = 0.4),
         "雪山" to SeamSpec(Grain.NOISE, band = 24.0, inner = 10.0, wander = 3.0, leak = 0.6, spire = SpireSpec(0, 0.66, 3.3)),
         "月" to SeamSpec(Grain.NOISE, band = 30.0, inner = 14.0, leak = 2.0, rise = 10.0),
+        "富士" to SeamSpec(Grain.BAYER, band = 24.0, inner = 10.0, wander = 6.0),
+        "香港" to SeamSpec(Grain.BAYER, band = 16.0, inner = 6.0, leak = 0.6, spire = SpireSpec(1, 0.8, 2.6)),
+        "火山" to SeamSpec(Grain.NOISE, band = 26.0, inner = 12.0),
+        "沙漠" to SeamSpec(Grain.ROWS, band = 20.0, inner = 8.0),
+        "紅葉" to SeamSpec(Grain.COLS, band = 24.0, inner = 12.0),
+        "月球" to SeamSpec(Grain.NOISE, band = 30.0, inner = 14.0, leak = 2.0),
     )
 
     /** The strip above the keys the picture paints, 0 when there is none (the safe drawing and a floating card have no seam at all). */
