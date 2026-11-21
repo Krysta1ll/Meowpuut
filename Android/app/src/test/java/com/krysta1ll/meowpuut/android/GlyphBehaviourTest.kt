@@ -105,7 +105,8 @@ class GlyphBehaviourTest {
             for (k in 0 until n) start += journey.placeAt(k).len
             e.restore(start - 3)
             e.prime(3)
-            repeat(2) { e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a") }          // the picture crosses the border under the typing, not at a commit
+            e.committed("ab", 1, false, false)                                   // the characters cross the border; the next key takes the cats over
+            e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a")
             e.step(); e.step()
             val glitched = e.world.glitch > 0
             assertEquals("border $n", GlyphNoise.h2(n, 5) < 0.3, glitched)

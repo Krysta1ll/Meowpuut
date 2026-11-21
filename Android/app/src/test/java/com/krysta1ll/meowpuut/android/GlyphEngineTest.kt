@@ -406,11 +406,13 @@ class GlyphEngineTest {
         e.step()
         assertEquals(journey.placeAt(0).scene, e.world.scene)
         assertEquals("the first place is not announced", 0f, e.front().bannerAlpha, 0f)
-        // typing enough to walk the picture past the first place (the place goes with the picture, not with what is committed)
+        // the place goes with the characters committed, and is taken at a key: a commit alone changes nothing
         e.restore(journey.placeAt(0).len - 6L)                                  // (a place is long now: start close to its end)
-        var keys = 0
-        while (e.world.scene == journey.placeAt(0).scene && keys++ < 100) { e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step() }
-        assertTrue(keys < 100)
+        e.committed("ab", 1, false, false)
+        e.step(); e.step()
+        assertEquals("a commit does not change the place", journey.placeAt(0).scene, e.world.scene)
+        e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step()
+        assertEquals(journey.placeAt(1).scene, e.world.scene)
         assertEquals(journey.placeAt(1).scene, e.world.scene)
         val banner = e.front()
         assertTrue(banner.bannerAlpha > 0.5f)
@@ -435,17 +437,22 @@ class GlyphEngineTest {
     }
 
     @Test
-    fun theFogGathersAtABorderAndTheLandThinsIntoIt() {
+    fun aNewPlaceComesOutOfTheFogOnTheClockAndTheLandThinsIntoIt() {
         val e = engine(scene = null)
         val len = GlyphJourney().placeAt(0).len
         e.restore((len - 1).toLong())
         repeat(30) { e.step() }
+        assertEquals("no fog before a border", 1.0, e.world.fog, 0.0)
+        e.committed("ab", 1, false, false)
+        e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step()
         assertTrue("fog ${e.world.fog}", e.world.fog < 0.3)
         val thin = RecordingSink()
         e.drawScene(thin)
         val clear = RecordingSink()
         engine(scene = GlyphJourney.START).drawScene(clear)          // the journey begins in the sea
         assertTrue(thin.texts.size < clear.texts.size)
+        repeat(10) { e.step() }
+        assertEquals("the new place is out of the fog in eight ticks", 1.0, e.world.fog, 0.0)
     }
 
     @Test

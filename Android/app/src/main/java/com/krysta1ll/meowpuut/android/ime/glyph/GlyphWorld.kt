@@ -237,6 +237,12 @@ internal class GlyphWorld(
      * (two at the finest type), so that the foot and the ground change together. Set with the place (see [GlyphScape.walkGain]).
      */
     var gain = 0.5
+    /**
+     * The distance (committed characters x 8: what the journey and the home page count, kept, never less) by which the place is chosen. It is taken
+     * at a key: a commit that crosses a border does not change the picture, the next key takes the cats over. The picture's own scroll ([pos]) has
+     * nothing to do with where they are.
+     */
+    var placeAt = 0L
     /** What passes in front has been left to roll out of the picture by itself this far (units). */
     var coast = 0.0
     /** The picture moved on in this step without anything else changing: drawn again only if a layer, a row of the ground or a step has crossed a cell. */
@@ -308,6 +314,7 @@ internal class GlyphWorld(
 
     /** The keys moved the world by [amount]; [at] is where a ring runs out from. */
     fun moved(amount: Int, at: Pair<Double, Double>?) {
+        placeAt = distance                                           // (a key takes the cats to where the characters committed say they are)
         val now = tick
         val rested = now - lastMove > FPS                          // the cats were not at their stride: a key wakes them (one picture), not every key after
         rate = rate * 0.6 + (FPS.toDouble() / max(1, now - lastKey)) * 0.4
@@ -428,7 +435,7 @@ internal class GlyphWorld(
             fogTarget = 1.0; fog = 1.0
             return
         }
-        val (n, _) = journey.at(target.toLong())                  // where the picture is decides the place (and the fog), not what has been committed
+        val (n, _) = journey.at(placeAt)                          // the committed characters decide the place, taken at a key
         if (n != journey.step) {
             val arrived = journey.step >= 0
             journey.step = n
@@ -441,9 +448,9 @@ internal class GlyphWorld(
                 if (h2(n, 5) < 0.3) glitch(8)
             }
         }
-        // The land goes into fog over the last few units of a place, and a new place is set by the clock whatever the typing does.
+        // No fog before a border; a new place comes out of it by the clock, whatever the typing does.
         val into = if (tick - arrive < ARRIVE_TICKS) (tick - arrive + 1).toDouble() / ARRIVE_TICKS else 1.0
-        fogTarget = min(journey.fogAt(target.toLong()), into)
+        fogTarget = into
         if (fog != fogTarget) { fog = fogTarget; dirty = true }
     }
 

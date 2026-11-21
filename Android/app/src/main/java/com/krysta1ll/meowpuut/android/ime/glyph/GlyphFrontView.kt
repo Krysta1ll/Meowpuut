@@ -33,6 +33,20 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
 
     override fun onDraw(canvas: Canvas) = draw0(canvas)
 
+    /** Only where the cats stand (and their shadows): a key's step is drawn in this alone, by the clip, not the whole view. */
+    fun invalidateCats() {
+        val f = controller.frame
+        val cats = f?.front?.cats
+        if (f == null || cats.isNullOrEmpty()) { invalidate(); return }
+        val left = cats.minOf { it.x } - 50
+        val right = cats.maxOf { it.x } + 130
+        val top = cats.minOf { it.feetY } - 80
+        val bottom = cats.maxOf { it.feetY } + 14
+        invalidate(Math.floor(left * scale.toDouble()).toInt(), Math.floor((top + f.layout.lift) * scale).toInt(), Math.ceil(right * scale.toDouble()).toInt(), Math.ceil((bottom + f.layout.lift) * scale).toInt())
+    }
+
+    private val warmed = HashSet<String>()
+
     private fun draw0(canvas: Canvas) {
         val f = controller.frame ?: return
         val ff = f.front
@@ -47,6 +61,7 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
         ff.fish?.let { (fx, fy) -> sink.bits(fishMask, q(fx.toDouble(), 3.0), q(fy.toDouble(), 3.0), 3.0, c.ink, null, false) }
         var sig = 7L
         for (d in ff.cats) {
+            if (warmed.add("${d.cat}/${d.face}/${f.dark}/${d.night}/${d.suit}")) { cat(d, "walkA", c, f.dark); cat(d, "walkB", c, f.dark) }   // both feet are ready before a key asks for one
             val walk = if (f.near != null) controller.walkOf(d.cat) else null     // what the keys have just made of the cat, before any new picture
             val pose = walk?.first ?: d.pose
             val hopY = d.hopY - (walk?.second ?: 0)

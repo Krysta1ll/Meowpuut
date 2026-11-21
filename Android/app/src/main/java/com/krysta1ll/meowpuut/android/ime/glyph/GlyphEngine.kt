@@ -50,6 +50,7 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
 
     fun restore(distance: Long, reset: Boolean = false) {
         world.distance = max(0L, distance)
+        world.placeAt = world.distance
         // The picture starts from what has been committed, and in one showing never goes back (a rewind of the records is the one way back).
         world.target = if (reset) world.distance.toInt() else max(world.target, world.distance.toInt())
         world.pos = max(world.pos.takeIf { !reset } ?: 0.0, world.target.toDouble())

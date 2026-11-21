@@ -429,7 +429,7 @@ internal class GlyphController(private val context: Context) {
         liveTarget += STEP
         lifted = true
         if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step up target=$liveTarget foot=${walkOf(CatId.MIMI)?.first}")
-        front.invalidate()                                                       // the leg lifts in this frame
+        front.invalidateCats()                                                   // the leg lifts in this frame
         main.postDelayed(comeDown, gap.times(0.6).toLong().coerceIn(60L, 160L))
     }
 
@@ -437,7 +437,7 @@ internal class GlyphController(private val context: Context) {
     private fun landStep() {
         if (!lifted) return
         lifted = false
-        front.invalidate()
+        front.invalidateCats()
         handler?.post { engine?.let { e -> if (e.land()) render(e); worldTarget = e.world.target
             if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step down target=${e.world.target} ${e.scape.debugCells()}") } }
     }
