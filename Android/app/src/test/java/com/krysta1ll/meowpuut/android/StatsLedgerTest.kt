@@ -307,7 +307,7 @@ class StatsLedgerTest {
         ledger.absorb(book(state(marks = listOf(intArrayOf(spring + 3, 2, 1, 1), intArrayOf(spring + 4, 2, 1, 1), intArrayOf(lantern, 1, 2, 2), intArrayOf(lantern + 1, 1, 2, 2)))))
         val stats = JourneyStats.of(ledger, fests)
         assertEquals(listOf("spring_festival", "lantern_festival"), stats.festivals.map { it.id })
-        assertEquals(1, stats.festivals[0].years)
+        assertEquals(1, stats.festivals[0].times)
         assertEquals(spring + 3, stats.festivals[0].firstDay)            // the first day typed inside its days
         assertEquals("春节", stats.festivals[0].name(true))
         assertEquals("spring_festival", stats.days.first { it.day == spring + 3 }.festival?.id)
@@ -315,7 +315,7 @@ class StatsLedgerTest {
         assertNull(stats.days.first { it.day == lantern + 1 }.festival)
         // Typing in the year before it comes round again meets it a second time.
         ledger.absorb(book(state(marks = listOf(intArrayOf(spring + 357, 0, 1, 1)))))
-        assertEquals(2, JourneyStats.of(ledger, fests).festivals.first { it.id == "spring_festival" }.years)
+        assertEquals(2, JourneyStats.of(ledger, fests).festivals.first { it.id == "spring_festival" }.times)
     }
 
     @Test

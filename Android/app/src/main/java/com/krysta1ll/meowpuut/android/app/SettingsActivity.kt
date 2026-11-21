@@ -41,7 +41,7 @@ import com.krysta1ll.meowpuut.android.app.home.HomeEntries
 import com.krysta1ll.meowpuut.android.app.home.HomeEntry
 import com.krysta1ll.meowpuut.android.app.home.HomeHero
 import com.krysta1ll.meowpuut.android.app.stats.JourneyStats
-import com.krysta1ll.meowpuut.android.app.stats.ManifestFestivals
+import com.krysta1ll.meowpuut.android.app.stats.BundledFestivals
 import com.krysta1ll.meowpuut.android.app.stats.StatsStore
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
@@ -156,7 +156,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
         scroller = scroll
         homeColumn = column
-        statsStore = StatsStore(this, ManifestFestivals(this))
+        statsStore = StatsStore(this, BundledFestivals.of(this))
         when (ui.skin.slots.hero) {
             HeroSlot.MASTHEAD -> addMasthead(column)
             HeroSlot.SCENE -> addSceneHero(column)
@@ -564,9 +564,21 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         val distance = GlyphJourney.distanceOf(statsStore.committedCharacters())
         val places = JourneyStats.places(distance)
         val name = GlyphScenes.ALL[places.here].name.let { if (simplifiedUi()) HOME_SIMPLIFIED_PLACES[it] ?: it else it }
-        column.addView(HomeHero.build(this, ui, getString(R.string.home_where, name), getString(R.string.home_stop, places.stop),
-            getString(R.string.home_hero_desc, name, places.stop), distance, prefs.effects.ordinal, wantsMoreContrast(this), dp(20)),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val describe = getString(R.string.home_hero_desc, name, places.stop)
+        val hero = HomeHero.build(this, ui, getString(R.string.home_where, name), getString(R.string.home_stop, places.stop),
+            describe, distance, prefs.effects.ordinal, wantsMoreContrast(this), dp(20))
+        column.addView(hero.view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        // On a festival's day its stamp stands by the road in the picture (not on a quiet day). The festivals are read off the main thread.
+        val simplified = simplifiedUi()
+        Thread {
+            val festivals = BundledFestivals.of(this)
+            val today = JourneyStats.today(festivals.occurrences(), java.time.LocalDate.now().toEpochDay().toInt())
+            val rows = today?.let { f -> com.krysta1ll.meowpuut.android.app.home.Stamps.ofFestival(f.stamp, festivals) }
+            if (today != null && rows != null) runOnUiThread {
+                hero.picture.contentDescription = describe + getString(R.string.home_festival_desc, today.name(simplified))
+                hero.picture.festival = com.krysta1ll.meowpuut.android.app.home.Standing(rows)
+            }
+        }.apply { isDaemon = true }.start()
     }
 
     /** The ways in: the settings, the wardrobe, how to add the keyboard, and 行旅. A skin chooses how they are shown. */

@@ -199,7 +199,7 @@ internal object StatsPictures {
                 }
             }
             d.festival?.let { f ->
-                val rows = Stamps.ofFestival(f.id, stamps)
+                val rows = Stamps.ofFestival(f.stamp, stamps)
                 pen.stamp(rows, (x - rows[0].length).roundToInt().toDouble(), (y - rows.size * 2 - 3).roundToInt().toDouble(), 2.0, true)
                 pen.say(text.dayFestival(f), x, y - rows.size * 2 - 14, Say(ink = pen.red, halo = true, centre = true))
             }
@@ -352,33 +352,41 @@ internal object StatsPictures {
         }
     }
 
-    // ---- 遇見的節日 ------------------------------------------------------------------------------------------
+    // ---- 遇見的節日: a road with what each festival left by it, the newest at the cats' end -----------------------------------
 
-    private const val FEST_ROW = 108.0
+    const val ROAD_HEIGHT = 140.0
+    private const val ROAD_SLOT = 104.0
+    private const val ROAD_MARGIN = 24.0
+    private const val ROAD_BASE = 80.0
 
-    fun festivalsHeight(count: Int, w: Double): Double = max(1, ceil(count / festivalsPerRow(w).toDouble()).toInt()) * FEST_ROW + 4
+    /** The road is as long as its festivals ask, and never shorter than the page. */
+    fun roadWidth(count: Int, minimum: Double): Double = max(minimum, ROAD_MARGIN * 2 + count * ROAD_SLOT)
 
-    fun festivalsPerRow(w: Double): Int = max(3, (w / 76).toInt())
+    /** A name over at most two lines of seven; a longer one is cut with a dot. */
+    private fun lines(name: String): List<String> {
+        val chars = name.codePoints().toArray()
+        fun part(from: Int, to: Int) = String(chars, from, to - from)
+        if (chars.size <= 7) return listOf(name)
+        val split = if (chars.size <= 14) (chars.size + 1) / 2 else 7
+        val second = if (chars.size <= 14) part(split, chars.size) else part(7, 13) + "…"
+        return listOf(part(0, split), second)
+    }
 
-    fun festivals(pen: Pen, w: Double, stats: JourneyStats, text: PictureText) {
-        val per = festivalsPerRow(w)
-        val gap = w / per
-        val top = FloatArray(ceil(w / 3).toInt() + 2)
-        val rows = ceil(stats.festivals.size / per.toDouble()).toInt()
-        for (row in 0 until rows) {
-            val base = row * FEST_ROW + 76
-            for (k in top.indices) top[k] = (base - 5 * n1(k * 0.2, 3 + row)).toFloat()
-            // a low range of hills for them to stand on, drawn on this row's own band of the picture
-            pen.range(w, base + 8, top, "bopo", 51 + row, 0.4, null, null, null, w)
-            for (i in 0 until per) {
-                val index = row * per + i
-                if (index >= stats.festivals.size) break
-                val f = stats.festivals[index]
-                val x = (gap * (i + 0.5)).roundToInt().toDouble()
-                val rowsOf = Stamps.ofFestival(f.id, stamps)
-                pen.stamp(rowsOf, (x - rowsOf[0].length * 1.5).roundToInt().toDouble(), base - rowsOf.size * 3 - 2, 3.0, true)
-                pen.say(text.festival(f), x, base + 22, Say(halo = true, centre = true))
-            }
+    /** The part of the road between [from] and [to] dp: festivals oldest first, each standing by the road with its name under it. */
+    fun road(pen: Pen, list: List<JourneyStats.FestivalMet>, width: Double, from: Double, to: Double, text: PictureText) {
+        pen.ox = from
+        val tops = FloatArray(ceil(width / 3).toInt() + 2) { (ROAD_BASE - 5 * n1(it * 0.2, 3)).toFloat() }
+        pen.range(width, ROAD_BASE + 8, tops, "bopo", 51, 0.4, null, null, null, to - from)
+        val first = max(0, ((from - ROAD_MARGIN) / ROAD_SLOT).toInt() - 1)
+        val last = min(list.size - 1, ((to - ROAD_MARGIN) / ROAD_SLOT).toInt() + 1)
+        for (i in first..last) {
+            val f = list[i]
+            val x = (ROAD_MARGIN + ROAD_SLOT * (i + 0.5)).roundToInt().toDouble()
+            val rows = Stamps.ofFestival(f.stamp, stamps)
+            pen.stamp(rows, (x - rows[0].length * 2.0).roundToInt().toDouble(), ROAD_BASE - rows.size * 4 - 2, 4.0, true)
+            var y = ROAD_BASE + 22
+            for (line in lines(text.festival(f))) { pen.say(line, x, y, Say(halo = true, centre = true)); y += 14 }
+            if (f.times > 1) pen.say("×${f.times}", x, y, Say(halo = true, centre = true, ink = pen.ink))
         }
     }
 }

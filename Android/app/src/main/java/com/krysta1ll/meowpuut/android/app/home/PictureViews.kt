@@ -75,19 +75,20 @@ internal class PictureView(
 }
 
 /**
- * 日子的山: one long picture, drawn in tiles as it is scrolled to (a tile is 64 cells wide, so no cell is split) and kept while near. It sits in a
- * horizontal scroll view, which starts at today.
+ * A long picture (日子的山, the road of festivals), drawn in tiles as it is scrolled to (a tile is 64 cells wide, so no cell is split) and
+ * kept while near. It sits in a horizontal scroll view. [paint] draws the part of the picture between two x (dp).
  */
 @SuppressLint("ViewConstructor")
-internal class RidgeView(
+internal class TiledView(
     context: Context,
     private val brush: Brush,
-    private val ridge: StatsPictures.Ridge,
-    private val text: PictureText,
+    private val widthDp: Double,
+    private val heightDp: Double,
     description: String,
+    private val paint: (Pen, Double, Double) -> Unit,
 ) : View(context) {
     private val density = context.resources.displayMetrics.density
-    private val paint = Paint().apply { isFilterBitmap = false; isAntiAlias = false }
+    private val bitmapPaint = Paint().apply { isFilterBitmap = false; isAntiAlias = false }
     private val tiles = object : LruCache<Int, Bitmap>(9) {}
     private val asked = HashSet<Int>()
     private val src = Rect()
@@ -100,7 +101,7 @@ internal class RidgeView(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(ceil(ridge.width * density).toInt(), (ridge.height * density).toInt())
+        setMeasuredDimension(ceil(widthDp * density).toInt(), (heightDp * density).toInt())
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -115,20 +116,20 @@ internal class RidgeView(
             src.set(0, 0, b.width, b.height)
             val left = (t * tilePx).toInt()
             dst.set(left, 0, left + (b.width * density / brush.scale).toInt(), height)
-            canvas.drawBitmap(b, src, dst, paint)
+            canvas.drawBitmap(b, src, dst, bitmapPaint)
         }
         // The tiles on either side are made ahead of the finger.
         if (first > 0) request(first - 1)
         if (last < count() - 1) request(last + 1)
     }
 
-    private fun count() = ceil(ridge.width / TILE).toInt()
+    private fun count() = ceil(widthDp / TILE).toInt()
 
     private fun request(t: Int) {
         if (tiles.get(t) != null || !asked.add(t)) return
         val from = t * TILE
-        val to = min(ridge.width, from + TILE)
-        PictureWorker.run({ brush.picture(to - from, ridge.height) { StatsPictures.ridge(it, ridge, from, to, text) } }) { b ->
+        val to = min(widthDp, from + TILE)
+        PictureWorker.run({ brush.picture(to - from, heightDp) { paint(it, from, to) } }) { b ->
             asked.remove(t)
             tiles.put(t, b)
             invalidate()

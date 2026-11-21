@@ -39,6 +39,9 @@ internal class LiveSpec(
     val small: Boolean = false,
 )
 
+/** What a festival's stamp stands as by the road in a live picture: its rows, and how far from the left (as a part of the width) it starts. */
+internal class Standing(val rows: List<String>, val at: Double = 0.72)
+
 /**
  * A picture of 字景 that moves: a place drawn by the same engine as the keyboard's, shown on a page. It moves only while it can be seen
  * (the page is in front and the view is on the screen), at twelve frames a second at most, and is still the moment it leaves. With the
@@ -54,6 +57,10 @@ internal class GlyphLiveView(
     private val src = Rect()
     private val dst = Rect()
     @Volatile internal var shown: Bitmap? = null
+
+    /** The festival of the day, standing by the road (set when it is known, which is after the page opens). */
+    @Volatile var festival: Standing? = null
+        set(value) { field = value; GlyphStage.of(context).redraw(this) }
     private var attached = false
     private var wanted = false
     private val visible = Rect()
@@ -198,6 +205,7 @@ internal class GlyphStage private constructor(private val context: Context) {
             val g = sink ?: GlyphCanvasSink(brushScale, gather = true).also { sink = it }
             g.begin(canvas, 0.0)
             e.drawScene(g)
+            drawFestival(e, g, s)
             drawCats(e, g, canvas, s)
             if (view.spec.veiled) {
                 paint.color = GlyphColors.of(s.dark).paper
@@ -211,6 +219,22 @@ internal class GlyphStage private constructor(private val context: Context) {
         private val paint = Paint()
         private val painter = com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyPainter(com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelFonts(context))
         private val rasters = HashMap<String, com.krysta1ll.meowpuut.android.ime.glyph.Raster>()
+
+        /** The day's festival stands by the road, and goes by as the road does: it is fixed to the land the cats walk on. */
+        private fun drawFestival(e: GlyphEngine, g: GlyphCanvasSink, s: Settings) {
+            val standing = view.festival ?: return
+            val rows = standing.rows
+            val u = 3.0
+            val preset = e.scape.preset
+            val walk = (preset.front + preset.back).getOrNull(preset.walk)
+            val layer = e.scape.layers.firstOrNull { it.spec === walk }
+            val scrolled = if (layer == null) 0.0 else layer.offI * layer.sub
+            val width = rows[0].length * u
+            val x = s.width * standing.at - scrolled
+            if (x < -width || x > s.width) return
+            val feet = e.scape.ridgeAt(x + width / 2) + 2
+            Stamps.draw(rows, x, feet - rows.size * u, u, true, GlyphColors.of(s.dark), s.dark) { rx, ry, w, h, c -> g.rect(rx, ry, w, h, c) }
+        }
 
         private fun drawCats(e: GlyphEngine, g: GlyphCanvasSink, canvas: Canvas, s: Settings) {
             if (!view.spec.cats) return
@@ -266,6 +290,11 @@ internal class GlyphStage private constructor(private val context: Context) {
                 schedule()
             } else e.hiddenAt = SystemClock.uptimeMillis()
         }
+    }
+
+    /** Something about the picture changed (the festival of the day): it is drawn again now. */
+    fun redraw(view: GlyphLiveView) {
+        handler.post { entries[view]?.let { e -> if (e.engine != null) e.frame()?.let { e.drawn = true; e.view.publish(it) } } }
     }
 
     /** The cats go for a walk. */

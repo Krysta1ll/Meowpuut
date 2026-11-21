@@ -205,7 +205,10 @@ internal object HomeEntries {
  * of where the two cats have got to, running the full width of the page (a tap sends them for a short walk).
  */
 internal object HomeHero {
-    fun build(context: Context, ui: PaperUi, where: String, stop: String, description: String, distance: Long, level: Int, plain: Boolean, bleed: Int): View {
+    /** The whole top of the page, and the living picture in it (the festival of the day is set on that when it is known). */
+    class Built(val view: View, val picture: GlyphLiveView)
+
+    fun build(context: Context, ui: PaperUi, where: String, stop: String, description: String, distance: Long, level: Int, plain: Boolean, bleed: Int): Built {
         val density = context.resources.displayMetrics.density
         val box = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         val head = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -230,6 +233,6 @@ internal object HomeHero {
         }
         // The picture runs to the page's edges: the page's own padding is stepped back over.
         box.addView(picture, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = -bleed; marginEnd = -bleed })
-        return box
+        return Built(box, picture)
     }
 }

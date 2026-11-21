@@ -143,10 +143,11 @@ class HomeStatsTest {
     }
 
     @Test
-    fun festivalsWrapIntoRowsAndNeverAskForAnEmptyPicture() {
-        assertTrue(StatsPictures.festivalsHeight(1, 357.0) > 0)
-        assertTrue(StatsPictures.festivalsHeight(24, 357.0) > StatsPictures.festivalsHeight(4, 357.0))
-        assertTrue(StatsPictures.festivalsPerRow(357.0) >= 3)
-        assertTrue(StatsPictures.festivalsPerRow(200.0) >= 3)
+    fun theRoadOfFestivalsIsAsLongAsItsFestivalsAskAndNeverShorterThanThePage() {
+        assertEquals(357.0, StatsPictures.roadWidth(0, 357.0), 0.0)
+        assertEquals(357.0, StatsPictures.roadWidth(2, 357.0), 0.0)
+        assertTrue(StatsPictures.roadWidth(300, 357.0) > StatsPictures.roadWidth(30, 357.0))
+        assertTrue(StatsPictures.roadWidth(30, 357.0) > 357.0)
+        assertTrue("the road is a strip, not a page", StatsPictures.ROAD_HEIGHT < 200.0)
     }
 }

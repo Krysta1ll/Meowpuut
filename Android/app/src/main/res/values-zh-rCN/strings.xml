@@ -277,4 +277,8 @@
     <string name="home_setup_off">还没启用</string>
     <string name="home_setup_on">已启用</string>
     <string name="home_setup_selected">使用中</string>
+    <string name="stats_festivals_desc_more">遇见的节日：共 %1$d 个，最近的是%2$s。图是一条路，可以往左滑看更早的。</string>
+    <string name="stats_festivals_count">遇见 %1$d 个。</string>
+    <string name="stats_festivals_count_more">遇见 %1$d 个。往左滑，看更早的。</string>
+    <string name="home_festival_desc">今天是%1$s。</string>
 </resources>

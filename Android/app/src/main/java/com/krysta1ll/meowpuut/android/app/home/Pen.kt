@@ -41,28 +41,37 @@ internal object Hues {
     fun of(name: String, dark: Boolean): Int = TABLE.getValue(name).let { if (dark) it.second else it.first }
 }
 
-/** What the road passes, and what a festival leaves by it, cut in the same pixels (X ink, R vermilion, o a light, paper by day and lit by night). */
+/**
+ * What the road passes, and what a festival leaves by it, cut in the same pixels (X ink, R vermilion, o a light, paper by day and lit by night,
+ * and G Y B P O C M the places' second inks). Stamps are of any size.
+ */
 internal object Stamps {
-    val FESTIVAL: Map<String, List<String>> = mapOf(
-        "rabbit" to listOf("...XXXXX...", "..X.....X..", ".X..R.R..X.", "X...R.R...X", "X...RRR...X", "X..RRRRR..X", "X..RRRRR..X", "X...RRR...X", ".X.......X.", "..X.....X..", "...XXXXX..."),
-        "tangyuan" to listOf("...X...X...", "....X...X..", "...X...X...", ".R...X...R.", "RRR.XoX.RRR", "XXXXXXXXXXX", "XXXXXXXXXXX", ".XXXXXXXXX.", "..XXXXXXX..", "...XXXXX..."),
-        "crackers" to listOf("....X....", "....X....", "..RRXRR..", "..RRXRR..", "....X....", "..RRXRR..", "..RRXRR..", "....X....", "..RRXRR..", "..RRXRR..", "....X....", "...X.X..."),
-        "lantern2" to listOf("...XXX...", "..RoRoR..", ".RRoRoRR.", "RRRoRoRRR", "RRRoRoRRR", "RRRoRoRRR", ".RRoRoRR.", "..RoRoR..", "...XXX...", "....X....", "...XXX...", "....X...."),
-        "zongzi" to listOf(".....R.....", ".....X.....", "....XXX....", "...XXXXX...", "..XXXXXXX..", ".RRRRRRRRR.", "XXXXXXXXXXX", "XXXXXXXXXXX"),
-        "magpies" to listOf("..X.......R..", ".XXX.....RRR.", "XXXXX.X.RRRRR", ".XXX.X.X.RRR.", "..X.......R.."),
-    )
+    fun rows(name: String): List<String> = GlyphScenes.STAMPS.getValue(name)
 
-    /** A festival (by its id in festivals.json) to the stamp it leaves; the ones without their own take the gate. */
-    private val OF: Map<String, String> = mapOf(
-        "mid_autumn" to "rabbit", "winter_solstice" to "tangyuan", "spring_festival" to "crackers",
-        "lantern_festival" to "lantern2", "dragon_boat" to "zongzi", "qixi" to "magpies",
-    )
+    /** The rows of a festival's stamp, by its name: the shipped picture, or the gate where the festival has none. */
+    fun ofFestival(name: String?, source: com.krysta1ll.meowpuut.android.app.stats.FestivalStamps? = null): List<String> =
+        name?.let { source?.stamp(it) } ?: rows("torii")
 
-    fun rows(name: String): List<String> = GlyphScenes.STAMPS[name] ?: FESTIVAL.getValue(name)
+    /** The colour of one mark of a stamp; null for nothing. */
+    fun colour(mark: Char, colors: GlyphColors, dark: Boolean): Int? = when (mark) {
+        '.' -> null
+        'R' -> colors.red
+        'o' -> if (dark) colors.ink else colors.paper
+        'G' -> Hues.of("green", dark)
+        'Y' -> Hues.of("gold", dark)
+        'B' -> Hues.of("blue", dark)
+        'P' -> Hues.of("pink", dark)
+        'O' -> Hues.of("orange", dark)
+        'C' -> Hues.of("cyan", dark)
+        'M' -> Hues.of("magenta", dark)
+        else -> colors.ink
+    }
 
-    /** The rows of a festival's stamp: its own where there is one, else the gate. */
-    fun ofFestival(id: String, source: com.krysta1ll.meowpuut.android.app.stats.FestivalStamps? = null): List<String> =
-        source?.stamp(id) ?: OF[id]?.let(FESTIVAL::get) ?: rows("torii")
+    /** Draws a stamp, top-left on [x], [y], [u] dp to a pixel, through [rect] (a pen's, or a sink's). [halo] clears a paper edge round it. */
+    fun draw(rows: List<String>, x: Double, y: Double, u: Double, halo: Boolean, colors: GlyphColors, dark: Boolean, rect: (Double, Double, Double, Double, Int) -> Unit) {
+        if (halo) for ((r, row) in rows.withIndex()) for ((k, ch) in row.withIndex()) if (ch != '.') rect(x + (k - 1) * u, y + (r - 1) * u, 3 * u, 3 * u, colors.paper)
+        for ((r, row) in rows.withIndex()) for ((k, ch) in row.withIndex()) colour(ch, colors, dark)?.let { rect(x + k * u, y + r * u, u, u, it) }
+    }
 }
 
 /**
@@ -155,15 +164,8 @@ internal class Pen(
     /** The width of a line of pixel type in dp. */
     fun measure(text: String, scale: Double = 1.0): Double = painter.mask(text, 12, 400, false).w * snap(scale)
 
-    /** A landmark, top-left on [x], [y], [u] dp to a pixel. [halo] clears a paper edge round it. */
-    fun stamp(rows: List<String>, x: Double, y: Double, u: Double, halo: Boolean) {
-        if (halo) for ((r, row) in rows.withIndex()) for ((k, ch) in row.withIndex()) if (ch != '.') rect(x + (k - 1) * u, y + (r - 1) * u, 3 * u, 3 * u, colors.paper)
-        for ((r, row) in rows.withIndex()) for ((k, ch) in row.withIndex()) {
-            if (ch == '.') continue
-            val color = when (ch) { 'R' -> colors.red; 'o' -> if (dark) colors.ink else colors.paper; else -> colors.ink }
-            rect(x + k * u, y + r * u, u, u, color)
-        }
-    }
+    /** A landmark or a festival's stamp, top-left on [x], [y], [u] dp to a pixel. [halo] clears a paper edge round it. */
+    fun stamp(rows: List<String>, x: Double, y: Double, u: Double, halo: Boolean) = Stamps.draw(rows, x, y, u, halo, colors, dark) { rx, ry, w, h, c -> rect(rx, ry, w, h, c) }
 
     fun stamp(name: String, x: Double, y: Double, u: Double, halo: Boolean) = stamp(Stamps.rows(name), x, y, u, halo)
 

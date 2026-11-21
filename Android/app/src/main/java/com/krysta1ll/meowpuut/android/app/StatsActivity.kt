@@ -20,10 +20,10 @@ import com.krysta1ll.meowpuut.android.app.home.PageFrame
 import com.krysta1ll.meowpuut.android.app.home.PictureText
 import com.krysta1ll.meowpuut.android.app.home.PictureView
 import com.krysta1ll.meowpuut.android.app.home.PixelText
-import com.krysta1ll.meowpuut.android.app.home.RidgeView
+import com.krysta1ll.meowpuut.android.app.home.TiledView
 import com.krysta1ll.meowpuut.android.app.home.StatsPictures
 import com.krysta1ll.meowpuut.android.app.stats.JourneyStats
-import com.krysta1ll.meowpuut.android.app.stats.ManifestFestivals
+import com.krysta1ll.meowpuut.android.app.stats.BundledFestivals
 import com.krysta1ll.meowpuut.android.app.stats.StatsStore
 import com.krysta1ll.meowpuut.android.ime.Prefs
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes
@@ -56,7 +56,9 @@ class StatsActivity : Activity() {
         ui = PaperUi(this, AppSkins.worn(prefs, dark), dark)
         frame = PageFrame.of(this, ui)
         brush = Brush(this, dark, wantsMoreContrast(this))
-        store = StatsStore(this, ManifestFestivals(this))
+        val festivals = BundledFestivals.of(this)
+        StatsPictures.stamps = festivals
+        store = StatsStore(this, festivals)
         column = object : LinearLayout(this) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val width = minOf(MeasureSpec.getSize(widthMeasureSpec), dp(680))
@@ -141,7 +143,9 @@ class StatsActivity : Activity() {
         val ridge = StatsPictures.Ridge(stats.days, stats.months)
         val first = stats.sinceDate!!
         val tallest = stats.daysReaching[4]
-        val ridgeView = RidgeView(this, brush, ridge, text, getString(R.string.stats_ridge_desc, stats.daysMet, getString(R.string.stats_year_month, first.year, month(first.monthValue)), tallest))
+        val ridgeView = TiledView(this, brush, ridge.width, ridge.height, getString(R.string.stats_ridge_desc, stats.daysMet, getString(R.string.stats_year_month, first.year, month(first.monthValue)), tallest)) { pen, from, to ->
+            StatsPictures.ridge(pen, ridge, from, to, text)
+        }
         val strip = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -185,11 +189,22 @@ class StatsActivity : Activity() {
         if (stats.festivals.isEmpty()) {
             column.addView(frame.note(getString(R.string.stats_festivals_none)), margins(top = 0, sides = 18))
         } else {
-            val names = stats.festivals.joinToString("、") { it.name(simplified) }
-            column.addView(
-                frame.framed(PictureView(this, brush, { StatsPictures.festivalsHeight(stats.festivals.size, it) }, getString(R.string.stats_festivals_desc, names)) { pen, w -> StatsPictures.festivals(pen, w, stats, text) }),
-                margins(top = 0, sides = 18),
-            )
+            // A road, oldest festival at the left and the newest where the cats are: it is as long as it has to be and the page is not.
+            val list = stats.festivals
+            val names = list.takeLast(12).reversed().joinToString("、") { it.name(simplified) }
+            val shown = if (list.size > 12) getString(R.string.stats_festivals_desc_more, list.size, names) else getString(R.string.stats_festivals_desc, names)
+            val room = minOf(resources.displayMetrics.widthPixels / density, 680f).toDouble() - 36
+            val width = StatsPictures.roadWidth(list.size, room)
+            val road = TiledView(this, brush, width, StatsPictures.ROAD_HEIGHT, shown) { pen, from, to -> StatsPictures.road(pen, list, width, from, to, text) }
+            val scrolling = HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                addView(road, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                post { fullScroll(View.FOCUS_RIGHT) }
+            }
+            column.addView(frame.framed(scrolling), margins(top = 0, sides = 18))
+            val more = width > room + 1
+            column.addView(frame.note(getString(if (more) R.string.stats_festivals_count_more else R.string.stats_festivals_count, list.size)), margins(top = 8, sides = 18))
         }
 
         column.addView(frame.footer(getString(R.string.stats_footer)), margins(top = 34, sides = 18))
@@ -247,7 +262,7 @@ class StatsActivity : Activity() {
         bandNames = resources.getStringArray(R.array.stats_band_names).toList(),
         bandNotes = resources.getStringArray(R.array.stats_band_notes).toList(),
         month = { year, month, withYear -> if (withYear) "$year ${month(month)}" else month(month) },
-        festival = { f -> if (f.years > 1) getString(R.string.stats_festival_times, f.name(simplified), f.years) else f.name(simplified) },
+        festival = { f -> f.name(simplified) },
         dayFestival = { it.name(simplified) },
         catNames = listOf("米米莫", "莫莫"),
         catFacts = { c -> getString(R.string.stats_cat_facts, c.level, c.pets, c.plays) },
