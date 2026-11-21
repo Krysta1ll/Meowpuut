@@ -2,6 +2,8 @@ package com.krysta1ll.meowpuut.android
 
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphDepthFore
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphMotion
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphTheme
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphWorld
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -106,5 +108,21 @@ class GlyphMotionTest {
         var settledAt = -1
         for (n in 0 until 60 * 30) { if (!step(m, 6.0, free = false)) { settledAt = n; break } }
         assertTrue("rests some seconds after the last key, took $settledAt frames", settledAt in 1..(60 * 15))
+    }
+
+    @Test
+    fun theJourneyCountsOnlyWhatWasCommittedWhateverTheKeysDoToThePicture() {
+        val world = GlyphWorld(GlyphTheme(level = 2))
+        val before = world.distance
+        repeat(40) { world.letter("a", null) }                       // reading typed, not yet a word
+        world.backspace(null); world.plain(null, enter = false); world.plain(null, enter = true); world.other(null)
+        assertEquals(before, world.distance)                          // the journey did not move
+        assertTrue(world.target > 0)                                  // the picture did
+        world.committed("你好", 2, japanese = false, secret = false, skyOffset = 0, barY = 0.0)
+        assertEquals(before + 2 * com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney.UNITS_PER_CHARACTER, world.distance)
+        val target = world.target
+        repeat(10) { world.step(com.krysta1ll.meowpuut.android.ime.glyph.GlyphLayout.NONE, true, true) { 150.0 } }
+        assertTrue("the picture never goes back", world.target >= target)
+        assertTrue(world.pos <= world.target)
     }
 }
