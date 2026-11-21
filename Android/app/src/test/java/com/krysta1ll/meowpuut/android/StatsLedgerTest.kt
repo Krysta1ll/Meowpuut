@@ -24,7 +24,7 @@ class StatsLedgerTest {
     /** A state file as the pets core writes it (layout of codec.rs), for tests that need histories the core would take years to write. */
     private fun state(
         epoch: Long = 0, graphemes: Long = 0, mimimo: LongArray = LongArray(3), momo: LongArray = LongArray(3),
-        marks: List<IntArray> = emptyList(),
+        marks: List<IntArray> = emptyList(), patch: ((ByteArray) -> Unit)? = null,
     ): ByteArray {
         val b = ByteArray(PetBookFile.STATE_BYTES)
         b[0] = 0x9C.toByte(); b[1] = 0xA7.toByte(); b[2] = 1
@@ -35,6 +35,7 @@ class StatsLedgerTest {
             val at = 80 + (if (m.size > 4) m[4] else m[0] % PetBookFile.BOOK_DAYS) * 7
             put(at, m[0].toLong(), 4); b[at + 4] = m[1].toByte(); b[at + 5] = m[2].toByte(); b[at + 6] = m[3].toByte()
         }
+        patch?.invoke(b)
         var hash = 0x811C9DC5L
         for (i in 0 until PetBookFile.STATE_BYTES - 4) { hash = hash xor (b[i].toLong() and 0xFF); hash = (hash * 0x01000193L) and 0xFFFFFFFFL }
         put(PetBookFile.STATE_BYTES - 4, hash, 4)
@@ -87,6 +88,29 @@ class StatsLedgerTest {
         assertNull(PetBookFile.parse(state(marks = listOf(intArrayOf(20_100, 1, 4, 1)))))      // a cat that does not exist
         assertNull(PetBookFile.epochOf(ByteArray(10)))
     }
+
+    @Test
+    fun theDaysOwnBlockAndEmptySlotsAreHeldToTheCoresRules() {
+        assertNotNull(PetBookFile.parse(state { it[72] = 1 }))                  // the day's flag may be 0 or 1
+        assertNull(PetBookFile.parse(state { it[72] = 2 }))
+        assertNull(PetBookFile.parse(state { it[77] = 1 }))                     // the bytes after it are reserved
+        assertNull(PetBookFile.parse(state { it[78] = 1 }))
+        assertNull(PetBookFile.parse(state { it[79] = 1 }))
+        assertNull(PetBookFile.parse(state { it[3] = 1 }))
+        assertNull(PetBookFile.parse(state { it[80 + 4] = 1 }))                 // an empty slot holds nothing
+        assertNull(PetBookFile.parse(state { it[80 + 5] = 1 }))
+        assertNull(PetBookFile.parse(state { it[80 + 6] = 1 }))
+        // A counter beyond what a Long holds saturates, as the core's own counters do.
+        val huge = PetBookFile.parse(state { for (i in 8 until 16) it[i] = 0xFF.toByte() })!!
+        assertEquals(Long.MAX_VALUE, huge.graphemes)
+        assertEquals(100, PetBookFile.level(huge.graphemes, PetBookFile.Contacts(Long.MAX_VALUE, Long.MAX_VALUE, 0)))
+        // The epoch of a file that cannot be vouched for is still told, when there is one to tell.
+        assertEquals(7L, PetBookFile.epochOf(state(epoch = 7) { it[72] = 9 }))
+        assertNull(PetBookFile.epochOf(state { it[0] = 0 }))
+        assertNull(PetBookFile.epochOf(state { it[2] = 2 }))
+    }
+
+    private fun state(patch: (ByteArray) -> Unit) = state(epoch = 0, patch = patch)
 
     @Test
     fun levelIsTheCoresRule() {
@@ -191,6 +215,17 @@ class StatsLedgerTest {
         assertTrue(StatsLedger.parse("{\"version\":1}").damaged)
         assertNull(StatsLedger.parse(null).ledger)
         assertFalse(StatsLedger.parse(null).damaged)
+        // Every number that must be a non-negative count, a level or a day is held to it: out of range reads as damaged, never as half a ledger.
+        val base = ledger.toJson()
+        assertTrue(StatsLedger.parse(base.replace("\"graphemes\":248316", "\"graphemes\":-1")).damaged)
+        assertTrue(StatsLedger.parse(base.replace("\"distance\":6820", "\"distance\":-5")).damaged)
+        assertTrue(StatsLedger.parse(base.replace("\"level\":100", "\"level\":101")).damaged)
+        assertTrue(StatsLedger.parse(base.replace("\"pets\":141", "\"pets\":-1")).damaged)
+        assertTrue(StatsLedger.parse(base.replace("\"version\":1", "\"version\":0")).damaged)
+        assertTrue(StatsLedger.parse("   ").ledger == null)
+        for (bad in listOf(0L, (20_000L shl 24) or (5L shl 16), (20_000L shl 24) or (4L shl 8), (20_000L shl 24) or 32L)) {
+            assertTrue(StatsLedger.parse(base.replace(Regex("\"days\":\\[[^\\]]*\\]"), "\"days\":[$bad]")).damaged)
+        }
         // A day out of range is a damaged ledger, not a day.
         assertTrue(StatsLedger.parse(json.replace(Regex("\"days\":\\[[^\\]]*\\]"), "\"days\":[${(20_000L shl 24) or (9L shl 16)}]")).damaged)
     }
@@ -226,6 +261,18 @@ class StatsLedgerTest {
     @Test
     fun anEmptyLedgerIsEmptyAndAClearedOneSaysSo() {
         assertTrue(JourneyStats.of(StatsLedger.empty()).isEmpty)
+        assertNull(JourneyStats.of(StatsLedger.empty()).firstDay)
+        assertNull(JourneyStats.of(StatsLedger.empty()).sinceDate)
+        // Anything at all, a touch or a step, makes it not empty; the page then has something to say.
+        for (build in listOf<(StatsLedger) -> Unit>(
+            { it.absorb(book(state(graphemes = 1))) }, { it.absorb(book(state(mimimo = longArrayOf(1, 0, 0)))) },
+            { it.absorb(book(state(momo = longArrayOf(0, 1, 0)))) }, { it.absorb(book(state(mimimo = longArrayOf(0, 1, 0)))) },
+            { it.absorb(book(state(momo = longArrayOf(1, 0, 0)))) }, { it.absorbDistance(1) }, { it.absorb(book(state(marks = listOf(intArrayOf(20_001, 0, 1, 1))))) },
+        )) {
+            val ledger = StatsLedger.empty()
+            build(ledger)
+            assertFalse(JourneyStats.of(ledger).isEmpty)
+        }
         assertFalse(JourneyStats.of(StatsLedger.empty()).cleared)
         val ledger = StatsLedger.empty()
         ledger.absorb(book(state(graphemes = 10, marks = listOf(intArrayOf(20_001, 0, 1, 1)))))

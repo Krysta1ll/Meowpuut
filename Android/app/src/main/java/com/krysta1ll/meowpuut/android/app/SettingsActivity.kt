@@ -381,6 +381,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         super.onResume()
         updateStatus()
         photoWall.refreshIfDayChanged()
+        refreshStatsEntry()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -588,11 +589,17 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             topMargin = dp(if (ui.skin.slots.entries == EntryStyle.SIGNPOSTS) 6 else 14)
         })
         statsEntry = stats
-        statsStore.refreshAsync { s -> stats.valueView?.invoke(if (s.daysMet > 0) getString(R.string.stats_open_value, s.daysMet) else getString(R.string.stats_open_none)) }
+        refreshStatsEntry()
         updateSetupEntry()
     }
 
     private var statsEntry: HomeEntry? = null
+
+    /** How many mountains 行旅 has, read from the ledger (which also takes in what the keyboard has written since). */
+    private fun refreshStatsEntry() {
+        val entry = statsEntry ?: return
+        statsStore.refreshAsync { s -> entry.valueView?.invoke(if (s.daysMet > 0) getString(R.string.stats_open_value, s.daysMet) else getString(R.string.stats_open_none)) }
+    }
 
     private fun updateSetupEntry() {
         val value = when {
