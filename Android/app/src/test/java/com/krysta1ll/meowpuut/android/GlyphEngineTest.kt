@@ -401,7 +401,7 @@ class GlyphEngineTest {
         val thin = RecordingSink()
         e.drawScene(thin)
         val clear = RecordingSink()
-        engine(scene = 0).drawScene(clear)
+        engine(scene = GlyphJourney.START).drawScene(clear)          // the journey begins in the sea
         assertTrue(thin.texts.size < clear.texts.size)
     }
 
