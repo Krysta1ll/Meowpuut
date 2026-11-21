@@ -229,7 +229,14 @@ internal class GlyphWorld(
     var pos = 0.0
     var target = 0
     /** How far the land goes by for [pos]: with depth the picture goes [GAIN] of the way (every layer then by whole cells of that). */
-    val run: Double get() = if (theme.deep) pos * GAIN else pos
+    val run: Double get() = if (theme.deep) pos * gain else pos
+    /** [run] for what passes in front: it keeps rolling by [coast] units when the typing has stopped. */
+    val foreRun: Double get() = if (theme.deep) (pos + coast) * gain else pos + coast
+    /**
+     * With depth, how many cells of each layer a unit of the journey is worth: a step (three units) of the layer the cats walk on is one cell of it
+     * (two at the finest type), so that the foot and the ground change together. Set with the place (see [GlyphScape.walkGain]).
+     */
+    var gain = 0.5
     /** What passes in front has been left to roll out of the picture by itself this far (units). */
     var coast = 0.0
     /** The picture moved on in this step without anything else changing: drawn again only if a layer, a row of the ground or a step has crossed a cell. */
@@ -623,8 +630,6 @@ internal class GlyphWorld(
 
     companion object {
         const val FPS = 12
-        /** With depth the picture goes this part of the journey's way (see [run]); the journey itself, the length of a place and the walk are as they were. */
-        const val GAIN = 0.6
         /** Units of the journey to a step of the cats (a typing key's worth). */
         const val STEP_UNITS = 3.0
         /** Ticks a new place takes to come out of the fog, whatever the typing does. */

@@ -60,7 +60,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
             val widthPx = ceil((cols + GlyphScape.STRIP_MARGIN_CELLS) * l.cell * scale.toDouble()).toInt()
             val heightPx = ceil((band.second - band.first) * scale.toDouble()).toInt() + 2
             val b = s.bmp
-            val full = fresh || b == null || b.width != widthPx || b.height != heightPx || s.band != band || s.baked == Int.MIN_VALUE || want < s.baked || want - s.baked >= GlyphScape.STRIP_MARGIN_CELLS
+            val full = fresh || b == null || b.width != widthPx || b.height != heightPx || s.band != band || s.baked == Int.MIN_VALUE || want < s.baked || want - s.baked >= GlyphScape.STRIP_MARGIN_CELLS || (want != s.baked && scape.hasLamps(l))
             val topPx = Math.floor((band.first + lift) * scale + 0.5 + 1e-6).toInt()
             if (full) {
                 val nb = (s.spare?.takeIf { it.width == widthPx && it.height == heightPx }) ?: Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also { it.setHasAlpha(true) }

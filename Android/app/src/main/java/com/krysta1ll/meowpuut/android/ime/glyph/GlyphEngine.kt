@@ -136,6 +136,7 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
         val scene = world.scene
         if (scene == worn && theme.level == wornLevel && wornLayout == layout && !dirtyLayout) return false
         scape.wear(scene, layout)
+        world.gain = scape.walkGain()
         worn = scene; wornLevel = theme.level; wornLayout = layout; dirtyLayout = false
         world.lanes = null
         world.sceneChanged = false
@@ -165,7 +166,7 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
     /** What passes in front is in the picture, the typing has stopped (0.35 s) and it is to go on out by itself. */
     private fun rolling(): Boolean =
         !theme.still && !theme.opaque && theme.level >= 1 && world.idleSeconds >= 0.35 && GlyphDepthFore.hasFore(scape.sceneName) &&
-            GlyphMotion.visible(GlyphDepthFore.passesAt(world.run, world.coast), scape.width)
+            GlyphMotion.visible(GlyphDepthFore.passesAt(world.foreRun, 0.0), scape.width)
 
     /** Whether another tick is worth taking. False means the keyboard is at rest. */
     fun busy(): Boolean = !theme.opaque && world.busy() || world.dirty || world.sceneChanged || (theme.deep && rolling())
@@ -190,8 +191,8 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
     }
 
     /** What is nearest (see [GlyphNear]), or null without depth or in the safe picture. */
-    fun near(): GlyphNear? = if (theme.deep && !theme.opaque) GlyphNear(scape.sceneName, scape.width, scape.height, scape.lift, theme.dark, theme.still, theme.level, world.fog,
-            foreHold?.let { it * scape.width } ?: GlyphDepthFore.passesAt(world.run, world.coast), world.tick * 1000.0 / GlyphWorld.FPS, world.lastMove * 1000.0 / GlyphWorld.FPS) else null
+    fun near(): GlyphNear? = if (theme.deep && !theme.opaque) GlyphNear(scape.sceneName, scape.width, scape.height, scape.lift, theme.dark, theme.still, theme.level, world.fog, scape.lightSide, scape.lowLight(),
+            foreHold?.let { it * scape.width } ?: GlyphDepthFore.passesAt(world.foreRun, 0.0), world.tick * 1000.0 / GlyphWorld.FPS, world.lastMove * 1000.0 / GlyphWorld.FPS) else null
 
     /** Debug and shots: what passes in front is held at this part of the width (null lets it go by). */
     @Volatile var foreHold: Double? = null

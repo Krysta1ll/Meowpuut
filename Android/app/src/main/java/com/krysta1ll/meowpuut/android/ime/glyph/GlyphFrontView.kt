@@ -48,9 +48,20 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + d.hopY       // each cat has its own height (Mimi is taller, and a suit adds a row)
             if (f.near != null && !d.platform) {                       // with depth the cat stands on its own shadow: a few fine dots under its feet
                 val bx = d.x
+                val tone = if (f.dark) c.paper else c.ink                    // (at night the shadow is the dark on the faintly lit ground)
                 for (b in 0 until 3) for (a in 0 until 40) {
                     val e = 1 - ((a - 20) / 20.0).let { it * it } - b * 0.22
-                    if (GlyphScape.BAYER[(b and 3) * 4 + ((a + bx) and 3)] < e * 0.85) sink.rect((bx + a).toDouble(), (d.feetY + b).toDouble(), 1.0, 1.0, c.ink)
+                    if (GlyphScape.BAYER[(b and 3) * 4 + ((a + bx) and 3)] < e * 0.85) sink.rect((bx + a).toDouble(), (d.feetY + b).toDouble(), 1.0, 1.0, tone)
+                }
+                // and a wedge of two steps of a screen away from the light, longer when the light is low
+                val len = Math.round(14 + 30 * f.near.lowLight).toInt()
+                for (b in 0 until 2) {
+                    var a = 0
+                    while (a < len - b * 8) {
+                        val x = if (f.near.sunSide > 0) bx + 6 - a else bx + 34 + a
+                        if (GlyphScape.BAYER[(b and 3) * 4 + ((x shr 1) and 3)] < (if (a < len / 2.0) 0.5 else 0.25)) sink.rect(x.toDouble(), (d.feetY + b * 2).toDouble(), 2.0, 2.0, tone)
+                        a += 2
+                    }
                 }
             }
             if (d.platform) {                                          // something to stand on
