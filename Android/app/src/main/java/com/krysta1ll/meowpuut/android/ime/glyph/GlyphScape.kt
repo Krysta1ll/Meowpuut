@@ -8,6 +8,7 @@ import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.n2
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.q
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.round
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -27,6 +28,12 @@ internal interface GlyphSink {
 
     /** [text] in a weight of the face (400 regular, 500, 700 heavy): a sink with no weights draws it regular. */
     fun textW(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int, weight: Int) = text(ch, cx, cy, size, mono, color)
+
+    /**
+     * What is drawn by [paint] across the whole width, from [y] down [h] points, laid in; a sink that can keeps the picture under [key] and lays it
+     * in again without drawing it (a screen of dots that does not change). The default draws it.
+     */
+    fun cached(key: Long, width: Double, y: Double, h: Double, paint: (GlyphSink) -> Unit) = paint(this)
 
     /** Makes the block transparent (the seam thins the paper into what is behind the keyboard). */
     fun erase(x: Double, y: Double, w: Double, h: Double) {}
@@ -479,6 +486,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val liveGround = liveGroundActive()
         g.rect(0.0, -lift, width, (if (liveGround) groundY else height + tail) + lift, c.paper)      // (the live ground lies under this picture, and shows where there is none of it)
         val cull = (theme.deep || CULL_ALWAYS) && !CULL_OFF
+        if (night) timed(0) { nightSky(g, c) }                   // the night's glow, under the stars and everything
         if (layerBlit?.invoke(sky, g) != true)
             timed(0) { drawLayer(g, c, sky, cover = false, rowLimit = if (cull) hiddenBelow(sky, front + back, groundFirst = if (liveGround) false else null) else null) { l, i, py -> skySample(l, i, py) } }
         if (early) timed(8) { drawDisc(g, c) }                   // the Earth stands behind everything
@@ -879,9 +887,13 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             }
         }
         if (s.grass && depth < l.cell * 1.6) { p.pool = "grass"; p.prio = 1; tint("grass"); return l.tone * 0.75 }
-        if (s.cap != 0.0 && depth < l.capAt[i]) return 0.02     // snow lies on the top of a peak
+        if (s.cap != 0.0 && depth < l.capAt[i]) {                // snow lies on the top of a peak (at night it is pale in the moon, a chequer)
+            if (night) { p.acc = true; p.lit = true; p.hue = GlyphNight.PALE; p.prio = 1; return if (((i + floor(py / l.sub).toInt()) and 1) != 0) 0.96 else 0.02 }
+            return 0.02
+        }
         if (s.shape == LandShape.DUNES && l.apex[i] != 0f && depth < (l.baseY - top) * 0.9) {       // the short face of a dune is in its own shadow
-            p.prio = 1; inked("ochre", true)
+            p.prio = 1
+            if (night) { p.acc = true; p.lit = true; p.hue = GlyphNight.PALE } else inked("ochre", true)
             return if (((floor(py / l.sub).toInt() + i) and 1) != 0 || depth < l.sub * 2) 0.94 else 0.2
         }
         var d = l.tone * (0.35 + 0.65 * n2(p.ox * l.sub * 0.04, py * 0.11, s.seed))
@@ -972,7 +984,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             val edge = 1 - 0.42 * P.clouds
             if (k > edge) { p.pool = "cloud"; return min(0.42, (k - edge) * 2.2 + 0.08) }
         }
-        if (P.stars != 0.0 && h2(wi shr 1, floor(py / l.cell).toInt() + 300) > 1 - 0.03 * P.stars) {
+        val stars = if (night) (GlyphNight.of(sceneName).stars ?: if (P.stars != 0.0) P.stars else 0.8) else P.stars       // at night every place has stars
+        if (stars != 0.0 && h2(wi shr 1, floor(py / l.cell).toInt() + 300) > 1 - 0.03 * stars) {
             p.lit = true; p.pool = "star"
             return 0.2 + 0.3 * h2(wi + (if (theme.level == 3 && !theme.still) (world.epoch shr 2) * 13 else 0), py.toInt())
         }
@@ -1125,12 +1138,19 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         grid = m
         firm = false
         plane = 0.34 * (1 - g0) * (1 - g0)
+        if (night) {                                                     // the ground in the moon's light, darker toward the viewer
+            val (share, hue) = GlyphNight.ground(spec.kind)
+            nightBody = floor(share * (1 - 0.55 * g0) * 20 + 0.5) / 20
+            nightHue = hue
+            nightDim = floor((0.6 - 0.4 * g0) * 10 + 0.5) / 10
+        }
         weight = if (g0 > 0.5) 700 else if (g0 > 0.22) 500 else 400
         dense = NEAR_CLOSE * g0 * g0 - NEAR_FAR * (1 - g0) * (1 - g0)
         val wide = 2.0 - 1.3 * g0
         for (col in colFrom until colTo) {
             var accent = 0
             var lit = false
+            var spark = false
             for (k in 0 until m * m) {
                 val a = k % m
                 val b = k / m
@@ -1141,12 +1161,13 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 fineRow = row * m + b
                 v[k] = finish(ground(spec, (px - width / 2 + off * cell) * wide, geo.rowAt[min(geo.rowAt.size - 1, row * m + b)], min(1.0, (py - groundY) / geo.span), px), px, py)
                 if (probe.acc) accent = if (probe.hue != 0) probe.hue else VERMILION
-                if (probe.lit) lit = true
+                if (probe.lit) { lit = true; if (v[k] >= 0.9) spark = true }
             }
             firm = lit
+            bright = spark
             paintCell(g, c, col * cell.toDouble(), y, cell, probe.pool, col + off, row, 40, true, accent, null)
         }
-        grid = 2; weight = 400; plane = 0.0; dense = 0.0; firm = false; fineCol = null
+        grid = 2; weight = 400; plane = 0.0; dense = 0.0; firm = false; fineCol = null; bright = false; nightBody = 0.0; nightDim = 0.0
     }
 
     /** The air between two planes: what is behind thins into the paper just above the ridge of the plane about to be drawn. */
@@ -1168,7 +1189,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 if (share > 0) for (a in 0 until sub.toInt()) {
                     val x = (i * sub + a)
                     val xw = ((i + l.offI) * sub).toInt() + a
-                    if (BAYER[(y and 3) * 4 + (xw and 3)] < share && (r2 < 0 || (x - dxc!!).let { it * it } + (y - discY).let { it * it } > r2)) g.rect(x, y.toDouble(), 1.0, 1.0, c.paper)
+                    if (BAYER[(y and 3) * 4 + (xw and 3)] < share && (r2 < 0 || (x - dxc!!).let { it * it } + (y - discY).let { it * it } > r2)) g.rect(x, y.toDouble(), 1.0, 1.0, if (night) GlyphNight.AIR else c.paper)
                 }
                 y++
             }
@@ -1330,7 +1351,116 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
      * Nothing here is stored: where each bird, flake or leaf is follows from the turn of the type (world.epoch), so they move when
      * the type does and stop when it stops.
      */
+    /**
+     * The night sky, under the stars and behind everything: its glow (2 pt dots, thicker toward the horizon and round the moon), and what the place has
+     * in it: the Milky Way, the aurora, the crater's glow. The screens of dots are drawn once and laid in again while they do not change.
+     */
+    private fun nightSky(g: GlyphSink, c: GlyphColors) {
+        val n = GlyphNight.of(sceneName)
+        val top = -lift
+        val hor = min(height, groundY)
+        if (hor <= top) return
+        val f = FINE
+        val d = preset.sky.disc
+        val dx0 = discX
+        val rad = if (dx0 != null && d != null) d.r * height * discScale else 0.0
+        val earth = d?.earth == true
+        val plain = theme.still || theme.level == 0
+        val glow = if (n.noGlow) 0 else (n.glow ?: GlyphNight.AIR)
+        fun bay(x: Double, y: Double) = BAYER[(floor(y / f).toInt() and 3) * 4 + (floor(x / f).toInt() and 3)]
+        val span = max(1.0, hor - top)
+        if (glow != 0) {
+            val key = java.util.Objects.hash(1, sceneName, glow, width, top, hor, dx0, discY, rad, earth).toLong()
+            g.cached(key, width, top, hor - top) { s ->
+                var y = top
+                while (y < hor) {
+                    val base = 0.06 + 0.5 * ((y - top) / span).pow(1.7)
+                    var x = 0.0
+                    while (x < width) {
+                        var dd = base
+                        if (rad > 0 && !earth) {
+                            val q = hypot(x - dx0!!, y - discY) / (rad * 3 + 30)
+                            if (q < 1) dd += 0.55 * (1 - q) * (1 - q)
+                        }
+                        if (bay(x, y) < dd) s.rect(x, y, f, f, glow)
+                        x += f
+                    }
+                    y += f
+                }
+            }
+        }
+        if (n.milky) {                                                   // the Milky Way: a band of fine stars across the sky, going by with it
+            val drift = sky.offI * sky.sub.toInt()
+            val key = java.util.Objects.hash(2, sceneName, width, top, hor, drift, c.ink).toLong()
+            g.cached(key, width, top, hor - top) { s ->
+                for (x in 0 until ceil(width).toInt()) {
+                    val wx = x + drift
+                    val mid = top + (x - width * 0.12) * 0.42 - 4
+                    for (y in max(floor(top).toInt(), floor(mid - 40).toInt()) until min(floor(hor).toInt(), ceil(mid + 40).toInt())) {
+                        val dd = abs((x - width * 0.12) * 0.42 - (y - top) + 4) / 15
+                        val k = 0.2 * exp(-dd * dd) * (0.5 + n2(wx * 0.035, y * 0.035, 71))
+                        val u = h2(wx, y + 900)
+                        if (u < k) s.rect(x.toDouble(), y.toDouble(), 1.0, 1.0, if (u < k * 0.2) c.ink else GlyphNight.MOON)
+                    }
+                }
+            }
+        }
+        if (n.aurora) {                                                  // the aurora: curtains that hang from the top of the sky and move slowly
+            val ep = if (plain) 0 else world.epoch
+            val key = java.util.Objects.hash(3, sceneName, width, top, hor, ep, theme.dark).toLong()
+            val lowest = min(hor, top + 100)
+            g.cached(key, width, top, lowest - top) { s ->
+                var x = 0.0
+                while (x < width) {
+                    val u = x * 0.011 + ep * 0.012
+                    val y0 = top + 4 + 22 * n1(u, 61)
+                    val len = 22 + 44 * n1(u * 1.7 + 3, 62)
+                    val fold = 0.3 + 0.7 * n1(u * 2.6, 64)
+                    val own = hue(if (n1(u * 0.6, 63) > 0.5) "green" else "cyan")
+                    val color = if (own != 0) own else GlyphNight.MOON
+                    var y = round(y0 / f) * f
+                    while (y < y0 + len && y < hor) {
+                        if (bay(x, y) < 0.8 * fold * (1 - (y - y0) / len)) s.rect(x, y, f, f, color)
+                        y += f
+                    }
+                    x += f
+                }
+            }
+        }
+        if (n.crater) back.firstOrNull { it.spec.lava }?.let { l ->      // the crater lights the air above it
+            val cx = l.spec.at * width
+            val cy = l.ridge[max(0, min(l.n - 1, floor(cx / l.sub).toInt()))] - 4.0
+            val r = 64.0
+            var y = cy - r
+            while (y < cy + r * 0.4) {
+                var x = cx - r
+                while (x < cx + r) {
+                    val dd = hypot(x - cx, (y - cy) * 1.2) / r
+                    if (dd < 1 && bay(x, y) < 0.7 * (1 - dd) * (1 - dd)) g.rect(round(x / f) * f, round(y / f) * f, f, f, GlyphNight.CRATER)
+                    x += f
+                }
+                y += f
+            }
+        }
+    }
+
+    /** Fireflies: a few points of light over the near land, each on and off in its own time (they move with the turn of the type). */
+    private fun fireflies(g: GlyphSink, c: GlyphColors, n: Int) {
+        val t = world.epoch
+        val f = FINE
+        val glow = mix(GlyphNight.FIREFLY, c.paper, 0.6)
+        for (k in 0 until n) {
+            if (mod(t + k * 3, 9) >= 5) continue
+            val x = round((h2(k, 81) * width + 7 * sin(t * 0.21 + k)) / f) * f
+            val low = k % 3 == 0
+            val y = round(((if (low) height * (0.35 + 0.5 * h2(k, 83)) else ridgeAt(x) - 8 - 30 * h2(k, 82)) + 4 * sin(t * 0.17 + k * 2)) / f) * f
+            g.rect(x - f, y, 3 * f, f, glow); g.rect(x, y - f, f, 3 * f, glow)
+            g.rect(x, y, f, f, GlyphNight.FIREFLY)
+        }
+    }
+
     private fun drawAir(g: GlyphSink, c: GlyphColors) {
+        if (night && !theme.still && theme.level >= 1) { val nf = GlyphNight.of(sceneName).fireflies; if (nf > 0) fireflies(g, c, nf) }
         val P = preset.sky
         val t = world.epoch
         val many = intArrayOf(0, 0, 1, 2)[theme.level]
@@ -1473,6 +1603,14 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val p = probe
         grid = m
         plane = l.air
+        if (night) {
+            val skyLike = l.pool == "dust"
+            val near = l.spec.speed >= 0.45
+            val mid = l.spec.speed >= 0.15
+            nightBody = if (skyLike) 0.0 else if (near) 0.14 else if (mid) 0.32 else 0.5
+            nightDim = if (skyLike) 0.0 else if (near) 0.15 else if (mid) 0.42 else 0.68
+            nightHue = GlyphNight.AIR
+        }
         // Rows wholly above everything the layer has are skipped: nothing there is the layer's.
         val firstRow = max(max(-ceil(lift / cell).toInt(), rowFrom), if (l.spec.kind == LayerKind.STEMS || l === sky) Int.MIN_VALUE else floor(l.minY / cell).toInt() - 1)
         for (r in firstRow until rows) for (col in colFrom until cols) {
@@ -1498,7 +1636,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             firm = firmCell; noType = bareCell
             paintCell(g, c, col * cell.toDouble(), r * cell.toDouble(), cell, pool, col + (l.offI / m), r, l.seed, cover, accent, sign)
         }
-        grid = 2; plane = 0.0; noType = false; firm = false
+        grid = 2; plane = 0.0; noType = false; firm = false; nightBody = 0.0; nightDim = 0.0
         g.layerEnd()
     }
 
@@ -1510,6 +1648,12 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     /** On the ground: the weight of the type, and how much closer it is set. */
     private var weight = 400
     private var dense = 0.0
+    /** At night with depth (see [GlyphNight]): the plane's body (a screen of the night's air, a share and a colour), how dim its type is, and a spark that stays bright. */
+    private val night: Boolean get() = theme.deep && theme.dark && !theme.opaque
+    private var nightBody = 0.0
+    private var nightHue = GlyphNight.AIR
+    private var nightDim = 0.0
+    private var bright = false
 
     /** [a] a part [t] of the way to [b] (both opaque ARGB). */
     private fun mix(a: Int, b: Int, t: Double): Int {
@@ -1538,11 +1682,14 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         if (cover) {
             if (whole) g.rect(x, y, cell.toDouble(), cell.toDouble(), c.paper)
             else for (k in 0 until mm) if (v[k] >= 0) g.rect(x + (k % m) * sub, y + (k / m) * sub, sub, sub, c.paper)
+            if (nightBody > 0) for (k in 0 until mm) if (v[k] >= 0 && BAYER[((row * m + k / m) and 3) * 4 + ((wx * m + k % m) and 3)] < nightBody)
+                g.rect(x + (k % m) * sub, y + (k / m) * sub, sub, sub, nightHue)          // at night the plane has a body: a screen of the night's air, held to the plane
         }
         mean /= mm
         if (mean < 0.03) return
         var ink = if (accent == 0) c.ink else if (accent == VERMILION) c.red else accent        // the ink, the vermilion, or one of the place's own
-        if (plane != 0.0) ink = mix(ink, c.paper, if (firm) plane * 0.3 else plane)             // far off: paler, its outline less so
+        if (night) ink = if (accent != 0) GlyphNight.accent(ink, nightDim, firm) else GlyphNight.ink(c.ink, if (bright) 0.0 else if (firm) nightDim * 0.5 else nightDim)   // moonlit, bluer and dimmer far off
+        else if (plane != 0.0) ink = mix(ink, c.paper, if (firm) plane * 0.3 else plane)         // far off: paler, its outline less so
         val pool = pools.script(part, wx, row, seed)
         val faceOf = if (sign != null) "kata" else pool
         val size = round(cell * GlyphPools.faceScale(faceOf))

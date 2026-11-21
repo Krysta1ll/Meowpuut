@@ -209,6 +209,28 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
         canvas?.drawBitmap(b, dx.toFloat(), edge(y + oy), bitmapPaint)
     }
 
+    private val kept = object : LinkedHashMap<Long, Bitmap>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?) = size > 5
+    }
+    private var inner: GlyphCanvasSink? = null
+
+    /** A screen of dots across the width that does not change is drawn once into a bitmap (of its own size) and laid in as it is. */
+    override fun cached(key: Long, width: Double, y: Double, h: Double, paint: (GlyphSink) -> Unit) {
+        val c = canvas ?: return
+        val top = edge(y + oy)
+        var bmp = kept[key]
+        if (bmp == null) {
+            val w = max(1, ceil(width * scale).toInt())
+            val hh = max(1, ceil(h * scale).toInt() + 1)
+            bmp = Bitmap.createBitmap(w, hh, Bitmap.Config.ARGB_8888).also { it.setHasAlpha(true) }
+            val sink = inner ?: GlyphCanvasSink(scale, gather = false).also { inner = it }
+            sink.begin(Canvas(bmp), -y)
+            paint(sink)
+            kept[key] = bmp
+        }
+        c.drawBitmap(bmp, 0f, top, bitmapPaint)
+    }
+
     override fun erase(x: Double, y: Double, w: Double, h: Double) {
         canvas?.drawRect(edge(x), edge(y + oy), edge(x + w), edge(y + h + oy), clear)
     }
@@ -421,6 +443,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
     }
 
     fun release() {
+        kept.clear()
         runs.clear()
         rasters.clear()
     }
