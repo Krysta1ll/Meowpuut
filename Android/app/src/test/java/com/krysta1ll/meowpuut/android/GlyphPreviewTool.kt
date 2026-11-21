@@ -30,6 +30,7 @@ class GlyphPreviewTool {
         assumeTrue(dir != null)
         val out = File(dir!!).apply { mkdirs() }
         val level = System.getenv("GLYPH_LEVEL")?.toIntOrNull() ?: 2
+        GlyphScape.CULL_OFF = System.getenv("GLYPH_NOCULL") != null
         val scale = 2
         val serif = Font("PingFang TC", Font.PLAIN, 12)
         val mono = Font(Font.MONOSPACED, Font.PLAIN, 12)

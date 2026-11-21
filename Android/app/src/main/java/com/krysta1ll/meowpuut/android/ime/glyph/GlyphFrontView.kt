@@ -71,7 +71,7 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             for (d in ff.cats) {
                 canvas.save()
                 canvas.clipRect(((d.x - 4) * scale), ((d.feetY - 44 + f.layout.lift) * scale).toFloat(), ((d.x + 44) * scale), ((d.feetY + 4 + f.layout.lift) * scale).toFloat())
-                GlyphDepthFore.drawFore(GlyphTopClip(sink, 0.0), c, n.state, n.foreAt, 0.0)
+                controller.drawForeLive(sink, c, n)
                 canvas.restore()
             }
         }

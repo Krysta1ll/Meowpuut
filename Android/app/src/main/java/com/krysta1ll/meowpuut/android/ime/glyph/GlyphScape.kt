@@ -76,8 +76,12 @@ internal class GlyphTopClip(val g: GlyphSink, val minY: Double) : GlyphSink {
     override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
 }
 
-/** What is nearest, as the views in front of the cats need it: where what passes stands, and the clock it sways to. */
-internal class GlyphNear(val state: GlyphDepthFore.State, val foreAt: Double)
+/** What is nearest, as the views that draw it live need it: the place, the picture's size, the light, and how much of the motion is on. */
+internal class GlyphNear(val scene: String, val width: Double, val height: Double, val lift: Double, val dark: Boolean, val still: Boolean, val level: Int) {
+    /** Something passes in front of the place at all: not with the lightest setting, and not with the system's reduced motion. */
+    val passes: Boolean get() = level >= 1 && !still && GlyphDepthFore.hasFore(scene)
+    fun state(clockMs: Double, keyAtMs: Double) = GlyphDepthFore.State(scene, width, height, lift, dark, still, clockMs, keyAtMs, !still)
+}
 
 /** A band of the picture that tears sideways in a glitch, and the band that turns to its negative. */
 internal class Tear(val bands: List<Triple<Int, Int, Int>>, val negativeY: Int, val negativeH: Int)
@@ -351,29 +355,42 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         ready = true
     }
 
+    /** Debug builds: where the time of a picture goes, in nanoseconds by part (sky, back land, mist, ground, front land, seam, air, near, disc). */
+    var profile: LongArray? = null
+
+    private inline fun timed(slot: Int, work: () -> Unit) {
+        val prof = profile
+        if (prof == null) { work(); return }
+        val t = System.nanoTime(); work(); prof[slot] += System.nanoTime() - t
+    }
+
     fun draw(g: GlyphSink, c: GlyphColors) {
         prepare()
         // The paper lies over the strip above the keyboard too, when there is one.
         g.rect(0.0, -lift, width, height + lift + tail, c.paper)
-        drawLayer(g, c, sky, cover = false) { l, i, py -> skySample(l, i, py) }
-        if (early) drawDisc(g, c)                                // the Earth stands behind everything
-        if (groundFirst) drawGround(g, c)                        // where the land in front of the ground is what matters: bamboo
+        val cull = (theme.deep || CULL_ALWAYS) && !CULL_OFF
+        timed(0) { drawLayer(g, c, sky, cover = false, rowLimit = if (cull) hiddenBelow(sky, front + back, groundFirst = null) else null) { l, i, py -> skySample(l, i, py) } }
+        if (early) timed(8) { drawDisc(g, c) }                   // the Earth stands behind everything
+        if (groundFirst) timed(3) { drawGround(g, c) }           // where the land in front of the ground is what matters: bamboo
         for (i in back.indices.reversed()) {
-            if (discLate && !early && back[i] === walkOn) drawDisc(g, c)
-            if (theme.deep && i < back.size - 1) mist(g, c, back[i])
-            drawLayer(g, c, back[i], cover = true) { l, k, py -> sample(l, k, py) }
+            if (discLate && !early && back[i] === walkOn) timed(8) { drawDisc(g, c) }
+            if (theme.deep && i < back.size - 1) timed(2) { mist(g, c, back[i]) }
+            timed(1) { drawLayer(g, c, back[i], cover = true, rowLimit = if (cull) hiddenBelow(back[i], front + back.subList(0, i), groundFirst = groundFirst) else null) { l, k, py -> sample(l, k, py) } }
         }
-        if (discLate && !early && !back.contains(walkOn)) drawDisc(g, c)
-        if (!groundFirst) drawGround(g, c)
+        if (discLate && !early && !back.contains(walkOn)) timed(8) { drawDisc(g, c) }
+        if (!groundFirst) timed(3) { drawGround(g, c) }
         for (i in front.indices.reversed()) {
-            if (theme.deep && back.isNotEmpty()) mist(g, c, front[i])
-            drawLayer(g, c, front[i], cover = true) { l, k, py -> sample(l, k, py) }
+            if (theme.deep && back.isNotEmpty()) timed(2) { mist(g, c, front[i]) }
+            timed(4) { drawLayer(g, c, front[i], cover = true) { l, k, py -> sample(l, k, py) } }
         }
-        drawSeam(g, c)
-        drawAir(g, c)
+        timed(5) { drawSeam(g, c) }
+        timed(6) { drawAir(g, c) }
         g.layerEnd()
-        if (theme.deep && !theme.opaque) drawNear(g, c, front = false)
+        if (theme.deep && !theme.opaque && !liveNear) timed(7) { drawNear(g, c, front = false) }
     }
+
+    /** With depth in the keyboard, the corner and what passes are drawn live by their own view (see [GlyphNear]), not into this picture. */
+    var liveNear = false
 
     /** Debug and shots: hold what passes in front at this part of the width, or null to let it go by with the mileage. */
     var foreFix: Double? = null
@@ -1189,7 +1206,33 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         return if (m != null && !p.lit && !p.hard) d * m[max(0, min(qh - 1, py.toInt() shr 1)) * qw + min(qw - 1, px.toInt() shr 1)] else d   // and it thins round the keyboard's own type
     }
 
-    private fun drawLayer(g: GlyphSink, c: GlyphColors, l: Layer, cover: Boolean, sampler: (Layer, Int, Double) -> Double) {
+    /**
+     * What a layer need not draw: a cell wholly below the top of land that is drawn after it (and covers everything from there down) is
+     * hidden. For each column of cells, the first row that is. [later]: the layers drawn after this one; the ground covers too when it is
+     * drawn after the land ([groundFirst] false); null for [groundFirst] means the sky, for which only the layers count.
+     */
+    private fun hiddenBelow(l: Layer, later: List<Layer>, groundFirst: Boolean?): IntArray {
+        val cell = l.cell
+        val m = l.m
+        val cols = min(ceil(width / cell).toInt(), l.n / m)
+        val covers = later.filter { it.haze == 0.0 && it.spec.kind != LayerKind.STEMS && it !== l }
+        val groundCut = if (groundFirst == false && groundSpec != null) groundY else Double.MAX_VALUE
+        val limit = IntArray(cols)
+        val rowsAll = ceil((height + tail) / cell).toInt()
+        for (col in 0 until cols) {
+            var lowest = 0.0                                          // the lowest of the "topmost cover" across the cell's width
+            for (k in 0 until m) {
+                val x = (col * m + k) * l.sub + l.sub / 2
+                var top = groundCut
+                for (o in covers) top = min(top, o.ridge[max(0, min(o.n - 1, floor(x / o.sub).toInt()))].toDouble())
+                if (top > lowest) lowest = top
+            }
+            limit[col] = if (lowest >= Double.MAX_VALUE / 2) rowsAll else min(rowsAll, ceil(lowest / cell).toInt() + 2)
+        }
+        return limit
+    }
+
+    private fun drawLayer(g: GlyphSink, c: GlyphColors, l: Layer, cover: Boolean, rowLimit: IntArray? = null, sampler: (Layer, Int, Double) -> Double) {
         val cell = l.cell
         val sub = l.sub
         val m = l.m
@@ -1202,6 +1245,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         // Rows wholly above everything the layer has are skipped: nothing there is the layer's.
         val firstRow = max(-ceil(lift / cell).toInt(), if (l.spec.kind == LayerKind.STEMS || l === sky) Int.MIN_VALUE else floor(l.minY / cell).toInt() - 1)
         for (r in firstRow until rows) for (col in 0 until cols) {
+            if (rowLimit != null && r >= rowLimit[col]) continue          // hidden by land that comes after
             var pool = l.pool
             var best = -1
             var accent = 0
@@ -1307,6 +1351,10 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         const val FADE = 46.0
         /** Where the cats' ridge lies on the prototype's keyboard, in points. */
         const val PROTOTYPE_RIDGE = 149.0
+        /** Tests: leave out what is hidden even without depth (the numbers do not change; the picture is the same). */
+        var CULL_ALWAYS = false
+        /** Tests and shots: draw what is hidden too, to see that leaving it out changes nothing. */
+        var CULL_OFF = false
         /** The pixel of the picture, in points, with depth (see [GlyphTheme.deep]). */
         const val FINE = 2.0
         /** How far toward the paper the middle and the far planes go, and the mist's height and strength between planes. */

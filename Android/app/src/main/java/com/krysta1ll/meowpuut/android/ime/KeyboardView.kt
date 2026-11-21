@@ -105,8 +105,9 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             glyph = controller
             controller.warm()
             addView(controller.scene, 0)
+            addView(controller.nearView, 1)
             // The cats and the words that rise are under the bar and the keys: a legend, with its halo, is always the clearest thing.
-            addView(controller.front, 1)
+            addView(controller.front, 2)
             keys.glyph = controller
             bar.glyph = controller
             controller.overlays = listOf(bar, keys)
@@ -124,6 +125,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             keys.glyph = null
             bar.glyph = null
             removeView(controller.scene)
+            removeView(controller.nearView)
             removeView(controller.front)
             controller.stop()
             glyph = null
@@ -389,6 +391,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             // The picture runs on, faintly, under the navigation strip and the dock's gap.
             val tailPx = if (floating) 0 else total - regionPx - keysPx
             it.scene.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
+            it.nearView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
             it.front.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), h)
         }
         previews.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(total, MeasureSpec.EXACTLY))
@@ -426,6 +429,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         panel.layout(0, bar.measuredHeight, width, bar.measuredHeight + panel.measuredHeight)
         glyph?.let {
             it.scene.layout(0, 0, width, it.scene.measuredHeight)
+            it.nearView.layout(0, 0, width, it.scene.measuredHeight)
             it.front.layout(0, 0, width, it.front.measuredHeight)
             glyphLayout()?.let(it::setLayout)
         }

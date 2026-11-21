@@ -32,8 +32,6 @@ internal class GlyphFrame(
     val disc: DiscInfo? = null,
     /** What is nearest, for the view in front of the cats to draw round them; null without depth. */
     val near: GlyphNear? = null,
-    /** By day, the near art alone (its alpha), for the keys' type to be cut out of it; null at night or without depth. */
-    val nearMask: Bitmap? = null,
     /** The world's clock when this was drawn, and the name of the place. */
     val tick: Int = 0,
     val scene: String = "",
@@ -76,8 +74,18 @@ internal class GlyphController(private val context: Context) {
     private var engine: GlyphEngine? = null
     private var sink: GlyphCanvasSink? = null
     private var nearSink: GlyphCanvasSink? = null
+    /** The corner's bank and what passes: drawn live between the land and the cats, at the display's rate while anything moves. */
+    val nearView = GlyphNearView(context, this)
+    /** The motion of what is near (main thread only): see [GlyphMotion]. */
+    val motion = GlyphMotion()
+    @Volatile private var worldTarget = 0
+    @Volatile private var worldEpoch = 0
+    @Volatile var foreHold: Double? = null
+    private var dbgLast = -1L
+    private var driving = false
+    private var lastVsync = 0L
+    private val choreographer = android.view.Choreographer.getInstance()
     private val ring = arrayOfNulls<Bitmap>(3)
-    private val nearRing = arrayOfNulls<Bitmap>(3)
     @Volatile private var showing = -1
     private var published = -1
     private var scheduled = false
@@ -110,12 +118,12 @@ internal class GlyphController(private val context: Context) {
         handler = h
         h.post {
             val e = GlyphEngine(pools(), clockHm = ::clockHm)
-            e.theme.deep = true                                // 縱深: the picture in the finest pixels, with mist, a near corner, what passes
+            e.scape.liveNear = true
+            e.theme.deep = !perf || context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE).getBoolean("glyphDeep", true)   // 縱深: the picture in the finest pixels, with mist, a near corner, what passes
             engine = e
             sink = GlyphCanvasSink(renderScale, gather = true)
             e.restore(startDistance)
             forced?.let { e.force(it) }
-            fore?.let { e.scape.foreFix = it }
             held?.let { e.hold(it) }
             heldFx?.let { e.holdFx(it) }
             applyAll(e)
@@ -143,6 +151,7 @@ internal class GlyphController(private val context: Context) {
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */
     fun stop() {
         val t = thread ?: return
+        choreographer.removeFrameCallback(vsync); driving = false; motion.reset()
         hiddenAt = SystemClock.uptimeMillis()
         val h = handler
         thread = null
@@ -228,8 +237,70 @@ internal class GlyphController(private val context: Context) {
     /** By day, what is near in the picture for the keys' type to be cut out of (see [GlyphCanvasSink.NearCut]); [dx], [dy] is where the view stands in the keyboard. */
     fun nearCut(c: GlyphColors, dx: Double, dy: Double): GlyphCanvasSink.NearCut? {
         val f = frame ?: return null
-        val m = f.nearMask ?: return null
+        val n = f.near ?: return null
+        if (n.dark) return null
+        val w = f.bitmap.width
+        val h = f.bitmap.height
+        var m = nearMaskBitmap
+        if (m == null || m.width != w || m.height != h) { m = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8); nearMaskBitmap = m }
+        m.eraseColor(0)
+        val g = nearMaskSink ?: GlyphCanvasSink(renderScale, gather = false).also { nearMaskSink = it }
+        g.begin(Canvas(m), f.layout.lift)
+        drawNearLive(g, c, n, front = false)
         return GlyphCanvasSink.NearCut(m, renderScale, f.layout.lift, c.paper, dx, dy)
+    }
+    private var nearMaskBitmap: Bitmap? = null
+    private var nearMaskSink: GlyphCanvasSink? = null
+
+    /** The state of what is near right now: the live motion's clock, and the held place of a shot. */
+    private fun liveState(n: GlyphNear) = n.state(motion.clock, motion.keyAt)
+
+    /** Where what passes stands right now, its left edge in points. */
+    private fun liveForeAt(n: GlyphNear): Double =
+        foreHold?.let { it * n.width } ?: (GlyphDepthFore.passesAt(if (motion.fore.isNaN()) worldTarget.toDouble() else motion.fore, motion.coast) + GlyphDepthFore.sway(liveState(n)))
+
+    /** The corner and, unless [front], the corner is drawn too; what passes is drawn when it is in the picture. Nothing above the keyboard's top. */
+    internal fun drawNearLive(g: GlyphSink, c: GlyphColors, n: GlyphNear, front: Boolean) {
+        val clip = GlyphTopClip(g, 0.0)
+        val st = liveState(n)
+        if (!front) GlyphDepthFore.drawFrame(clip, c, st)
+        if (n.passes || foreHold != null) GlyphDepthFore.drawFore(clip, c, st, liveForeAt(n), 0.0)
+    }
+
+    /** What passes, drawn alone: for the view in front of the cats, clipped by the caller to where they stand. */
+    internal fun drawForeLive(g: GlyphSink, c: GlyphColors, n: GlyphNear) {
+        if (n.passes || foreHold != null) GlyphDepthFore.drawFore(GlyphTopClip(g, 0.0), c, liveState(n), liveForeAt(n), 0.0)
+    }
+
+    // ---- the display's own rate: what is near keeps moving between the twelve pictures a second ------------------
+
+    /** Something wants moving: keys, a new picture. Starts stepping the motion with the display (main thread). */
+    fun kick() {
+        if (driving || frame?.near == null) return
+        driving = true
+        lastVsync = 0L
+        choreographer.postFrameCallback(vsync)
+    }
+
+    private val vsync: android.view.Choreographer.FrameCallback = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) = step(frameTimeNanos)
+    }
+
+    private fun step(now: Long) {
+        driving = false
+        val f = frame
+        val n = f?.near
+        if (n == null || thread == null) return
+        val dt = if (lastVsync == 0L) 1.0 / 60 else ((now - lastVsync) / 1e9).coerceIn(0.001, 0.05)
+        lastVsync = now
+        val still = n.still || n.level == 0
+        val busy = motion.advance(dt, worldTarget.toDouble(), worldEpoch, still, NO_TAU, foreHold == null && n.passes) { GlyphMotion.visible(it, n.width) }
+        if (perf && (motion.clock.toLong() / 200) != dbgLast) { dbgLast = motion.clock.toLong() / 200; android.util.Log.i("MeowpuutGlyphPerf", "near: target $worldTarget fore ${"%.1f".format(motion.fore)} coast ${"%.1f".format(motion.coast)} at ${"%.0f".format(liveForeAt(n))} passes ${n.passes} busy $busy still $still level ${n.level} scene ${n.scene}") }
+        if (busy || motion.fore.isNaN()) {
+            nearView.invalidate()
+            if (n.passes && GlyphMotion.visible(liveForeAt(n), n.width)) { front.invalidate(); for (v in overlays) v.invalidate() }
+        }
+        if (busy) { driving = true; choreographer.postFrameCallback(vsync) }
     }
 
     /** The picture's sun or moon for a view to cut its type out of (see [GlyphCanvasSink.Eclipse]); [dx], [dy] is where the view stands in the keyboard. */
@@ -268,7 +339,9 @@ internal class GlyphController(private val context: Context) {
 
     /** A key went down. Called on the touch path: it allocates one message and does nothing else. */
     fun key(kind: GlyphKey, x: Float, y: Float, composing: Boolean, letter: String) {
-        handler?.post { engine?.key(kind, x.toDouble(), y.toDouble(), composing, letter); requestTick() }
+        motion.keyed()
+        handler?.post { engine?.let { it.key(kind, x.toDouble(), y.toDouble(), composing, letter); worldTarget = it.world.target; worldEpoch = it.world.epoch }; requestTick() }
+        kick()
     }
 
     /** Text was committed to the editor. [secret]: it may be read for the words that do something (never in a field that is not to be learned from). */
@@ -290,7 +363,9 @@ internal class GlyphController(private val context: Context) {
     /** Debug: hold what passes in front at this part of the width, or null. */
     fun holdFore(at: Double?) {
         fore = at
-        handler?.post { engine?.scape?.foreFix = at; engine?.world?.dirty = true; requestTick() }
+        foreHold = at
+        handler?.post { engine?.world?.dirty = true; requestTick() }
+        nearView.postInvalidateOnAnimation()
     }
     @Volatile private var fore: Double? = null
 
@@ -330,7 +405,9 @@ internal class GlyphController(private val context: Context) {
         val h = handler ?: return
         val started = SystemClock.uptimeMillis()
         lastTickAt = started
-        if (e.step()) render(e)
+        val stepped = e.step()
+        worldTarget = e.world.target; worldEpoch = e.world.epoch
+        if (stepped) render(e)
         if (e.busy()) {
             scheduled = true
             h.postDelayed(tick, (FRAME_MS - (SystemClock.uptimeMillis() - started)).coerceAtLeast(1L))
@@ -354,6 +431,7 @@ internal class GlyphController(private val context: Context) {
         val canvas = Canvas(bitmap)
         val out = sink ?: return
         out.begin(canvas, l.lift)
+        if (perf && e.scape.profile == null) e.scape.profile = LongArray(9)
         val drawStart = System.nanoTime()
         val tear = e.drawScene(out)
         out.layerEnd()
@@ -361,27 +439,22 @@ internal class GlyphController(private val context: Context) {
             val ms = (System.nanoTime() - drawStart) / 1e6
             perfN++; perfSum += ms; if (ms > perfMax) perfMax = ms
             if (perfN == 24) {
-                android.util.Log.i("MeowpuutGlyphPerf", "scene ${e.scape.sceneName}: ${"%.1f".format(perfSum / perfN)} ms avg, ${"%.1f".format(perfMax)} ms max over $perfN pictures (${w}x$h px)")
-                perfN = 0; perfSum = 0.0; perfMax = 0.0
+                val p = e.scape.profile!!
+                android.util.Log.i("MeowpuutGlyphPerf", "scene ${e.scape.sceneName}: ${"%.1f".format(perfSum / perfN)} ms avg, ${"%.1f".format(perfMax)} ms max over $perfN pictures (${w}x$h px); " +
+                    "ms each: sky ${"%.1f".format(p[0] / 1e6 / perfN)} back ${"%.1f".format(p[1] / 1e6 / perfN)} mist ${"%.1f".format(p[2] / 1e6 / perfN)} ground ${"%.1f".format(p[3] / 1e6 / perfN)} " +
+                    "front ${"%.1f".format(p[4] / 1e6 / perfN)} seam ${"%.1f".format(p[5] / 1e6 / perfN)} air ${"%.1f".format(p[6] / 1e6 / perfN)} near ${"%.1f".format(p[7] / 1e6 / perfN)} disc ${"%.1f".format(p[8] / 1e6 / perfN)}")
+                p.fill(0); perfN = 0; perfSum = 0.0; perfMax = 0.0
             }
         }
         if (tear != null) applyTear(bitmap, tear, l.lift)
         val near = e.near()
-        var mask: Bitmap? = null
-        if (near != null && !e.theme.dark) {                              // by day the keys' type is cut out of what is near: its alpha, drawn once more on its own
-            var nb = nearRing[i]
-            if (nb == null || nb.width != w || nb.height != h) { nb = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8); nearRing[i] = nb }
-            nb.eraseColor(0)
-            val maskSink = nearSink ?: GlyphCanvasSink(renderScale, gather = false).also { nearSink = it }
-            maskSink.begin(Canvas(nb), l.lift)
-            e.scape.drawNear(maskSink, GlyphColors.of(false), front = false)
-            mask = nb
-        }
-        val finished = GlyphFrame(bitmap, i, e.front(), l, e.theme.dark, e.theme.opaque, e.disc(), near, mask, e.world.tick, e.scape.sceneName)
+        val finished = GlyphFrame(bitmap, i, e.front(), l, e.theme.dark, e.theme.opaque, e.disc(), near, e.world.tick, e.scape.sceneName)
         published = i
         frame = finished
         scene.postInvalidateOnAnimation()
+        nearView.postInvalidateOnAnimation()
         front.postInvalidateOnAnimation()
+        main.post { kick() }
         val name = e.scape.sceneName
         if (e.disc() != null && (e.scape.formed < 1.0 || name != lastScene)) for (v in overlays) v.postInvalidateOnAnimation()
         if (name != lastScene) front.post { front.translationZ = if (name == STREET) 2f * density else 0f }      // in the street the cats walk in front of the signs
@@ -444,6 +517,7 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
+        private val NO_TAU = DoubleArray(0)
         /** A keyboard called up again within this long of going away does not arrive again. */
         const val ARRIVAL_GRACE_MS = 2000L
     }
@@ -477,5 +551,27 @@ internal class GlyphSceneView(context: Context, private val controller: GlyphCon
         } finally {
             controller.show(null)
         }
+    }
+}
+
+/**
+ * The corner's bank and what passes in front of the land: between the land and the cats, under the keys' own type. It is drawn live,
+ * with the display, while the near motion has anything to do (see [GlyphController.kick]); it takes no touch.
+ */
+internal class GlyphNearView(context: Context, private val controller: GlyphController) : View(context) {
+    private val scale = context.resources.displayMetrics.density.coerceAtMost(3f)
+    private val sink = GlyphCanvasSink(scale, gather = false)
+
+    init {
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        isClickable = false
+        isFocusable = false
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val f = controller.frame ?: return
+        val n = f.near ?: return
+        sink.begin(canvas, f.layout.lift)
+        controller.drawNearLive(sink, GlyphColors.of(f.dark), n, front = false)
     }
 }
