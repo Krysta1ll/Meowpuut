@@ -163,6 +163,16 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
 
     private var motionKey = 0L
 
+    /** The foot comes down (see [GlyphWorld.land]): true when the picture is to be drawn again (a layer, a row of the ground has gone a cell). */
+    fun land(): Boolean {
+        if (!world.land()) return false
+        val key = scape.motionKey()
+        var changed = world.dirty || wear()
+        world.dirty = false
+        if (key != motionKey) { motionKey = key; changed = true }
+        return changed
+    }
+
     /** What passes in front is in the picture, the typing has stopped (0.35 s) and it is to go on out by itself. */
     private fun rolling(): Boolean =
         !theme.still && !theme.opaque && theme.level >= 1 && world.idleSeconds >= 0.35 && GlyphDepthFore.hasFore(scape.sceneName) &&

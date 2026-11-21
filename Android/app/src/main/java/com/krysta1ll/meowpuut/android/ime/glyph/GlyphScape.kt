@@ -412,6 +412,15 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         return if (w.spec.speed > 0) (if (w.cell <= 4) 2.0 else 1.0) * w.cell / (8.0 * GlyphWorld.STEP_UNITS * w.spec.speed) else 0.5
     }
 
+    /** Debug builds: the cells the layer the cats walk on has gone, and the nearest row of the ground (the feet's), for the step count. */
+    internal fun debugCells(): String {
+        val w = walkOn
+        val run = world.run
+        val geo = groundGeometry()
+        val g = if (geo != null) round(run * geo.speed(geo.rows - 1) * 8 / geo.cell).toInt() else -1
+        return "walkLayer=${floor(run * w.spec.speed * 8 / w.cell).toInt()} groundNear=$g"
+    }
+
     /** The cache of drawn layers (see [GlyphLayerStrips]): puts a layer it has drawn into the picture and says so, or false for it to be drawn here. */
     var layerBlit: ((Layer, GlyphSink) -> Boolean)? = null
 
@@ -712,7 +721,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         h = h * 31 + floor(run * sky.spec.speed * 8 / sky.cell).toLong()
         val geo = groundGeometry()
         if (geo != null) for (row in 0 until geo.rows) h = h * 31 + round(run * geo.speed(row) * 8 / geo.cell).toLong()
-        h = h * 31 + (kotlin.math.ceil(world.pos / GlyphWorld.STEP_UNITS).toLong() shr 0)
+        h = h * 31 + Math.round(world.target / GlyphWorld.STEP_UNITS)
         if (GlyphDepthFore.hasFore(preset.name)) h = h * 31 + floor(foreAt() / 4).toLong()
         return h
     }

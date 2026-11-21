@@ -319,6 +319,15 @@ internal class GlyphWorld(
         if (!theme.deep || rested) dirty = true                    // a key does not draw the picture again with depth: the walk does, if a cell has gone
     }
 
+    /** The step in hand comes down: the picture is where the keys have taken it. True when that moved anything. */
+    fun land(): Boolean {
+        if (pos >= target) return false
+        pos = target.toDouble()
+        lastMove = tick
+        travel()
+        return true
+    }
+
     fun feel(m: Map<CatId, String>, ticks: Int, jump: Boolean) {
         mood = m; moodUntil = tick + ticks; hop = jump; hopAt = tick; dirty = true
     }
@@ -345,7 +354,7 @@ internal class GlyphWorld(
             epoch++
             echo = Echo(ch, tick, epoch)
         }
-        moved(stride(), at)
+        moved(if (theme.deep) STEP_UNITS.toInt() else stride(), at)       // with depth every key is one step (three units), whatever the picture is behind or ahead by
     }
 
     /** Backspace: the cat looks aside; five in quick succession tear the picture. */
@@ -360,14 +369,14 @@ internal class GlyphWorld(
     /** Space or return with nothing being composed. */
     fun plain(at: Pair<Double, Double>?, enter: Boolean) {
         if (enter) { feel(mapOf(CatId.MIMI to "meow", CatId.MOMO to "meow"), 8, false); spectacle.sent() }
-        moved(1, at)
+        moved(if (theme.deep) STEP_UNITS.toInt() else 1, at)
     }
 
     /** Any other key: delete, a switch, the symbols' page: the picture stays. */
     fun other(at: Pair<Double, Double>?) = moved(0, at)
 
     /** A space or a return that chooses (it is composing): the picture goes on by one, as for the real ones. */
-    fun chosen(at: Pair<Double, Double>?) = moved(1, at)
+    fun chosen(at: Pair<Double, Double>?) = moved(if (theme.deep) STEP_UNITS.toInt() else 1, at)
 
     /**
      * Text was committed. [graphemes] carry the journey on; [secret] says whether the text may be read for passwords (never in a field
@@ -493,12 +502,8 @@ internal class GlyphWorld(
         tick++
         if (pos < target) {
             if (theme.deep) {
-                // The walk keeps the typing's pace: a key a step (three ticks and then standing), a run of keys a run, what is owed over nine a quarter at a time.
-                val owed = target - pos
-                val keys = if (idleSeconds < 1.5) rate else 0.0
-                val pace = max(1.0, max(keys * 3.0 / FPS, if (owed > 9) owed * 0.25 else 0.0))
-                pos = min(target.toDouble(), pos + pace)
-                posMoved = true
+                // With depth the foot comes down on its own timer (see [land]); this is only the net for a timer that did not come (the keyboard went away).
+                if (tick - lastKey > 4) { pos = target.toDouble(); posMoved = true }
             } else {
                 pos += max(1, min(6, round((target - pos) * 0.42)))
                 dirty = true
@@ -549,10 +554,10 @@ internal class GlyphWorld(
         val mimi = cat == CatId.MIMI
         // With depth the foot changes with the ground (every three units, a key's worth: at once when a step begins), the other cat half a step
         // behind, and every second step the body is a cat pixel higher; between two keys they stand in the stride they stopped in.
-        val step = ceil(pos / STEP_UNITS).toLong() + (if (mimi) 0L else 1L)
+        val step = Math.round(target / STEP_UNITS) + (if (mimi) 0L else 1L)      // the step that has begun (the foot changes with the key)
         val foot = if (theme.deep) (if (step and 1L != 0L) "walkA" else "walkB") else null
         fun walk() = foot ?: (if (tick and 1 != 0) "walkA" else "walkB")
-        val bob = if (theme.deep && ((step shr 1) and 1L) != 0L) GlyphCats.POINTS else 0
+        val bob = 0                                                              // (the body's lift is the key's, drawn by the front view at once)
         if (tick < goodnight && !moving) return CatState("sleep", "neutral", z = mimi)
         if (tick < glitch) return CatState(if (moving) walk() else "sit", "dizzy")        // when the picture tears, so do they
         val m = mood

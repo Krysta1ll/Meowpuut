@@ -165,7 +165,8 @@ internal class GlyphController(private val context: Context) {
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */
     fun stop() {
         val t = thread ?: return
-        carriedTarget = max(carriedTarget, worldTarget)
+        main.removeCallbacks(comeDown); lifted = false
+        carriedTarget = max(carriedTarget, max(worldTarget, liveTarget))
         ground.clear(); groundExact = DoubleArray(0)
         hiddenAt = SystemClock.uptimeMillis()
         val h = handler
@@ -208,6 +209,7 @@ internal class GlyphController(private val context: Context) {
     fun pause() {
         val h = handler ?: return
         hiddenAt = SystemClock.uptimeMillis()
+        main.removeCallbacks(comeDown); landStep()
         ringView.clear()
         h.removeCallbacks(tick)
         h.post {
@@ -395,8 +397,71 @@ internal class GlyphController(private val context: Context) {
 
     /** A key went down. Called on the touch path: it allocates one message and does nothing else. */
     fun key(kind: GlyphKey, x: Float, y: Float, composing: Boolean, letter: String) {
+        val steps = kind != GlyphKey.DELETE && kind != GlyphKey.OTHER
+        if (perf && steps) { probeSig = lastSig; probeAt = SystemClock.elapsedRealtimeNanos() }
+        if (steps) beginStep()
         ringView.start(x, y)
         handler?.post { engine?.let { it.key(kind, x.toDouble(), y.toDouble(), composing, letter); worldTarget = it.world.target; worldEpoch = it.world.epoch }; requestTick() }
+    }
+
+    // ---- the feel of a key: a step begins with it, on this thread, in this frame -------------------------------------------
+
+    private var liveTarget = 0
+    private var lifted = false
+    private var stepAtMs = 0L
+    private val comeDown = Runnable { landStep() }
+
+    /** Whether a key is a step of the cats now: with depth, a picture that moves, and the effects not at the lowest. */
+    private fun stepping(): Boolean { val n = frame?.near ?: return false; return !n.still && n.level >= 1 }
+
+    /**
+     * A key that types is a step, and the step begins now (main thread, no waiting for the twelve-a-second clock or for a picture): the cats change
+     * foot and lift a pixel in the very next frame. The foot comes down after 0.6 of the time since the key before (60 to 160 ms), and the ground
+     * under it goes a cell then. A key that comes before that finishes the step in hand at once and begins its own: steps never queue.
+     */
+    private fun beginStep() {
+        if (!stepping()) return
+        val now = SystemClock.uptimeMillis()
+        if (lifted) { main.removeCallbacks(comeDown); landStep() }
+        else if (now - stepAtMs > 400) liveTarget = worldTarget                   // (nothing is in hand: the engine's count is the truth)
+        val gap = now - stepAtMs
+        stepAtMs = now
+        liveTarget += STEP
+        lifted = true
+        if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step up target=$liveTarget foot=${walkOf(CatId.MIMI)?.first}")
+        front.invalidate()                                                       // the leg lifts in this frame
+        main.postDelayed(comeDown, gap.times(0.6).toLong().coerceIn(60L, 160L))
+    }
+
+    /** The foot comes down: the body is back in place, and the picture goes on a step (the render thread does that, at once). */
+    private fun landStep() {
+        if (!lifted) return
+        lifted = false
+        front.invalidate()
+        handler?.post { engine?.let { e -> if (e.land()) render(e); worldTarget = e.world.target
+            if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step down target=${e.world.target} ${e.scape.debugCells()}") } }
+    }
+
+    /** What the cats are doing as the keys have made them, for the front view to draw over the last picture: the pose, and a pixel of lift while the foot is in the air. Null when the keys have been idle. */
+    fun walkOf(cat: CatId): Pair<String, Int>? {
+        if (!stepping() || stepAtMs == 0L || SystemClock.uptimeMillis() - stepAtMs >= 1200L) return null
+        val step = Math.round(liveTarget / GlyphWorld.STEP_UNITS) + (if (cat == CatId.MIMI) 0L else 1L)
+        return (if (step and 1L != 0L) "walkA" else "walkB") to (if (lifted) GlyphCats.POINTS else 0)
+    }
+
+    // ---- debug builds: how long a key takes to show in the cats (the feel of it) ----------------------------------------
+    @Volatile private var probeAt = 0L
+    @Volatile private var probeSig = 0L
+    @Volatile private var lastSig = 0L
+
+    /** The front view has drawn the cats ([sig]: what they were drawn in). The first draw that differs from the one before the key is the key's answer. */
+    fun probeDrawn(sig: Long) {
+        lastSig = sig
+        val at = probeAt
+        if (at != 0L && sig != probeSig) {
+            probeAt = 0L
+            android.util.Log.i("MeowpuutGlyphPerf", "cats answer the key in ${"%.1f".format((SystemClock.elapsedRealtimeNanos() - at) / 1e6)} ms")
+        }
     }
 
     /** Text was committed to the editor. [secret]: it may be read for the words that do something (never in a field that is not to be learned from). */
@@ -601,6 +666,8 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
+        /** Units of the journey to a step (see [GlyphWorld.STEP_UNITS]). */
+        private const val STEP = 3
         /** Whether the ground is drawn live under the picture, in strips that go by with the display (smooth, and so not what 字景 wants: off; kept for a shot). */
         const val LIVE_GROUND = false
         /** Whether the land is drawn as strips (a debug build can ask either way with the setting "glyphLayers"). */

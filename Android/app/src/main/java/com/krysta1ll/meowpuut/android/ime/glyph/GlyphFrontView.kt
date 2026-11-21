@@ -25,13 +25,15 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
         isFocusable = false
     }
 
-    private fun cat(d: CatDraw, colors: GlyphColors, dark: Boolean): Raster {
-        val key = "${d.cat}/${d.pose}/${d.face}/$dark/${d.night}/${d.suit}"
+    private fun cat(d: CatDraw, pose: String, colors: GlyphColors, dark: Boolean): Raster {
+        val key = "${d.cat}/$pose/${d.face}/$dark/${d.night}/${d.suit}"
         if (rasters.size > 120) rasters.clear()
-        return rasters.getOrPut(key) { GlyphCats.raster(d.cat, d.pose, d.face, dark, d.night, colors, d.suit) }
+        return rasters.getOrPut(key) { GlyphCats.raster(d.cat, pose, d.face, dark, d.night, colors, d.suit) }
     }
 
-    override fun onDraw(canvas: Canvas) {
+    override fun onDraw(canvas: Canvas) = draw0(canvas)
+
+    private fun draw0(canvas: Canvas) {
         val f = controller.frame ?: return
         val ff = f.front
         val c = GlyphColors.of(f.dark)
@@ -43,9 +45,14 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             sink.raster(GlyphCats.crabRaster(ff.crabFrame, c.paper), ff.crabX - 2.0, top - 2.0, u)
         }
         ff.fish?.let { (fx, fy) -> sink.bits(fishMask, q(fx.toDouble(), 3.0), q(fy.toDouble(), 3.0), 3.0, c.ink, null, false) }
+        var sig = 7L
         for (d in ff.cats) {
-            val r = cat(d, c, f.dark)
-            val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + d.hopY       // each cat has its own height (Mimi is taller, and a suit adds a row)
+            val walk = if (f.near != null) controller.walkOf(d.cat) else null     // what the keys have just made of the cat, before any new picture
+            val pose = walk?.first ?: d.pose
+            val hopY = d.hopY - (walk?.second ?: 0)
+            sig = sig * 31 + pose.hashCode() + hopY * 1009L
+            val r = cat(d, pose, c, f.dark)
+            val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + hopY       // each cat has its own height (Mimi is taller, and a suit adds a row)
             if (f.near != null && !d.platform) {                       // with depth the cat stands on its own shadow: a few fine dots under its feet
                 val bx = d.x
                 val tone = if (f.dark) c.paper else c.ink                    // (at night the shadow is the dark on the faintly lit ground)
@@ -74,7 +81,7 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
                 canvas.restoreToCount(save)
             }
             sink.raster(r, d.x - GlyphCats.MARGIN * u, top - GlyphCats.MARGIN * u, u)
-            if (d.zzz) for (i in 0 until 3) {
+            if (d.zzz && walk == null) for (i in 0 until 3) {
                 painter.label(sink, c, "ㄗ", d.x + 36.0 * k + i * 11 + ((d.zPhase + i) % 2), d.feetY - 24.0 * k - i * 12, 1.0, 1.0, centre = true, halo = true)
             }
         }
@@ -87,6 +94,7 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             }
         }
         for (d in ff.dust) sink.text(d.ch, q(d.x, 2.0), q(d.y, 2.0), d.size, false, GlyphColors.withAlpha(c.ink, d.alpha.toDouble()))
+        controller.probeDrawn(sig)
         for (m in ff.motes) {
             painter.label(sink, c, m.ch, q(m.x, 4.0), q(m.y, 4.0), 1.0, m.alpha.toDouble(), centre = true, halo = true)
         }
