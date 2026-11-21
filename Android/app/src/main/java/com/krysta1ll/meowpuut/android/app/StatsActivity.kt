@@ -247,7 +247,14 @@ class StatsActivity : Activity() {
                 contentDescription = if (seen) getString(R.string.stats_place_seen, name, stats.visits[i]) else getString(R.string.stats_place_unseen)
                 if (Build.VERSION.SDK_INT >= 28) isScreenReaderFocusable = true else isFocusable = true
             }
-            val live = GlyphLiveView(this, LiveSpec(scene = i, veiled = !seen, aspect = 108.0 / 172.0, small = true), dark, plain, level)
+            // A rare place that has not been reached is a blank sheet of paper: no preview, no name (what it is is left to be found).
+            val live: View = if (!seen && GlyphScenes.ALL[i].rare > 0.0) object : View(this) {
+                init { setBackgroundColor(if (dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()); importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                    val w = MeasureSpec.getSize(widthMeasureSpec)
+                    setMeasuredDimension(w, (w * 108.0 / 172.0).toInt())
+                }
+            } else GlyphLiveView(this, LiveSpec(scene = i, veiled = !seen, aspect = 108.0 / 172.0, small = true), dark, plain, level)
             tile.addView(frame.framed(live, edge = true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             tile.addView(frame.placeName(if (seen) placeName(i, simplified) else "？").also { it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, margins(top = 8, sides = 0))
             tile.addView(frame.placeCount(if (seen) getString(R.string.stats_place_times, stats.visits[i]) else getString(R.string.stats_place_not_yet)).also { it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, margins(top = 4, sides = 0))

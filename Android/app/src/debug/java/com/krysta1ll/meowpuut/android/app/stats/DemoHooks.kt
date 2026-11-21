@@ -13,33 +13,37 @@ import java.time.LocalDate
  *
  *   adb shell am start -n com.krysta1ll.meowpuut.android/.app.SettingsActivity --es meowpuut.demo road
  *   adb shell am start -n com.krysta1ll.meowpuut.android/.app.SettingsActivity --es meowpuut.demo festival-day
+ *   adb shell am start -n com.krysta1ll.meowpuut.android/.app.SettingsActivity --es meowpuut.demo few      (sixty characters: most places not reached yet)
  *
  * "road": a year of typing with a dozen festivals met, on an ordinary day. "festival-day": the same records, on a day that is one of the
  * festivals with a picture of its own. Nothing is stored: the choice lasts until the process ends, and the files are never read or written.
  */
 internal object DemoHooks {
     @Volatile private var name: String? = null
-    @Volatile private var pretend: Int? = null
+    @Volatile private var app: Context? = null
+    private val ordinary = LocalDate.of(2026, 11, 21).toEpochDay().toInt()
 
     fun enable(context: Context, intent: Intent?) {
         if (!CustomSkinLoader.debuggable(context)) return
         val asked = intent?.getStringExtra("meowpuut.demo") ?: return
         name = asked
-        pretend = null
+        app = context.applicationContext
     }
 
     /** Today, as a local day number (the pretend one while a demo runs). */
-    fun today(): Int = pretend ?: LocalDate.now().toEpochDay().toInt()
+    fun today(): Int {
+        val which = name ?: return LocalDate.now().toEpochDay().toInt()
+        if (which != "festival-day") return ordinary
+        val list = BundledFestivals.of(app ?: return ordinary).occurrences()
+        return list.filter { it.ownStamp && it.main > ordinary }.minByOrNull { it.main }?.main ?: ordinary
+    }
 
-    fun characters(context: Context): Long? = if (name != null) 248_316L else null
+    fun characters(context: Context): Long? = if (name == null) null else if (name == "few") 60L else 248_316L
 
     fun stats(context: Context, festivals: FestivalSource): JourneyStats? {
-        val which = name ?: return null
+        if (name == null) return null
         val list = festivals.occurrences()
-        val ordinary = LocalDate.of(2026, 11, 21).toEpochDay().toInt()
-        val own = list.filter { it.ownStamp && it.main > ordinary }.minByOrNull { it.main }
-        pretend = if (which == "festival-day" && own != null) own.main else ordinary
-        val today = pretend!!
+        val today = today()
         val ledger = StatsLedger.parse(ledgerJson(list, today)).ledger ?: return null
         return JourneyStats.of(ledger, list)
     }
@@ -60,7 +64,7 @@ internal object DemoHooks {
         for (f in festivals) if (f !in chosen) for (d in f.from..f.to) inFestival += d
         for (i in 0 until 430) { val d = today - 1 - i; if ((i * 7) % 11 != 0 && (i * 5) % 13 != 2 && d !in inFestival) put(d, i) }
         for ((k, f) in chosen.withIndex()) put(f.main, k + 3)
-        val root = JSONObject().put("version", StatsLedger.VERSION).put("epoch", 1).put("graphemes", 248_316).put("cleared", false)
+        val root = JSONObject().put("version", StatsLedger.VERSION).put("epoch", 1).put("graphemes", if (name == "few") 60 else 248_316).put("cleared", false)
         root.put("mimimo", JSONObject().put("level", 86).put("pets", 141).put("falls", 12).put("plays", 58))
         root.put("momo", JSONObject().put("level", 100).put("pets", 203).put("falls", 4).put("plays", 77))
         root.put("days", JSONArray(days.keys.sorted().map { days.getValue(it) }))

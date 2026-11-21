@@ -40,7 +40,7 @@ internal class LiveSpec(
 )
 
 /** What a festival's stamp stands as by the road in a live picture: its rows, and how far from the left (as a part of the width) it starts. */
-internal class Standing(val rows: List<String>, val at: Double = 0.72)
+internal class Standing(val rows: List<String>, val at: Double = 0.74)
 
 /**
  * A picture of 字景 that moves: a place drawn by the same engine as the keyboard's, shown on a page. It moves only while it can be seen
@@ -204,6 +204,8 @@ internal class GlyphStage private constructor(private val context: Context) {
             val canvas = Canvas(bitmap)
             val g = sink ?: GlyphCanvasSink(brushScale, gather = true).also { sink = it }
             g.begin(canvas, 0.0)
+            // On a festival's day the open land to the right of the cats is the festival's: the place's own stamps keep off it.
+            e.scape.clearMarks = if (view.festival != null) (s.width * 0.62)..(s.width * 0.97) else null
             e.drawScene(g)
             drawFestival(e, g, s)
             drawCats(e, g, canvas, s)
@@ -224,7 +226,7 @@ internal class GlyphStage private constructor(private val context: Context) {
         private fun drawFestival(e: GlyphEngine, g: GlyphCanvasSink, s: Settings) {
             val standing = view.festival ?: return
             val rows = standing.rows
-            val u = 3.0
+            val u = if (rows[0].length * 4.0 <= s.width * 0.22) 4.0 else 3.0      // as large as the open land allows
             val preset = e.scape.preset
             val walk = (preset.front + preset.back).getOrNull(preset.walk)
             val layer = e.scape.layers.firstOrNull { it.spec === walk }

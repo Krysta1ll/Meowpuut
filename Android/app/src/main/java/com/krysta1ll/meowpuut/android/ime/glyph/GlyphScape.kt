@@ -149,6 +149,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     /** Set once the first frame has been prepared: the ridge the cats walk on is known. */
     var ready = false; private set
     var rowsFraming = false; private set
+    /** A stretch of the picture (left to right, in points) where the places' own stamps (a torii, a lamp, a tower) are left out: a festival stands there. */
+    var clearMarks: ClosedFloatingPointRange<Double>? = null
 
     private val probe = Probe()
     private val v = DoubleArray(4)
@@ -447,6 +449,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 if (s.every == 0 && h2(slot, s.seed + 500) < 0.74 - 0.12 * theme.level) continue
                 val pat = GlyphScenes.STAMPS.getValue(marks[(h2(slot, s.seed + 502) * marks.size).toInt()])
                 val first = slot * stretch + (if (s.every != 0) 6 else 24) + (h2(slot, s.seed + 501) * min(60.0, stretch * 0.45)).toInt() - l.offI
+                clearMarks?.let { c -> val mid = (first + (pat[0].length * l.big) / 2.0) * l.sub; if (mid in (c.start - 20)..(c.endInclusive + 20)) continue }       // (a festival stands here)
                 if (short && s.avoid > 0.0 && abs((first + (pat[0].length * l.big) / 2.0) * l.sub - s.avoidAt * width) < s.avoid * width) continue   // not built over the mountain
                 val big = l.big
                 val foot = l.ridge[max(0, min(l.n - 1, first + ((pat[0].length * big) shr 1)))]
