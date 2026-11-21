@@ -85,6 +85,7 @@ internal class GlyphController(private val context: Context) {
     private val layerStrips = GlyphLayerStrips(renderScale)
     private var layersOn = LAYER_STRIPS
     private var lastSyncMs = 0L
+    private var lastWorldAt = 0L
     @Volatile private var groundExact = DoubleArray(0)
     private var groundWant = IntArray(0)
     private var groundAdvancing = false
@@ -489,7 +490,7 @@ internal class GlyphController(private val context: Context) {
         val h = handler ?: return
         if (scheduled) return
         scheduled = true
-        val wait = (lastTickAt + FRAME_MS - SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        val wait = (lastTickAt + (if (layerStrips.moving) MOVE_FRAME_MS else FRAME_MS) - SystemClock.uptimeMillis()).coerceAtLeast(0L)
         h.postDelayed(tick, wait)
     }
 
@@ -499,12 +500,19 @@ internal class GlyphController(private val context: Context) {
         val h = handler ?: return
         val started = SystemClock.uptimeMillis()
         lastTickAt = started
-        val stepped = e.step()
-        worldTarget = e.world.target; worldEpoch = e.world.epoch
+        // The world takes twelve steps a second; while the land is moving the picture is made more often than that (it only lays strips
+        // in place), so the land goes by with the display and not a twelfth of a second at a time.
+        var stepped = false
+        if (started - lastWorldAt >= FRAME_MS - 10) {
+            lastWorldAt = started
+            stepped = e.step()
+            worldTarget = e.world.target; worldEpoch = e.world.epoch
+        }
         if (stepped || layerStrips.moving) render(e)
-        if (e.busy() || layerStrips.moving) {
+        val fast = layerStrips.moving
+        if (e.busy() || fast) {
             scheduled = true
-            h.postDelayed(tick, (FRAME_MS - (SystemClock.uptimeMillis() - started)).coerceAtLeast(1L))
+            h.postDelayed(tick, ((if (fast) MOVE_FRAME_MS else FRAME_MS) - (SystemClock.uptimeMillis() - started)).coerceAtLeast(1L))
         }
     }
 
@@ -634,6 +642,8 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
+        /** The time between two pictures while the land is moving (about thirty a second). */
+        const val MOVE_FRAME_MS = 33L
         /** Whether the land is drawn as strips (a debug build can ask either way with the setting "glyphLayers"). */
         const val LAYER_STRIPS = true
         /** The least time between two whole drawings of the ground while only the turn of the type changes. */

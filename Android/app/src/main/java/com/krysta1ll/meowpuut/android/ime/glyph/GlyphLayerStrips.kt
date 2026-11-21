@@ -33,6 +33,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
     private val motion = GlyphMotion()
     private var order: List<GlyphScape.Layer> = emptyList()
     private var exact = DoubleArray(0)
+    private var before = DoubleArray(0)
     private var sig = Long.MIN_VALUE
     private var turnAt = 0L
     private var turned = -1
@@ -57,11 +58,14 @@ internal class GlyphLayerStrips(private val scale: Float) {
         if (layers.isEmpty()) { release(scape); return }
         if (order.size != layers.size || order.indices.any { order[it] !== layers[it] }) { strips.clear(); order = layers; motion.reset() }
         val tau = DoubleArray(layers.size) { GlyphMotion.tauOf(layers[it].pool, layers[it].spec.speed) }
-        moving = motion.advance(dt, target, epoch, false, tau, false) { false } && motion.clock - motion.keyAt < 6000
-        if (exact.size != layers.size) exact = DoubleArray(layers.size)
+        motion.advance(dt, target, epoch, false, tau, false) { false }
+        if (exact.size != layers.size) { exact = DoubleArray(layers.size); before = DoubleArray(layers.size) { Double.NaN } }
+        var went = false
         val fresh = signature != sig || (epoch != turned && nowMs - turnAt >= TURN_MS)
         for ((i, l) in layers.withIndex()) {
             exact[i] = motion.run[i] * l.spec.speed * 8 / l.cell
+            if (!before[i].isNaN() && kotlin.math.abs(exact[i] - before[i]) * l.cell * scale >= GOING_PX) went = true
+            before[i] = exact[i]
             val want = floor(exact[i]).toInt()
             val s = strips.getOrPut(l) { Strip(l) }
             val band = scape.stripBand(l)
@@ -88,6 +92,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
                 s.baked = want
             }
         }
+        moving = went
         if (fresh) { sig = signature; turned = epoch; turnAt = nowMs }
         scape.layerBlit = { l, g -> blit(l, g) }
     }
@@ -113,5 +118,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
         const val TURN_MS = 400L
         /** A strip is shifted when its layer has gone this many cells beyond what it holds (the rest is only a shift of the picture). */
         const val ADVANCE_AT = 2
+        /** A layer is going when it has moved this many device pixels since the picture before: when none is, the pictures stop. */
+        const val GOING_PX = 0.4
     }
 }
