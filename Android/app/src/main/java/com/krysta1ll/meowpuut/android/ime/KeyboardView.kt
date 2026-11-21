@@ -189,6 +189,8 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     private var rows = 4
     private var baseRows = 4
     private var bottomInset = 0
+    /** Whether this view has been given its window insets yet (see [onMeasure]). */
+    private var insetsDispatched = false
     private var measuredLimit = Float.POSITIVE_INFINITY
     private var keyPointerMask = 0L
     private var superPointerMask = 0L
@@ -295,8 +297,31 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         @Suppress("DEPRECATION") insets.systemWindowInsetBottom
     }
 
-    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+    /**
+     * [bottomOf], but never less than the navigation bar's own height while the bar is showing. The window's first insets say the bar is
+     * there and give it no height yet; taking that at its word sizes the window without the bar, and the window cannot grow afterwards.
+     */
+    private fun bottomWithBar(insets: WindowInsets): Int {
         val bottom = bottomOf(insets)
+        if (Build.VERSION.SDK_INT < 30 || !insets.isVisible(WindowInsets.Type.navigationBars())) return bottom
+        return maxOf(bottom, systemBottom() ?: 0)
+    }
+
+    /** The height of the navigation strip under the keyboard as the window manager reports it (API 30+); null where it cannot say. */
+    private fun systemBottom(): Int? {
+        if (Build.VERSION.SDK_INT < 30 || floating) return null
+        return try {
+            val wm = context.getSystemService(android.view.WindowManager::class.java)
+            wm.maximumWindowMetrics.windowInsets
+                .getInsetsIgnoringVisibility(WindowInsets.Type.navigationBars() or WindowInsets.Type.tappableElement()).bottom
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        val bottom = bottomWithBar(insets)
+        insetsDispatched = true
         if (bottom != bottomInset) { bottomInset = bottom; requestLayout() }
         return insets
     }
@@ -319,7 +344,11 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val widthDp = width / density
-        rootWindowInsets?.let { bottomInset = bottomOf(it) }
+        // The window's insets are dispatched after the first measure. Sized without the navigation bar, the window is later measured with
+        // its own height as the most it may have and can no longer grow, which would leave the lowest row under the bar. So until the
+        // insets have been dispatched, the bar's height is taken from the window manager, which knows it before any window exists.
+        if (!insetsDispatched) systemBottom()?.let { bottomInset = it }
+        else rootWindowInsets?.let { bottomInset = bottomWithBar(it) }
         measuredLimit = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) Float.POSITIVE_INFINITY
         else MeasureSpec.getSize(heightMeasureSpec) / density
         idiom = idiomFor()
