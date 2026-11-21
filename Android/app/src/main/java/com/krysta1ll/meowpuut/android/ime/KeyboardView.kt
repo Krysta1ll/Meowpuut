@@ -141,7 +141,19 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             GLYPH_LEGEND_HEIGHT, bar.glyphMid().toDouble(), bar.region.glass.top.toDouble(), bar.region.glass.height.toDouble(),
             lift = GlyphSeam.lift(look.opaque, floating), inset = glyphInset,
             horizon = rows[0] - GLYPH_LEGEND_HEIGHT / 2 - 1,
+            catUnit = glyphCatUnit(rows),
             tail = glyph?.scene?.let { (it.measuredHeight - bar.measuredHeight - keys.measuredHeight) / density.toDouble() }?.coerceAtLeast(0.0) ?: 0.0)
+    }
+
+    /**
+     * The size of a cat's pixel: the cats walk in the gap between two rows of keys, and a cat (Mimi is sixteen rows tall, seventeen in a
+     * suit) must not stand under a legend. A whole number of device pixels, two points at most, and smaller where the rows are close.
+     */
+    private fun glyphCatUnit(rows: DoubleArray): Double {
+        if (rows.size < 2) return 2.0
+        val gap = (rows[1] - rows[0]) - GLYPH_KEY_INK                // between the foot of one row's type and the head of the next
+        val device = Math.floor(gap * density / GLYPH_CAT_ROWS).toInt().coerceAtLeast(2)
+        return minOf(2.0, device / density.toDouble())
     }
 
     /** Text was committed to the editor: the journey goes on, and the words that do something are looked for. */
@@ -616,6 +628,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
 
 /** How tall the legend of a key is in 字景 (seven pixels of three points, and a halo): the cats are as tall as the gap that leaves. */
 private const val GLYPH_LEGEND_HEIGHT = 27.0
+/** The tallest a key's type stands: twelve pixels of two points. */
+private const val GLYPH_KEY_INK = 24.0
+/** The rows of the tallest cat (Mimi in a suit). */
+private const val GLYPH_CAT_ROWS = 17
 
 /** A full input window with one movable, touchable card. */
 @SuppressLint("ViewConstructor")

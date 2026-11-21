@@ -123,6 +123,8 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     /** The picture runs on this far below the keyboard's own height, faintly, under the navigation strip. */
     private var tail = 0.0
     private var discScale = 1.0
+    /** A phone's keyboard, shorter than the prototype's: some places are drawn a little differently (see [SceneSpec.fit]). */
+    private var short = false
     /** How far the picture has come (see [GlyphWorld.formed]), worked out once a frame. */
     var formed = 1.0; private set
     private var seamSpec: SeamSpec? = null
@@ -207,7 +209,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val ridge = if (framing == Framing.ROWS) (forLayout.laneFeet(0) ?: 150.0) - 2 else if (forLayout.horizon > 0) forLayout.horizon else max(forLayout.barTop + 6, forLayout.skylineFloor)
         // The prototype's keyboard has about thirty points more sky above its cats than a phone's candidate bar leaves: where the ridge is lower
         // than that, the tall places are drawn a little lower and smaller (see SceneSpec.fit). The prototype's own layout is drawn as it draws it.
-        val short = framing == Framing.ROWS && ridge < PROTOTYPE_RIDGE - 10
+        short = framing == Framing.ROWS && ridge < PROTOTYPE_RIDGE - 10
         fs = (if (framing == Framing.ROWS) 0.62 else 0.22) * (if (short) p.fit else 1.0)
         discScale = if (short) p.discFit else 1.0
         fo = ridge / height - walk.base * fs
@@ -233,7 +235,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         groundFirst = framing == Framing.ROWS && p.kbFirst
         val disc = p.sky.disc
         val r = if (disc != null) disc.r * height else 0.0
-        discX = disc?.let { it.x * width }
+        discX = disc?.let { (if (short && p.discKbX > 0.0) p.discKbX else it.x) * width }
         discY = when {
             disc == null -> 0.0
             disc.crescent -> 14.0
@@ -388,7 +390,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 LandShape.HILLS -> fbm1(w * s.freq, s.seed)
                 LandShape.CONE -> {                                // one mountain, alone and far off: it keeps its place while the land goes by
                     val axis = i * l.sub + l.sub / 2 - s.at * width
-                    val d = abs(axis) / (s.spread * amp)
+                    val d = abs(axis) / (s.spread * l.amp * height * (if (framing == Framing.ROWS) 0.62 else 0.22))   // as wide as the prototype's even where it is drawn lower
                     l.apex[i] = axis.toFloat()
                     var v0 = min(if (s.crater) 0.9 else 0.95, max(0.0, 1 - d).pow(1.75) * 1.06) + 0.012 * n1(wi * 0.5, s.seed)
                     if (s.crater && d < 0.085) v0 -= 0.045 * (1 - d / 0.085)
@@ -442,6 +444,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 if (s.every == 0 && h2(slot, s.seed + 500) < 0.74 - 0.12 * theme.level) continue
                 val pat = GlyphScenes.STAMPS.getValue(marks[(h2(slot, s.seed + 502) * marks.size).toInt()])
                 val first = slot * stretch + (if (s.every != 0) 6 else 24) + (h2(slot, s.seed + 501) * min(60.0, stretch * 0.45)).toInt() - l.offI
+                if (short && s.avoid > 0.0 && abs((first + (pat[0].length * l.big) / 2.0) * l.sub - s.avoidAt * width) < s.avoid * width) continue   // not built over the mountain
                 val big = l.big
                 val foot = l.ridge[max(0, min(l.n - 1, first + ((pat[0].length * big) shr 1)))]
                 for (k in 0 until pat[0].length * big) {

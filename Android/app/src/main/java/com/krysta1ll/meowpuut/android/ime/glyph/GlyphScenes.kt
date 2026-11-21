@@ -48,6 +48,9 @@ internal data class LayerSpec(
     /** The place's own ink (see [GlyphHues]) that some of this layer's type is set in, and how much of it. */
     val hue: String? = null,
     val hueShare: Double = 0.0,
+    /** On a phone, no stamp stands within [avoid] (a part of the width) of [avoidAt] (a part of the width): the mountain is not built over. */
+    val avoidAt: Double = -1.0,
+    val avoid: Double = 0.0,
 )
 
 internal data class DiscSpec(
@@ -100,6 +103,8 @@ internal data class SceneSpec(
     val fit: Double = 1.0,
     /** How large the sun, moon or Earth is, as a part of the prototype's, where the sky above the ridge is too short to hold it whole. */
     val discFit: Double = 1.0,
+    /** Where the sun, moon or Earth stands on a phone (a part of the width), when the bar's own type would be over it where the prototype puts it. */
+    val discKbX: Double = 0.0,
     /** Whether the place is offered at all: the list of enabled places is this flag, one place at a time. */
     val enabled: Boolean = true,
 )
@@ -224,7 +229,7 @@ internal object GlyphScenes {
         ),
         // 富士: the one mountain, snow on it, upside down in the lake; blossom on the near shore, and it is falling
         SceneSpec(
-            name = "富士", kb = Framing.ROWS, walk = 0, fit = 0.8, tint = mapOf("water" to listOf("blue"), "grass" to listOf("green")),
+            name = "富士", kb = Framing.ROWS, walk = 0, fit = 0.88, tint = mapOf("water" to listOf("blue"), "grass" to listOf("green")),
             front = listOf(
                 LayerSpec(LayerKind.LAND, cell = 8, pool = "bopo", seed = 61, speed = 0.5, tone = 0.5, base = 0.84, amp = 0.06, freq = 0.02, edge = 1.0,
                     grass = true, trees = TreeKind.SAKURA, sparse = 0.86, marks = listOf("torii", "lantern")),
@@ -233,7 +238,7 @@ internal object GlyphScenes {
             sky = SkySpec(floor = 0.3, clouds = 0.3, birds = 2, fall = FallSpec("。・゜", -1.3, 1.5, red = true, hue = "pink"), disc = DiscSpec(0.18, 0.2, 0.062, sun = true)),
             back = listOf(
                 LayerSpec(LayerKind.LAND, cell = 6, pool = "hira", seed = 63, speed = 0.22, tone = 0.5, base = 0.62, amp = 0.08, freq = 0.02, edge = 1.0,
-                    trees = TreeKind.SAKURA, sparse = 0.8, marks = listOf("pagoda"), every = 130, haze = 0.12),
+                    trees = TreeKind.SAKURA, sparse = 0.8, marks = listOf("pagoda"), every = 130, haze = 0.12, avoidAt = 0.6, avoid = 0.3),
                 LayerSpec(LayerKind.LAND, cell = 4, pool = "rock", seed = 67, speed = 0.0, tone = 0.66, base = 0.62, amp = 0.54, edge = 1.0,
                     shape = LandShape.CONE, at = 0.6, spread = 1.55, cap = 0.32, hue = "blue", hueShare = 0.75),
             ),
@@ -297,7 +302,7 @@ internal object GlyphScenes {
         ),
         // 月球: rarer than the moon itself. The Earth is up, in its own colours; the two of them are in suits
         SceneSpec(
-            name = "月球", rare = 0.04, kb = Framing.ROWS, walk = 0, suit = true, fit = 0.7, discFit = 0.7,
+            name = "月球", rare = 0.04, kb = Framing.ROWS, walk = 0, suit = true, fit = 0.7, discFit = 0.7, discKbX = 0.5,
             front = listOf(
                 LayerSpec(LayerKind.LAND, cell = 8, pool = "dust", seed = 81, speed = 0.5, tone = 0.12, base = 0.87, amp = 0.07, freq = 0.01, edge = 1.0,
                     shape = LandShape.CRATERS, marks = listOf("flag", "lander", "rover"), every = 104),

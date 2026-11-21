@@ -272,6 +272,12 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
     )
     var eclipse: Eclipse? = null
 
+    /** Whether a pixel of [mask] stands within one pixel of the type (the edge on the Earth is that thin). */
+    private fun near(mask: GlyphKeyArt.Mask, r: Int, k: Int): Boolean {
+        for (dy in -1..1) for (dx in -1..1) if (mask[k + dx, r + dy]) return true
+        return false
+    }
+
     /** Draws [mask] cut out of the disc where it lies over it; false when no pixel of it does (the ordinary, cached way then). */
     private fun eclipsed(e: Eclipse, mask: GlyphKeyArt.Mask, x: Double, y: Double, unit: Double, ink: Int, halo: Int?, round: Boolean): Boolean {
         val reach = if (halo != null) GlyphKeyArt.reach(round) else 0
@@ -300,7 +306,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
             if (inside) any = true
             out[r * base.w + k] = when {
                 isInk -> if (inside) e.cut else mask.paint(mr * mask.w + mk, ink)
-                inside -> e.edge ?: 0                                 // no halo on the sun or moon; on the Earth a dark edge
+                inside -> if (e.edge != null && near(mask, mr, mk)) e.edge else 0   // no halo on the sun or moon; on the Earth one pixel of dark edge round the type
                 else -> halo ?: 0
             }
         }
