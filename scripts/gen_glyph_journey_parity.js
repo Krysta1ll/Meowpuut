@@ -10,6 +10,7 @@ const fs = require("fs");
 const html = fs.readFileSync(process.argv[2], "utf8");
 const grab = (re, what) => { const m = html.match(re); if (!m) throw new Error("not found in the template: " + what); return m[0]; };
 const h2 = grab(/function h2\(x, y\) \{[^\n]*\}/, "h2");
+const place = grab(/const PLACE = \[[^\]]*\];/, "PLACE");
 const placeAt = html.slice(html.indexOf("function placeAt(n)"), html.indexOf("function travel()"));
 if (!placeAt.includes("function placeAt")) throw new Error("placeAt not found");
 const scenes = [...html.matchAll(/^  \{ name: "([^"]+)"([^\n]*)/gm)].map(m => {
@@ -17,7 +18,7 @@ const scenes = [...html.matchAll(/^  \{ name: "([^"]+)"([^\n]*)/gm)].map(m => {
   const r = /rare: (true|[0-9.]+)/.exec(own);
   return r ? { name: m[1], rare: r[1] === "true" ? true : parseFloat(r[1]) } : { name: m[1] };
 });
-const run = new Function("SCENES", `${h2}\nconst journey = { places: [] };\n${placeAt}\nreturn placeAt;`)(scenes);
+const run = new Function("SCENES", `${h2}\n${place}\nconst journey = { places: [] };\n${placeAt}\nreturn placeAt;`)(scenes);
 const characters = 248316, units = characters * 8;
 const places = [];
 for (let n = 0; n < 600; n++) places.push({ scene: scenes[run(n).scene].name, len: run(n).len });

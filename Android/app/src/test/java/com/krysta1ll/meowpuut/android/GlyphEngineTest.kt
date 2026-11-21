@@ -407,9 +407,10 @@ class GlyphEngineTest {
         assertEquals(journey.placeAt(0).scene, e.world.scene)
         assertEquals("the first place is not announced", 0f, e.front().bannerAlpha, 0f)
         // typing enough to walk the picture past the first place (the place goes with the picture, not with what is committed)
+        e.restore(journey.placeAt(0).len - 6L)                                  // (a place is long now: start close to its end)
         var keys = 0
-        while (e.world.scene == journey.placeAt(0).scene && keys++ < 600) { e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step() }
-        assertTrue(keys < 600)
+        while (e.world.scene == journey.placeAt(0).scene && keys++ < 100) { e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step() }
+        assertTrue(keys < 100)
         assertEquals(journey.placeAt(1).scene, e.world.scene)
         val banner = e.front()
         assertTrue(banner.bannerAlpha > 0.5f)

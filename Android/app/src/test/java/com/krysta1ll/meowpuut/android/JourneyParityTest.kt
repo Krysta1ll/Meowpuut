@@ -14,7 +14,7 @@ import org.junit.Test
  * The same number of characters has to bring the cats to the same place on every phone, and the keyboard has to walk the road the browser
  * prototype walks. The reference (src/test/resources/glyph-journey-parity.json) is written by scripts/gen_glyph_journey_parity.js, which runs
  * the prototype's own `placeAt`; the iPhone walks the same rule (GlyphJourney.swift). The rule: eight units a character, the first place is
- * always the sea, a place lasts 110 + floor(h2(k, 777) * 170) units, the others come by the same hashes, a common place never follows
+ * always the sea, a place lasts 1200 + floor(h2(k, 777) * 800) units, the others come by the same hashes, a common place never follows
  * itself and the rare ones come only from the third place on and never twice running.
  */
 class JourneyParityTest {
@@ -33,7 +33,7 @@ class JourneyParityTest {
         var n = 0
         while (true) {
             seen.merge(names[journey.placeAt(n).scene], 1, Int::plus)
-            sum += 110 + (h2(n, 777) * 170).toInt()
+            sum += GlyphJourney.MIN_LEN + (h2(n, 777) * GlyphJourney.SPAN).toInt()
             if (sum > distance) return n + 1 to seen
             n++
         }
@@ -74,11 +74,11 @@ class JourneyParityTest {
         assertEquals(units, GlyphJourney.distanceOf(characters))
         assertEquals(stop, n)
         for ((name, count) in visits) assertEquals(name, count, seen[name] ?: 0)
-        assertEquals(10_201, n)
-        assertEquals(922, seen["海"])
+        assertEquals(1_237, n)
+        assertEquals(114, seen["海"])
         // The first five places and how long each lasts, as the prototype has them.
         val places = reference.getJSONArray("places")
-        assertEquals(listOf("海" to 213, "沙漠" to 217, "紅葉" to 251, "火山" to 220, "月" to 138), (0 until 5).map { places.getJSONObject(it).let { p -> p.getString("scene") to p.getInt("len") } })
+        assertEquals(listOf("海" to 1685, "沙漠" to 1704, "紅葉" to 1866, "火山" to 1719, "月" to 1335), (0 until 5).map { places.getJSONObject(it).let { p -> p.getString("scene") to p.getInt("len") } })
     }
 
     /** The same characters are the same stop, with the same visits to each place, and every place lasts what it lasts in the prototype. */
