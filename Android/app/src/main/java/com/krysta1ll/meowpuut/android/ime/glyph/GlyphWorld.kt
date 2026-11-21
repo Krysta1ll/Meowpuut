@@ -162,9 +162,9 @@ internal class GlyphJourney {
             if (characters <= 0L) 0L else if (characters > Long.MAX_VALUE / UNITS_PER_CHARACTER) Long.MAX_VALUE else characters * UNITS_PER_CHARACTER
 
         /** In units of the journey. */
-        const val MIN_LEN = 90
-        const val SPAN = 180
-        const val FOG = 16
+        const val MIN_LEN = 110
+        const val SPAN = 170
+        const val FOG = 14
     }
 }
 

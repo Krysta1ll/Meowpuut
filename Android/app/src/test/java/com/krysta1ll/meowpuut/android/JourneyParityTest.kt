@@ -8,7 +8,6 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
-import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -82,12 +81,7 @@ class JourneyParityTest {
         assertEquals(listOf("海" to 213, "沙漠" to 217, "紅葉" to 251, "火山" to 220, "月" to 138), (0 until 5).map { places.getJSONObject(it).let { p -> p.getString("scene") to p.getInt("len") } })
     }
 
-    /**
-     * Not yet: this keyboard's places last 90 + floor(h2(k, 777) * 180) units (GlyphJourney.MIN_LEN, SPAN), so the same characters are
-     * stop 11,056-ish here and the road's lengths differ from the prototype's. The choice of places is the same (the tests above); the length
-     * constants are the only difference. Take the @Ignore off when they are the prototype's 110 and 170.
-     */
-    @Ignore("GlyphJourney.MIN_LEN/SPAN are 90/180; the prototype and the iPhone have 110/170")
+    /** The same characters are the same stop, with the same visits to each place, and every place lasts what it lasts in the prototype. */
     @Test
     fun theSameCharactersAreTheSamePlaceOnEveryPhone() {
         val stats = JourneyStats.places(GlyphJourney.distanceOf(characters))

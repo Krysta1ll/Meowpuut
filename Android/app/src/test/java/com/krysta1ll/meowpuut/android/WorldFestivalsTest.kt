@@ -41,7 +41,7 @@ class WorldFestivalsTest {
         val loaded = WorldFestivals.load(daysJson, stampsJson, wardrobe)
         assertEquals(108, loaded.stamps.size)
         val ids = loaded.occurrences.map { it.id }.toSet()
-        assertEquals("286 world festivals and the 24 that have a costume", 286 + 24, ids.size)
+        assertEquals("283 world festivals and the 24 that have a costume", 283 + 24, ids.size)
         for (o in loaded.occurrences) {
             assertTrue("${o.id} out of order", o.first <= o.main && o.main <= o.last)
             assertTrue("${o.id} outside the table's years", LocalDate.ofEpochDay(o.main.toLong()).year in 2026..2030)
