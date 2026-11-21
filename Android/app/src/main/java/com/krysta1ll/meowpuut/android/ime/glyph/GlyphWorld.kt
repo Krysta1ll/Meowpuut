@@ -39,6 +39,8 @@ internal class GlyphLayout(
     val horizon: Double = 0.0,
     /** How far below the keys the picture runs on, under the system's navigation strip (very faint). 0 when the keyboard ends there. */
     val tail: Double = 0.0,
+    /** The app pages' pictures (home, 行旅): the place framed as a picture of its own, not for a keyboard (see [Framing.WIDE]). */
+    val wide: Boolean = false,
 ) {
     /** Where the cats' feet are in the gap under key row [n] (0 = between the first two rows). Null when there is no such gap. */
     fun laneFeet(n: Int): Double? =
@@ -49,7 +51,7 @@ internal class GlyphLayout(
     override fun equals(other: Any?): Boolean = other is GlyphLayout && width == other.width && height == other.height &&
         rowCenters.contentEquals(other.rowCenters) && chipHeight == other.chipHeight && barMid == other.barMid &&
         barTop == other.barTop && barHeight == other.barHeight && skylineFloor == other.skylineFloor && lift == other.lift && inset == other.inset &&
-        horizon == other.horizon && tail == other.tail
+        horizon == other.horizon && tail == other.tail && wide == other.wide
 
     override fun hashCode(): Int = width.hashCode() * 31 + height.hashCode()
 

@@ -275,6 +275,11 @@ internal class LocalCatAffinity(context: Context) {
         /** The app deletes the file when the keyboard is not running; a running keyboard clears itself on the request. */
         fun deleteFile(context: Context) {
             File(context.filesDir, FILE).delete()
+            forgetLegacyCounters(context)
+        }
+
+        /** The counters of the first Android version are gone for good (and are not imported again). */
+        fun forgetLegacyCounters(context: Context) {
             context.getSharedPreferences(LEGACY, Context.MODE_PRIVATE).edit().clear().putBoolean(IMPORTED, true).apply()
         }
     }

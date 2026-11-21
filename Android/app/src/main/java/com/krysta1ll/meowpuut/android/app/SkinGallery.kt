@@ -221,9 +221,9 @@ internal class SkinGallery(
             isSelected = active
             translationY = if (active) -dp(3).toFloat() else 0f
             background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
+                cornerRadius = dp(ui.skin.corner(12)).toFloat()
                 setColor(if (active) activeFill else fill)
-                setStroke(dp(1), if (active) accent else outline)
+                setStroke(dp(ui.skin.lineDp), if (active) accent else outline)
             }
             label.setTextColor(ink)
             contentDescription = when {

@@ -71,27 +71,47 @@ internal object PaperFonts {
         real(context, R.font.paper_round, true) ?: Typeface.create(Typeface.SERIF, Typeface.BOLD)
 }
 
-/** Paper colours plus the small pieces built from them. [plain] is the system's medium/high contrast: solid colours, no grain. */
-internal class PaperUi(private val context: Context, theme: PaperTheme, val dark: Boolean) {
-    val p: PaperPalette = PaperTokens.palette(theme, dark)
+/**
+ * Paper colours plus the small pieces built from them. The colours, the corner and the line are the skin's answer ([AppSkin]); with the
+ * paper skins they are what the page has always had. [plain] is the system's medium/high contrast: solid colours, no grain.
+ */
+internal class PaperUi(private val context: Context, val skin: AppSkin, val dark: Boolean) {
+    constructor(context: Context, theme: PaperTheme, dark: Boolean) : this(context, AppSkins.paper(theme, dark), dark)
+
+    val p: PaperPalette = skin.palette
     val plain: Boolean = wantsMoreContrast(context)
     private val density = context.resources.displayMetrics.density
 
     fun dp(value: Int) = (value * density).roundToInt()
 
-    /** A line, for borders: the ink at about 18%. */
-    val line: Int get() = (p.ink and 0x00FFFFFF) or (0x2E shl 24)
+    /** A line, for borders: the ink at about 18%, or the ink itself for a skin that draws its edges in ink. */
+    val line: Int get() = if (skin.inkLines) p.ink else (p.ink and 0x00FFFFFF) or (0x2E shl 24)
 
-    fun background(): Drawable = PaperDrawable(context, p, plain)
+    /** The pixel type of the keyboard, for the skins that set their headings in it. */
+    val pixelType: com.krysta1ll.meowpuut.android.app.home.PixelType by lazy { com.krysta1ll.meowpuut.android.app.home.PixelType(context) }
+
+    /** A card or a field: [fill] with the skin's line and corner ([radiusDp] is what the paper skins use). */
+    fun surface(radiusDp: Int, fill: Int = p.paper2): GradientDrawable = GradientDrawable().apply {
+        setColor(fill)
+        setStroke(dp(skin.lineDp), line)
+        cornerRadius = dp(skin.corner(radiusDp)).toFloat()
+    }
+
+    fun background(): Drawable = PaperDrawable(context, p, plain || skin.pixelType)
+
+    /** A heading for a section of a page: an ink strip on the paper skins, a line of pixel type on the skins that set their headings in it. */
+    fun sectionTitle(title: CharSequence): View =
+        if (skin.pixelType) com.krysta1ll.meowpuut.android.app.home.PixelText(context, pixelType, title, 24, p.ink, heading = true) else labelStrip(title)
 
     /** A quiet heading (no strip) for pages that already spend their label strips elsewhere. */
-    fun heading(title: CharSequence): TextView = TextView(context).apply {
-        text = title
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-        setTextColor(p.ink)
-        typeface = PaperFonts.label(context)
-        if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
-    }
+    fun heading(title: CharSequence): View =
+        if (skin.pixelType) com.krysta1ll.meowpuut.android.app.home.PixelText(context, pixelType, title, 24, p.ink, heading = true) else TextView(context).apply {
+            text = title
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(p.ink)
+            typeface = PaperFonts.label(context)
+            if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
+        }
 
     /** A section heading: ink strip with paper-coloured text. */
     fun labelStrip(title: CharSequence): TextView = TextView(context).apply {
@@ -103,7 +123,7 @@ internal class PaperUi(private val context: Context, theme: PaperTheme, val dark
         setPadding(dp(10), dp(5), dp(10), dp(5))
         background = GradientDrawable().apply {
             setColor(p.ink)
-            cornerRadius = dp(4).toFloat()
+            cornerRadius = dp(skin.corner(4)).toFloat()
             if (plain) setStroke(dp(1), p.paper)
         }
         if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true

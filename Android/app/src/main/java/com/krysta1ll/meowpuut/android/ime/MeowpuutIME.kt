@@ -39,6 +39,8 @@ class MeowpuutIME : InputMethodService(),
     SharedPreferences.OnSharedPreferenceChangeListener {
 
     private lateinit var prefs: Prefs
+    /** The journey's distance under every skin (see [JourneyOdometer]). */
+    private lateinit var journey: JourneyOdometer
     private lateinit var lexicons: Lexicons
     private lateinit var sprites: CatSprites
     private lateinit var keySounds: KeySounds
@@ -111,6 +113,7 @@ class MeowpuutIME : InputMethodService(),
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        journey = JourneyOdometer({ prefs.glyphDistance }, { prefs.glyphDistance = it })
         choiceMemory = ChoiceMemory(this)
         composer.choiceMemory = choiceMemory
         composer.customDictionary = prefs.customDictionary
@@ -135,6 +138,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onDestroy() {
+        if (::journey.isInitialized) journey.flush()
         prefs.store.unregisterOnSharedPreferenceChangeListener(this)
         moments.release()
         skinLoader.shutdown()
@@ -198,6 +202,7 @@ class MeowpuutIME : InputMethodService(),
     override fun onWindowHidden() {
         super.onWindowHidden()
         keyboardWindowVisible = false
+        journey.flush()
         moments.hidden()
         keyboard?.bar?.endPresentation()
     }
@@ -383,6 +388,10 @@ class MeowpuutIME : InputMethodService(),
             }
             Prefs.CLEAR_PETS -> {
                 moments.clear()
+                // The journey starts again with the records: what has been counted is dropped, and 字景's world goes back to its first place.
+                journey.reset()
+                keyboard?.glyphDistance = 0L
+                keyboard?.glyph?.rewind()
                 return
             }
             Prefs.HAPTICS, Prefs.HAPTIC_STRENGTH -> {
@@ -498,6 +507,7 @@ class MeowpuutIME : InputMethodService(),
         moments.committed(text)
         // The distance of 字景's journey, and its words that do something, which are read only in a field that may be learned from.
         keyboard?.glyphCommitted(text, TextUnits.graphemeCount(text), mode == InputMode.JAPANESE || prefs.mixedJapanese, editorAllowsLearning)
+        journey.committed(TextUnits.graphemeCount(text), keyboard?.glyph != null)
         return true
     }
 
@@ -1239,6 +1249,7 @@ class MeowpuutIME : InputMethodService(),
         look = Look(dark, overlay?.shape(prefs.shape, prefs.hasShape) ?: skin.shape(prefs.shape), prefs.palette,
             overlay?.strength ?: prefs.strength, prefs.cats, festivalPill,
             wantsMoreContrast(this), prefs.effects, skin, overlay)
+        journey.flush()
         keyboard?.let {
             it.glyphDistance = prefs.glyphDistance
             it.glyphCrab = prefs.glyphCrab

@@ -47,7 +47,8 @@ internal data class SkySpec(
 internal enum class GroundKind { PLAIN, SEA, STREET, FLOOR, SNOW }
 internal data class GroundSpec(val kind: GroundKind, val top: Double = 0.0, val mass: Double = 0.0, val pool: String = "wave")
 
-internal enum class Framing { ROWS, SKYLINE }
+/** WIDE: the picture as a picture of its own (the app's home and statistics): heights are parts of the picture, as the scenes give them. */
+internal enum class Framing { ROWS, SKYLINE, WIDE }
 
 internal data class SceneSpec(
     val name: String,

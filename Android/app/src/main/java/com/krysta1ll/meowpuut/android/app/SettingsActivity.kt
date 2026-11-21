@@ -36,6 +36,13 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import com.krysta1ll.meowpuut.android.R
+import com.krysta1ll.meowpuut.android.app.home.Brush
+import com.krysta1ll.meowpuut.android.app.home.HomeEntries
+import com.krysta1ll.meowpuut.android.app.home.HomeEntry
+import com.krysta1ll.meowpuut.android.app.home.HomeHero
+import com.krysta1ll.meowpuut.android.app.stats.JourneyStats
+import com.krysta1ll.meowpuut.android.app.stats.ManifestFestivals
+import com.krysta1ll.meowpuut.android.app.stats.StatsStore
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
@@ -71,6 +78,7 @@ import com.krysta1ll.meowpuut.android.ime.ShiftState
 import com.krysta1ll.meowpuut.android.ime.SkinMaterial
 import com.krysta1ll.meowpuut.android.ime.Tone
 import com.krysta1ll.meowpuut.android.ime.Words
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes
 import com.krysta1ll.meowpuut.android.ime.wantsMoreContrast
 import kotlin.math.roundToInt
 
@@ -97,6 +105,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private lateinit var stamp: StampToast
     private lateinit var photoStore: CatPhotoStore
     private lateinit var photoWall: CatPhotoWall
+    private lateinit var statsStore: StatsStore
+    private lateinit var scroller: ScrollView
+    private lateinit var homeColumn: LinearLayout
+    private lateinit var setupEntry: HomeEntry
+    private var setupCard: View? = null
+    private var inputCard: View? = null
     private val ink get() = ui.p.ink
     private val quietInk get() = ui.p.inkSecondary
     private val accentInk get() = ui.p.stamp
@@ -107,7 +121,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        ui = PaperUi(this, PaperTheme.fromKey(prefs.palette.key), dark)
+        ui = PaperUi(this, AppSkins.worn(prefs, dark), dark)
         stamp = StampToast(this, ui)
         val column = object : LinearLayout(this) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -139,33 +153,14 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             }
         }
 
-        val masthead = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = glassSurface(24, hero = true)
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+        scroller = scroll
+        homeColumn = column
+        statsStore = StatsStore(this, ManifestFestivals(this))
+        when (ui.skin.slots.hero) {
+            HeroSlot.MASTHEAD -> addMasthead(column)
+            HeroSlot.SCENE -> addSceneHero(column)
         }
-        masthead.addView(LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            isBaselineAligned = false
-            addView(LinearLayout(this@SettingsActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(textView(28f).apply {
-                    setText(R.string.app_name)
-                    typeface = PaperFonts.title(this@SettingsActivity)
-                    if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
-                })
-                addView(textView(16f, quietInk).apply {
-                    text = "Meowpuut"
-                    typeface = PaperFonts.wordmark(this@SettingsActivity)
-                })
-            }, weighted())
-            addView(mascot("米米莫", R.drawable.cat_classic_mimimo_open, R.drawable.cat_classic_mimimo_blink, 1.5f, 450),
-                LinearLayout.LayoutParams(dp(54), dp(58)))
-            addView(mascot("莫莫", R.drawable.cat_classic_momo_open, R.drawable.cat_classic_momo_happy, 4f, 650),
-                LinearLayout.LayoutParams(dp(49), dp(54)))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        column.addView(masthead, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        column.addView(ui.stitch(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply { topMargin = dp(10) })
+        addEntries(column)
 
         preview = BarPreview(this, prefs)
         val look = LinearLayout(this).apply {
@@ -198,6 +193,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         }
 
         val setup = section(column, R.string.setup_title)
+        setupCard = setup
         status = textView(14f, quietInk).apply { setPadding(dp(16), dp(12), dp(16), dp(2)) }
         setup.addView(status)
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -206,7 +202,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         setup.addView(buttons)
 
         photoStore = CatPhotoStore(this)
-        photoWall = CatPhotoWall(this, ui, photoStore)
+        photoWall = CatPhotoWall(this, ui, photoStore, Brush(this, dark, wantsMoreContrast(this)))
         column.addView(photoWall, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(20)
         })
@@ -221,6 +217,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             topMargin = dp(16)
         })
         val input = section(column, R.string.input_title)
+        inputCard = input
         choice(input, R.string.input_mode, Prefs.MODE, listOf(
             R.string.mode_zhuyin to InputMode.ZHUYIN,
             R.string.mode_pinyin to InputMode.PINYIN,
@@ -319,7 +316,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 .setMessage(R.string.clear_pets_confirm)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.clear_pets) { _, _ ->
-                    LocalCatAffinity.deleteFile(this)
+                    // The records and the statistics go together: the file is emptied (at a higher epoch), the ledger starts over, the journey too.
+                    statsStore.forget()
                     // A keyboard that is running clears its own copy, so it cannot write the old counts back.
                     prefs.store.edit().putLong(Prefs.CLEAR_PETS, System.nanoTime()).apply()
                 }
@@ -392,6 +390,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
     override fun onDestroy() {
         photoStore.shutdown()
+        statsStore.shutdown()
         prefs.store.unregisterOnSharedPreferenceChangeListener(this)
         super.onDestroy()
     }
@@ -399,6 +398,10 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     override fun onSharedPreferenceChanged(store: SharedPreferences?, key: String?) {
         val setting = prefs.appearanceSetting(key)
         if (setting != null) updateChoices[setting]?.invoke()
+        if (setting == Prefs.SKIN || key == Prefs.CUSTOM_SKIN) {
+            // A skin that answers the pages differently (its own paper, its own top) is a different page: it is built again.
+            if (AppSkins.worn(prefs, dark).key != ui.skin.key) { recreate(); return }
+        }
         if (setting == Prefs.SKIN || setting == Prefs.CATS || key == Prefs.CUSTOM_SKIN) refreshSkin()
         if (key == Prefs.CUSTOM_SKIN || key == Prefs.CUSTOM_SKIN_EPOCH) preview.refresh()
         when (setting) {
@@ -444,6 +447,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             enabled -> R.string.setup_enabled
             else -> R.string.setup_off
         })
+        if (::setupEntry.isInitialized) updateSetupEntry()
     }
 
     private fun showLicenses() {
@@ -522,6 +526,97 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         PixelQuestion("print(11 % 4)", listOf("3", "2", "4")),
     )
 
+    /** The top of the page as it has always been: the name, and the two mascots that answer a touch. */
+    private fun addMasthead(column: LinearLayout) {
+        val masthead = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = glassSurface(24, hero = true)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+        }
+        masthead.addView(LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            isBaselineAligned = false
+            addView(LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(textView(28f).apply {
+                    setText(R.string.app_name)
+                    typeface = PaperFonts.title(this@SettingsActivity)
+                    if (Build.VERSION.SDK_INT >= 28) isAccessibilityHeading = true
+                })
+                addView(textView(16f, quietInk).apply {
+                    text = "Meowpuut"
+                    typeface = PaperFonts.wordmark(this@SettingsActivity)
+                })
+            }, weighted())
+            addView(mascot("米米莫", R.drawable.cat_classic_mimimo_open, R.drawable.cat_classic_mimimo_blink, 1.5f, 450),
+                LinearLayout.LayoutParams(dp(54), dp(58)))
+            addView(mascot("莫莫", R.drawable.cat_classic_momo_open, R.drawable.cat_classic_momo_happy, 4f, 650),
+                LinearLayout.LayoutParams(dp(49), dp(54)))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        column.addView(masthead, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        column.addView(ui.stitch(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply { topMargin = dp(10) })
+    }
+
+    /** The top of the page in a skin that has a picture for it: where the two cats have got to, alive. */
+    private fun addSceneHero(column: LinearLayout) {
+        val places = JourneyStats.places(prefs.glyphDistance)
+        val name = GlyphScenes.ALL[places.here].name.let { if (simplifiedUi()) HOME_SIMPLIFIED_PLACES[it] ?: it else it }
+        column.addView(HomeHero.build(this, ui, getString(R.string.home_where, name), getString(R.string.home_stop, places.stop),
+            getString(R.string.home_hero_desc, name, places.stop), prefs.glyphDistance, prefs.effects.ordinal, wantsMoreContrast(this), dp(20)),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** The ways in: the settings, the wardrobe, how to add the keyboard, and 行旅. A skin chooses how they are shown. */
+    private fun addEntries(column: LinearLayout) {
+        val modeName = getString(when (prefs.mode) {
+            InputMode.ZHUYIN -> R.string.mode_zhuyin
+            InputMode.PINYIN -> R.string.mode_pinyin
+            InputMode.NINE_KEY -> R.string.mode_nine_key
+            InputMode.JAPANESE -> R.string.mode_japanese
+        })
+        val skinName = prefs.customSkin ?: getString(prefs.skin.title)
+        val stats = HomeEntry(getString(R.string.stats_open), "", "light", own = true) { startActivity(Intent(this, StatsActivity::class.java)) }
+        setupEntry = HomeEntry(getString(R.string.home_sign_setup), "", "torii", own = false) { jump(setupCard) }
+        val list = listOf(
+            HomeEntry(getString(R.string.home_sign_settings), modeName, "hut", own = false) { jump(inputCard) },
+            HomeEntry(getString(R.string.home_sign_wardrobe), skinName, "lantern", own = false) { jump(gallery) },
+            setupEntry,
+            stats,
+        )
+        val view = HomeEntries.build(this, ui, ui.skin.slots.entries, list)
+        column.addView(view, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(if (ui.skin.slots.entries == EntryStyle.SIGNPOSTS) 6 else 14)
+        })
+        statsEntry = stats
+        statsStore.refreshAsync { s -> stats.valueView?.invoke(if (s.daysMet > 0) getString(R.string.stats_open_value, s.daysMet) else getString(R.string.stats_open_none)) }
+        updateSetupEntry()
+    }
+
+    private var statsEntry: HomeEntry? = null
+
+    private fun updateSetupEntry() {
+        val value = when {
+            !::status.isInitialized -> return
+            status.text == getString(R.string.setup_selected) -> getString(R.string.home_setup_selected)
+            status.text == getString(R.string.setup_enabled) -> getString(R.string.home_setup_on)
+            else -> getString(R.string.home_setup_off)
+        }
+        setupEntry.valueView?.invoke(value)
+    }
+
+    /** Scrolls the page to the start of a part of it (its heading is the view before it). */
+    private fun jump(target: View?) {
+        val view = target ?: return
+        val column = homeColumn
+        val heading = if (view === gallery || view.parent !== column) view else column.getChildAt(column.indexOfChild(view) - 1)
+        scroller.smoothScrollTo(0, (heading.top - dp(8)).coerceAtLeast(0))
+    }
+
+    private fun simplifiedUi(): Boolean {
+        val locale = resources.configuration.locales[0]
+        return locale.language == "zh" && (locale.script == "Hans" || (locale.script != "Hant" && locale.country !in setOf("TW", "HK", "MO")))
+    }
+
     private fun dp(value: Int) = (value * density).roundToInt()
 
     private fun textView(size: Float, color: Int = ink) = TextView(this).apply {
@@ -533,8 +628,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         GradientDrawable.Orientation.TOP_BOTTOM,
         if (hero) intArrayOf(ui.p.paper, ui.p.paper2) else intArrayOf(ui.p.paper2, ui.p.paper2),
     ).apply {
-        cornerRadius = dp(radius).toFloat()
-        setStroke(dp(1), outline)
+        cornerRadius = dp(ui.skin.corner(radius)).toFloat()
+        setStroke(dp(ui.skin.lineDp), outline)
     }
 
     private fun mascot(name: String, idle: Int, response: Int, lift: Float, duration: Long) = ImageView(this).apply {
@@ -562,11 +657,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         }
     }
 
-    private fun surface(radius: Int) = GradientDrawable().apply {
-        setColor(cardFill)
-        setStroke(dp(1), outline)
-        cornerRadius = dp(radius).toFloat()
-    }
+    private fun surface(radius: Int) = ui.surface(radius, cardFill)
 
     private fun weighted() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
 
@@ -581,7 +672,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     private fun sectionTitle(parent: LinearLayout, title: Int) {
-        parent.addView(ui.labelStrip(getString(title)), LinearLayout.LayoutParams(
+        parent.addView(ui.sectionTitle(getString(title)), LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(22)
             bottomMargin = dp(8)
@@ -832,6 +923,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         return control
     }
 }
+
+private val HOME_SIMPLIFIED_PLACES = mapOf("紅葉" to "红叶")
 
 /** The candidate bar and, for nine-key Pinyin, a sample row of the chosen keypad. */
 @SuppressLint("ViewConstructor")
