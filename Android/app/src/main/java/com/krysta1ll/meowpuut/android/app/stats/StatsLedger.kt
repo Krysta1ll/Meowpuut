@@ -17,8 +17,8 @@ import java.util.TreeMap
  *    epoch is a copy from before the clearing and is not read;
  *  - nothing here is text: counters, bands, bits and local day numbers.
  *
- * Android adds one number the paw book does not hold, [distance]: how far the 字景 journey has got (committed characters, whichever
- * skin is worn). It is read from the keyboard's settings and only ever raised here too.
+ * The 字景 journey is not kept here (nor anywhere): how far the cats have walked is eight units for each committed character, and the
+ * characters are [graphemes]; clearing the records sends the journey back to its first place with them.
  *
  * Pure Kotlin: no Android class, so the JVM tests cover all of it.
  */
@@ -40,8 +40,6 @@ internal class StatsLedger private constructor(
 
     var graphemes = 0L
         private set
-    var distance = 0L
-        private set
     var mimimo = Cat()
         private set
     var momo = Cat()
@@ -54,7 +52,7 @@ internal class StatsLedger private constructor(
     /** Day number (days since 1970-01-01, local) to that day, oldest first. */
     val dayMap: java.util.NavigableMap<Int, Day> get() = days
 
-    val isEmpty: Boolean get() = graphemes == 0L && distance == 0L && days.isEmpty() && mimimo == Cat() && momo == Cat()
+    val isEmpty: Boolean get() = graphemes == 0L && days.isEmpty() && mimimo == Cat() && momo == Cat()
 
     /** Brings one read of the paw book in. True when the ledger changed. */
     fun absorb(book: PetBookFile.Book): Boolean {
@@ -76,14 +74,6 @@ internal class StatsLedger private constructor(
     private fun cat(book: PetBookFile.Book, c: PetBookFile.Contacts) =
         Cat(PetBookFile.level(book.graphemes, c), c.pets, c.falls, c.plays)
 
-    /** The journey's distance as the keyboard keeps it. True when it grew. */
-    fun absorbDistance(value: Long): Boolean {
-        if (value <= distance) return false
-        distance = value
-        cleared = false
-        return true
-    }
-
     /** The records were cleared: everything goes, and only a read at [toEpoch] or later is believed again. */
     fun clear(toEpoch: Long) {
         startOver(maxOf(epoch, toEpoch))
@@ -92,14 +82,13 @@ internal class StatsLedger private constructor(
 
     private fun startOver(newEpoch: Long) {
         epoch = newEpoch
-        graphemes = 0L; distance = 0L
+        graphemes = 0L
         mimimo = Cat(); momo = Cat()
         days.clear()
     }
 
     private fun fingerprint(): Long {
         var h = epoch * 31 + graphemes
-        h = h * 31 + distance
         h = h * 31 + mimimo.hashCode()
         h = h * 31 + momo.hashCode()
         h = h * 31 + days.size
@@ -118,7 +107,6 @@ internal class StatsLedger private constructor(
         root.put("version", VERSION)
         root.put("epoch", epoch)
         root.put("graphemes", graphemes)
-        root.put("distance", distance)
         root.put("cleared", cleared)
         for ((key, c) in listOf("mimimo" to mimimo, "momo" to momo)) {
             root.put(key, JSONObject().put("level", c.level).put("pets", c.pets).put("falls", c.falls).put("plays", c.plays))
@@ -149,7 +137,6 @@ internal class StatsLedger private constructor(
         private fun read(root: JSONObject): StatsLedger {
             val ledger = StatsLedger(root.getLong("epoch"))
             ledger.graphemes = root.getLong("graphemes").also { require(it >= 0) }
-            ledger.distance = root.optLong("distance", 0L).also { require(it >= 0) }
             ledger.cleared = root.optBoolean("cleared", false)
             ledger.mimimo = cat(root.getJSONObject("mimimo"))
             ledger.momo = cat(root.getJSONObject("momo"))

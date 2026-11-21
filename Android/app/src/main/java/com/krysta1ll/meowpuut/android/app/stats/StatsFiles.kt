@@ -18,9 +18,7 @@ import java.nio.file.StandardCopyOption
 internal class StatsFiles(
     private val dir: File,
     private val festivals: FestivalSource,
-    /** The journey's distance as the keyboard keeps it, now. */
-    private val distance: () -> Long,
-    /** What else goes when the records are cleared: the journey's distance, the first version's counters. */
+    /** What else goes when the records are cleared: the first version's counters. */
     private val alsoForget: () -> Unit = {},
     private val bookName: String = "PetBook.bin",
 ) {
@@ -33,16 +31,18 @@ internal class StatsFiles(
         val ledger = stored.ledger ?: StatsLedger.empty()
         val before = ledger.toJson()
         PetBookFile.parse(readBytes(book))?.let(ledger::absorb)
-        ledger.absorbDistance(distance())
         val after = ledger.toJson()
         if (stored.writable && (stored.damaged || after != before)) write(ledgerFile, after.toByteArray())
         JourneyStats.of(ledger, festivals.occurrences())
     }
 
+    /** How many characters the cats have counted in all, read from their file (0 without one): the journey is eight units for each. */
+    fun committedCharacters(): Long = PetBookFile.parse(readBytes(book))?.graphemes ?: 0L
+
     /**
      * "Clear the cats' records": the records and the statistics go together. The file is replaced by an empty state of a higher epoch
-     * (so a running keyboard's older copy cannot bring anything back), the ledger starts over at that epoch, and the journey goes back
-     * to its first place. The caller still asks the running keyboard to clear its own copy.
+     * (so a running keyboard's older copy cannot bring anything back) and the ledger starts over at that epoch; the journey, which is the
+     * characters' count, goes back to its first place with them. The caller still asks the running keyboard to clear its own copy.
      */
     fun forget() = synchronized(LOCK) {
         val seen = maxOf(StatsLedger.parse(readBytes(ledgerFile)?.decodeToString()).ledger?.epoch ?: 0L, PetBookFile.epochOf(readBytes(book)) ?: 0L)

@@ -122,6 +122,9 @@ internal class LocalCatAffinity(context: Context) {
     /** Called on the main thread once the book has been read (the first appearance may have come before). */
     var onReady: (() -> Unit)? = null
 
+    /** A second listener for the same moment: the journey's start comes from the book too (see [committedCharacters]). */
+    var onOpened: (() -> Unit)? = null
+
     init {
         if (NativePets.available) {
             io.execute {
@@ -146,6 +149,21 @@ internal class LocalCatAffinity(context: Context) {
             scheduleWrite()
         }
         onReady?.invoke()
+        onOpened?.invoke()
+    }
+
+    /**
+     * How many characters have been committed in all, as the cats count them (the core's committed graphemes, header of its state): the
+     * keyboard's 字景 journey starts from eight times this, so it is the same journey whatever skin was worn, and 行旅 reads the same number
+     * from the file. 0 until the book has been read. One copy of the 2.9 KB state, when the world starts; never per key.
+     */
+    fun committedCharacters(): Long {
+        if (handle == 0L) return 0L
+        val state = ByteArray(NativePets.STATE_BYTES)
+        if (NativePets.toBytes(handle, state) != NativePets.STATE_BYTES) return 0L
+        var v = 0L
+        for (i in 7 downTo 0) v = (v shl 8) or (state[8 + i].toLong() and 0xFF)
+        return if (v < 0) Long.MAX_VALUE else v
     }
 
     /** True and [plan] filled when the cats do something. Counting happens inside (commits, taps, drops). */
@@ -194,6 +212,7 @@ internal class LocalCatAffinity(context: Context) {
     fun release() {
         released = true
         onReady = null
+        onOpened = null
         handler.removeCallbacks(pendingWrite)
         val snapshot = snapshot()
         if (snapshot != null) io.execute { writeMerged(snapshot) }

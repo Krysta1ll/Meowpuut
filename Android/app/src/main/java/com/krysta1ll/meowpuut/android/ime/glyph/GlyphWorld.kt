@@ -149,7 +149,14 @@ internal class GlyphJourney {
     }
 
     companion object {
-        /** In committed characters. A place lasts about as long as a few messages. */
+        /** Units of the journey a committed character is worth (a Chinese character's worth of keys); the same on the iPhone. */
+        const val UNITS_PER_CHARACTER = 8L
+
+        /** How far the cats have walked for this many committed characters (the cats' own count; saturating). */
+        fun distanceOf(characters: Long): Long =
+            if (characters <= 0L) 0L else if (characters > Long.MAX_VALUE / UNITS_PER_CHARACTER) Long.MAX_VALUE else characters * UNITS_PER_CHARACTER
+
+        /** In units of the journey. */
         const val MIN_LEN = 90
         const val SPAN = 180
         const val FOG = 16
@@ -321,7 +328,7 @@ internal class GlyphWorld(
      * that asked not to be learned from). [skyOffset] anchors the rising words to the drifting sky; [barY] is where they rise from.
      */
     fun committed(text: String, graphemes: Int, japanese: Boolean, secret: Boolean, skyOffset: Int, barY: Double, top: Double = 10.0) {
-        distance += max(0, graphemes)
+        distance += max(0, graphemes).toLong() * GlyphJourney.UNITS_PER_CHARACTER
         feel(if (japanese) mapOf(CatId.MIMI to "sparkle", CatId.MOMO to "love") else mapOf(CatId.MIMI to "happy", CatId.MOMO to "happy"), 12, true)
         if (secret) for (t in secrets.feed(text, nowMs(), japanese)) when (t) {
             GlyphSecrets.Trigger.GUEST -> if (crabAllowed) guest = tick + 30 * FPS

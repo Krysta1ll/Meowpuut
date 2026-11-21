@@ -2,23 +2,17 @@ package com.krysta1ll.meowpuut.android.app.stats
 
 import android.content.Context
 import com.krysta1ll.meowpuut.android.ime.LocalCatAffinity
-import com.krysta1ll.meowpuut.android.ime.Prefs
 import java.util.concurrent.Executors
 
 /**
- * The app's side of the statistics: reads the one record the keyboard already keeps (filesDir/PetBook.bin) and the journey's distance
- * (the keyboard's settings), folds them into the ledger (filesDir/PetStatsLedger.json, the app's own file) and answers [JourneyStats]
+ * The app's side of the statistics: reads the one record the keyboard already keeps (filesDir/PetBook.bin), folds it into the ledger (filesDir/PetStatsLedger.json, the app's own file) and answers [JourneyStats]
  * (see [StatsFiles]). The keyboard writes nothing for it and none of this is on the key path: it runs when the home or 行旅 page opens.
  */
 internal class StatsStore(private val context: Context, festivals: FestivalSource = FestivalSource { emptyList() }) {
-    private val files = StatsFiles(
-        context.filesDir, festivals, { Prefs(context).glyphDistance }, { forgetElsewhere() }, LocalCatAffinity.FILE,
-    )
+    private val files = StatsFiles(context.filesDir, festivals, { LocalCatAffinity.forgetLegacyCounters(context) }, LocalCatAffinity.FILE)
 
-    private fun forgetElsewhere() {
-        LocalCatAffinity.forgetLegacyCounters(context)
-        Prefs(context).glyphDistance = 0L
-    }
+    /** How many characters the cats have counted, for the home page's picture before the first refresh has come back. */
+    fun committedCharacters(): Long = files.committedCharacters()
 
     /** Reads, absorbs and answers. Blocks on the files: call it off the main thread (see [refreshAsync]). */
     fun refresh(): JourneyStats = files.refresh()

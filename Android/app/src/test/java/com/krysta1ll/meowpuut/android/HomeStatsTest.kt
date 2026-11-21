@@ -71,8 +71,8 @@ class HomeStatsTest {
 
     @Test
     fun theStatisticsAndTheirPicturesDoNotReachTheNetworkOrAnyone() {
-        val files = File("$main/app/stats").listFiles()!!.toList() + File("$main/app/home").listFiles()!!.toList() + File("$main/ime/JourneyOdometer.kt")
-        assertTrue(files.size >= 12)
+        val files = File("$main/app/stats").listFiles()!!.toList() + File("$main/app/home").listFiles()!!.toList()
+        assertTrue(files.size >= 11)
         for (file in files) {
             val text = file.readText()
             for (word in listOf("java.net", "HttpURLConnection", "okhttp", "ACTION_SEND", "firebase", "analytics", "Analytics", "WebView", "INTERNET")) {

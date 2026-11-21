@@ -17,14 +17,13 @@ import java.nio.file.Files
 /** The statistics' files on a real folder: what is read, what is written and when, and what clearing the cats' records leaves. */
 class StatsFilesTest {
     private lateinit var dir: File
-    private var distance = 0L
     private var forgotten = 0
     private lateinit var files: StatsFiles
 
     @Before
     fun setUp() {
         dir = Files.createTempDirectory("stats").toFile()
-        files = StatsFiles(dir, FestivalSource { emptyList() }, { distance }, { forgotten++ })
+        files = StatsFiles(dir, FestivalSource { emptyList() }, { forgotten++ })
     }
 
     @After
@@ -88,14 +87,13 @@ class StatsFilesTest {
     }
 
     @Test
-    fun theJourneyOnlyGrows() {
-        distance = 300
-        assertEquals(300L, files.refresh().distance)
-        distance = 120                                                         // the keyboard's number can only have been reset by a clearing
-        assertEquals(300L, files.refresh().distance)
-        distance = 450
-        assertEquals(450L, files.refresh().distance)
-        assertTrue(ledger.exists())
+    fun theJourneyIsWorkedOutFromTheCharactersTheCatsCounted() {
+        assertEquals(0L, files.committedCharacters())
+        assertEquals(0L, files.refresh().distance)
+        book.writeBytes(state(0, 248_316, 12, days(20_000, 20_010)))
+        assertEquals(248_316L, files.committedCharacters())
+        assertEquals(248_316L * 8, files.refresh().distance)
+        assertFalse("no distance is kept", ledger.readText().contains("distance"))
     }
 
     @Test
@@ -117,22 +115,21 @@ class StatsFilesTest {
 
     @Test
     fun clearingTakesTheRecordsTheLedgerAndTheJourneyAndOnlyANewerEpochComesBack() {
-        distance = 6_820
         book.writeBytes(state(0, 248_316, 141, days(20_000, 20_300)))
         assertEquals(300, files.refresh().daysMet)
 
         files.forget()
-        assertEquals(1, forgotten)                                              // the journey and the first version's counters go with it
+        assertEquals(1, forgotten)                                              // the first version's counters go with it
         val tombstone = PetBookFile.parse(book.readBytes())!!
         assertEquals(1L, tombstone.epoch)
         assertEquals(0L, tombstone.graphemes)
         assertTrue(tombstone.marks.isEmpty())
         assertTrue(StatsLedger.parse(ledger.readText()).ledger!!.cleared)
 
-        distance = 0                                                            // the keyboard's settings were reset with it
         val cleared = files.refresh()
         assertTrue(cleared.isEmpty && cleared.cleared)
-        assertEquals(1, cleared.stop)
+        assertEquals(1, cleared.stop)                                            // the cats are back at the first place
+        assertEquals(0L, files.committedCharacters())
 
         // The keyboard that was running writes its last, old counts back before it has seen the clearing: from before it, so not read.
         book.writeBytes(state(0, 248_316, 141, days(20_000, 20_300)))

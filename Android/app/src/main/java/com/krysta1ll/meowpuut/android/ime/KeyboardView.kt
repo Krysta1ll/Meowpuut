@@ -66,9 +66,8 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     /** 字景, while that skin is on: a world drawn under the keys and over them, on its own thread. Null for every other skin. */
     internal var glyph: GlyphController? = null
         private set
-    /** How far the 字景 journey has got (committed characters), read from the settings before the skin is first shown. */
+    /** How far the 字景 journey has got (the cats' count of characters, times eight), set before the skin is first shown. */
     var glyphDistance = 0L
-    var onGlyphDistance: ((Long) -> Unit)? = null
     /**
      * The sky at the top of the keyboard that the seam thins into, in points: the paper does not end in a line but scatters into the plate
      * behind it ([Look.groundPlate]). Nothing is added above the keyboard, so the window, its insets and its touches are as for any skin.
@@ -99,7 +98,6 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         val want = look.isGlyph
         if (want && glyph == null) {
             val controller = GlyphController(context)
-            controller.onDistance = { onGlyphDistance?.invoke(it) }
             glyph = controller
             controller.warm()
             addView(controller.scene, 0)

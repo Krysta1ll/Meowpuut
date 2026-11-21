@@ -12,6 +12,7 @@ class Prefs(context: Context) {
 
     init {
         firstRun(context)
+        if (store.contains(OLD_GLYPH_DISTANCE)) store.edit().remove(OLD_GLYPH_DISTANCE).apply()
     }
 
     /**
@@ -175,13 +176,6 @@ class Prefs(context: Context) {
         return if (value.isFinite()) value.coerceIn(0f, 1f) else fallback
     }
 
-    /**
-     * How far the 字景 journey has got, in committed characters: a single number, and the only thing of what is typed that the
-     * skin keeps. The text itself is never stored.
-     */
-    var glyphDistance: Long
-        get() = store.getLong(GLYPH_DISTANCE, 0L).coerceAtLeast(0L)
-        set(value) = store.edit().putLong(GLYPH_DISTANCE, value.coerceAtLeast(0L)).apply()
     /** The guest crab of 字景 (Anthropic's mascot): off, and offered in debug builds only, until it is licensed. */
     var glyphCrab: Boolean
         get() = debuggable && store.getBoolean(GLYPH_CRAB, false)
@@ -257,7 +251,8 @@ class Prefs(context: Context) {
         const val FLOATING_X = "floatingKeyboardX"
         const val FLOATING_Y = "floatingKeyboardY"
         const val CATS = "cats"
-        const val GLYPH_DISTANCE = "glyphDistance"
+        /** The journey's distance used to be kept here; it is worked out from the cats' character count now, and the old number is removed once. */
+        private const val OLD_GLYPH_DISTANCE = "glyphDistance"
         const val GLYPH_CRAB = "glyphCrab"
         const val GLYPH_SCENE = "glyphScene"
         const val GLYPH_FORM = "glyphForm"

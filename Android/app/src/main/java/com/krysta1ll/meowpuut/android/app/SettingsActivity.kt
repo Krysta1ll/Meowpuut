@@ -78,6 +78,7 @@ import com.krysta1ll.meowpuut.android.ime.ShiftState
 import com.krysta1ll.meowpuut.android.ime.SkinMaterial
 import com.krysta1ll.meowpuut.android.ime.Tone
 import com.krysta1ll.meowpuut.android.ime.Words
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes
 import com.krysta1ll.meowpuut.android.ime.wantsMoreContrast
 import kotlin.math.roundToInt
@@ -560,10 +561,11 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
     /** The top of the page in a skin that has a picture for it: where the two cats have got to, alive. */
     private fun addSceneHero(column: LinearLayout) {
-        val places = JourneyStats.places(prefs.glyphDistance)
+        val distance = GlyphJourney.distanceOf(statsStore.committedCharacters())
+        val places = JourneyStats.places(distance)
         val name = GlyphScenes.ALL[places.here].name.let { if (simplifiedUi()) HOME_SIMPLIFIED_PLACES[it] ?: it else it }
         column.addView(HomeHero.build(this, ui, getString(R.string.home_where, name), getString(R.string.home_stop, places.stop),
-            getString(R.string.home_hero_desc, name, places.stop), prefs.glyphDistance, prefs.effects.ordinal, wantsMoreContrast(this), dp(20)),
+            getString(R.string.home_hero_desc, name, places.stop), distance, prefs.effects.ordinal, wantsMoreContrast(this), dp(20)),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 

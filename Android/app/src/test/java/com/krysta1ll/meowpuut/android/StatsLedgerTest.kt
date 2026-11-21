@@ -4,7 +4,6 @@ import com.krysta1ll.meowpuut.android.app.stats.FestivalOccurrence
 import com.krysta1ll.meowpuut.android.app.stats.JourneyStats
 import com.krysta1ll.meowpuut.android.app.stats.PetBookFile
 import com.krysta1ll.meowpuut.android.app.stats.StatsLedger
-import com.krysta1ll.meowpuut.android.ime.JourneyOdometer
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes
 import org.junit.Assert.assertArrayEquals
@@ -169,7 +168,6 @@ class StatsLedgerTest {
     fun clearingEmptiesTheLedgerAndOnlyANewerEpochIsBelievedAgain() {
         val ledger = StatsLedger.empty()
         ledger.absorb(book(state(epoch = 0, graphemes = 7_000, marks = listOf(intArrayOf(20_001, 3, 1, 1)))))
-        ledger.absorbDistance(1_234)
         ledger.clear(1)
         assertTrue(ledger.isEmpty)
         assertTrue(ledger.cleared)
@@ -187,21 +185,31 @@ class StatsLedgerTest {
     }
 
     @Test
-    fun theDistanceOnlyGrowsAndClearingTakesItToo() {
+    fun theJourneyIsEightUnitsACharacterAndClearingSendsItBackToTheFirstPlace() {
         val ledger = StatsLedger.empty()
-        assertTrue(ledger.absorbDistance(500))
-        assertFalse(ledger.absorbDistance(499))
-        assertFalse(ledger.absorbDistance(500))
-        assertEquals(500L, ledger.distance)
+        assertEquals(0L, JourneyStats.of(ledger).distance)
+        ledger.absorb(book(state(graphemes = 1_000)))
+        val stats = JourneyStats.of(ledger)
+        assertEquals(8_000L, stats.distance)
+        assertEquals(JourneyStats.places(8_000L).stop, stats.stop)
+        // The characters only grow, so the journey only grows with them.
+        ledger.absorb(book(state(graphemes = 400)))
+        assertEquals(8_000L, JourneyStats.of(ledger).distance)
+        ledger.absorb(book(state(graphemes = 1_001)))
+        assertEquals(8_008L, JourneyStats.of(ledger).distance)
         ledger.clear(5)
-        assertEquals(0L, ledger.distance)
+        val cleared = JourneyStats.of(ledger)
+        assertEquals(0L, cleared.distance)
+        assertEquals(1, cleared.stop)
+        // A count beyond what eight units fit in saturates, as the iPhone's does.
+        assertEquals(Long.MAX_VALUE, com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney.distanceOf(Long.MAX_VALUE))
+        assertEquals(0L, com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney.distanceOf(-1))
     }
 
     @Test
     fun theStoredFormRoundTripsAndIsNeverHalfUnderstood() {
         val ledger = StatsLedger.empty()
         ledger.absorb(book(resource("petbook-golden.bin")))
-        ledger.absorbDistance(6_820)
         val json = ledger.toJson()
         val back = StatsLedger.parse(json)
         assertNotNull(back.ledger)
@@ -209,6 +217,9 @@ class StatsLedgerTest {
         assertTrue(back.writable)
         // Nothing in it is text: the keys are fixed and every value is a number.
         assertTrue(json.length < 20_000)
+        assertFalse("the journey is not stored", json.contains("distance"))
+        // A ledger an earlier build wrote, with its distance, still reads; the distance is dropped on the next write.
+        assertFalse(StatsLedger.parse(json.replace("\"graphemes\"", "\"distance\":6820,\"graphemes\"")).ledger!!.toJson().contains("distance"))
         assertFalse(StatsLedger.parse("{\"version\":2}").writable)      // a newer ledger is left alone
         assertNull(StatsLedger.parse("{\"version\":2}").ledger)
         assertTrue(StatsLedger.parse("not json").damaged)
@@ -218,7 +229,6 @@ class StatsLedgerTest {
         // Every number that must be a non-negative count, a level or a day is held to it: out of range reads as damaged, never as half a ledger.
         val base = ledger.toJson()
         assertTrue(StatsLedger.parse(base.replace("\"graphemes\":248316", "\"graphemes\":-1")).damaged)
-        assertTrue(StatsLedger.parse(base.replace("\"distance\":6820", "\"distance\":-5")).damaged)
         assertTrue(StatsLedger.parse(base.replace("\"level\":100", "\"level\":101")).damaged)
         assertTrue(StatsLedger.parse(base.replace("\"pets\":141", "\"pets\":-1")).damaged)
         assertTrue(StatsLedger.parse(base.replace("\"version\":1", "\"version\":0")).damaged)
@@ -236,7 +246,6 @@ class StatsLedgerTest {
     fun theTotalsOfTheGoldenFile() {
         val ledger = StatsLedger.empty()
         ledger.absorb(book(resource("petbook-golden.bin")))
-        ledger.absorbDistance(6_820)
         val stats = JourneyStats.of(ledger)
         assertEquals(400, stats.daysMet)
         assertEquals(248_316L, stats.graphemes)
@@ -267,7 +276,7 @@ class StatsLedgerTest {
         for (build in listOf<(StatsLedger) -> Unit>(
             { it.absorb(book(state(graphemes = 1))) }, { it.absorb(book(state(mimimo = longArrayOf(1, 0, 0)))) },
             { it.absorb(book(state(momo = longArrayOf(0, 1, 0)))) }, { it.absorb(book(state(mimimo = longArrayOf(0, 1, 0)))) },
-            { it.absorb(book(state(momo = longArrayOf(1, 0, 0)))) }, { it.absorbDistance(1) }, { it.absorb(book(state(marks = listOf(intArrayOf(20_001, 0, 1, 1))))) },
+            { it.absorb(book(state(momo = longArrayOf(1, 0, 0)))) }, { it.absorb(book(state(marks = listOf(intArrayOf(20_001, 0, 1, 1))))) },
         )) {
             val ledger = StatsLedger.empty()
             build(ledger)
@@ -367,7 +376,6 @@ class StatsLedgerTest {
                 val g = rng.nextInt(400_000).toLong()
                 ledger.absorb(book(state(epoch = epoch, graphemes = g, mimimo = longArrayOf(rng.nextInt(900).toLong(), rng.nextInt(90).toLong(), rng.nextInt(99).toLong()),
                     momo = longArrayOf(rng.nextInt(900).toLong(), rng.nextInt(90).toLong(), rng.nextInt(99).toLong()), marks = marks)))
-                ledger.absorbDistance(rng.nextInt(300_000).toLong())
                 val stats = JourneyStats.of(ledger)
                 val now = intArrayOf(
                     stats.graphemes.toInt(), stats.daysMet, stats.bothCatsDays, stats.mimimo.level, stats.momo.level,
@@ -381,37 +389,5 @@ class StatsLedgerTest {
                 visits = v
             }
         }
-    }
-
-    // ---- the keyboard's counter -------------------------------------------------------------------------------
-
-    @Test
-    fun theOdometerCountsUnderEverySkinAndWritesLittle() {
-        var stored = 1_000L
-        var writes = 0
-        val odometer = JourneyOdometer({ stored }, { stored = it; writes++ })
-        // 字景 counts for itself while its world runs: nothing is added here then.
-        odometer.committed(30, worldCounts = true)
-        assertEquals(1_000L, stored); assertEquals(0L, odometer.waiting)
-        repeat(24) { odometer.committed(1, worldCounts = false) }
-        assertEquals(0, writes); assertEquals(24L, odometer.waiting)       // under 25 characters nothing is written
-        odometer.committed(1, worldCounts = false)
-        assertEquals(1, writes); assertEquals(1_025L, stored)
-        odometer.committed(0, false); odometer.committed(-3, false)
-        assertEquals(0L, odometer.waiting)
-        odometer.committed(7, false)
-        odometer.flush()                                                    // the keyboard goes away
-        assertEquals(1_032L, stored)
-        odometer.flush()
-        assertEquals(2, writes)
-        // Cleared records drop what was counted and not yet stored.
-        odometer.committed(10, false)
-        odometer.reset()
-        odometer.flush()
-        assertEquals(1_032L, stored)
-        // Another skin's long stretch of typing adds to what 字景 left, never replaces it.
-        stored = 50_000L
-        odometer.committed(100, false)
-        assertEquals(50_100L, stored)
     }
 }

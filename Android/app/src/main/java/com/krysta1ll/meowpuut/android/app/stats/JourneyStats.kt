@@ -43,6 +43,7 @@ internal class JourneyStats(
     /** Every day with typing, oldest first. */
     val days: List<DayEntry>,
     val months: List<Month>,
+    /** How far the cats have walked: eight units for each committed character (the same journey as on the iPhone). */
     val distance: Long,
     /** The number of places the cats have come to, the one they are in included (the "stop" number). */
     val stop: Int,
@@ -68,7 +69,7 @@ internal class JourneyStats(
     }
 
     /** Nothing recorded at all: no day, no character, no touch, no step. The page then says so in a sentence, with no chart. */
-    val isEmpty: Boolean get() = graphemes == 0L && daysMet == 0 && distance == 0L && mimimo.pets == 0L && momo.pets == 0L && mimimo.falls == 0L && momo.falls == 0L
+    val isEmpty: Boolean get() = graphemes == 0L && daysMet == 0 && mimimo.pets == 0L && momo.pets == 0L && mimimo.falls == 0L && momo.falls == 0L
 
     val firstDay: Int? get() = days.firstOrNull()?.day
 
@@ -110,7 +111,8 @@ internal class JourneyStats(
                 val old = meetings[f.id]
                 meetings[f.id] = if (old == null) FestivalMet(f.id, f.hant, f.hans, 1, list.key) else FestivalMet(f.id, f.hant, f.hans, old.years + 1, old.firstDay)
             }
-            val places = places(ledger.distance)
+            val distance = GlyphJourney.distanceOf(ledger.graphemes)
+            val places = places(distance)
             return JourneyStats(
                 graphemes = ledger.graphemes,
                 sharedAffection = (ledger.graphemes / 200).coerceAtMost(100).toInt(),
@@ -118,7 +120,7 @@ internal class JourneyStats(
                 momo = CatTotals(ledger.momo.level, ledger.momo.pets, ledger.momo.falls, ledger.momo.plays, days2),
                 daysMet = ledger.dayMap.size, bothCatsDays = both, dayParts = dayParts, daysReaching = reaching,
                 days = entries, months = months,
-                distance = ledger.distance, stop = places.stop, here = places.here, visits = places.visits,
+                distance = distance, stop = places.stop, here = places.here, visits = places.visits,
                 festivals = meetings.values.toList(), cleared = ledger.cleared,
             )
         }
