@@ -159,7 +159,7 @@ internal class GlyphController(private val context: Context) {
     /** The cats' records were cleared, and the journey with them: the world goes back to its first place. */
     fun rewind() {
         startDistance = 0L
-        handler?.post { engine?.restore(0L); requestTick() }
+        handler?.post { engine?.restore(0L, reset = true); requestTick() }
     }
 
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */

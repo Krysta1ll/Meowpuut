@@ -307,13 +307,29 @@ internal class GlyphWorld(
         mood = m; moodUntil = tick + ticks; hop = jump; hopAt = tick; dirty = true
     }
 
-    /** A letter key. */
+    /**
+     * How far a key that types something takes the picture: three, but the picture and the committed journey are kept together. When the picture
+     * has got ahead of what has been committed it steps shorter, when behind longer, so the difference closes without ever being jumped:
+     * d >= 48 ahead: 1; 24..47: 2; within 24: 3; 24..47 behind: 4; 48 or more behind: 5. A key always moves it, at least one.
+     */
+    fun stride(): Int {
+        val d = target - distance
+        return when {
+            d >= 48 -> 1
+            d >= 24 -> 2
+            d > -24 -> 3
+            d > -48 -> 4
+            else -> 5
+        }
+    }
+
+    /** A key that types a letter, a sign, a kana: the picture goes on by a stride. */
     fun letter(ch: String, at: Pair<Double, Double>?) {
         if (!theme.still && theme.level >= 1) {
             epoch++
             echo = Echo(ch, tick, epoch)
         }
-        moved(3, at)
+        moved(stride(), at)
     }
 
     /** Backspace: the cat looks aside; five in quick succession tear the picture. */
@@ -331,8 +347,11 @@ internal class GlyphWorld(
         moved(1, at)
     }
 
-    /** Any other key. */
+    /** Any other key: delete, a switch, the symbols' page: the picture stays. */
     fun other(at: Pair<Double, Double>?) = moved(0, at)
+
+    /** A space or a return that chooses (it is composing): the picture goes on by one, as for the real ones. */
+    fun chosen(at: Pair<Double, Double>?) = moved(1, at)
 
     /**
      * Text was committed. [graphemes] carry the journey on; [secret] says whether the text may be read for passwords (never in a field
@@ -358,7 +377,7 @@ internal class GlyphWorld(
                 i += Character.charCount(cp); n++
             }
         }
-        moved(2, null)
+        lastMove = tick; dirty = true                               // the cats are awake; the picture does not move for a commit
     }
 
     fun glitch(ticks: Int) {
@@ -384,7 +403,7 @@ internal class GlyphWorld(
             fogTarget = 1.0; fog = 1.0
             return
         }
-        val (n, _) = journey.at(distance)
+        val (n, _) = journey.at(target.toLong())                  // where the picture is decides the place (and the fog), not what has been committed
         if (n != journey.step) {
             val arrived = journey.step >= 0
             journey.step = n
@@ -397,7 +416,7 @@ internal class GlyphWorld(
                 if (h2(n, 5) < 0.3) glitch(8)
             }
         }
-        fogTarget = journey.fogAt(distance)
+        fogTarget = journey.fogAt(target.toLong())
         // The fog gathers and clears over a few frames, so it is never a jump.
         if (abs(fog - fogTarget) > 0.004) {
             fog += (fogTarget - fog) * 0.3

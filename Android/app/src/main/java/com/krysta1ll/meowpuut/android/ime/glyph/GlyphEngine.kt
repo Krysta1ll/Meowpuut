@@ -48,8 +48,11 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
     /** How far the journey has got, in committed characters: the one number that is kept. */
     val distance: Long get() = world.distance
 
-    fun restore(distance: Long) {
+    fun restore(distance: Long, reset: Boolean = false) {
         world.distance = max(0L, distance)
+        // The picture starts from what has been committed, and in one showing never goes back (a rewind of the records is the one way back).
+        world.target = if (reset) world.distance.toInt() else max(world.target, world.distance.toInt())
+        world.pos = max(world.pos.takeIf { !reset } ?: 0, world.target)
         world.journey.step = -1
         world.sceneChanged = true
         dirtyLayout = true
@@ -99,8 +102,8 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
         when (kind) {
             GlyphKey.LETTER -> world.letter(letter, at)
             GlyphKey.DELETE -> world.backspace(at)
-            GlyphKey.SPACE -> if (!composing) world.plain(at, enter = false) else world.other(at)
-            GlyphKey.RETURN -> if (!composing) world.plain(at, enter = true) else world.other(at)
+            GlyphKey.SPACE -> if (!composing) world.plain(at, enter = false) else world.chosen(at)
+            GlyphKey.RETURN -> if (!composing) world.plain(at, enter = true) else world.chosen(at)
             GlyphKey.OTHER -> world.other(at)
         }
     }

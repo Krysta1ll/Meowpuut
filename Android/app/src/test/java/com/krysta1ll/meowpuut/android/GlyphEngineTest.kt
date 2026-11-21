@@ -249,7 +249,8 @@ class GlyphEngineTest {
         val calm = engine(level = 0)
         val start = cat(calm, CatId.MIMI).feetY
         repeat(14) { type(calm); calm.tick() }
-        assertEquals(start, cat(calm, CatId.MIMI).feetY)
+        val after = cat(calm, CatId.MIMI).feetY
+        assertTrue("no lane to go down to: $start -> $after", kotlin.math.abs(after - start) <= 12)       // (only the ridge itself differs, where the land has gone to)
         // the sea is framed as a skyline: no gaps between rows to go down to
         val sea = engine(scene = 1)
         val ridge = cat(sea, CatId.MIMI).feetY
@@ -278,18 +279,58 @@ class GlyphEngineTest {
     }
 
     @Test
-    fun spaceOrReturnWhileComposingLeavesTheWorldToTheCommit() {
+    fun aSpaceOrAReturnGoesOnByOneChosenOrNotAndOtherKeysNotAtAll() {
         val e = engine()
         val target = e.world.target
         e.key(GlyphKey.SPACE, 0.0, 0.0, composing = true)
         e.key(GlyphKey.RETURN, 0.0, 0.0, composing = true)
-        assertEquals(target, e.world.target)
+        assertEquals(target + 2, e.world.target)
         e.key(GlyphKey.SPACE, 0.0, 0.0, composing = false)
-        assertEquals(target + 1, e.world.target)
+        assertEquals(target + 3, e.world.target)
         e.key(GlyphKey.OTHER, 0.0, 0.0, false)
-        assertEquals(target + 1, e.world.target)
-        type(e)
-        assertEquals(target + 4, e.world.target)
+        e.key(GlyphKey.DELETE, 0.0, 0.0, false)
+        assertEquals(target + 3, e.world.target)
+    }
+
+    @Test
+    fun choosingACandidateDoesNotMoveThePictureAndTheCommitAddsNoMileageToIt() {
+        val e = engine()
+        repeat(5) { e.key(GlyphKey.LETTER, 0.0, 0.0, true, "n") }
+        val target = e.world.target
+        e.committed("你好", 2, japanese = false, secret = false)            // a tap on a candidate
+        e.step(); e.step()
+        assertEquals(target, e.world.target)                                   // the picture stays
+        assertEquals(2L * GlyphJourney.UNITS_PER_CHARACTER, e.world.distance)  // the journey counts what was committed
+    }
+
+    @Test
+    fun aKeyStepsByTheDifferenceBetweenThePictureAndTheCommittedMileage() {
+        fun step(ahead: Int): Int {                                            // the picture [ahead] units ahead of the committed mileage
+            val e = engine()
+            e.restore(1000L)
+            e.world.target = 1000 + ahead
+            val before = e.world.target
+            e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a")
+            return e.world.target - before
+        }
+        assertEquals(1, step(48)); assertEquals(1, step(200))
+        assertEquals(2, step(24)); assertEquals(2, step(47))
+        assertEquals(3, step(23)); assertEquals(3, step(0)); assertEquals(3, step(-23))
+        assertEquals(4, step(-24)); assertEquals(4, step(-47))
+        assertEquals(5, step(-48)); assertEquals(5, step(-300))
+    }
+
+    @Test
+    fun theKeyboardStartsFromTheCommittedMileageAndThePictureNeverGoesBack() {
+        val e = engine()
+        e.restore(5000L)
+        assertEquals(5000, e.world.target)
+        repeat(30) { e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step() }
+        val at = e.world.target
+        e.restore(4000L)                                                       // the records say less than the picture shows: it does not go back
+        assertEquals(at, e.world.target)
+        e.restore(0L, reset = true)                                            // clearing the records is the one way back
+        assertEquals(0, e.world.target)
     }
 
     @Test
@@ -365,9 +406,10 @@ class GlyphEngineTest {
         e.step()
         assertEquals(journey.placeAt(0).scene, e.world.scene)
         assertEquals("the first place is not announced", 0f, e.front().bannerAlpha, 0f)
-        // characters enough to walk past the first place (eight units each)
-        e.committed("x", (journey.placeAt(0).len + 5) / GlyphJourney.UNITS_PER_CHARACTER.toInt() + 1, false, false)
-        e.step()
+        // typing enough to walk the picture past the first place (the place goes with the picture, not with what is committed)
+        var keys = 0
+        while (e.world.scene == journey.placeAt(0).scene && keys++ < 600) { e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a"); e.step() }
+        assertTrue(keys < 600)
         assertEquals(journey.placeAt(1).scene, e.world.scene)
         val banner = e.front()
         assertTrue(banner.bannerAlpha > 0.5f)
