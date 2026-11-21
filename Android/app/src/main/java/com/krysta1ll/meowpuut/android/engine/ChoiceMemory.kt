@@ -19,8 +19,10 @@ internal class ChoiceMemory(private val store: SharedPreferences) {
         if (previous == null) {
             val count = store.getInt(READING_COUNT, 0)
             if (count >= MAX_READINGS) {
+                // Readings committed once (every sentence taken with Space adds one) go first,
+                // oldest first; a word chosen twice is evicted only when nothing else is left.
                 store.all.entries.asSequence().filter { it.key != READING_COUNT }
-                    .minByOrNull { (_, value) -> (value as? String)?.substringBefore('\n')?.toLongOrNull() ?: 0L }
+                    .minWithOrNull(compareBy<Map.Entry<String, *>>({ isLearned(it.value) }, { lastPicked(it.value) }))
                     ?.let { edit.remove(it.key) }
             } else {
                 edit.putInt(READING_COUNT, count + 1)
@@ -42,18 +44,36 @@ internal class ChoiceMemory(private val store: SharedPreferences) {
         return choices
     }
 
-    private fun key(mode: InputMode, simplified: Boolean, reading: String) =
-        "${mode.key}:${if (simplified) 's' else 't'}:${reading.trimEnd('\'').lowercase()}"
+    private fun key(mode: InputMode, simplified: Boolean, reading: String): String {
+        val trimmed = reading.trimEnd('\'').lowercase()
+        // Nine-key is kept under the digits typed, so a pick made with a syllable locked on the
+        // rail (WANG'468 -> wang) counts for 9264 too.
+        val normalized = if (mode == InputMode.NINE_KEY) {
+            buildString { for (c in trimmed) if (c != '\'') append(NineKeySyllables.digit(c) ?: c) }
+        } else trimmed
+        return "${mode.key}:${if (simplified) 's' else 't'}:$normalized"
+    }
+
+    private fun lastPicked(value: Any?): Long = (value as? String)?.substringBefore('\n')?.toLongOrNull() ?: 0L
+
+    private fun isLearned(value: Any?): Boolean = (value as? String)?.lineSequence()?.drop(1)
+        ?.any { (it.substringBefore('\t').toIntOrNull() ?: 0) >= 2 } == true
 
     companion object {
         private const val MAX_READINGS = 768
+        private const val MAX_CHOICES = 6
         private const val READING_COUNT = "count"
 
         /** Store equal-frequency choices in last-picked order in the existing record format. */
         fun afterSelection(previous: Map<String, Int>, text: String): Map<String, Int> {
             val counts = previous + (text to ((previous[text] ?: 0) + 1).coerceAtMost(30))
-            return counts.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }
-                .thenByDescending { it.key == text }).take(6).associate { it.key to it.value }
+            val sorted = counts.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }
+                .thenByDescending { it.key == text })
+            var kept = sorted.take(MAX_CHOICES)
+            // A full reading keeps the word just picked in place of its weakest one; otherwise a
+            // new pick (one use) would be cut every time and never reach the two uses it needs.
+            if (kept.none { it.key == text }) kept = kept.dropLast(1) + sorted.first { it.key == text }
+            return kept.associate { it.key to it.value }
         }
 
         fun selectionReading(input: CharSequence, candidate: Candidate): String {
