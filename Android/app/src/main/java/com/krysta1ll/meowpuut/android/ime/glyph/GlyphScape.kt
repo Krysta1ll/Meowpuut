@@ -101,16 +101,16 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val sub: Double = cell / 2.0, val m: Int = 2,
         /** How far toward the paper this plane's ink goes (0 for the near ones). */
         val air: Double = 0.0,
+        deep: Boolean = false,
     ) {
         var offI = 0
         /**
-         * How large a cell of a landmark's picture is, in points: [sub] times [big], as the prototype has it (with depth the pixel is 2 points, so a
-         * landmark is two points to the cell at the lighter settings and four at the fuller: smaller than it was before depth).
+         * How large a cell of a landmark's picture is, in points: [sub] times [big] (with depth 2 x 2: four points, at every setting, as the prototype has it).
          */
         fun stamp(): Double = sub * big
         var amp = spec.amp
         var haze = spec.haze
-        var big = if (level >= 2) 2 else 1
+        var big = if (level >= 2 || deep) 2 else 1                  // with depth, a landmark is four points to the cell at every setting (the prototype's)
         var trees: TreeKind? = spec.trees
         /** The seam: this layer's tallest summits (or towers) go on through the edge. */
         var spire: SpireSpec? = null
@@ -256,7 +256,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             val n = ceil(width / sub).toInt() + 2 + (if (m > 2) m else 0)
             val speed = l.speed
             val air = if (!theme.deep || l.pool == "dust" || speed >= 0.45) 0.0 else if (speed >= 0.15) AIR_MID else AIR_FAR   // planes: the near one as it is, the middle a little paler, the far one more
-            return Layer(l, cell, n, fs, fy(l.base), theme.level, sub, m, air)
+            return Layer(l, cell, n, fs, fy(l.base), theme.level, sub, m, air, theme.deep)
         }
         front = p.front.map(::make)
         back = p.back.map(::make)
