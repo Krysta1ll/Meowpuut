@@ -103,6 +103,11 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val air: Double = 0.0,
     ) {
         var offI = 0
+        /**
+         * How large a cell of a landmark's picture is, in points: [sub] times [big], as the prototype has it (with depth the pixel is 2 points, so a
+         * landmark is two points to the cell at the lighter settings and four at the fuller: smaller than it was before depth).
+         */
+        fun stamp(): Double = sub * big
         var amp = spec.amp
         var haze = spec.haze
         var big = if (level >= 2) 2 else 1
@@ -524,15 +529,17 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
                 if (s.every == 0 && h2(slot, s.seed + 500) < 0.74 - 0.12 * theme.level) continue
                 val pat = GlyphScenes.STAMPS.getValue(marks[(h2(slot, s.seed + 502) * marks.size).toInt()])
                 val first = slot * stretch + (if (s.every != 0) 6 else 24) + (h2(slot, s.seed + 501) * min(60.0, stretch * 0.45)).toInt() - l.offI
-                clearMarks?.let { c -> val mid = (first + (pat[0].length * l.big) / 2.0) * l.sub; if (mid in (c.start - 20)..(c.endInclusive + 20)) continue }       // (a festival stands here)
-                if (short && s.avoid > 0.0 && abs((first + (pat[0].length * l.big) / 2.0) * l.sub - s.avoidAt * width) < s.avoid * width) continue   // not built over the mountain
-                val big = l.big
-                val foot = l.ridge[max(0, min(l.n - 1, first + ((pat[0].length * big) shr 1)))]
-                for (k in 0 until pat[0].length * big) {
+                val unit = l.stamp()
+                val widthPt = pat[0].length * unit
+                val blocks = ceil(widthPt / l.sub).toInt()                                                                                  // how many blocks the picture lies over
+                clearMarks?.let { c -> val mid = first * l.sub + widthPt / 2; if (mid in (c.start - 20)..(c.endInclusive + 20)) continue }       // (a festival stands here)
+                if (short && s.avoid > 0.0 && abs(first * l.sub + widthPt / 2 - s.avoidAt * width) < s.avoid * width) continue   // not built over the mountain
+                val foot = l.ridge[max(0, min(l.n - 1, first + (blocks shr 1)))]
+                for (k in 0 until blocks) {
                     val at = first + k
                     if (at in 0 until l.n) {
-                        l.markCol[at] = k / big
-                        l.markTop[at] = (foot - pat.size * l.sub * big).toFloat()
+                        l.markCol[at] = min(pat[0].length - 1, floor((k + 0.5) * l.sub / unit).toInt())
+                        l.markTop[at] = (foot - pat.size * unit).toFloat()
                         l.markPat[at] = pat
                     }
                 }
@@ -614,7 +621,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val marks = s.marks
         if (marks != null && l.markCol[i] >= 0) {
             val pat = l.markPat[i]!!
-            val row = floor((py - l.markTop[i]) / (l.sub * l.big)).toInt()
+            val row = floor((py - l.markTop[i]) / l.stamp()).toInt()
             val mc = l.markCol[i]
             val ch = if (row >= 0 && row < pat.size) pat[row][mc] else '.'
             p.hard = true                                          // a landmark is a thing: the mist round the keyboard's type does not thin it
