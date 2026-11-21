@@ -61,6 +61,14 @@ class Prefs(context: Context) {
     var mode: InputMode
         get() = InputMode.of(store.getString(MODE, null))
         set(value) = store.edit().putString(MODE, value.key).apply()
+    /** The ways of typing the five touches of 米米莫 go through, or null when nothing has been chosen (then the way it always went: [InputMode.next]). */
+    var mimimoModes: Set<InputMode>?
+        get() = store.getString(MIMIMO_MODES, null)?.split(',')?.mapNotNull { k -> InputMode.entries.firstOrNull { it.key == k } }?.toSet()
+        set(value) = store.edit().apply { if (value == null) remove(MIMIMO_MODES) else putString(MIMIMO_MODES, value.joinToString(",") { it.key }) }.apply()
+
+    /** The way the five touches of 米米莫 go to from [current], or null when the gesture is off. */
+    fun nextTouchMode(current: InputMode): InputMode? = mimimoModes?.let { InputMode.nextAmong(current, it) } ?: if (mimimoModes == null) current.next() else null
+
     var zhuyinPinyinHints: Boolean
         get() = store.getBoolean(ZHUYIN_PINYIN_HINTS, false)
         set(value) = store.edit().putBoolean(ZHUYIN_PINYIN_HINTS, value).apply()
@@ -257,6 +265,7 @@ class Prefs(context: Context) {
         /** The journey's distance used to be kept here; it is worked out from the cats' character count now, and the old number is removed once. */
         private const val OLD_GLYPH_DISTANCE = "glyphDistance"
         const val GLYPH_CRAB = "glyphCrab"
+        const val MIMIMO_MODES = "mimimoModes"
         const val GLYPH_SCENE = "glyphScene"
         const val GLYPH_FORE = "glyphFore"
         const val GLYPH_FORM = "glyphForm"

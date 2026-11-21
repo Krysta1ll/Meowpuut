@@ -457,9 +457,7 @@ internal class GlyphController(private val context: Context) {
         main.post { kick() }
         val name = e.scape.sceneName
         if (e.disc() != null && (e.scape.formed < 1.0 || name != lastScene)) for (v in overlays) v.postInvalidateOnAnimation()
-        if (name != lastScene) front.post { front.translationZ = if (name == STREET) 2f * density else 0f }      // in the street the cats walk in front of the signs
         lastScene = name
-        if (e.theme.dark && name == STREET) signs?.postInvalidateOnAnimation()
     }
 
     /** The glitch: bands of the picture slide sideways, and one band turns to its negative. */

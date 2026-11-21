@@ -1168,22 +1168,23 @@ class MeowpuutIME : InputMethodService(),
             view.bar.playEasterEgg()
             return
         }
-        val nextMode = mode.next()
+        val nextMode = prefs.nextTouchMode(mode)                      // null: the five touches of 米米莫 are switched off in the settings
         val name = when (nextMode) {
             InputMode.ZHUYIN -> "注音"
             InputMode.PINYIN -> "拼音"
             InputMode.NINE_KEY -> words("九鍵拼音", "九键拼音")
             InputMode.JAPANESE -> words("日語", "日语")
+            null -> null
         }
         val outcome = view.bar.pet(cat, prefs.simplified, name.takeUnless { numericField })
         if (outcome != CatAffection.Outcome.Happy) return
         if (cat == Cat.MIMIMO) {
-            if (numericField) return
+            if (numericField || nextMode == null) return
             if (opening != null || pending.isNotEmpty()) {
                 view.bar.announce(words("詞庫載入中，請稍候", "词库载入中，请稍候"))
                 return
             }
-            prefs.mode = nextMode
+            prefs.mode = nextMode ?: return
             view.bar.announce(words("已切換到$name", "已切换到$name"))
         } else {
             prefs.simplified = !prefs.simplified
@@ -1393,6 +1394,7 @@ class MeowpuutIME : InputMethodService(),
             japaneseMarks = mode.pinyinBased && prefs.mixedJapanese && !english,
             emoji = emojiOpen,
             japaneseMode = mode == InputMode.JAPANESE,
+            mimimoSwitches = prefs.nextTouchMode(mode) != null,
             words = words,
             undoLabel = undoLabel,
         ), retainScroll = retainCandidateScroll)

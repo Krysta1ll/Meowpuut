@@ -227,6 +227,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             R.string.mode_nine_key to InputMode.NINE_KEY,
             R.string.mode_japanese to InputMode.JAPANESE,
         ), { prefs.mode }) { prefs.mode = it }
+        mimimoRow(input)
         toggle(input, R.string.zhuyin_pinyin_hints, prefs.zhuyinPinyinHints) { prefs.zhuyinPinyinHints = it }
         choice(input, R.string.script, Prefs.SIMPLIFIED, listOf(R.string.script_traditional to false, R.string.script_simplified to true),
             { prefs.simplified }) { prefs.simplified = it }
@@ -880,6 +881,46 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 marginEnd = dp(5)
             })
         }
+    }
+
+    /** 「摸米米莫五下」: which ways of typing the five touches go through (two or more: in this order; fewer: the gesture is off). */
+    private fun mimimoRow(parent: LinearLayout) {
+        divider(parent)
+        val value = settingValue()
+        val names = listOf(
+            InputMode.ZHUYIN to R.string.mode_zhuyin, InputMode.PINYIN to R.string.mode_pinyin,
+            InputMode.NINE_KEY to R.string.mode_nine_key, InputMode.JAPANESE to R.string.mode_japanese,
+        )
+        fun chosen() = prefs.mimimoModes ?: InputMode.SWITCH_DEFAULT
+        lateinit var row: LinearLayout
+        fun update() {
+            val on = chosen()
+            val ticked = names.filter { it.first in on }
+            value.text = if (ticked.size < 2) getString(R.string.mimimo_switch_off) else ticked.joinToString("、") { getString(it.second) }
+            row.contentDescription = "${getString(R.string.mimimo_switch)}, ${value.text}"
+        }
+        row = settingLine(R.string.mimimo_switch, value).apply {
+            minimumHeight = dp(50)
+            isFocusable = true
+            val selectable = TypedValue()
+            if (theme.resolveAttribute(android.R.attr.selectableItemBackground, selectable, true)) setBackgroundResource(selectable.resourceId)
+            for (index in 0 until childCount) getChildAt(index).importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            addView(textView(21f, quietInk).apply { text = "›"; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8) })
+            setOnClickListener {
+                val on = chosen().toMutableSet()
+                AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.mimimo_switch)
+                    .setMultiChoiceItems(names.map { getString(it.second) }.toTypedArray(), BooleanArray(names.size) { names[it].first in on }) { _, index, checked ->
+                        if (checked) on += names[index].first else on -= names[index].first
+                    }
+                    .setPositiveButton(android.R.string.ok) { _, _ -> prefs.mimimoModes = on.toSet(); update() }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
+        }
+        parent.addView(row)
+        update()
     }
 
     private fun <T> choice(

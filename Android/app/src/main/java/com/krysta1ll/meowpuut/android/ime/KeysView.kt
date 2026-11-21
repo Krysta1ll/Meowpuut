@@ -331,10 +331,6 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         glyphSink.begin(canvas)
         glyphSink.eclipse = if (look.opaque) null else glyph?.eclipse(colors, left / density.toDouble(), top / density.toDouble())
         glyphSink.nearCut = if (look.opaque || look.dark) null else glyph?.nearCut(colors, left / density.toDouble(), top / density.toDouble())
-        val frame = glyph?.frame
-        val street = !look.opaque && frame?.scene == GlyphController.STREET
-        // At night one sign in the street now and then goes out for a moment, and comes back.
-        val out = if (street && look.dark) frame!!.tick.let { n -> if (n % 12 in OUT_BEATS) (GlyphNoise.h2(n / 12, 5) * 45).toInt() else -1 } else -1
         for ((r, row) in touches.placements.withIndex()) {
             val held = if (fingers) touches.pressedColumns(r) else 0
             for (placement in row) {
@@ -350,13 +346,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                 }
                 val cap = KeyCap(f.left.toDouble(), f.top.toDouble(), f.width.toDouble(), f.height.toDouble(), key.label,
                     glyphArt(key), role, pressed, enabled = key.enabled && !cursorMode)
-                val sign = when {
-                    !street -> GlyphKeyPainter.Sign.NONE
-                    !look.dark -> GlyphKeyPainter.Sign.DAY
-                    r * 10 + placement.column == out -> GlyphKeyPainter.Sign.OUT
-                    else -> GlyphKeyPainter.Sign.LIT
-                }
-                glyphPainter.key(glyphSink, colors, cap, composing, chips = look.opaque, sign = sign)
+                glyphPainter.key(glyphSink, colors, cap, composing, chips = look.opaque)          // the keys are only type, in the street as everywhere
             }
         }
     }
@@ -763,7 +753,5 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     companion object {
         const val BALLOON_FONT = 34f
         const val ALTERNATES_FONT = 24f
-        /** The beats (of twelve ticks) on which a lit sign of the street has gone out. */
-        val OUT_BEATS = setOf(1, 2, 4)
     }
 }

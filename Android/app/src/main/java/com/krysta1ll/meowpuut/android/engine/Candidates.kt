@@ -15,6 +15,23 @@ enum class InputMode(val key: String) {
 
     companion object {
         fun of(key: String?) = entries.firstOrNull { it.key == key } ?: ZHUYIN
+
+        /** The order the five touches of 米米莫 go through: 注音, 全鍵拼音, 九鍵拼音, 日文. */
+        val SWITCH_ORDER = listOf(ZHUYIN, PINYIN, NINE_KEY, JAPANESE)
+
+        /** What is ticked when nothing has been chosen: the three the touches have always gone through. */
+        val SWITCH_DEFAULT = setOf(ZHUYIN, PINYIN, JAPANESE)
+
+        /**
+         * The way the five touches go to from [current], among the [enabled] ones, in [SWITCH_ORDER]; null when fewer than two are ticked
+         * (the gesture is off). A way that is not ticked goes to the first one that is.
+         */
+        fun nextAmong(current: InputMode, enabled: Set<InputMode>): InputMode? {
+            val on = SWITCH_ORDER.filter { it in enabled }
+            if (on.size < 2) return null
+            val at = on.indexOf(current)
+            return if (at < 0) on.first() else on[(at + 1) % on.size]
+        }
     }
 }
 

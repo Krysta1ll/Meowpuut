@@ -99,6 +99,8 @@ class CandidateBarView(
         val japaneseMarks: Boolean = true,
         val emoji: Boolean = false,
         val japaneseMode: Boolean = false,
+        /** The five touches of 米米莫 switch the way of typing (off in the settings: she is only petted). */
+        val mimimoSwitches: Boolean = true,
         val words: Words = Words(false),
         val undoLabel: String? = null,
     )
@@ -1915,7 +1917,7 @@ class CandidateBarView(
                 VirtualAccessibility.LongClick(content.words("讓牠呼嚕", "让它呼噜")) { listener?.onHold(id) },
             ) else emptyList()
             out += if (seat.actor.id == Cat.MIMIMO) {
-                VirtualAccessibility.Item(MIMIMO_ID, bounds, content.words("摸摸米米莫，連續五下切換輸入方式", "摸摸米米莫，连续五下切换输入方式"), longClick = dismiss, custom = purr)
+                VirtualAccessibility.Item(MIMIMO_ID, bounds, if (content.mimimoSwitches) content.words("摸摸米米莫，連續五下切換輸入方式", "摸摸米米莫，连续五下切换输入方式") else "摸摸米米莫", longClick = dismiss, custom = purr)
             } else {
                 val label = if (content.japaneseMode) "摸摸莫莫" else content.words("摸摸莫莫，連續五下切換簡繁", "摸摸莫莫，连续五下切换简繁")
                 VirtualAccessibility.Item(MOMO_ID, bounds, label, longClick = dismiss, custom = purr)
