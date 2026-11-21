@@ -122,6 +122,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        com.krysta1ll.meowpuut.android.app.stats.DemoHooks.enable(this, intent)   // (debug builds only)
         if (savedInstanceState == null && com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.due(this, prefs.store)) startActivity(Intent(this, OnboardingActivity::class.java))   // 第一行字: a new install sees the guide first
         ui = PaperUi(this, AppSkins.worn(prefs, dark), dark)
         stamp = StampToast(this, ui)
@@ -574,7 +575,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         val simplified = simplifiedUi()
         Thread {
             val festivals = BundledFestivals.of(this)
-            val today = JourneyStats.today(festivals.occurrences(), java.time.LocalDate.now().toEpochDay().toInt())
+            val today = JourneyStats.today(festivals.occurrences(), com.krysta1ll.meowpuut.android.app.stats.DemoHooks.today())
             val rows = today?.let { f -> com.krysta1ll.meowpuut.android.app.home.Stamps.ofFestival(f.stamp, festivals) }
             if (today != null && rows != null) runOnUiThread {
                 hero.picture.contentDescription = describe + getString(R.string.home_festival_desc, today.name(simplified))

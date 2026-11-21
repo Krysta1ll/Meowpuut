@@ -1233,7 +1233,10 @@ class MeowpuutIME : InputMethodService(),
         }
         // A festival day: the dressed cats, the right end's ornaments and the capsule's colour.
         val overlay = customSkin?.overlay
-        val skin = overlay?.base ?: com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.wornSkin(prefs.store) ?: prefs.skin   // 第一行字: 字景 while the guide is on
+        val guideSkin = if (overlay == null) com.krysta1ll.meowpuut.android.app.onboarding.Onboarding.wornSkin(prefs.store) else null
+        val skin = overlay?.base ?: guideSkin ?: prefs.skin   // 第一行字: 字景 while the guide is on
+        // ...and no cats in it: the guide's third act is the two of them turning up one after the other.
+        val catsOn = prefs.cats && guideSkin == null
         val wardrobe = FestivalWardrobe(on = prefs.festivals)
         // FestivalOverride: debug builds only; the release build's always returns null.
         val today = java.time.LocalDate.now()
@@ -1244,7 +1247,7 @@ class MeowpuutIME : InputMethodService(),
         val festivalPill = festival?.let { Look.parseColor((if (dark) it.colors.dark else it.colors.light).lastOrNull()) }
         if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
         look = Look(dark, overlay?.shape(prefs.shape, prefs.hasShape) ?: skin.shape(prefs.shape), prefs.palette,
-            overlay?.strength ?: prefs.strength, prefs.cats, festivalPill,
+            overlay?.strength ?: prefs.strength, catsOn, festivalPill,
             wantsMoreContrast(this), prefs.effects, skin, overlay)
         keyboard?.let {
             it.glyphDistance = journeyStart()
@@ -1256,7 +1259,7 @@ class MeowpuutIME : InputMethodService(),
             it.bar.festival = festivalArt
             it.bar.candidateTextSize = prefs.candidateTextSize
             it.panel.candidateTextSize = prefs.candidateTextSize
-            it.cats = prefs.cats
+            it.cats = catsOn
             it.keyHeight = prefs.keyboardHeight
             it.setDockedPanel(prefs.panelHeightDelta, prefs.panelBottomGap)
             it.keys.showKeyPopups = prefs.keyPopups
