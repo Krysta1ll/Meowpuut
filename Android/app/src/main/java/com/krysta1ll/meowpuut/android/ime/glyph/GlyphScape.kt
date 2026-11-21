@@ -107,10 +107,12 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     /** What a sampler says besides the density: which pool the glyph comes from, whether it is lit, accent, a rim, a sign. */
     private class Probe {
         var lit = false; var acc = false; var rim = false; var sign: String? = null
+        /** A thing, not the ground: a landmark or the one mountain's outline. The mist round the keyboard's type does not thin it. */
+        var hard = false
         var prio = 0; var pool = "dust"; var ox = 0
         /** The place's own ink for this block (ARGB), or 0 for the vermilion (when [acc]) or the ink. */
         var hue = 0
-        fun reset() { lit = false; acc = false; rim = false; sign = null; prio = 0; hue = 0 }
+        fun reset() { lit = false; acc = false; rim = false; sign = null; prio = 0; hue = 0; hard = false }
     }
 
     var width = 393.0; private set
@@ -536,6 +538,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             val row = floor((py - l.markTop[i]) / (l.sub * l.big)).toInt()
             val mc = l.markCol[i]
             val ch = if (row >= 0 && row < pat.size) pat[row][mc] else '.'
+            p.hard = true                                          // a landmark is a thing: the mist round the keyboard's type does not thin it
             if (ch == 'X') {
                 p.prio = 3
                 if (theme.dark) {                                  // at night a solid stamp is dark: only its outline is drawn
@@ -548,6 +551,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             val own = when (ch) { 'G' -> "green"; 'Y' -> "gold"; 'B' -> "blue"; 'P' -> "pink"; 'O' -> "orange"; 'C' -> "cyan"; 'M' -> "magenta"; else -> null }
             if (own != null) { p.prio = 3; p.lit = true; p.hue = hue(own); p.acc = p.hue != 0 || ch == 'M' || ch == 'C' || ch == 'P'; return 1.0 }
             if (ch == 'o') { p.prio = 3; if (theme.dark) { p.lit = true; return 1.0 }; return 0.01 }
+            p.hard = false
         }
         val trees = l.trees
         if (trees != null && l.treeY[i] < 1e8 && py < top) {
@@ -578,6 +582,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val depth = py - top
         if (depth < l.sub) {
             p.rim = true
+            if (s.shape == LandShape.CONE) p.hard = true             // the one mountain keeps its outline through the mist
             if (s.lava && abs(l.apex[i]) < 0.1 * s.spread * l.amp * height * l.fs) { p.acc = true; p.lit = true; p.hue = hue("gold") }   // the lip of the crater glows
             if (l.edge < 0.9) {                                   // a far ridge is one stroke, and the stroke leans the way the ridge runs
                 val lean = l.ridge[min(l.n - 1, i + 2)] - l.ridge[max(0, i - 2)]
@@ -992,7 +997,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val fade = FADE
         if (tail <= 0 && py > height - fade) d *= (max(0.0, min(1.0, (height - py) / fade))).pow(1.15)   // and at the keyboard's bottom edge
         val m = quiet
-        return if (m != null && !p.lit) d * m[max(0, min(qh - 1, py.toInt() shr 1)) * qw + min(qw - 1, px.toInt() shr 1)] else d   // and it thins round the keyboard's own type
+        return if (m != null && !p.lit && !p.hard) d * m[max(0, min(qh - 1, py.toInt() shr 1)) * qw + min(qw - 1, px.toInt() shr 1)] else d   // and it thins round the keyboard's own type
     }
 
     private fun drawLayer(g: GlyphSink, c: GlyphColors, l: Layer, cover: Boolean, sampler: (Layer, Int, Double) -> Double) {
