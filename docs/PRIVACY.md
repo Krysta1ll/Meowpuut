@@ -1,6 +1,6 @@
 # 喵撲的隱私政策
 
-最後更新：2026 年 11 月 19 日
+最後更新：2026 年 11 月 21 日
 
 喵撲（Meowpuut）是一個鍵盤。這份說明適用於 iOS、iPadOS、macOS、Android 和 Windows 的喵撲。
 
@@ -13,7 +13,7 @@
 - 按鍵只在裝置上用來算出候選字。啟用選詞記憶時，鍵盤會在本機保留已確認的選詞資料。
 - 英文候選（iOS、Android）：鍵盤讀游標前的文字，只把正在打的字和它前面最多兩個字（含它們之間的句號、問號）交給本機的喵撲引擎，算出補完、拼字更正和下一個字；數字、中文和更早的文字不交出去。只在記憶體裡算，不寫檔、不記錄、不上傳。密碼、電子郵件和網址欄位不給候選。字只有在你點了候選才會換，空白鍵和換行照常輸入，不自動改字。
 - iOS 的「允許完整取用」可選。自訂按鍵聲、鍵盤震動和 iCloud 選詞同步需要開啟。基本打字和本機選詞記憶可以離線使用。
-- iOS 和 Android 的小貓好感度只在本機記輸入量和互動次數，這份紀錄沒有輸入內容。
+- iOS 和 Android 的小貓好感度與行旅統計只在本機記輸入量、日子和互動次數，這些紀錄沒有輸入內容。
 - 沒有帳號，沒有廣告，沒有分析或追蹤工具，沒有第三方的 SDK。
 
 ## 存在你裝置上的東西
@@ -22,6 +22,7 @@
 - **iCloud 選詞同步**：預設關閉。開啟後，中文選詞、讀音、次數和最近選用時間加密存入使用者 Apple 帳號的私人 CloudKit 資料庫。上下文、表情符號和顏文字留在本機。可在喵撲設定關閉同步或清除 iCloud 選詞記錄。
 - **Android 選詞記憶**：記住你確認上屏的中文候選及對應讀音和次數。密碼欄和要求停用個人化的欄位不使用這些記錄，也不會新增記錄。
 - **自訂詞庫（iOS、Android）**：手動新增的詞和讀音存於本機設定，並依完整讀音顯示候選。可逐筆編輯或刪除，清除選詞記錄後仍會保留。iCloud 選詞同步僅涵蓋前述中文選詞記錄。
+- **行旅統計（iOS、Android）**：喵撲 App 的統計頁把貓咪紀錄累加成一份只增不減的帳本，存在這台裝置上：打字的字數總計、有打字的日子（只記是哪一天，用本地的日序號）、當天字量的級距（五級）、當天是哪隻貓在、一天裡的哪個時段、兩隻貓的互動次數與熟度；旅程走了多遠由字數算出，不另外存。不記你打的字、不記是在哪個 App 打的、不記每次打字的時間點。這份帳本不連網、不拿去分析；在設定裡清除貓咪紀錄時一併清空，旅程也回到起點。iOS 沒開「允許完整取用」時，鍵盤不會把這些交給 App。
 - **設定**：外觀、輸入方式、繁體或簡體等你自己調過的選項。
 - Apple 裝置上的本機檔案可能隨系統備份（例如 iCloud 備份），取決於你的裝置設定。Android 版的應用程式備份已停用。
 
@@ -45,15 +46,17 @@ iOS 與 Android 的喵撲宿主 App 裡展示米米莫和莫莫的生活照，�
 
 # Privacy Policy (English)
 
-Last updated: 19 November 2026
+Last updated: 21 November 2026
 
 Meowpuut (喵撲) is a keyboard. This policy covers Meowpuut on iOS, iPadOS, macOS, Android and Windows.
 
 **In one sentence:** Typing is processed on your device. On iPhone and iPad, you can choose to sync Chinese word choices through your own iCloud account.
 
-**What the keyboard sees.** Key presses are used on the device to calculate candidates. When word-choice memory is enabled, the keyboard saves confirmed choices on the device. On iOS, "Allow Full Access" is optional and enables custom typing sounds, keyboard haptics and iCloud word-choice sync. Basic typing and local word-choice memory work offline. On iOS and Android, cat affinity uses on-device counts of committed characters and pet interactions. There are no Meowpuut accounts, ads, analytics, trackers or third-party SDKs.
+**What the keyboard sees.** Key presses are used on the device to calculate candidates. When word-choice memory is enabled, the keyboard saves confirmed choices on the device. On iOS, "Allow Full Access" is optional and enables custom typing sounds, keyboard haptics and iCloud word-choice sync. Basic typing and local word-choice memory work offline. On iOS and Android, cat affinity and the journey statistics use on-device counts of committed characters, days and pet interactions. There are no Meowpuut accounts, ads, analytics, trackers or third-party SDKs.
 
 **What is stored on your device.** Depending on the platform, the keyboard may store confirmed word choices, their frequency, context and selected symbols to rank common candidates. You can turn memory off or clear it in settings. On Android, password fields and fields that disable personalized learning do not use or update memory. On Apple devices, local files may be included in system backups. Android app backup is disabled.
+
+**Journey statistics on iOS and Android.** The statistics page of the Meowpuut app adds the cats' records up into a ledger that only grows and is stored on this device: the total number of characters typed, the days on which you typed (only which day, as a local day number), that day's amount in five steps, which cat was there, the part of the day, and the cats' interaction counts and familiarity. How far the journey has gone is worked out from the character count and is not stored separately. It does not record what you type, which app you typed in, or when each keystroke happened. The ledger is never sent anywhere or analysed, and clearing the cat records in settings clears it too and sends the journey back to the start. On iOS, without "Allow Full Access" the keyboard does not hand these records to the app.
 
 **Custom dictionary on iOS and Android.** Manually added phrases and readings are saved in local settings and appear as candidates when the full reading matches. You can edit or delete individual entries. Clearing word-choice memory keeps the custom dictionary.
 
