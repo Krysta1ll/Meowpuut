@@ -385,11 +385,12 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     internal fun strippableLayers(): List<Layer> {
         if (!theme.deep || theme.opaque || theme.still || theme.level !in 1..2) return emptyList()
         val all = listOf(sky) + back.reversed() + front.reversed()
-        return all.filter { (it.spec.shape != LandShape.CONE || it.spec.speed == 0.0) && !(it === sky && discX != null && !discLate) && !(it !== sky && it.spec.kind == LayerKind.STEMS) }
+        return all.filter { (it.spec.shape != LandShape.CONE || it.spec.speed == 0.0) && !(it === sky && discX != null && !discLate) }
     }
 
     /** The rows (points, picture coordinates) of a layer that can be seen: from the highest it can reach to where land in front of it takes over. */
     internal fun stripBand(l: Layer): Pair<Double, Double> {
+        if (l.spec.kind == LayerKind.STEMS) return -lift to (height + tail)            // bamboo stands the whole height
         val reach = when (l.spec.kind) {
             LayerKind.SKYLINE -> l.spec.amp * height * l.fs * 3.6 + 40.0
             else -> l.spec.amp * height * l.fs + 150.0
@@ -1168,6 +1169,10 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
      * pixels. With a strip above the keys ([lift]) it thins up into the strip; with [inset] (no height added) it thins inside the keyboard's
      * own top, the edge standing [inset] points down.
      */
+    private var seamKey = 0L
+    private var seamN = 0
+    private var seamErase = FloatArray(0)
+
     internal fun drawSeam(g: GlyphSink, c: GlyphColors) {
         val z = seamSpec ?: return
         if ((lift <= 0 && inset <= 0) || theme.opaque) return
@@ -1178,16 +1183,35 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val drift = sky.offI * sky.sub
         val inner = z.inner * (if (lift > 0) 1.0 else 0.5)
         val first = -(lift / u).toInt()
-        for (bx in 0 until cols) {
-            val px = bx * u + u / 2
-            val bot = inner + (if (z.wander != 0.0) (fbm1((px + drift) * 0.03, 77) - 0.5) * 2 * z.wander else 0.0)
-            val top = max(-reach, bot - band)
-            var by = first
-            while (by * u < inset + bot) {
-                val py = by * u + u / 2
-                if ((py - inset - top) / (bot - top) < GlyphSeam.grain(z.grain, bx, by) && !kept(px, py)) g.erase(px - u / 2, py - u / 2, u, u)
-                by++
+        // What the edge is made of changes seldom: the place, the fog, how far the sky and the layers that reach so high have gone. When none has, it is laid again from the list.
+        var key = preset.name.hashCode().toLong()
+        key = key * 31 + width.toBits(); key = key * 31 + lift.toBits(); key = key * 31 + inset.toBits(); key = key * 31 + band.toBits(); key = key * 31 + sky.offI
+        key = key * 31 + (if (theme.deep) 1 else 0)
+        for (l in layers) if (l.spec.kind == LayerKind.STEMS || l.minY < inset + inner + band + 8) key = key * 31 + l.offI + (if (l.pinned) 7 else 0)
+        if (theme.deep && key == seamKey && seamErase.isNotEmpty()) {
+            var i = 0
+            while (i < seamN) { g.erase(seamErase[i].toDouble(), seamErase[i + 1].toDouble(), u, u); i += 2 }
+        } else {
+            val record = theme.deep
+            if (record) seamN = 0
+            for (bx in 0 until cols) {
+                val px = bx * u + u / 2
+                val bot = inner + (if (z.wander != 0.0) (fbm1((px + drift) * 0.03, 77) - 0.5) * 2 * z.wander else 0.0)
+                val top = max(-reach, bot - band)
+                var by = first
+                while (by * u < inset + bot) {
+                    val py = by * u + u / 2
+                    if ((py - inset - top) / (bot - top) < GlyphSeam.grain(z.grain, bx, by) && !kept(px, py)) {
+                        g.erase(px - u / 2, py - u / 2, u, u)
+                        if (record) {
+                            if (seamN + 2 > seamErase.size) seamErase = seamErase.copyOf(max(1024, seamErase.size * 2))
+                            seamErase[seamN++] = (px - u / 2).toFloat(); seamErase[seamN++] = (py - u / 2).toFloat()
+                        }
+                    }
+                    by++
+                }
             }
+            if (record) seamKey = key
         }
         if (z.leak != 0.0) {                                         // a few stars have got out
             val off = floor(drift / u).toInt()

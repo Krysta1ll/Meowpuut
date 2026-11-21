@@ -77,7 +77,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
                 draw(scape, c, l, nb, topPx, lift, want, 0, cols + GlyphScape.STRIP_MARGIN_CELLS, band)
                 s.spare = s.bmp; s.bmp = nb
                 s.cols = cols; s.band = band; s.topPx = topPx; s.baked = want
-            } else if (want != s.baked) {
+            } else if (want - s.baked >= ADVANCE_AT) {
                 val dc = want - s.baked
                 val nb = (s.spare?.takeIf { it.width == widthPx && it.height == heightPx }) ?: Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also { it.setHasAlpha(true) }
                 nb.eraseColor(0)
@@ -111,5 +111,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
     companion object {
         /** The least time between two whole drawings of the land while only the turn of the type changes. */
         const val TURN_MS = 400L
+        /** A strip is shifted when its layer has gone this many cells beyond what it holds (the rest is only a shift of the picture). */
+        const val ADVANCE_AT = 2
     }
 }

@@ -635,7 +635,7 @@ internal class GlyphController(private val context: Context) {
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
         /** Whether the land is drawn as strips (a debug build can ask either way with the setting "glyphLayers"). */
-        const val LAYER_STRIPS = false
+        const val LAYER_STRIPS = true
         /** The least time between two whole drawings of the ground while only the turn of the type changes. */
         const val GROUND_TURN_MS = 700L
         private val NO_TAU = DoubleArray(0)
