@@ -32,7 +32,7 @@ class GlyphSeamTest {
     private fun scape(scene: Int, level: Int = 2, dark: Boolean = false, opaque: Boolean = false, fog: Double = 1.0, lift: Double = 20.0, inset: Double = 0.0, pos: Int = 0): GlyphScape {
         val theme = GlyphTheme(dark = dark, level = level, opaque = opaque)
         val world = GlyphWorld(theme)
-        world.fog = fog; world.tick = 100; world.pos = pos; world.target = pos
+        world.fog = fog; world.tick = 100; world.pos = pos.toDouble(); world.target = pos
         val s = GlyphScape(world, pools)
         s.wear(scene, layout(lift, inset = inset))
         s.prepare()
@@ -51,7 +51,7 @@ class GlyphSeamTest {
             val tag = "level ${config.getInt("level")} pos ${config.getInt("pos")} dark ${config.getBoolean("dark")} fog ${config.getDouble("fog")} lift $lift inset $inset"
             val theme = GlyphTheme(dark = config.getBoolean("dark"), level = config.getInt("level"))
             val world = GlyphWorld(theme)
-            world.pos = config.getInt("pos"); world.target = world.pos; world.epoch = config.getInt("epoch"); world.tick = 100
+            world.target = config.getInt("pos"); world.pos = world.target.toDouble(); world.epoch = config.getInt("epoch"); world.tick = 100
             world.fog = config.getDouble("fog")
             val scenes = config.getJSONArray("scenes")
             for (s in 0 until scenes.length()) {

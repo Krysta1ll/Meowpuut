@@ -30,21 +30,14 @@ internal class GlyphLayerStrips(private val scale: Float) {
     private val strips = IdentityHashMap<GlyphScape.Layer, Strip>()
     private val sink = GlyphCanvasSink(scale, gather = true)
     private val paint = Paint().apply { isFilterBitmap = false }
-    private val motion = GlyphMotion()
     private var order: List<GlyphScape.Layer> = emptyList()
-    private var exact = DoubleArray(0)
-    private var before = DoubleArray(0)
     private var sig = Long.MIN_VALUE
     private var turnAt = 0L
     private var turned = -1
 
-    /** Anything of the layers still moving (so the picture is to be made again before the next twelfth of a second). */
-    var moving = false
-        private set
-
     /** Drops what it holds (the keyboard went away, or depth went off). */
     fun release(scape: GlyphScape?) {
-        strips.clear(); order = emptyList(); motion.reset(); sig = Long.MIN_VALUE; moving = false
+        strips.clear(); order = emptyList(); sig = Long.MIN_VALUE
         scape?.layerBlit = null
         scape?.unpin()
     }
@@ -53,20 +46,14 @@ internal class GlyphLayerStrips(private val scale: Float) {
      * Brings every strip to where its layer is now, ready for the picture to be made. [signature] is everything the layers are made of besides
      * the turn of the type; [dt] seconds have passed since the last time; [target] and [epoch] are the world's mileage and turn of the type.
      */
-    fun sync(scape: GlyphScape, c: GlyphColors, lift: Double, signature: Long, epoch: Int, target: Double, dt: Double, nowMs: Long) {
+    fun sync(scape: GlyphScape, c: GlyphColors, lift: Double, signature: Long, epoch: Int, run: Double, nowMs: Long) {
         val layers = scape.strippableLayers()
         if (layers.isEmpty()) { release(scape); return }
-        if (order.size != layers.size || order.indices.any { order[it] !== layers[it] }) { strips.clear(); order = layers; motion.reset() }
-        val tau = DoubleArray(layers.size) { GlyphMotion.tauOf(layers[it].pool, layers[it].spec.speed) }
-        motion.advance(dt, target, epoch, false, tau, false) { false }
-        if (exact.size != layers.size) { exact = DoubleArray(layers.size); before = DoubleArray(layers.size) { Double.NaN } }
-        var went = false
-        val fresh = signature != sig || (epoch != turned && nowMs - turnAt >= TURN_MS)
+        if (order.size != layers.size || order.indices.any { order[it] !== layers[it] }) { strips.clear(); order = layers }
+        // Each layer stands a whole number of cells on, as the whole picture would put it: the strip is drawn at that and shifted by the cells it has gone.
+        val fresh = signature != sig || epoch != turned
         for ((i, l) in layers.withIndex()) {
-            exact[i] = motion.run[i] * l.spec.speed * 8 / l.cell
-            if (!before[i].isNaN() && kotlin.math.abs(exact[i] - before[i]) * l.cell * scale >= GOING_PX) went = true
-            before[i] = exact[i]
-            val want = floor(exact[i]).toInt()
+            val want = floor(run * l.spec.speed * 8 / l.cell).toInt()
             val s = strips.getOrPut(l) { Strip(l) }
             val band = scape.stripBand(l)
             val cols = ceil(scape.width / l.cell).toInt()
@@ -81,7 +68,7 @@ internal class GlyphLayerStrips(private val scale: Float) {
                 draw(scape, c, l, nb, topPx, lift, want, 0, cols + GlyphScape.STRIP_MARGIN_CELLS, band)
                 s.spare = s.bmp; s.bmp = nb
                 s.cols = cols; s.band = band; s.topPx = topPx; s.baked = want
-            } else if (want - s.baked >= ADVANCE_AT) {
+            } else if (want > s.baked) {
                 val dc = want - s.baked
                 val nb = (s.spare?.takeIf { it.width == widthPx && it.height == heightPx }) ?: Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also { it.setHasAlpha(true) }
                 nb.eraseColor(0)
@@ -92,7 +79,6 @@ internal class GlyphLayerStrips(private val scale: Float) {
                 s.baked = want
             }
         }
-        moving = went
         if (fresh) { sig = signature; turned = epoch; turnAt = nowMs }
         scape.layerBlit = { l, g -> blit(l, g) }
     }
@@ -106,19 +92,8 @@ internal class GlyphLayerStrips(private val scale: Float) {
     private fun blit(l: GlyphScape.Layer, g: GlyphSink): Boolean {
         val s = strips[l] ?: return false
         val b = s.bmp ?: return false
-        val i = order.indexOf(l)
-        val frac = if (i in exact.indices) exact[i] - s.baked else 0.0
-        val dx = -(frac.coerceIn(0.0, GlyphScape.STRIP_MARGIN_CELLS - 1.0) * l.cell * scale).roundToInt()
-        g.blit(b, dx, s.band.first)
+        g.blit(b, 0, s.band.first)
         return true
     }
 
-    companion object {
-        /** The least time between two whole drawings of the land while only the turn of the type changes. */
-        const val TURN_MS = 400L
-        /** A strip is shifted when its layer has gone this many cells beyond what it holds (the rest is only a shift of the picture). */
-        const val ADVANCE_AT = 2
-        /** A layer is going when it has moved this many device pixels since the picture before: when none is, the pictures stop. */
-        const val GOING_PX = 0.4
-    }
 }

@@ -39,7 +39,7 @@ class GlyphPreviewTool {
             val theme = GlyphTheme(dark = dark, level = level).also { it.deep = System.getenv("GLYPH_DEEP") != null }
             val world = GlyphWorld(theme)
             val layout = GlyphLayout.NONE
-            world.pos = 40 + scene * 17; world.target = world.pos; world.epoch = 3; world.tick = 100; world.lastMove = 100
+            world.target = 40 + scene * 17; world.pos = world.target.toDouble(); world.epoch = 3; world.tick = 100; world.lastMove = 100
             val scape = GlyphScape(world, pools)
             System.getenv("GLYPH_FORE")?.toDoubleOrNull()?.let { scape.foreFix = it }
             scape.wear(scene, layout)

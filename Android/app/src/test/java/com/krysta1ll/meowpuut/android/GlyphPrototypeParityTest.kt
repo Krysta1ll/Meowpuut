@@ -33,7 +33,7 @@ class GlyphPrototypeParityTest {
             val tag = "level ${config.getInt("level")} pos ${config.getInt("pos")} dark ${config.getBoolean("dark")}"
             val theme = GlyphTheme(dark = config.getBoolean("dark"), level = config.getInt("level"))
             val world = GlyphWorld(theme)
-            world.pos = config.getInt("pos"); world.target = world.pos
+            world.target = config.getInt("pos"); world.pos = world.target.toDouble()
             world.epoch = config.getInt("epoch"); world.tick = 100
             val scenes = config.getJSONArray("scenes")
             for (s in 0 until scenes.length()) {

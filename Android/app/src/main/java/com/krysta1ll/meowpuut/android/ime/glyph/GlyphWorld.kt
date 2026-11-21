@@ -3,6 +3,7 @@ package com.krysta1ll.meowpuut.android.ime.glyph
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.h2
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise.round
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -74,7 +75,7 @@ internal class LaneState { var y: Double? = null; var from = 0.0; var to = 0.0; 
 
 internal enum class CatId(val key: String) { MOMO("momo"), MIMI("mimi") }
 
-internal class CatState(val pose: String, val face: String, val z: Boolean = false, val hop: Boolean = false)
+internal class CatState(val pose: String, val face: String, val z: Boolean = false, val hop: Boolean = false, val bob: Int = 0)
 
 /** How a cat is drawn this frame: the front layer reads this and nothing else. */
 internal class CatDraw(
@@ -147,13 +148,12 @@ internal class GlyphJourney {
         return cursorN to cursorFrom
     }
 
-    /** The fog (0 thick .. 1 clear) that [distance] stands in: it thickens toward the end of a place and thins out of the start of one. */
+    /** The fog (0 thick .. 1 clear) that [distance] stands in: it thickens over the last [FOG] units of a place (coming into a new one is on the clock). */
     fun fogAt(distance: Long): Double {
         val (n, from) = at(distance)
         val len = placeAt(n).len
         val out = (from + len - distance).toDouble() / FOG
-        val into = if (n > 0) (distance - from + 1).toDouble() / FOG else 1.0
-        return max(0.0, min(1.0, min(out, into)))
+        return max(0.0, min(1.0, out))
     }
 
     companion object {
@@ -168,9 +168,10 @@ internal class GlyphJourney {
             if (characters <= 0L) 0L else if (characters > Long.MAX_VALUE / UNITS_PER_CHARACTER) Long.MAX_VALUE else characters * UNITS_PER_CHARACTER
 
         /** In units of the journey. */
-        const val MIN_LEN = 1200
-        const val SPAN = 800
-        const val FOG = 36
+        const val MIN_LEN = 2400
+        const val SPAN = 1600
+        /** Units before the end of a place in which the land is in fog (two keys' worth): the arrival is on the clock, see [GlyphWorld.ARRIVE_TICKS]. */
+        const val FOG = 6
     }
 }
 
@@ -224,8 +225,15 @@ internal class GlyphWorld(
     private val clockHm: () -> Int = { -1 },
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
-    var pos = 0
+    /** Where the picture has got to, in units of the journey: a fraction while it walks (see [step]). */
+    var pos = 0.0
     var target = 0
+    /** How far the land goes by for [pos]: with depth the picture goes [GAIN] of the way (every layer then by whole cells of that). */
+    val run: Double get() = if (theme.deep) pos * GAIN else pos
+    /** What passes in front has been left to roll out of the picture by itself this far (units). */
+    var coast = 0.0
+    /** The picture moved on in this step without anything else changing: drawn again only if a layer, a row of the ground or a step has crossed a cell. */
+    var posMoved = false
     var tick = 0
     val ripples = ArrayList<Ripple>()
     val motes = ArrayList<Mote>()
@@ -294,13 +302,14 @@ internal class GlyphWorld(
     /** The keys moved the world by [amount]; [at] is where a ring runs out from. */
     fun moved(amount: Int, at: Pair<Double, Double>?) {
         val now = tick
+        val rested = now - lastMove > FPS                          // the cats were not at their stride: a key wakes them (one picture), not every key after
         rate = rate * 0.6 + (FPS.toDouble() / max(1, now - lastKey)) * 0.4
         lastKey = now
         lastMove = now
         target += amount
-        if (theme.still || theme.level == 0) pos = target
+        if (theme.still || theme.level == 0) pos = target.toDouble()
         else if (at != null && theme.level >= 2 && !theme.deep) ripples += Ripple(at.first, at.second, now)   // deep: the ring is its own view, by the screen (GlyphRingView)
-        dirty = true
+        if (!theme.deep || rested) dirty = true                    // a key does not draw the picture again with depth: the walk does, if a cell has gone
     }
 
     fun feel(m: Map<CatId, String>, ticks: Int, jump: Boolean) {
@@ -416,13 +425,10 @@ internal class GlyphWorld(
                 if (h2(n, 5) < 0.3) glitch(8)
             }
         }
-        fogTarget = journey.fogAt(target.toLong())
-        // The fog gathers and clears over a few frames, so it is never a jump.
-        if (abs(fog - fogTarget) > 0.004) {
-            fog += (fogTarget - fog) * 0.3
-            if (abs(fog - fogTarget) < 0.01) fog = fogTarget
-            dirty = true
-        }
+        // The land goes into fog over the last few units of a place, and a new place is set by the clock whatever the typing does.
+        val into = if (tick - arrive < ARRIVE_TICKS) (tick - arrive + 1).toDouble() / ARRIVE_TICKS else 1.0
+        fogTarget = min(journey.fogAt(target.toLong()), into)
+        if (fog != fogTarget) { fog = fogTarget; dirty = true }
     }
 
     /** True until the picture has been rebuilt for the place that [travel] chose. */
@@ -436,9 +442,13 @@ internal class GlyphWorld(
         val calm = theme.still || theme.level == 0
         if (calm) return 0
         val lanes = max(0, layout.rowCenters.size - 2)
-        val want = when (cat) {
+        val want = if (theme.deep) when (cat) {
+            // While typing the cats walk in place on their own row; Mimi goes down to look at another row only after the typing has stopped.
+            CatId.MOMO -> 0
+            CatId.MIMI -> if (idle < 1.5 || idle > 5) 0 else intArrayOf(0, 1, 0, 2)[(pos / 180).toInt() and 3]
+        } else when (cat) {
             CatId.MOMO -> if (fast > 8) 1 else 0
-            CatId.MIMI -> if (idle > 5) 0 else if (fast > 6) 2 else intArrayOf(0, 1, 0, 2)[(pos / 45) and 3]
+            CatId.MIMI -> if (idle > 5) 0 else if (fast > 6) 2 else intArrayOf(0, 1, 0, 2)[(pos / 45).toInt() and 3]
         }
         return min(want, lanes)
     }
@@ -475,9 +485,18 @@ internal class GlyphWorld(
     fun step(layout: GlyphLayout, rows: Boolean, ready: Boolean, ridgeY: (Double) -> Double): Boolean {
         tick++
         if (pos < target) {
-            pos += max(1, min(6, round((target - pos) * 0.42)))
+            if (theme.deep) {
+                // The walk keeps the typing's pace: a key a step (three ticks and then standing), a run of keys a run, what is owed over nine a quarter at a time.
+                val owed = target - pos
+                val keys = if (idleSeconds < 1.5) rate else 0.0
+                val pace = max(1.0, max(keys * 3.0 / FPS, if (owed > 9) owed * 0.25 else 0.0))
+                pos = min(target.toDouble(), pos + pace)
+                posMoved = true
+            } else {
+                pos += max(1, min(6, round((target - pos) * 0.42)))
+                dirty = true
+            }
             lastMove = tick
-            dirty = true
         }
         travel()
         lanes(layout, rows, ready, ridgeY)
@@ -521,13 +540,19 @@ internal class GlyphWorld(
         val idle = idleSeconds
         val moving = pos < target && !theme.still
         val mimi = cat == CatId.MIMI
+        // With depth the foot changes with the ground (every three units, a key's worth: at once when a step begins), the other cat half a step
+        // behind, and every second step the body is a cat pixel higher; between two keys they stand in the stride they stopped in.
+        val step = ceil(pos / STEP_UNITS).toLong() + (if (mimi) 0L else 1L)
+        val foot = if (theme.deep) (if (step and 1L != 0L) "walkA" else "walkB") else null
+        fun walk() = foot ?: (if (tick and 1 != 0) "walkA" else "walkB")
+        val bob = if (theme.deep && ((step shr 1) and 1L) != 0L) GlyphCats.POINTS else 0
         if (tick < goodnight && !moving) return CatState("sleep", "neutral", z = mimi)
-        if (tick < glitch) return CatState(if (moving) (if (tick and 1 != 0) "walkA" else "walkB") else "sit", "dizzy")        // when the picture tears, so do they
+        if (tick < glitch) return CatState(if (moving) walk() else "sit", "dizzy")        // when the picture tears, so do they
         val m = mood
-        if (m != null && tick < moodUntil) return CatState(if (moving) (if (tick and 1 != 0) "walkA" else "walkB") else "sit", m[cat] ?: "neutral", hop = hop)
-        if (moving) return CatState(if ((tick + (if (mimi) 0 else 1)) and 1 != 0) "walkA" else "walkB",
-            if (rate > 7) "wide" else if (mimi) "focus" else "neutral")
-        if (idle < 1.2) return CatState("walkA", "neutral")
+        if (m != null && tick < moodUntil) return CatState(if (moving) walk() else "sit", m[cat] ?: "neutral", hop = hop)
+        if (moving) return CatState(foot ?: (if ((tick + (if (mimi) 0 else 1)) and 1 != 0) "walkA" else "walkB"),
+            if (rate > 7) "wide" else if (mimi) "focus" else "neutral", bob = bob)
+        if (idle < 1.2) return CatState(foot ?: "walkA", "neutral", bob = bob)
         if (tick - arrive < 26) return CatState("sit", "up")                                                                   // somewhere new: they look up at it
         // Left alone they have an evening of their own: she turns to watch the view, he follows; then the loaf, a yawn, sleep.
         if (idle > (if (mimi) 12 else 16)) return CatState("sleep", "neutral", z = mimi)
@@ -566,7 +591,7 @@ internal class GlyphWorld(
             } else feet = ridgeY(x + 20.0) + 2
             // Running: the cats bound along, a little forward on every other step.
             val run = spectacle.hurrying && st.pose != "sleep"
-            val hopY = if (run) -(tick and 1) * 3 else if (st.hop) intArrayOf(0, -3, -5, -3, 0)[min(4, max(0, tick - hopAt))] else 0
+            val hopY = (if (run) -(tick and 1) * 3 else if (st.hop) intArrayOf(0, -3, -5, -3, 0)[min(4, max(0, tick - hopAt))] else 0) - st.bob
             var pose = st.pose
             if (moving && pose != "sleep") pose = if (tick and 1 != 0) "walkA" else "walkB"
             val night = (theme.dark && cat == CatId.MIMI && !(mood != null && tick < moodUntil)) || form < 0.8
@@ -598,6 +623,12 @@ internal class GlyphWorld(
 
     companion object {
         const val FPS = 12
+        /** With depth the picture goes this part of the journey's way (see [run]); the journey itself, the length of a place and the walk are as they were. */
+        const val GAIN = 0.6
+        /** Units of the journey to a step of the cats (a typing key's worth). */
+        const val STEP_UNITS = 3.0
+        /** Ticks a new place takes to come out of the fog, whatever the typing does. */
+        const val ARRIVE_TICKS = 8
         /** Where the cats sit, as a part of the keyboard's width (104 and 172 points on the prototype's 393). */
         const val MOMO_AT = 104.0 / 393.0
         const val MIMI_AT = 172.0 / 393.0

@@ -30,7 +30,7 @@ class GlyphArrivalTest {
         for (i in 0 until reference.length()) {
             val e = reference.getJSONObject(i)
             val world = GlyphWorld(GlyphTheme(dark = e.getBoolean("dark"), level = 2))
-            world.pos = 100; world.target = 100; world.epoch = 0; world.tick = 100
+            world.pos = 100.0; world.target = 100; world.epoch = 0; world.tick = 100
             world.formFix = e.getDouble("f")
             val scape = GlyphScape(world, pools)
             scape.wear(e.getInt("sc"), shipped)
@@ -132,7 +132,7 @@ class GlyphArrivalTest {
     fun thePlaceIsTypedFirstAndFormsAfter() {
         fun count(f: Double, scene: Int, test: (RecordingSink) -> Int): Int {
             val world = GlyphWorld(GlyphTheme(level = 2))
-            world.pos = 100; world.target = 100; world.tick = 100; world.formFix = f
+            world.pos = 100.0; world.target = 100; world.tick = 100; world.formFix = f
             val s = GlyphScape(world, pools)
             s.wear(scene, shipped)
             s.hush(false, true)
@@ -161,7 +161,7 @@ class GlyphArrivalTest {
         val strip = GlyphLayout(393.0, 298.0, doubleArrayOf(109.0, 163.0, 217.0, 271.0), 32.0, 57.0, 34.0, 46.0, skylineFloor = 0.0, lift = 20.0)
         fun erased(f: Double, layout: GlyphLayout): List<RecordingSink.Erase> {
             val world = GlyphWorld(GlyphTheme(level = 2))
-            world.pos = 100; world.target = 100; world.tick = 100; world.formFix = f
+            world.pos = 100.0; world.target = 100; world.tick = 100; world.formFix = f
             val s = GlyphScape(world, pools)
             s.wear(0, layout)
             s.prepare()

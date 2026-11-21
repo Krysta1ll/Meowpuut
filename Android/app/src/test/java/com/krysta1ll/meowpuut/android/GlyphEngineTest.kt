@@ -67,7 +67,7 @@ class GlyphEngineTest {
         assertTrue("steps $steps", steps <= 3)
         assertTrue("draws $draws", draws <= 2)
         // no scrolling: the land is where the key put it, at once
-        assertEquals(e.world.target, e.world.pos)
+        assertEquals(e.world.target.toDouble(), e.world.pos, 0.0)
         assertTrue(e.world.ripples.isEmpty())
     }
 
@@ -81,7 +81,7 @@ class GlyphEngineTest {
     fun theLevelsSetHowMuchMoves() {
         val light = engine(level = 0)
         type(light)
-        assertEquals("level 0: one redraw a key, the land is there at once", light.world.target, light.world.pos)
+        assertEquals("level 0: one redraw a key, the land is there at once", light.world.target.toDouble(), light.world.pos, 0.0)
         assertTrue(light.world.ripples.isEmpty())
         val standard = engine(level = 1)
         type(standard)
@@ -438,7 +438,7 @@ class GlyphEngineTest {
     fun theFogGathersAtABorderAndTheLandThinsIntoIt() {
         val e = engine(scene = null)
         val len = GlyphJourney().placeAt(0).len
-        e.restore((len - 2).toLong())
+        e.restore((len - 1).toLong())
         repeat(30) { e.step() }
         assertTrue("fog ${e.world.fog}", e.world.fog < 0.3)
         val thin = RecordingSink()

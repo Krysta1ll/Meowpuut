@@ -52,7 +52,8 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
         world.distance = max(0L, distance)
         // The picture starts from what has been committed, and in one showing never goes back (a rewind of the records is the one way back).
         world.target = if (reset) world.distance.toInt() else max(world.target, world.distance.toInt())
-        world.pos = max(world.pos.takeIf { !reset } ?: 0, world.target)
+        world.pos = max(world.pos.takeIf { !reset } ?: 0.0, world.target.toDouble())
+        if (reset) world.coast = 0.0
         world.journey.step = -1
         world.sceneChanged = true
         dirtyLayout = true
@@ -67,7 +68,7 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
         if (theme.still != reduced) {
             theme.still = reduced
             world.ripples.clear(); world.motes.clear()
-            world.pos = world.target
+            world.pos = world.target.toDouble()
             world.dirty = true
         }
         if (theme.opaque != opaque) { theme.opaque = opaque; world.dirty = true }
@@ -145,12 +146,29 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
     /** One tick. True when the picture changed and wants drawing again. */
     fun step(): Boolean {
         val first = wear()
-        val changed = world.step(layout, scape.rowsFraming, scape.ready, scape::ridgeAt)
+        var changed = world.step(layout, scape.rowsFraming, scape.ready, scape::ridgeAt)
+        if (theme.deep) {
+            // What passes in front, left in the picture when the typing stops, goes on out of it by itself (three units a tick).
+            if (rolling()) { world.coast += 3.0; world.posMoved = true }
+            // The picture moved on, and nothing else changed: it is drawn again only if something has gone a cell.
+            if (world.posMoved) {
+                world.posMoved = false
+                val key = scape.motionKey()
+                if (key != motionKey) { motionKey = key; changed = true }
+            }
+        }
         return wear() || changed || first
     }
 
+    private var motionKey = 0L
+
+    /** What passes in front is in the picture, the typing has stopped (0.35 s) and it is to go on out by itself. */
+    private fun rolling(): Boolean =
+        !theme.still && !theme.opaque && theme.level >= 1 && world.idleSeconds >= 0.35 && GlyphDepthFore.hasFore(scape.sceneName) &&
+            GlyphMotion.visible(GlyphDepthFore.passesAt(world.run, world.coast), scape.width)
+
     /** Whether another tick is worth taking. False means the keyboard is at rest. */
-    fun busy(): Boolean = !theme.opaque && world.busy() || world.dirty || world.sceneChanged
+    fun busy(): Boolean = !theme.opaque && world.busy() || world.dirty || world.sceneChanged || (theme.deep && rolling())
 
     // ---- the picture --------------------------------------------------------------------------------
 
@@ -172,7 +190,11 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
     }
 
     /** What is nearest (see [GlyphNear]), or null without depth or in the safe picture. */
-    fun near(): GlyphNear? = if (theme.deep && !theme.opaque) GlyphNear(scape.sceneName, scape.width, scape.height, scape.lift, theme.dark, theme.still, theme.level, world.fog) else null
+    fun near(): GlyphNear? = if (theme.deep && !theme.opaque) GlyphNear(scape.sceneName, scape.width, scape.height, scape.lift, theme.dark, theme.still, theme.level, world.fog,
+            foreHold?.let { it * scape.width } ?: GlyphDepthFore.passesAt(world.run, world.coast), world.tick * 1000.0 / GlyphWorld.FPS, world.lastMove * 1000.0 / GlyphWorld.FPS) else null
+
+    /** Debug and shots: what passes in front is held at this part of the width (null lets it go by). */
+    @Volatile var foreHold: Double? = null
 
     /** The sun or moon of the picture, for the keyboard's type to be cut out of. */
     fun disc(): DiscInfo? = if (theme.opaque) null else scape.disc()

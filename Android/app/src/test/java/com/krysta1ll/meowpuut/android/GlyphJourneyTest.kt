@@ -81,9 +81,8 @@ class GlyphJourneyTest {
         assertEquals(1.0, journey.fogAt(len0 / 2), 0.0)
         assertEquals((GlyphJourney.FOG - 1).toDouble() / GlyphJourney.FOG, journey.fogAt(len0 - GlyphJourney.FOG + 1), 1e-9)
         assertEquals(1.0 / GlyphJourney.FOG, journey.fogAt(len0 - 1), 1e-9)
-        // across the border: thin again on the far side, then clearing
-        assertEquals(1.0 / GlyphJourney.FOG, journey.fogAt(len0), 1e-9)
-        assertEquals(1.0, journey.fogAt(len0 + GlyphJourney.FOG), 0.0)
+        // across the border the far side is clear (arriving is on the clock, see the world)
+        assertEquals(1.0, journey.fogAt(len0), 0.0)
         for (d in 0L until len0 * 3) assertTrue(journey.fogAt(d) in 0.0..1.0)
     }
 

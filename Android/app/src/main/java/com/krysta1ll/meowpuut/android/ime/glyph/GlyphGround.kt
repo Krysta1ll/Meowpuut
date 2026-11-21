@@ -136,6 +136,7 @@ internal class GlyphGroundView(context: Context, private val controller: GlyphCo
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (!GlyphController.LIVE_GROUND) return
         canvas.drawColor(paper)
         controller.drawGround(canvas, paint)
     }

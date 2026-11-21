@@ -74,11 +74,11 @@ class JourneyParityTest {
         assertEquals(units, GlyphJourney.distanceOf(characters))
         assertEquals(stop, n)
         for ((name, count) in visits) assertEquals(name, count, seen[name] ?: 0)
-        assertEquals(1_237, n)
-        assertEquals(114, seen["海"])
+        assertEquals(621, n)
+        assertEquals(60, seen["海"])
         // The first five places and how long each lasts, as the prototype has them.
         val places = reference.getJSONArray("places")
-        assertEquals(listOf("海" to 1685, "沙漠" to 1704, "紅葉" to 1866, "火山" to 1719, "月" to 1335), (0 until 5).map { places.getJSONObject(it).let { p -> p.getString("scene") to p.getInt("len") } })
+        assertEquals(listOf("海" to 3370, "沙漠" to 3408, "紅葉" to 3732, "火山" to 3439, "月" to 2670), (0 until 5).map { places.getJSONObject(it).let { p -> p.getString("scene") to p.getInt("len") } })
     }
 
     /** The same characters are the same stop, with the same visits to each place, and every place lasts what it lasts in the prototype. */

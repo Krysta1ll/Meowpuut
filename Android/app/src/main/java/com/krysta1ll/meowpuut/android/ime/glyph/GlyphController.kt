@@ -86,20 +86,14 @@ internal class GlyphController(private val context: Context) {
     /** The land drawn once and moved (see [GlyphLayerStrips]); off, the picture is drawn whole twelve times a second as it was. */
     private val layerStrips = GlyphLayerStrips(renderScale)
     private var layersOn = LAYER_STRIPS
-    private var lastSyncMs = 0L
     private var lastWorldAt = 0L
     @Volatile private var groundExact = DoubleArray(0)
     private var groundWant = IntArray(0)
     private var groundAdvancing = false
-    /** The motion of what is near (main thread only): see [GlyphMotion]. */
-    val motion = GlyphMotion()
     @Volatile private var worldTarget = 0
     @Volatile private var worldEpoch = 0
     @Volatile var foreHold: Double? = null
     private var dbgLast = -1L
-    private var driving = false
-    private var lastVsync = 0L
-    private val choreographer = android.view.Choreographer.getInstance()
     private val ring = arrayOfNulls<Bitmap>(3)
     @Volatile private var showing = -1
     private var published = -1
@@ -134,14 +128,14 @@ internal class GlyphController(private val context: Context) {
         h.post {
             val e = GlyphEngine(pools(), clockHm = ::clockHm)
             e.scape.liveNear = true
-            e.scape.groundLive = true
+            e.scape.groundLive = LIVE_GROUND
             layersOn = if (perf) context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE).getBoolean("glyphLayers", LAYER_STRIPS) else LAYER_STRIPS
             e.theme.deep = !perf || context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE).getBoolean("glyphDeep", true)   // 縱深: the picture in the finest pixels, with mist, a near corner, what passes
             engine = e
             sink = GlyphCanvasSink(renderScale, gather = true)
             e.restore(startDistance)
             val carried = carriedTarget                           // the picture goes on from where the last showing left it (the records only count what was committed)
-            if (carried > e.world.target) { e.world.target = carried; e.world.pos = max(e.world.pos, carried) }
+            if (carried > e.world.target) { e.world.target = carried; e.world.pos = max(e.world.pos, carried.toDouble()) }
             forced?.let { e.force(it) }
             held?.let { e.hold(it) }
             heldFx?.let { e.holdFx(it) }
@@ -172,7 +166,7 @@ internal class GlyphController(private val context: Context) {
     fun stop() {
         val t = thread ?: return
         carriedTarget = max(carriedTarget, worldTarget)
-        choreographer.removeFrameCallback(vsync); driving = false; motion.reset(); ground.clear(); groundExact = DoubleArray(0)
+        ground.clear(); groundExact = DoubleArray(0)
         hiddenAt = SystemClock.uptimeMillis()
         val h = handler
         thread = null
@@ -214,7 +208,6 @@ internal class GlyphController(private val context: Context) {
     fun pause() {
         val h = handler ?: return
         hiddenAt = SystemClock.uptimeMillis()
-        choreographer.removeFrameCallback(vsync); driving = false          // nothing is drawn while the keyboard is away
         ringView.clear()
         h.removeCallbacks(tick)
         h.post {
@@ -297,11 +290,10 @@ internal class GlyphController(private val context: Context) {
     private var nearMaskSink: GlyphCanvasSink? = null
 
     /** The state of what is near right now: the live motion's clock, and the held place of a shot. */
-    private fun liveState(n: GlyphNear) = n.state(motion.clock, motion.keyAt)
+    private fun liveState(n: GlyphNear) = n.state()
 
     /** Where what passes stands right now, its left edge in points. */
-    private fun liveForeAt(n: GlyphNear): Double =
-        foreHold?.let { it * n.width } ?: (GlyphDepthFore.passesAt(if (motion.fore.isNaN()) worldTarget.toDouble() else motion.fore, motion.coast) + GlyphDepthFore.sway(liveState(n)))
+    private fun liveForeAt(n: GlyphNear): Double = foreHold?.let { it * n.width } ?: n.foreAt
 
     /** The corner and, unless [front], the corner is drawn too; what passes is drawn when it is in the picture. Nothing above the keyboard's top. */
     internal fun drawNearLive(g: GlyphSink, c: GlyphColors, n: GlyphNear, front: Boolean) {
@@ -314,37 +306,6 @@ internal class GlyphController(private val context: Context) {
     /** What passes, drawn alone: for the view in front of the cats, clipped by the caller to where they stand. */
     internal fun drawForeLive(g: GlyphSink, c: GlyphColors, n: GlyphNear) {
         if (n.passes || foreHold != null) GlyphDepthFore.drawFore(GlyphTopClip(g, 0.0), c, liveState(n), liveForeAt(n), 0.0)
-    }
-
-    // ---- the display's own rate: what is near keeps moving between the twelve pictures a second ------------------
-
-    /** Something wants moving: keys, a new picture. Starts stepping the motion with the display (main thread). */
-    fun kick() {
-        if (driving || frame?.near == null) return
-        driving = true
-        lastVsync = 0L
-        choreographer.postFrameCallback(vsync)
-    }
-
-    private val vsync: android.view.Choreographer.FrameCallback = object : android.view.Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) = step(frameTimeNanos)
-    }
-
-    private fun step(now: Long) {
-        driving = false
-        val f = frame
-        val n = f?.near
-        if (n == null || thread == null) return
-        val dt = if (lastVsync == 0L) 1.0 / 60 else ((now - lastVsync) / 1e9).coerceIn(0.001, 0.05)
-        lastVsync = now
-        val still = n.still || n.level == 0
-        val busy = motion.advance(dt, worldTarget.toDouble(), worldEpoch, still, NO_TAU, foreHold == null && n.passes) { GlyphMotion.visible(it, n.width) }
-        updateGround(n, busy)
-        if (busy || motion.fore.isNaN()) {
-            nearView.invalidate()
-            if (n.passes && GlyphMotion.visible(liveForeAt(n), n.width)) { front.invalidate(); for (v in overlays) v.invalidate() }
-        }
-        if (busy) { driving = true; choreographer.postFrameCallback(vsync) }
     }
 
     /** How far each row of the ground has gone, in whole cells, as the motion has it now (or, before it has stepped, as the world's position has it). */
@@ -382,35 +343,6 @@ internal class GlyphController(private val context: Context) {
         val i = if (what == "rebuild") 0 else 1
         gpN[i]++; gpSum[i] += ms; if (ms > gpMax[i]) gpMax[i] = ms
         if (gpN[i] == 24) { android.util.Log.i("MeowpuutGlyphPerf", "ground $what: ${"%.1f".format(gpSum[i] / 24)} ms avg, ${"%.1f".format(gpMax[i])} ms max over 24"); gpN[i] = 0; gpSum[i] = 0.0; gpMax[i] = 0.0 }
-    }
-
-    /** Main thread, each vsync: where the ground's rows are now, and a request to the render thread to shift those that have gone a cell. */
-    private fun updateGround(n: GlyphNear, busy: Boolean) {
-        val rows = ground.rows ?: return
-        val geo = rows.geo
-        if (groundExact.size != geo.rows) groundExact = DoubleArray(geo.rows)
-        val near = if (motion.near.isNaN()) worldTarget.toDouble() else motion.near
-        val far = if (motion.far.isNaN()) worldTarget.toDouble() else motion.far
-        ground.exact(geo, near, far, groundExact)
-        var behind = false
-        for (r in 0 until geo.rows) if (floor(groundExact[r]).toInt() - rows.baked[r] >= GlyphGround.ADVANCE_AT) { behind = true; break }
-        if (behind && !groundAdvancing) {
-            groundAdvancing = true
-            handler?.post {
-                val e = engine
-                if (e != null && e.scape.liveGroundActive()) {
-                    val geoNow = e.scape.groundGeometry()
-                    if (geoNow != null) {
-                        val t0 = System.nanoTime()
-                        val did = ground.advance(e.scape, GlyphColors.of(e.theme.dark), wantFor(geoNow, e))
-                        if (perf && did) groundPerf("advance", (System.nanoTime() - t0) / 1e6)
-                    }
-                }
-                groundAdvancing = false
-                groundView.postInvalidateOnAnimation()
-            }
-        }
-        groundView.invalidate()
     }
 
     /** The ground's strips, each moved by what its row has gone beyond the cells it was drawn at (main thread, in the ground view's draw). */
@@ -463,10 +395,8 @@ internal class GlyphController(private val context: Context) {
 
     /** A key went down. Called on the touch path: it allocates one message and does nothing else. */
     fun key(kind: GlyphKey, x: Float, y: Float, composing: Boolean, letter: String) {
-        motion.keyed()
         ringView.start(x, y)
         handler?.post { engine?.let { it.key(kind, x.toDouble(), y.toDouble(), composing, letter); worldTarget = it.world.target; worldEpoch = it.world.epoch }; requestTick() }
-        kick()
     }
 
     /** Text was committed to the editor. [secret]: it may be read for the words that do something (never in a field that is not to be learned from). */
@@ -489,7 +419,7 @@ internal class GlyphController(private val context: Context) {
     fun holdFore(at: Double?) {
         fore = at
         foreHold = at
-        handler?.post { engine?.world?.dirty = true; requestTick() }
+        handler?.post { engine?.let { it.foreHold = at; it.world.dirty = true }; requestTick() }
         nearView.postInvalidateOnAnimation()
     }
     @Volatile private var fore: Double? = null
@@ -520,7 +450,7 @@ internal class GlyphController(private val context: Context) {
         val h = handler ?: return
         if (scheduled) return
         scheduled = true
-        val wait = (lastTickAt + (if (layerStrips.moving) MOVE_FRAME_MS else FRAME_MS) - SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        val wait = (lastTickAt + FRAME_MS - SystemClock.uptimeMillis()).coerceAtLeast(0L)
         h.postDelayed(tick, wait)
     }
 
@@ -530,19 +460,17 @@ internal class GlyphController(private val context: Context) {
         val h = handler ?: return
         val started = SystemClock.uptimeMillis()
         lastTickAt = started
-        // The world takes twelve steps a second; while the land is moving the picture is made more often than that (it only lays strips
-        // in place), so the land goes by with the display and not a twelfth of a second at a time.
+        // The world takes twelve steps a second, and the picture is made in a step only when something has changed in it (a layer a cell on).
         var stepped = false
         if (started - lastWorldAt >= FRAME_MS - 10) {
             lastWorldAt = started
             stepped = e.step()
             worldTarget = e.world.target; worldEpoch = e.world.epoch
         }
-        if (stepped || layerStrips.moving) render(e)
-        val fast = layerStrips.moving
-        if (e.busy() || fast) {
+        if (stepped) render(e)
+        if (e.busy()) {
             scheduled = true
-            h.postDelayed(tick, ((if (fast) MOVE_FRAME_MS else FRAME_MS) - (SystemClock.uptimeMillis() - started)).coerceAtLeast(1L))
+            h.postDelayed(tick, (FRAME_MS - (SystemClock.uptimeMillis() - started)).coerceAtLeast(1L))
         }
     }
 
@@ -565,12 +493,10 @@ internal class GlyphController(private val context: Context) {
         out.begin(canvas, l.lift)
         if (layersOn && e.theme.deep && !e.theme.opaque) {                    // the land's strips are brought to where the layers are now, before the picture is made
             val nowMs = SystemClock.uptimeMillis()
-            val dt = if (lastSyncMs == 0L) 0.084 else ((nowMs - lastSyncMs) / 1000.0).coerceIn(0.005, 0.25)
-            lastSyncMs = nowMs
             val t0 = System.nanoTime()
-            layerStrips.sync(e.scape, GlyphColors.of(e.theme.dark), l.lift, groundSignature(e, l), e.world.epoch, e.world.target.toDouble(), dt, nowMs)
+            layerStrips.sync(e.scape, GlyphColors.of(e.theme.dark), l.lift, groundSignature(e, l), e.world.epoch, e.world.run, nowMs)
             if (perf) stripPerf((System.nanoTime() - t0) / 1e6)
-        } else { layerStrips.release(e.scape); lastSyncMs = 0L }
+        } else { layerStrips.release(e.scape) }
         if (perf && e.scape.profile == null) e.scape.profile = LongArray(9)
         val drawStart = System.nanoTime()
         val tear = e.drawScene(out)
@@ -611,7 +537,8 @@ internal class GlyphController(private val context: Context) {
         scene.postInvalidateOnAnimation()
         nearView.postInvalidateOnAnimation()
         front.postInvalidateOnAnimation()
-        main.post { kick() }
+        val n = near
+        if (n != null && n.passes && GlyphMotion.visible(n.foreAt, n.width)) for (v in overlays) v.postInvalidateOnAnimation()
         val name = e.scape.sceneName
         if (e.disc() != null && (e.scape.formed < 1.0 || name != lastScene)) for (v in overlays) v.postInvalidateOnAnimation()
         lastScene = name
@@ -674,13 +601,12 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
-        /** The time between two pictures while the land is moving (about thirty a second). */
-        const val MOVE_FRAME_MS = 33L
+        /** Whether the ground is drawn live under the picture, in strips that go by with the display (smooth, and so not what 字景 wants: off; kept for a shot). */
+        const val LIVE_GROUND = false
         /** Whether the land is drawn as strips (a debug build can ask either way with the setting "glyphLayers"). */
         const val LAYER_STRIPS = true
         /** The least time between two whole drawings of the ground while only the turn of the type changes. */
         const val GROUND_TURN_MS = 700L
-        private val NO_TAU = DoubleArray(0)
         /** A keyboard called up again within this long of going away does not arrive again. */
         const val ARRIVAL_GRACE_MS = 2000L
     }

@@ -102,12 +102,16 @@ internal class GlyphFadeSink(val g: GlyphSink, val alpha: Double) : GlyphSink {
  * What is nearest, as the views that draw it live need it: the place, the picture's size, the light, and how much of the motion is on.
  * [fog]: how much of the land is there (see [GlyphWorld.fog]): at a border the corner thins with it and nothing passes while it is not whole.
  */
-internal class GlyphNear(val scene: String, val width: Double, val height: Double, val lift: Double, val dark: Boolean, val still: Boolean, val level: Int, val fog: Double = 1.0) {
+internal class GlyphNear(
+    val scene: String, val width: Double, val height: Double, val lift: Double, val dark: Boolean, val still: Boolean, val level: Int, val fog: Double = 1.0,
+    /** Where what passes stands now (its left edge, points), and the world's clock and the last key's, in milliseconds: all of it as of this tick. */
+    val foreAt: Double = 0.0, val clockMs: Double = 0.0, val keyAtMs: Double = 0.0,
+) {
     /** What passes in front shows only when the land is whole: a fog that thickens is no time for it. */
     val clear: Boolean get() = fog >= FOG_CLEAR
     /** Something passes in front of the place at all: not with the lightest setting, and not with the system's reduced motion. */
     val passes: Boolean get() = level >= 1 && !still && clear && GlyphDepthFore.hasFore(scene)
-    fun state(clockMs: Double, keyAtMs: Double) = GlyphDepthFore.State(scene, width, height, lift, dark, still, clockMs, keyAtMs, !still)
+    fun state() = GlyphDepthFore.State(scene, width, height, lift, dark, still, clockMs, keyAtMs, !still)
     companion object { const val FOG_CLEAR = 0.95 }
 }
 
@@ -376,7 +380,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
 
     /** Works out where the land lies for the world as it is now: the ridge the cats walk on, the sky's drift. */
     fun prepare() {
-        val p = world.pos
+        val p = world.run
         formed = world.formed()
         for (l in front + back + listOf(sky)) {
             if (l.pinned) continue                                            // (its strip has set where it lies)
@@ -564,8 +568,25 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         return GlyphDepthFore.State(preset.name, width, height, lift, theme.dark, theme.still, world.tick * 1000.0 / 12, world.lastMove.toDouble() * 1000.0 / 12, live)
     }
 
+    /**
+     * Where everything stands, by whole cells: a number that changes when a layer, a row of the ground, a step of the cats or what passes in
+     * front has gone a cell. A tick in which it has not changed (and nothing else has) is not drawn.
+     */
+    internal fun motionKey(): Long {
+        val run = world.run
+        var h = 1125899906842597L
+        for (l in front) h = h * 31 + floor(run * l.spec.speed * 8 / l.cell).toLong()
+        for (l in back) h = h * 31 + floor(run * l.spec.speed * 8 / l.cell).toLong()
+        h = h * 31 + floor(run * sky.spec.speed * 8 / sky.cell).toLong()
+        val geo = groundGeometry()
+        if (geo != null) for (row in 0 until geo.rows) h = h * 31 + round(run * geo.speed(row) * 8 / geo.cell).toLong()
+        h = h * 31 + (kotlin.math.ceil(world.pos / GlyphWorld.STEP_UNITS).toLong() shr 0)
+        if (GlyphDepthFore.hasFore(preset.name)) h = h * 31 + floor(foreAt() / 4).toLong()
+        return h
+    }
+
     /** Where what passes in front stands, left edge, in points: [GlyphDepthFore.passesAt] and its sway, or the held place. */
-    fun foreAt(): Double = foreFix?.let { it * width } ?: (GlyphDepthFore.passesAt(world.pos.toDouble(), 0.0) + GlyphDepthFore.sway(nearState()))
+    fun foreAt(): Double = foreFix?.let { it * width } ?: (GlyphDepthFore.passesAt(world.run, world.coast) + (if (theme.deep) 0.0 else GlyphDepthFore.sway(nearState())))
 
     /**
      * What is nearest: the corner's bank in the bottom left and, now and then, something that passes in front of everything. Nothing is drawn
@@ -1053,7 +1074,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     private fun drawGroundFine(g: GlyphSink, c: GlyphColors) {
         val geo = groundGeometry() ?: return
         for (row in 0 until geo.rows) {
-            val exact = world.pos * geo.speed(row) * 8 / geo.cell
+            val exact = world.run * geo.speed(row) * 8 / geo.cell
             drawGroundRow(g, c, geo, row, 0, geo.cols, round(exact))
         }
         g.layerEnd()
@@ -1167,7 +1188,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
             val g0 = min(1.0, (y - groundY) / span)
             val cell = max(least, min(most, round((least + (most - least + 1) * g0.pow(1.15)) / 2) * 2))
             val sub = cell / 2.0
-            val off = round(world.pos * (0.5 + 2.2 * g0) * 8 / cell)
+            val off = round(world.run * (0.5 + 2.2 * g0) * 8 / cell)
             val wide = 2.0 - 1.3 * g0
             val cols = ceil(width / cell).toInt()
             for (col in 0 until cols) {

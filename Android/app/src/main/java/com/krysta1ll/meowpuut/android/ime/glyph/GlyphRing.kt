@@ -12,7 +12,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * The ring a key press runs out through the picture: four frames, 50 ms each (as the prototype's, which had the ring grow by fifteen units a
+ * The ring a key press runs out through the picture, one at a time (a new key takes it to itself and begins again): four frames, 50 ms each (as the prototype's, which had the ring grow by fifteen units a
  * world step), drawn over the picture where the key was pressed and by the screen, so that it stays where the finger was while the land goes
  * by. The frames are made once (a ring, edge dithered thinner with its growth) and drawn as they are: a key press costs one small bitmap blit.
  */
@@ -74,16 +74,16 @@ internal class GlyphRingView(context: Context, private val controller: GlyphCont
         val have = made
         if (have != null && madeDark == dark) return have
         val c = GlyphColors.of(dark)
-        val out = Array(FRAMES) { make(it, c.ink) }
+        val out = Array(FRAMES) { make(it, c.ink, c.paper) }
         made = out; madeDark = dark
         return out
     }
 
-    private fun make(n: Int, color: Int): Bitmap {
+    private fun make(n: Int, color: Int, paper: Int): Bitmap {
         val px = max(1, (PIXEL_DP * density).roundToInt())                       // one dither pixel
         val r = RADII[n]
-        val halfW = r + HALF_BAND + PIXEL_DP
-        val halfH = r / Y_SQUASH + HALF_BAND + PIXEL_DP
+        val halfW = r + HALF_BAND + EDGE + PIXEL_DP
+        val halfH = r / Y_SQUASH + HALF_BAND + EDGE + PIXEL_DP
         val w = max(1, Math.ceil(2 * halfW * density / px).toInt())
         val h = max(1, Math.ceil(2 * halfH * density / px).toInt())
         val small = IntArray(w * h)
@@ -91,8 +91,13 @@ internal class GlyphRingView(context: Context, private val controller: GlyphCont
         for (j in 0 until h) for (i in 0 until w) {
             val dx = (i + 0.5) * px / density - halfW
             val dy = ((j + 0.5) * px / density - halfH) * Y_SQUASH
-            if (abs(hypot(dx, dy) - r) >= HALF_BAND) continue
-            if (BAYER[(j and 3) * 4 + (i and 3)] / 16.0 < cover) small[j * w + i] = color
+            val off = abs(hypot(dx, dy) - r)
+            val t = BAYER[(j and 3) * 4 + (i and 3)] / 16.0
+            if (off < HALF_BAND) {
+                // the band: solid in the middle, broken at its sides
+                val keep = if (off < HALF_BAND / 2) cover else cover * 0.6
+                if (t < keep) small[j * w + i] = color
+            } else if (off < HALF_BAND + EDGE && t < cover * 0.35) small[j * w + i] = paper    // and a broken edge of paper outside it
         }
         val bmp = Bitmap.createBitmap(w * px, h * px, Bitmap.Config.ARGB_8888)
         val row = IntArray(w * px)
@@ -106,9 +111,10 @@ internal class GlyphRingView(context: Context, private val controller: GlyphCont
     companion object {
         const val FRAMES = 4
         const val FRAME_MS = 50L
-        private const val MAX = 6
+        private const val MAX = 1
         private const val PIXEL_DP = 2.0
-        private const val HALF_BAND = 3.0
+        private const val HALF_BAND = 2.0
+        private const val EDGE = 2.0
         private const val Y_SQUASH = 1.4
         private val RADII = doubleArrayOf(12.0, 22.0, 32.0, 42.0)
         private val COVER = doubleArrayOf(1.0, 0.72, 0.46, 0.24)
