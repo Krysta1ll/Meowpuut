@@ -17,6 +17,8 @@ import android.os.SystemClock
 import android.view.View
 import java.util.Calendar
 import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
 
@@ -76,6 +78,12 @@ internal class GlyphController(private val context: Context) {
     private var nearSink: GlyphCanvasSink? = null
     /** The corner's bank and what passes: drawn live between the land and the cats, at the display's rate while anything moves. */
     val nearView = GlyphNearView(context, this)
+    /** The ground with depth, drawn live under the picture (see [GlyphGround]). */
+    val groundView = GlyphGroundView(context, this)
+    private val ground = GlyphGround(renderScale)
+    @Volatile private var groundExact = DoubleArray(0)
+    private var groundWant = IntArray(0)
+    private var groundAdvancing = false
     /** The motion of what is near (main thread only): see [GlyphMotion]. */
     val motion = GlyphMotion()
     @Volatile private var worldTarget = 0
@@ -119,6 +127,7 @@ internal class GlyphController(private val context: Context) {
         h.post {
             val e = GlyphEngine(pools(), clockHm = ::clockHm)
             e.scape.liveNear = true
+            e.scape.groundLive = true
             e.theme.deep = !perf || context.getSharedPreferences("meowpuut", Context.MODE_PRIVATE).getBoolean("glyphDeep", true)   // 縱深: the picture in the finest pixels, with mist, a near corner, what passes
             engine = e
             sink = GlyphCanvasSink(renderScale, gather = true)
@@ -151,7 +160,7 @@ internal class GlyphController(private val context: Context) {
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */
     fun stop() {
         val t = thread ?: return
-        choreographer.removeFrameCallback(vsync); driving = false; motion.reset()
+        choreographer.removeFrameCallback(vsync); driving = false; motion.reset(); ground.clear(); groundExact = DoubleArray(0)
         hiddenAt = SystemClock.uptimeMillis()
         val h = handler
         thread = null
@@ -295,12 +304,87 @@ internal class GlyphController(private val context: Context) {
         lastVsync = now
         val still = n.still || n.level == 0
         val busy = motion.advance(dt, worldTarget.toDouble(), worldEpoch, still, NO_TAU, foreHold == null && n.passes) { GlyphMotion.visible(it, n.width) }
+        updateGround(n, busy)
         if (perf && (motion.clock.toLong() / 200) != dbgLast) { dbgLast = motion.clock.toLong() / 200; android.util.Log.i("MeowpuutGlyphPerf", "near: target $worldTarget fore ${"%.1f".format(motion.fore)} coast ${"%.1f".format(motion.coast)} at ${"%.0f".format(liveForeAt(n))} passes ${n.passes} busy $busy still $still level ${n.level} scene ${n.scene}") }
         if (busy || motion.fore.isNaN()) {
             nearView.invalidate()
             if (n.passes && GlyphMotion.visible(liveForeAt(n), n.width)) { front.invalidate(); for (v in overlays) v.invalidate() }
         }
         if (busy) { driving = true; choreographer.postFrameCallback(vsync) }
+    }
+
+    /** How far each row of the ground has gone, in whole cells, as the motion has it now (or, before it has stepped, as the world's position has it). */
+    private fun wantFor(geo: GlyphScape.GroundGeometry, e: GlyphEngine): IntArray {
+        val ex = groundExact
+        val out = IntArray(geo.rows)
+        if (ex.size == geo.rows) for (r in 0 until geo.rows) out[r] = floor(ex[r]).toInt()
+        else for (r in 0 until geo.rows) out[r] = floor(e.world.pos * geo.speed(r) * 8 / geo.cell).toInt()
+        return out
+    }
+
+    private var groundSig = 0L
+    private var groundEpoch = -1
+    private var groundAt = 0L
+
+    /** Everything the ground's cells are made of besides the turn of the type: when it changes the ground is drawn afresh. */
+    private fun groundSignature(e: GlyphEngine, l: GlyphLayout): Long {
+        var h = e.scape.sceneName.hashCode().toLong()
+        h = h * 31 + e.theme.level; h = h * 31 + (if (e.theme.dark) 1 else 0); h = h * 31 + (if (e.theme.still) 1 else 0)
+        h = h * 31 + l.hashCode(); h = h * 31 + (if (e.hasCandidates) 1 else 0); h = h * 31 + (e.barLabel?.contentHashCode() ?: 0)
+        h = h * 31 + Math.round(e.scape.formed * 20); h = h * 31 + Math.round(e.world.fog * 20)
+        h = h * 31 + (if (e.world.ripples.isNotEmpty()) e.world.tick.toLong() else 0L)          // a ring is running out through the land
+        h = h * 31 + (if (e.world.tick < e.world.glitch) e.world.tick.toLong() else 0L)
+        return h
+    }
+
+    private val gpN = IntArray(2); private val gpSum = DoubleArray(2); private val gpMax = DoubleArray(2)
+    private fun groundPerf(what: String, ms: Double) {
+        val i = if (what == "rebuild") 0 else 1
+        gpN[i]++; gpSum[i] += ms; if (ms > gpMax[i]) gpMax[i] = ms
+        if (gpN[i] == 24) { android.util.Log.i("MeowpuutGlyphPerf", "ground $what: ${"%.1f".format(gpSum[i] / 24)} ms avg, ${"%.1f".format(gpMax[i])} ms max over 24"); gpN[i] = 0; gpSum[i] = 0.0; gpMax[i] = 0.0 }
+    }
+
+    /** Main thread, each vsync: where the ground's rows are now, and a request to the render thread to shift those that have gone a cell. */
+    private fun updateGround(n: GlyphNear, busy: Boolean) {
+        val rows = ground.rows ?: return
+        val geo = rows.geo
+        if (groundExact.size != geo.rows) groundExact = DoubleArray(geo.rows)
+        val near = if (motion.near.isNaN()) worldTarget.toDouble() else motion.near
+        val far = if (motion.far.isNaN()) worldTarget.toDouble() else motion.far
+        ground.exact(geo, near, far, groundExact)
+        var behind = false
+        for (r in 0 until geo.rows) if (floor(groundExact[r]).toInt() - rows.baked[r] >= GlyphGround.ADVANCE_AT) { behind = true; break }
+        if (behind && !groundAdvancing) {
+            groundAdvancing = true
+            handler?.post {
+                val e = engine
+                if (e != null && e.scape.liveGroundActive()) {
+                    val geoNow = e.scape.groundGeometry()
+                    if (geoNow != null) {
+                        val t0 = System.nanoTime()
+                        val did = ground.advance(e.scape, GlyphColors.of(e.theme.dark), wantFor(geoNow, e))
+                        if (perf && did) groundPerf("advance", (System.nanoTime() - t0) / 1e6)
+                    }
+                }
+                groundAdvancing = false
+                groundView.postInvalidateOnAnimation()
+            }
+        }
+        groundView.invalidate()
+    }
+
+    /** The ground's strips, each moved by what its row has gone beyond the cells it was drawn at (main thread, in the ground view's draw). */
+    fun drawGround(canvas: Canvas, paint: Paint) {
+        synchronized(ground.lock) {
+            val rows = ground.rows ?: return
+            val ex = groundExact
+            for (r in 0 until rows.geo.rows) {
+                val b = rows.bitmaps[r] ?: continue
+                val frac = if (ex.size == rows.geo.rows) ex[r] - rows.baked[r] else 0.0
+                val dx = -(frac.coerceIn(0.0, GlyphGround.MARGIN - 1.0) * rows.cellPx).roundToInt()
+                canvas.drawBitmap(b, dx.toFloat(), rows.topPx[r].toFloat(), paint)
+            }
+        }
     }
 
     /** The picture's sun or moon for a view to cut its type out of (see [GlyphCanvasSink.Eclipse]); [dx], [dy] is where the view stands in the keyboard. */
@@ -447,6 +531,23 @@ internal class GlyphController(private val context: Context) {
             }
         }
         if (tear != null) applyTear(bitmap, tear, l.lift)
+        if (e.scape.liveGroundActive()) {                                    // the ground is drawn live, under this picture
+            val geo = e.scape.groundGeometry()
+            if (geo != null) {
+                // The ground is drawn afresh when what it is made of changes; between those it is only moved, and its type turns a little late
+                // (a whole new drawing at most every [GROUND_TURN_MS] while the type is turning), which is calmer than a new drawing at every key.
+                val sig = groundSignature(e, l)
+                val nowMs = SystemClock.uptimeMillis()
+                val turned = e.world.epoch != groundEpoch
+                if (sig != groundSig || ground.rows == null || (turned && nowMs - groundAt >= GROUND_TURN_MS)) {
+                    val t0 = System.nanoTime()
+                    ground.rebuild(e.scape, GlyphColors.of(e.theme.dark), l.lift, wantFor(geo, e))
+                    if (perf) groundPerf("rebuild", (System.nanoTime() - t0) / 1e6)
+                    groundSig = sig; groundEpoch = e.world.epoch; groundAt = nowMs
+                    groundView.postInvalidateOnAnimation()
+                }
+            }
+        } else ground.clear()
         val near = e.near()
         val finished = GlyphFrame(bitmap, i, e.front(), l, e.theme.dark, e.theme.opaque, e.disc(), near, e.world.tick, e.scape.sceneName)
         published = i
@@ -515,6 +616,8 @@ internal class GlyphController(private val context: Context) {
 
         /** Twelve frames a second at most. */
         const val FRAME_MS = 84L
+        /** The least time between two whole drawings of the ground while only the turn of the type changes. */
+        const val GROUND_TURN_MS = 700L
         private val NO_TAU = DoubleArray(0)
         /** A keyboard called up again within this long of going away does not arrive again. */
         const val ARRIVAL_GRACE_MS = 2000L

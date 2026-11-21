@@ -188,7 +188,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
     private val monoFace: Typeface = Typeface.MONOSPACE
     private val widths = HashMap<Long, Float>()
 
-    private class Run(val size: Int, val mono: Boolean, val color: Int) {
+    private class Run(val size: Int, val mono: Boolean, val color: Int, val weight: Int) {
         var chars = CharArray(256)
         var pos = FloatArray(512)
         var n = 0
@@ -217,17 +217,32 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
 
     private fun edge(v: Double): Float = Math.floor(v * scale + 0.5 + 1e-6).toFloat()
 
-    private fun measure(ch: Char, size: Int, mono: Boolean): Float = widths.getOrPut((ch.code.toLong() shl 20) or (size.toLong() shl 1) or if (mono) 1L else 0L) {
-        textPaint.typeface = if (mono) monoFace else Typeface.DEFAULT
+    private val faces = HashMap<Int, Typeface>()
+
+    /** The face for a weight (400 regular, 500, 700 heavy): the system's own weights from Android 9, else regular and bold. */
+    private fun faceFor(mono: Boolean, weight: Int): Typeface = faces.getOrPut(weight * 2 + if (mono) 1 else 0) {
+        when {
+            weight <= 400 -> if (mono) monoFace else Typeface.DEFAULT
+            mono -> Typeface.create(Typeface.MONOSPACE, if (weight >= 600) Typeface.BOLD else Typeface.NORMAL)
+            Build.VERSION.SDK_INT >= 28 -> Typeface.create(Typeface.DEFAULT, weight, false)
+            weight >= 600 -> Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            else -> Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+    }
+
+    private fun measure(ch: Char, size: Int, mono: Boolean, weight: Int): Float = widths.getOrPut((ch.code.toLong() shl 24) or (size.toLong() shl 4) or ((weight / 100).toLong() shl 1) or if (mono) 1L else 0L) {
+        textPaint.typeface = faceFor(mono, weight)
         textPaint.textSize = size * scale
         textPaint.measureText(ch.toString())
     }
 
-    override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) {
+    override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = textW(ch, cx, cy, size, mono, color, 400)
+
+    override fun textW(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int, weight: Int) {
         if (ch.isEmpty()) return
         val c = ch[0]
-        val px = (cx * scale).toFloat() - measure(c, size, mono) / 2f
-        textPaint.typeface = if (mono) monoFace else Typeface.DEFAULT
+        val px = (cx * scale).toFloat() - measure(c, size, mono, weight) / 2f
+        textPaint.typeface = faceFor(mono, weight)
         textPaint.textSize = size * scale
         val py = ((cy + oy) * scale).toFloat() - (textPaint.ascent() + textPaint.descent()) / 2f
         if (!gather) {
@@ -235,8 +250,8 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
             canvas?.drawText(ch, px, py, textPaint)
             return
         }
-        val key = (size.toLong() shl 40) or (if (mono) 1L shl 32 else 0L) or (color.toLong() and 0xFFFFFFFFL)
-        runs.getOrPut(key) { Run(size, mono, color) }.add(c, px, py)
+        val key = (size.toLong() shl 44) or ((weight / 100).toLong() shl 36) or (if (mono) 1L shl 32 else 0L) or (color.toLong() and 0xFFFFFFFFL)
+        runs.getOrPut(key) { Run(size, mono, color, weight) }.add(c, px, py)
     }
 
     @Suppress("DEPRECATION")
@@ -244,7 +259,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
         val c = canvas ?: return
         for (run in runs.values) {
             if (run.n == 0) continue
-            textPaint.typeface = if (run.mono) monoFace else Typeface.DEFAULT
+            textPaint.typeface = faceFor(run.mono, run.weight)
             textPaint.textSize = run.size * scale
             textPaint.color = run.color
             c.drawPosText(run.chars, 0, run.n, run.pos.copyOf(run.n * 2), textPaint)

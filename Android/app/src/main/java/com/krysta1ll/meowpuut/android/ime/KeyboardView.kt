@@ -104,15 +104,17 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             val controller = GlyphController(context)
             glyph = controller
             controller.warm()
-            addView(controller.scene, 0)
-            addView(controller.nearView, 1)
+            addView(controller.groundView, 0)
+            addView(controller.scene, 1)
+            addView(controller.nearView, 2)
             // The cats and the words that rise are under the bar and the keys: a legend, with its halo, is always the clearest thing.
-            addView(controller.front, 2)
+            addView(controller.front, 3)
             keys.glyph = controller
             bar.glyph = controller
             controller.overlays = listOf(bar, keys)
             controller.signs = keys
             controller.scene.paper = if (look.dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()
+            controller.groundView.paper = controller.scene.paper
             configureGlyph()
             controller.force(glyphScene)
             controller.holdFore(glyphFore)
@@ -124,6 +126,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             val controller = glyph ?: return
             keys.glyph = null
             bar.glyph = null
+            removeView(controller.groundView)
             removeView(controller.scene)
             removeView(controller.nearView)
             removeView(controller.front)
@@ -132,6 +135,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             requestLayout()
         } else if (want) {
             glyph?.scene?.paper = if (look.dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()
+            glyph?.groundView?.paper = glyph?.scene?.paper ?: 0xFFECE8DC.toInt()
             configureGlyph()
         }
     }
@@ -391,6 +395,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             // The picture runs on, faintly, under the navigation strip and the dock's gap.
             val tailPx = if (floating) 0 else total - regionPx - keysPx
             it.scene.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
+            it.groundView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
             it.nearView.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(regionPx + keysPx + tailPx, MeasureSpec.EXACTLY))
             it.front.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), h)
         }
@@ -430,6 +435,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
         glyph?.let {
             it.scene.layout(0, 0, width, it.scene.measuredHeight)
             it.nearView.layout(0, 0, width, it.scene.measuredHeight)
+            it.groundView.layout(0, 0, width, it.scene.measuredHeight)
             it.front.layout(0, 0, width, it.front.measuredHeight)
             glyphLayout()?.let(it::setLayout)
         }

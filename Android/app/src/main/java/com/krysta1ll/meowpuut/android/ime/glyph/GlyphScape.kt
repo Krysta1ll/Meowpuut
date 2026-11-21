@@ -360,6 +360,12 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         ready = true
     }
 
+    /** With the ground drawn live by its own view (under this picture): this picture leaves its place bare. Set by the controller. */
+    var groundLive = false
+
+    /** Whether the ground is drawn live here: asked for, with depth, in a place that has a ground in front of the land, and not in the safe picture. */
+    fun liveGroundActive(): Boolean = groundLive && theme.deep && !theme.opaque && groundSpec != null && !groundFirst
+
     /** Debug builds: where the time of a picture goes, in nanoseconds by part (sky, back land, mist, ground, front land, seam, air, near, disc). */
     var profile: LongArray? = null
 
@@ -372,18 +378,19 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     fun draw(g: GlyphSink, c: GlyphColors) {
         prepare()
         // The paper lies over the strip above the keyboard too, when there is one.
-        g.rect(0.0, -lift, width, height + lift + tail, c.paper)
+        val liveGround = liveGroundActive()
+        g.rect(0.0, -lift, width, (if (liveGround) groundY else height + tail) + lift, c.paper)      // (the live ground lies under this picture, and shows where there is none of it)
         val cull = (theme.deep || CULL_ALWAYS) && !CULL_OFF
-        timed(0) { drawLayer(g, c, sky, cover = false, rowLimit = if (cull) hiddenBelow(sky, front + back, groundFirst = null) else null) { l, i, py -> skySample(l, i, py) } }
+        timed(0) { drawLayer(g, c, sky, cover = false, rowLimit = if (cull) hiddenBelow(sky, front + back, groundFirst = if (liveGround) false else null) else null) { l, i, py -> skySample(l, i, py) } }
         if (early) timed(8) { drawDisc(g, c) }                   // the Earth stands behind everything
-        if (groundFirst) timed(3) { drawGround(g, c) }           // where the land in front of the ground is what matters: bamboo
+        if (groundFirst && !liveGround) timed(3) { drawGround(g, c) }           // where the land in front of the ground is what matters: bamboo
         for (i in back.indices.reversed()) {
             if (discLate && !early && back[i] === walkOn) timed(8) { drawDisc(g, c) }
             if (theme.deep && i < back.size - 1) timed(2) { mist(g, c, back[i]) }
             timed(1) { drawLayer(g, c, back[i], cover = true, rowLimit = if (cull) hiddenBelow(back[i], front + back.subList(0, i), groundFirst = groundFirst) else null) { l, k, py -> sample(l, k, py) } }
         }
         if (discLate && !early && !back.contains(walkOn)) timed(8) { drawDisc(g, c) }
-        if (!groundFirst) timed(3) { drawGround(g, c) }
+        if (!groundFirst && !liveGround) timed(3) { drawGround(g, c) }
         for (i in front.indices.reversed()) {
             if (theme.deep && back.isNotEmpty()) timed(2) { mist(g, c, front[i]) }
             timed(4) { drawLayer(g, c, front[i], cover = true) { l, k, py -> sample(l, k, py) } }
@@ -894,7 +901,26 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
      * fast it goes by; the pattern itself (the rows the waves, the furrows, the kerb lines are counted in) still opens out toward the viewer.
      */
     private fun drawGroundFine(g: GlyphSink, c: GlyphColors) {
-        val spec = groundSpec ?: return
+        val geo = groundGeometry() ?: return
+        for (row in 0 until geo.rows) {
+            val exact = world.pos * geo.speed(row) * 8 / geo.cell
+            drawGroundRow(g, c, geo, row, 0, geo.cols, round(exact))
+        }
+        g.layerEnd()
+    }
+
+    /** What the fine ground is made of: rows of cells [cell] points high, one run per row, and the pattern rows its pixels are counted in. */
+    internal class GroundGeometry(val cell: Int, val m: Int, val rows: Int, val cols: Int, val top: Double, val span: Double, val rowAt: IntArray) {
+        fun y(row: Int) = top + row * cell
+        fun g0(row: Int) = min(1.0, (y(row) + cell / 2.0 - top) / span)
+        /** How fast the row goes by, against the world's mileage (the near rows faster): the speed of the ground in the picture. */
+        fun speed(row: Int) = 0.5 + 2.2 * g0(row)
+    }
+
+    /** The ground's rows for this place, or null when it has none (or the picture is not a deep one). */
+    internal fun groundGeometry(): GroundGeometry? {
+        if (!theme.deep) return null
+        groundSpec ?: return null
         val span = height - groundY
         val level = theme.level
         val cell = intArrayOf(12, 10, 6, 4)[level]
@@ -903,51 +929,53 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         val least = intArrayOf(8, 6, 4, 4)[level]
         val most = intArrayOf(12, 10, 8, 8)[level]
         val rowAt = ArrayList<Int>()
-        run {
-            var y = groundY
-            var at = 0.0
-            while (y < height + tail + cell) {
-                val g0 = min(1.0, (y - groundY) / span)
-                rowAt.add(floor(at).toInt())
-                at += 2 * sub / max(least, min(most, round((least + (most - least + 1) * g0.pow(1.15)) / 2) * 2))
-                y += sub
-            }
+        var y = groundY
+        var at = 0.0
+        while (y < height + tail + cell) {
+            val g0 = min(1.0, (y - groundY) / span)
+            rowAt.add(floor(at).toInt())
+            at += 2 * sub / max(least, min(most, round((least + (most - least + 1) * g0.pow(1.15)) / 2) * 2))
+            y += sub
         }
+        var rows = 0
+        y = groundY
+        while (y < height + tail) { rows++; y += cell }
+        return GroundGeometry(cell, m, rows, ceil(width / cell).toInt(), groundY, span, rowAt.toIntArray())
+    }
+
+    /** One row of the fine ground, cells [colFrom] until [colTo] of it, as it lies when the row has gone [off] cells. */
+    internal fun drawGroundRow(g: GlyphSink, c: GlyphColors, geo: GroundGeometry, row: Int, colFrom: Int, colTo: Int, off: Int) {
+        val spec = groundSpec ?: return
+        val cell = geo.cell
+        val m = geo.m
+        val sub = FINE
+        val y = geo.y(row)
+        val g0 = geo.g0(row)
         grid = m
         firm = false
-        var y = groundY
-        var row = 0
-        while (y < height + tail) {
-            val g0 = min(1.0, (y + cell / 2.0 - groundY) / span)
-            plane = 0.34 * (1 - g0) * (1 - g0)
-            weight = if (g0 > 0.5) 700 else if (g0 > 0.22) 500 else 400
-            dense = NEAR_CLOSE * g0 * g0 - NEAR_FAR * (1 - g0) * (1 - g0)
-            val exact = world.pos * (0.5 + 2.2 * g0) * 8 / cell
-            val off = round(exact)
-            val wide = 2.0 - 1.3 * g0
-            val cols = ceil(width / cell).toInt()
-            for (col in 0 until cols) {
-                var accent = 0
-                var lit = false
-                for (k in 0 until m * m) {
-                    val a = k % m
-                    val b = k / m
-                    val px = (col * m + a) * sub + sub / 2
-                    val py = y + b * sub + sub / 2
-                    probe.reset()
-                    fineCol = (col + off) * m + a
-                    fineRow = row * m + b
-                    v[k] = finish(ground(spec, (px - width / 2 + off * cell) * wide, rowAt[min(rowAt.size - 1, row * m + b)], min(1.0, (py - groundY) / span), px), px, py)
-                    if (probe.acc) accent = if (probe.hue != 0) probe.hue else VERMILION
-                    if (probe.lit) lit = true
-                }
-                firm = lit
-                paintCell(g, c, col * cell.toDouble(), y, cell, probe.pool, col + off, row, 40, true, accent, null)
+        plane = 0.34 * (1 - g0) * (1 - g0)
+        weight = if (g0 > 0.5) 700 else if (g0 > 0.22) 500 else 400
+        dense = NEAR_CLOSE * g0 * g0 - NEAR_FAR * (1 - g0) * (1 - g0)
+        val wide = 2.0 - 1.3 * g0
+        for (col in colFrom until colTo) {
+            var accent = 0
+            var lit = false
+            for (k in 0 until m * m) {
+                val a = k % m
+                val b = k / m
+                val px = (col * m + a) * sub + sub / 2
+                val py = y + b * sub + sub / 2
+                probe.reset()
+                fineCol = (col + off) * m + a
+                fineRow = row * m + b
+                v[k] = finish(ground(spec, (px - width / 2 + off * cell) * wide, geo.rowAt[min(geo.rowAt.size - 1, row * m + b)], min(1.0, (py - groundY) / geo.span), px), px, py)
+                if (probe.acc) accent = if (probe.hue != 0) probe.hue else VERMILION
+                if (probe.lit) lit = true
             }
-            y += cell; row++
+            firm = lit
+            paintCell(g, c, col * cell.toDouble(), y, cell, probe.pool, col + off, row, 40, true, accent, null)
         }
         grid = 2; weight = 400; plane = 0.0; dense = 0.0; firm = false; fineCol = null
-        g.layerEnd()
     }
 
     /** The air between two planes: what is behind thins into the paper just above the ridge of the plane about to be drawn. */
