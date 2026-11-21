@@ -168,6 +168,9 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
         return scape.tear()
     }
 
+    /** What is nearest (see [GlyphNear]), or null without depth or in the safe picture. */
+    fun near(): GlyphNear? = if (theme.deep && !theme.opaque) GlyphNear(scape.nearState(), scape.foreAt()) else null
+
     /** The sun or moon of the picture, for the keyboard's type to be cut out of. */
     fun disc(): DiscInfo? = if (theme.opaque) null else scape.disc()
 

@@ -330,6 +330,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         val fingers = touches.active
         glyphSink.begin(canvas)
         glyphSink.eclipse = if (look.opaque) null else glyph?.eclipse(colors, left / density.toDouble(), top / density.toDouble())
+        glyphSink.nearCut = if (look.opaque || look.dark) null else glyph?.nearCut(colors, left / density.toDouble(), top / density.toDouble())
         val frame = glyph?.frame
         val street = !look.opaque && frame?.scene == GlyphController.STREET
         // At night one sign in the street now and then goes out for a moment, and comes back.

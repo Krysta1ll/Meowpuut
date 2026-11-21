@@ -30,6 +30,10 @@ internal class GlyphFrame(
     val opaque: Boolean,
     /** The sun or moon in the picture, for the views to cut their type out of; null when there is none or the picture is the safe one. */
     val disc: DiscInfo? = null,
+    /** What is nearest, for the view in front of the cats to draw round them; null without depth. */
+    val near: GlyphNear? = null,
+    /** By day, the near art alone (its alpha), for the keys' type to be cut out of it; null at night or without depth. */
+    val nearMask: Bitmap? = null,
     /** The world's clock when this was drawn, and the name of the place. */
     val tick: Int = 0,
     val scene: String = "",
@@ -71,7 +75,9 @@ internal class GlyphController(private val context: Context) {
     // ---- the render thread's own ---------------------------------------------------------------------------
     private var engine: GlyphEngine? = null
     private var sink: GlyphCanvasSink? = null
+    private var nearSink: GlyphCanvasSink? = null
     private val ring = arrayOfNulls<Bitmap>(3)
+    private val nearRing = arrayOfNulls<Bitmap>(3)
     @Volatile private var showing = -1
     private var published = -1
     private var scheduled = false
@@ -100,10 +106,12 @@ internal class GlyphController(private val context: Context) {
         handler = h
         h.post {
             val e = GlyphEngine(pools(), clockHm = ::clockHm)
+            e.theme.deep = true                                // 縱深: the picture in the finest pixels, with mist, a near corner, what passes
             engine = e
             sink = GlyphCanvasSink(renderScale, gather = true)
             e.restore(startDistance)
             forced?.let { e.force(it) }
+            fore?.let { e.scape.foreFix = it }
             held?.let { e.hold(it) }
             heldFx?.let { e.holdFx(it) }
             applyAll(e)
@@ -213,6 +221,13 @@ internal class GlyphController(private val context: Context) {
     }
 
     /** The candidates on the bar and the edges of their type, in points: the birds settle on them. */
+    /** By day, what is near in the picture for the keys' type to be cut out of (see [GlyphCanvasSink.NearCut]); [dx], [dy] is where the view stands in the keyboard. */
+    fun nearCut(c: GlyphColors, dx: Double, dy: Double): GlyphCanvasSink.NearCut? {
+        val f = frame ?: return null
+        val m = f.nearMask ?: return null
+        return GlyphCanvasSink.NearCut(m, renderScale, f.layout.lift, c.paper, dx, dy)
+    }
+
     /** The picture's sun or moon for a view to cut its type out of (see [GlyphCanvasSink.Eclipse]); [dx], [dy] is where the view stands in the keyboard. */
     fun eclipse(c: GlyphColors, dx: Double, dy: Double): GlyphCanvasSink.Eclipse? {
         val f = frame ?: return null
@@ -267,6 +282,13 @@ internal class GlyphController(private val context: Context) {
         handler?.post { engine?.hold(form); requestTick() }
     }
     @Volatile private var held: Double? = null
+
+    /** Debug: hold what passes in front at this part of the width, or null. */
+    fun holdFore(at: Double?) {
+        fore = at
+        handler?.post { engine?.scape?.foreFix = at; engine?.world?.dirty = true; requestTick() }
+    }
+    @Volatile private var fore: Double? = null
 
     /** Debug: stay in one place. */
     fun force(sceneIndex: Int?) {
@@ -331,7 +353,18 @@ internal class GlyphController(private val context: Context) {
         val tear = e.drawScene(out)
         out.layerEnd()
         if (tear != null) applyTear(bitmap, tear, l.lift)
-        val finished = GlyphFrame(bitmap, i, e.front(), l, e.theme.dark, e.theme.opaque, e.disc(), e.world.tick, e.scape.sceneName)
+        val near = e.near()
+        var mask: Bitmap? = null
+        if (near != null && !e.theme.dark) {                              // by day the keys' type is cut out of what is near: its alpha, drawn once more on its own
+            var nb = nearRing[i]
+            if (nb == null || nb.width != w || nb.height != h) { nb = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8); nearRing[i] = nb }
+            nb.eraseColor(0)
+            val maskSink = nearSink ?: GlyphCanvasSink(renderScale, gather = false).also { nearSink = it }
+            maskSink.begin(Canvas(nb), l.lift)
+            e.scape.drawNear(maskSink, GlyphColors.of(false), front = false)
+            mask = nb
+        }
+        val finished = GlyphFrame(bitmap, i, e.front(), l, e.theme.dark, e.theme.opaque, e.disc(), near, mask, e.world.tick, e.scape.sceneName)
         published = i
         frame = finished
         scene.postInvalidateOnAnimation()

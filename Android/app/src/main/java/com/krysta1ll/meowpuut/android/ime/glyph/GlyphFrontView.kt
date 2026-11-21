@@ -46,6 +46,13 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
         for (d in ff.cats) {
             val r = cat(d, c, f.dark)
             val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + d.hopY       // each cat has its own height (Mimi is taller, and a suit adds a row)
+            if (f.near != null && !d.platform) {                       // with depth the cat stands on its own shadow: a few fine dots under its feet
+                val bx = d.x
+                for (b in 0 until 3) for (a in 0 until 40) {
+                    val e = 1 - ((a - 20) / 20.0).let { it * it } - b * 0.22
+                    if (GlyphScape.BAYER[(b and 3) * 4 + ((a + bx) and 3)] < e * 0.85) sink.rect((bx + a).toDouble(), (d.feetY + b).toDouble(), 1.0, 1.0, c.ink)
+                }
+            }
             if (d.platform) {                                          // something to stand on
                 sink.rect(d.x + 2.0 * k, d.feetY - 1.0, 36.0 * k, 4.0, c.paper)
                 sink.rect(d.x + 4.0 * k, d.feetY.toDouble(), 32.0 * k, 2.0, c.ink)
@@ -58,6 +65,14 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             sink.raster(r, d.x - GlyphCats.MARGIN * u, top - GlyphCats.MARGIN * u, u)
             if (d.zzz) for (i in 0 until 3) {
                 painter.label(sink, c, "ㄗ", d.x + 36.0 * k + i * 11 + ((d.zPhase + i) % 2), d.feetY - 24.0 * k - i * 12, 1.0, 1.0, centre = true, halo = true)
+            }
+        }
+        f.near?.let { n ->                                              // what passes in front of the land is in front of the cats too, where they stand
+            for (d in ff.cats) {
+                canvas.save()
+                canvas.clipRect(((d.x - 4) * scale), ((d.feetY - 44 + f.layout.lift) * scale).toFloat(), ((d.x + 44) * scale), ((d.feetY + 4 + f.layout.lift) * scale).toFloat())
+                GlyphDepthFore.drawFore(GlyphTopClip(sink, 0.0), c, n.state, n.foreAt, 0.0)
+                canvas.restore()
             }
         }
         for (d in ff.dust) sink.text(d.ch, q(d.x, 2.0), q(d.y, 2.0), d.size, false, GlyphColors.withAlpha(c.ink, d.alpha.toDouble()))

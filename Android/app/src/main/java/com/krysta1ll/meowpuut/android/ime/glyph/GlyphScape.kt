@@ -67,6 +67,18 @@ internal class GlyphColors(val paper: Int, val ink: Int, val red: Int) {
     }
 }
 
+/** Nothing above [minY]: the picture's strip above the keyboard is not for what is near. */
+internal class GlyphTopClip(val g: GlyphSink, val minY: Double) : GlyphSink {
+    override fun rect(x: Double, y: Double, w: Double, h: Double, color: Int) {
+        if (y + h <= minY) return
+        if (y < minY) g.rect(x, minY, w, y + h - minY, color) else g.rect(x, y, w, h, color)
+    }
+    override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
+}
+
+/** What is nearest, as the views in front of the cats need it: where what passes stands, and the clock it sways to. */
+internal class GlyphNear(val state: GlyphDepthFore.State, val foreAt: Double)
+
 /** A band of the picture that tears sideways in a glitch, and the band that turns to its negative. */
 internal class Tear(val bands: List<Triple<Int, Int, Int>>, val negativeY: Int, val negativeH: Int)
 
@@ -368,33 +380,26 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     /** Debug and shots: leave out the corner's own foreground. */
     var noFrame = false
 
-    private fun near(): GlyphDepthFore.State {
+    internal fun nearState(): GlyphDepthFore.State {
         val live = !theme.still
         return GlyphDepthFore.State(preset.name, width, height, lift, theme.dark, theme.still, world.tick * 1000.0 / 12, world.lastMove.toDouble() * 1000.0 / 12, live)
     }
 
     /** Where what passes in front stands, left edge, in points: [GlyphDepthFore.passesAt] and its sway, or the held place. */
-    fun foreAt(): Double = foreFix?.let { it * width } ?: (GlyphDepthFore.passesAt(world.pos.toDouble(), 0.0) + GlyphDepthFore.sway(near()))
+    fun foreAt(): Double = foreFix?.let { it * width } ?: (GlyphDepthFore.passesAt(world.pos.toDouble(), 0.0) + GlyphDepthFore.sway(nearState()))
 
     /**
      * What is nearest: the corner's bank in the bottom left and, now and then, something that passes in front of everything. Nothing is drawn
      * above the keyboard's top edge. [front]: the second drawing, in front of the cats (the caller clips it to where they stand).
      */
     fun drawNear(g: GlyphSink, c: GlyphColors, front: Boolean) {
-        val clip = TopClip(g, 0.0)
-        val st = near()
+        val clip = GlyphTopClip(g, 0.0)
+        val st = nearState()
         if (!front && !noFrame) GlyphDepthFore.drawFrame(clip, c, st)
         if (GlyphDepthFore.hasFore(preset.name)) GlyphDepthFore.drawFore(clip, c, st, foreAt(), 0.0)
     }
 
-    /** Nothing above [minY]: the picture's strip above the keyboard is not for what is near. */
-    private class TopClip(val g: GlyphSink, val minY: Double) : GlyphSink {
-        override fun rect(x: Double, y: Double, w: Double, h: Double, color: Int) {
-            if (y + h <= minY) return
-            if (y < minY) g.rect(x, minY, w, y + h - minY, color) else g.rect(x, y, w, h, color)
-        }
-        override fun text(ch: String, cx: Double, cy: Double, size: Int, mono: Boolean, color: Int) = g.text(ch, cx, cy, size, mono, color)
-    }
+
 
     /** The glitch's bands, for the screen to apply to what has been drawn (see [GlyphWorld.glitch]). */
     fun tear(): Tear? {

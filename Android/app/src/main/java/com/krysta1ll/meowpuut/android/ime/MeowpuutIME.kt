@@ -1253,6 +1253,7 @@ class MeowpuutIME : InputMethodService(),
             it.glyphDistance = journeyStart()
             it.glyphCrab = prefs.glyphCrab
             it.glyphScene = prefs.glyphScene
+            it.glyphFore = prefs.glyphFore
             it.glyphForm = prefs.glyphForm
             it.glyphFx = prefs.glyphFx
             it.look = look

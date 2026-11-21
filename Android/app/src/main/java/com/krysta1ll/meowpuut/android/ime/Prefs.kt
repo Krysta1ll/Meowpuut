@@ -181,6 +181,9 @@ class Prefs(context: Context) {
         get() = debuggable && store.getBoolean(GLYPH_CRAB, false)
         set(value) = store.edit().putBoolean(GLYPH_CRAB, value).apply()
 
+    /** Debug builds only: hold what passes in front of 字景 at this part (0..1) of the width, for shots; unset lets it go by. */
+    val glyphFore: Double? get() = if (debuggable && store.contains(GLYPH_FORE)) store.getFloat(GLYPH_FORE, 0f).toDouble() else null
+
     /** Debug builds only: -1 travels as usual, 0..5 stays in that place of 字景. */
     val glyphScene: Int? get() = if (debuggable) store.getInt(GLYPH_SCENE, -1).takeIf { it >= 0 } else null
 
@@ -255,6 +258,7 @@ class Prefs(context: Context) {
         private const val OLD_GLYPH_DISTANCE = "glyphDistance"
         const val GLYPH_CRAB = "glyphCrab"
         const val GLYPH_SCENE = "glyphScene"
+        const val GLYPH_FORE = "glyphFore"
         const val GLYPH_FORM = "glyphForm"
         const val FESTIVALS = "festivals"
         const val KEY_POPUPS = "keyPopups"

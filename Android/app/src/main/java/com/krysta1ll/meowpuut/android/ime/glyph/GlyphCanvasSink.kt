@@ -272,6 +272,49 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
     )
     var eclipse: Eclipse? = null
 
+    /**
+     * By day, what is nearest in the picture (the corner's bank, what passes in front) lies over the keys' own type: where a letter falls
+     * on it, the letter is cut out of it in the paper's colour, with no halo. [mask] is the near art alone (its alpha); the offsets are where the view stands.
+     */
+    class NearCut(val mask: Bitmap, val perPoint: Float, val lift: Double, val paper: Int, val dx: Double, val dy: Double)
+    var nearCut: NearCut? = null
+
+    /** Draws [mask] with the part of it that lies on the near art cut out in paper; false when no pixel of it does (the ordinary way then). */
+    private fun cutNear(n: NearCut, mask: GlyphKeyArt.Mask, x: Double, y: Double, unit: Double, ink: Int, halo: Int?, round: Boolean): Boolean {
+        val reach = if (halo != null) GlyphKeyArt.reach(round) else 0
+        val left = x + n.dx - reach * unit
+        val top = y + n.dy - reach * unit
+        val base = if (halo != null) GlyphKeyArt.grown(mask, round) else mask
+        val out = IntArray(base.w * base.h)
+        var any = false
+        for (r in 0 until base.h) for (k in 0 until base.w) {
+            val onBase = base.on[r * base.w + k]
+            val mr = r - reach
+            val mk = k - reach
+            val isInk = mr in 0 until mask.h && mk in 0 until mask.w && mask.on[mr * mask.w + mk]
+            if (!onBase && !isInk) continue
+            val bx = ((left + (k + 0.5) * unit) * n.perPoint).toInt()
+            val by = ((top + (r + 0.5) * unit + n.lift) * n.perPoint).toInt()
+            val over = bx in 0 until n.mask.width && by in 0 until n.mask.height && (n.mask.getPixel(bx, by) ushr 24) != 0
+            if (over) any = true
+            out[r * base.w + k] = when {
+                isInk -> if (over) n.paper else mask.paint(mr * mask.w + mk, ink)
+                over -> 0
+                else -> halo ?: 0
+            }
+        }
+        if (!any) return false
+        val c = canvas ?: return true
+        val bitmap = pixelBitmap(out, base.w, base.h)
+        val u = pixelSize(unit)
+        val l = (x * scale).roundToInt() - reach * u
+        val t = ((y + oy) * scale).roundToInt() - reach * u
+        dst.set(l, t, l + bitmap.width * u, t + bitmap.height * u)
+        c.drawBitmap(bitmap, null, dst, bitmapPaint)
+        bitmap.recycle()
+        return true
+    }
+
     /** Whether a pixel of [mask] stands within one pixel of the type (the edge on the Earth is that thin). */
     private fun near(mask: GlyphKeyArt.Mask, r: Int, k: Int): Boolean {
         for (dy in -1..1) for (dx in -1..1) if (mask[k + dx, r + dy]) return true
@@ -324,6 +367,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
 
     override fun bits(mask: GlyphKeyArt.Mask, x: Double, y: Double, unit: Double, ink: Int, halo: Int?, round: Boolean) {
         val c = canvas ?: return
+        nearCut?.let { if (cutNear(it, mask, x, y, unit, ink, halo, round)) return }
         eclipse?.let { if (eclipsed(it, mask, x, y, unit, ink, halo, round)) return }
         val u = pixelSize(unit)
         val reach = if (halo != null) GlyphKeyArt.reach(round) else 0

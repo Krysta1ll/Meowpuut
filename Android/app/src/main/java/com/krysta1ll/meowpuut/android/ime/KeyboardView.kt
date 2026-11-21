@@ -89,6 +89,10 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     var glyphScene: Int? = null
         set(value) { if (field != value) { field = value; glyph?.force(value) } }
 
+    /** Debug builds: hold what passes in front at this part of the width (shots). */
+    var glyphFore: Double? = null
+        set(value) { if (field != value) { field = value; glyph?.holdFore(value) } }
+
     private fun configureGlyph() {
         glyph?.configure(look.dark, look.effects.ordinal, look.opaque, glyphCrab, cats, arrival = !floating)
     }
@@ -110,6 +114,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             controller.scene.paper = if (look.dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()
             configureGlyph()
             controller.force(glyphScene)
+            controller.holdFore(glyphFore)
             controller.holdForm(glyphForm)
             controller.holdFx(glyphFx)
             if (isAttachedToWindow) controller.start(glyphDistance)
