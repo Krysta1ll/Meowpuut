@@ -212,7 +212,9 @@ internal class GlyphController(private val context: Context) {
     fun eclipse(c: GlyphColors, dx: Double, dy: Double): GlyphCanvasSink.Eclipse? {
         val f = frame ?: return null
         val d = f.disc ?: return null
-        return GlyphCanvasSink.Eclipse(f.bitmap, renderScale, f.layout.lift, d, if (d.sun && !f.dark) c.red else c.ink, c.paper, dx, dy)
+        if (d.earth) return GlyphCanvasSink.Eclipse(f.bitmap, renderScale, f.layout.lift, d, GlyphEarth.PALETTE, 0xFFFFFFFF.toInt(), 0xFF0B1E3F.toInt(), dx, dy)   // white type, edged dark blue
+        val colour = if (d.hue != 0) d.hue else if (d.sun && !f.dark) c.red else c.ink
+        return GlyphCanvasSink.Eclipse(f.bitmap, renderScale, f.layout.lift, d, intArrayOf(colour), c.paper, null, dx, dy)
     }
 
     /** The views that lay type over the picture, redrawn when the picture's sun or moon forms or the place changes; and the keys, for the signs of the street. */

@@ -44,7 +44,7 @@ internal class GlyphSpectacle(private val world: GlyphWorld) {
 
     /** Debug: one effect held at one moment, as "storm:6", "burst:5" or "run". */
     private var held: String? = null
-    fun hold(what: String?) { held = what }
+    fun hold(what: String?) { held = what?.takeIf { it.isNotEmpty() && it != "none" } }
 
     private fun applyHold() {
         val h = held ?: return

@@ -189,4 +189,64 @@ class GlyphFixesTest {
         e.world.tick += 80
         assertTrue(sp.perched().isEmpty())
     }
+
+    // ---- the cats' evening, and the twelve places ---------------------------------------------------------------
+
+    @Test
+    fun theCatsHaveAnEveningOfTheirOwn() {
+        fun world(scene: Int = 0, dark: Boolean = false) = com.krysta1ll.meowpuut.android.ime.glyph.GlyphWorld(com.krysta1ll.meowpuut.android.ime.glyph.GlyphTheme(dark = dark, level = 2)).also { it.tick = 1000; it.scene = scene }
+        val mimi = com.krysta1ll.meowpuut.android.ime.glyph.CatId.MIMI
+        val momo = com.krysta1ll.meowpuut.android.ime.glyph.CatId.MOMO
+        fun at(w: com.krysta1ll.meowpuut.android.ime.glyph.GlyphWorld, idle: Double, cat: com.krysta1ll.meowpuut.android.ime.glyph.CatId): String {
+            w.lastMove = w.tick - (idle * 12).toInt() - 1
+            return w.catState(cat).let { it.pose + "/" + it.face }
+        }
+        val w = world()
+        assertTrue(at(w, 3.0, momo).startsWith("sit/"))
+        assertEquals("she turns to watch the view before he does", "back/neutral" to true, at(w, 5.0, momo) to (at(w, 5.0, mimi).startsWith("sit/")))
+        assertEquals("back/neutral", at(w, 7.0, mimi))
+        assertEquals("loaf/smug", at(w, 10.0, mimi))
+        assertEquals("loaf/yawn", at(w, 11.5, mimi))
+        assertEquals("loaf/blink", at(w, 12.0, momo))
+        assertTrue(at(w, 13.0, mimi).startsWith("sleep/") && at(w, 17.0, momo).startsWith("sleep/"))
+        // at night the black cat is only his eyes and does not turn his back, unless he is in a suit on the Moon
+        assertTrue(at(world(dark = true), 7.0, mimi).startsWith("sit/"))
+        assertEquals("back/neutral", at(world(scene = 11, dark = true), 7.0, mimi))
+        // five deletions: both are dizzy while the picture tears, then he is angry
+        val d = world()
+        repeat(5) { d.backspace(null); d.tick++ }
+        assertEquals("sit/dizzy" to "sit/dizzy", at(d, 0.0, mimi) to at(d, 0.0, momo))
+        d.tick += 6
+        assertEquals("sit/angry", at(d, 0.0, mimi).let { if (it.endsWith("angry")) it else d.catState(mimi).let { s -> s.pose + "/" + s.face } })
+        // a Japanese word: she has hearts in her eyes
+        val j = world()
+        j.committed("寿司", 2, true, false, 0, 30.0)
+        assertEquals("love" to "sparkle", j.catState(momo).face to j.catState(mimi).face)
+    }
+
+    @Test
+    fun theTwelvePlacesAreWholeAndTheSafeDrawingKeepsOnlyInkAndPaper() {
+        val inks = com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes.HUES.keys
+        for (scene in com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes.ALL) {
+            val names = ArrayList<String?>()
+            names += scene.tint.values.flatten()
+            names += scene.sky.disc?.hue
+            names += scene.sky.fall?.hue
+            names += scene.sky.fall?.hues.orEmpty().filter { it.isNotEmpty() }
+            for (l in scene.front + scene.back) names += l.hue
+            for (n in names.filterNotNull()) assertTrue("${scene.name} names an ink that does not exist: $n", n in inks)
+        }
+        // the safe drawing is ink and paper alone, in every place
+        for (i in com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes.ALL.indices) for (dark in listOf(false, true)) {
+            val e = engine(i, layout(), dark = dark, opaque = true)
+            val c = GlyphColors.of(dark)
+            val s = draw(e)
+            assertTrue("place $i dark $dark", s.rects.all { it.color == c.paper || it.color == c.ink } && s.texts.isEmpty())
+        }
+        // and with a suit on the Moon, the cats are a row taller and a column wider
+        val plain = com.krysta1ll.meowpuut.android.ime.glyph.GlyphCats.raster(com.krysta1ll.meowpuut.android.ime.glyph.CatId.MIMI, "sit", "neutral", false, false, GlyphColors.LIGHT)
+        val suited = com.krysta1ll.meowpuut.android.ime.glyph.GlyphCats.raster(com.krysta1ll.meowpuut.android.ime.glyph.CatId.MIMI, "sit", "neutral", false, false, GlyphColors.LIGHT, suit = true)
+        assertEquals(plain.h + 1, suited.h)
+        assertEquals(plain.w + 1, suited.w)
+    }
 }

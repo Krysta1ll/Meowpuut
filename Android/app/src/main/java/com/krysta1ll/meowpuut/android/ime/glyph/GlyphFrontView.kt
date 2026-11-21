@@ -26,9 +26,9 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
     }
 
     private fun cat(d: CatDraw, colors: GlyphColors, dark: Boolean): Raster {
-        val key = "${d.cat}/${d.pose}/${d.face}/$dark/${d.night}"
-        if (rasters.size > 80) rasters.clear()
-        return rasters.getOrPut(key) { GlyphCats.raster(d.cat, d.pose, d.face, dark, d.night, colors) }
+        val key = "${d.cat}/${d.pose}/${d.face}/$dark/${d.night}/${d.suit}"
+        if (rasters.size > 120) rasters.clear()
+        return rasters.getOrPut(key) { GlyphCats.raster(d.cat, d.pose, d.face, dark, d.night, colors, d.suit) }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -43,12 +43,12 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
         }
         ff.fish?.let { (fx, fy) -> sink.bits(fishMask, q(fx.toDouble(), 3.0), q(fy.toDouble(), 3.0), 3.0, c.ink, null, false) }
         for (d in ff.cats) {
-            val top = d.feetY - GlyphCats.H * u + d.hopY
+            val r = cat(d, c, f.dark)
+            val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + d.hopY       // each cat has its own height (Mimi is taller, and a suit adds a row)
             if (d.platform) {                                          // something to stand on
                 sink.rect(d.x + 2.0, d.feetY - 1.0, 36.0, 4.0, c.paper)
                 sink.rect(d.x + 4.0, d.feetY.toDouble(), 32.0, 2.0, c.ink)
             }
-            val r = cat(d, c, f.dark)
             d.afterImageDx?.let { dx ->                                // a glitch leaves an after-image
                 val save = canvas.saveLayerAlpha(null, 102)
                 sink.raster(r, d.x + dx - GlyphCats.MARGIN * u, top - GlyphCats.MARGIN * u, u)

@@ -118,7 +118,7 @@ class GlyphSeamTest {
 
     @Test
     fun everyPlaceMeetsTheAppInItsOwnWay() {
-        assertEquals(setOf("山野", "海", "街", "竹林", "雪山", "月"), GlyphSeam.SEAMS.keys)
+        assertEquals(setOf("山野", "海", "街", "竹林", "雪山", "月", "富士", "香港", "火山", "沙漠", "紅葉", "月球"), GlyphSeam.SEAMS.keys)
         assertEquals(GlyphScenes.ALL.map { it.name }.toSet(), GlyphSeam.SEAMS.keys)
         val s = GlyphSeam.SEAMS
         assertEquals(Grain.BAYER, s.getValue("山野").grain); assertEquals(26.0, s.getValue("山野").band, 0.0); assertEquals(8.0, s.getValue("山野").wander, 0.0)
@@ -128,6 +128,7 @@ class GlyphSeamTest {
         assertEquals(Grain.COLS, s.getValue("竹林").grain); assertEquals(12.0, s.getValue("竹林").inner, 0.0); assertEquals(0.4, s.getValue("竹林").leak, 0.0)
         assertEquals(Grain.NOISE, s.getValue("雪山").grain); assertEquals(0.66, s.getValue("雪山").spire!!.over, 0.0); assertEquals(3.3, s.getValue("雪山").spire!!.gain, 0.0)
         assertEquals(Grain.NOISE, s.getValue("月").grain); assertEquals(10.0, s.getValue("月").rise, 0.0); assertEquals(2.0, s.getValue("月").leak, 0.0)
+        assertEquals(1, s.getValue("香港").spire!!.back); assertEquals(2.6, s.getValue("香港").spire!!.gain, 0.0)
         assertTrue(s.values.all { it.inner < it.band && it.band > 0 })
         assertNull("the sea and the hills keep their composition", s.getValue("海").spire)
         assertNull(s.getValue("山野").spire)

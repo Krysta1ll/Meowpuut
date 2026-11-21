@@ -263,7 +263,13 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
      * The picture under the type, and its sun or moon: type that lies over the disc is cut out of it, in the colour of the paper and with no
      * halo, as if the letters were taken out of the sun. Set by the view that draws the type; the offsets are where it stands in the keyboard.
      */
-    class Eclipse(val bitmap: Bitmap, val perPoint: Float, val lift: Double, val disc: DiscInfo, val colour: Int, val cut: Int, val dx: Double, val dy: Double)
+    class Eclipse(
+        val bitmap: Bitmap, val perPoint: Float, val lift: Double, val disc: DiscInfo,
+        /** The colours the disc is drawn in (one for the sun or moon, several for the Earth). */
+        val colours: IntArray,
+        /** What type over the disc is cut out in, and the edge it gets there instead of a halo (the sun and moon have none). */
+        val cut: Int, val edge: Int?, val dx: Double, val dy: Double,
+    )
     var eclipse: Eclipse? = null
 
     /** Draws [mask] cut out of the disc where it lies over it; false when no pixel of it does (the ordinary, cached way then). */
@@ -289,12 +295,12 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
             val inside = (px - d.x) * (px - d.x) + (py - d.y) * (py - d.y) <= d.r * d.r && e.bitmap.run {
                 val bx = (px * e.perPoint).toInt()
                 val by = ((py + e.lift) * e.perPoint).toInt()
-                bx in 0 until width && by in 0 until height && getPixel(bx, by) == e.colour
+                bx in 0 until width && by in 0 until height && getPixel(bx, by).let { px0 -> e.colours.any { it == px0 } }
             }
             if (inside) any = true
             out[r * base.w + k] = when {
                 isInk -> if (inside) e.cut else mask.paint(mr * mask.w + mk, ink)
-                inside -> 0                                           // no halo on the disc
+                inside -> e.edge ?: 0                                 // no halo on the sun or moon; on the Earth a dark edge
                 else -> halo ?: 0
             }
         }

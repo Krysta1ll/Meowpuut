@@ -12,11 +12,13 @@ import org.junit.Test
 
 class GlyphJourneyTest {
     @Test
-    fun sixPlacesAndOneRareOne() {
-        assertEquals(listOf("山野", "海", "街", "竹林", "雪山", "月"), GlyphScenes.ALL.map { it.name })
-        assertEquals(1, GlyphScenes.ALL.count { it.rare })
-        assertEquals(5, GlyphScenes.RARE)
-        assertEquals(listOf(0, 1, 2, 3, 4), GlyphScenes.COMMON)
+    fun twelvePlacesAndTwoRareOnes() {
+        assertEquals(listOf("山野", "海", "街", "竹林", "雪山", "月", "富士", "香港", "火山", "沙漠", "紅葉", "月球"), GlyphScenes.ALL.map { it.name })
+        assertEquals(listOf(5, 11), GlyphScenes.RARES)
+        assertEquals(0.1, GlyphScenes.ALL[5].rare, 0.0)
+        assertEquals(0.04, GlyphScenes.ALL[11].rare, 0.0)
+        assertEquals(listOf(0, 1, 2, 3, 4, 6, 7, 8, 9, 10), GlyphScenes.COMMON)
+        assertTrue("every place is on the list of enabled ones", GlyphScenes.ALL.all { it.enabled })
         for (scene in GlyphScenes.ALL) {
             assertTrue(scene.walk in 0 until (scene.front.size + scene.back.size))
             for (layer in scene.front + scene.back) layer.marks?.forEach { assertTrue(GlyphScenes.STAMPS.containsKey(it)) }
@@ -30,21 +32,22 @@ class GlyphJourneyTest {
         for (k in 0 until 4000) {
             val place = journey.placeAt(k)
             assertNotEquals("place $k repeats", before, place.scene)
-            if (k <= 1) assertNotEquals("the rare place is not among the first two", GlyphScenes.RARE, place.scene)
+            if (k <= 1) assertTrue("a rare place is not among the first two", place.scene !in GlyphScenes.RARES)
             assertTrue(place.len in GlyphJourney.MIN_LEN until GlyphJourney.MIN_LEN + GlyphJourney.SPAN)
             before = place.scene
         }
     }
 
     @Test
-    fun aboutOnePlaceInTenIsTheRareOne() {
+    fun aboutOnePlaceInTenIsTheMoonAndFourInAHundredTheMoonSeenFromTheMoon() {
         val journey = GlyphJourney()
         val n = 30000
-        val rare = (0 until n).count { journey.placeAt(it).scene == GlyphScenes.RARE }
-        val share = rare / n.toDouble()
-        assertTrue("share was $share", share in 0.08..0.105)
-        // and never two in a row
-        for (k in 1 until 3000) assertFalse(journey.placeAt(k).scene == GlyphScenes.RARE && journey.placeAt(k - 1).scene == GlyphScenes.RARE)
+        val moon = (0 until n).count { journey.placeAt(it).scene == 5 } / n.toDouble()
+        val lunar = (0 until n).count { journey.placeAt(it).scene == 11 } / n.toDouble()
+        assertTrue("the Moon was $moon", moon in 0.08..0.105)
+        assertTrue("the Moon seen from the Moon was $lunar", lunar in 0.03..0.047)
+        // and never two rare places in a row
+        for (k in 1 until 3000) assertFalse(journey.placeAt(k).scene in GlyphScenes.RARES && journey.placeAt(k - 1).scene in GlyphScenes.RARES)
     }
 
     @Test
