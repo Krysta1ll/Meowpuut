@@ -385,7 +385,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
     internal fun strippableLayers(): List<Layer> {
         if (!theme.deep || theme.opaque || theme.still || theme.level !in 1..2) return emptyList()
         val all = listOf(sky) + back.reversed() + front.reversed()
-        return all.filter { it.spec.shape != LandShape.CONE && !(it === sky && discX != null && !discLate) && !(it !== sky && it.spec.kind == LayerKind.STEMS) }
+        return all.filter { (it.spec.shape != LandShape.CONE || it.spec.speed == 0.0) && !(it === sky && discX != null && !discLate) && !(it !== sky && it.spec.kind == LayerKind.STEMS) }
     }
 
     /** The rows (points, picture coordinates) of a layer that can be seen: from the highest it can reach to where land in front of it takes over. */
@@ -1154,6 +1154,7 @@ internal class GlyphScape(private val world: GlyphWorld, private val pools: Glyp
         }
         val reach = lift + inset
         for (l in layers) {
+            if (l.spec.kind != LayerKind.STEMS && py < l.minY) continue                   // (this layer does not reach so high: nothing to ask of it)
             val i = max(0, min(l.n - 1, floor(px / l.sub).toInt()))
             // each stem of bamboo ends at its own height above the edge
             if (l.spec.kind == LayerKind.STEMS && py < inset && py - inset < -reach * (0.15 + 0.85 * h2(floorDiv(i + l.offI, l.spec.stride), l.spec.seed + 77))) continue

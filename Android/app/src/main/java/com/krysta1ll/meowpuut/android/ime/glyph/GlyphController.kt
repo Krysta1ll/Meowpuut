@@ -310,7 +310,6 @@ internal class GlyphController(private val context: Context) {
         val still = n.still || n.level == 0
         val busy = motion.advance(dt, worldTarget.toDouble(), worldEpoch, still, NO_TAU, foreHold == null && n.passes) { GlyphMotion.visible(it, n.width) }
         updateGround(n, busy)
-        if (perf && (motion.clock.toLong() / 200) != dbgLast) { dbgLast = motion.clock.toLong() / 200; android.util.Log.i("MeowpuutGlyphPerf", "near: target $worldTarget fore ${"%.1f".format(motion.fore)} coast ${"%.1f".format(motion.coast)} at ${"%.0f".format(liveForeAt(n))} passes ${n.passes} busy $busy still $still level ${n.level} scene ${n.scene}") }
         if (busy || motion.fore.isNaN()) {
             nearView.invalidate()
             if (n.passes && GlyphMotion.visible(liveForeAt(n), n.width)) { front.invalidate(); for (v in overlays) v.invalidate() }
