@@ -266,6 +266,8 @@ internal class GlyphWorld(
     var goodnight = 0
     var fish = -1_000_000_000
     var glitch = 0
+    /** The tick the last tear began at (long ago before the first). */
+    private var torn = -1_000_000_000
     private val backs = ArrayList<Int>()
     var dirty = true
     var lanes: HashMap<CatId, LaneState>? = null
@@ -364,13 +366,16 @@ internal class GlyphWorld(
         moved(if (theme.deep) STEP_UNITS.toInt() else stride(), at)       // with depth every key is one step (three units), whatever the picture is behind or ahead by
     }
 
-    /** Backspace: the cat looks aside; five in quick succession tear the picture. */
+    /**
+     * Backspace: the cat looks aside. A run of them in quick succession makes 米米莫 cross; the picture tears with it only now and then
+     * ([chanceGlitch]): a held delete key is a run every second, and a tear at each was hard on the eyes.
+     */
     fun backspace(at: Pair<Double, Double>?) {
         feel(mapOf(CatId.MIMI to "left", CatId.MOMO to "neutral"), 6, false)
         moved(0, at)
         backs.removeAll { tick - it >= 14 }
         backs += tick
-        if (backs.size >= 5) { backs.clear(); feel(mapOf(CatId.MIMI to "angry", CatId.MOMO to "neutral"), 16, false); glitch(4) }
+        if (backs.size >= BACKSPACE_RUN) { backs.clear(); feel(mapOf(CatId.MIMI to "angry", CatId.MOMO to "neutral"), 16, false); chanceGlitch(4) }
     }
 
     /** Space or return with nothing being composed. */
@@ -412,10 +417,21 @@ internal class GlyphWorld(
         lastMove = tick; dirty = true                               // the cats are awake; the picture does not move for a commit
     }
 
+    /** The picture tears for [ticks]: what the words ask for (glitch, bug, 404), and the minute at 04:04. Always, at the two higher levels. */
     fun glitch(ticks: Int) {
         if (theme.still || theme.level < 2) return
         glitch = max(glitch, tick + ticks)
+        torn = tick
         dirty = true
+    }
+
+    /**
+     * A tear nobody asked for (the clock's accident, a border, a run of backspaces). It is a surprise, so it is rare: never within
+     * [GLITCH_REST] of the tear before, whatever caused that one.
+     */
+    private fun chanceGlitch(ticks: Int) {
+        if (tick - torn < GLITCH_REST) return
+        glitch(ticks)
     }
 
     /** The keyboard went away: nothing typed is remembered. */
@@ -445,7 +461,7 @@ internal class GlyphWorld(
             // The name of the place shows only when the places change under the person's hands, not when the keyboard first appears.
             if (arrived) {
                 arrive = tick
-                if (h2(n, 5) < 0.3) glitch(8)
+                if (h2(n, 5) < BORDER_GLITCH) chanceGlitch(8)
             }
         }
         // No fog before a border; a new place comes out of it by the clock, whatever the typing does.
@@ -531,7 +547,8 @@ internal class GlyphWorld(
         if (!theme.still && turn != 0 && idle < 20 && tick % turn == 0) {
             epoch++; dirty = true
             val hm = clockHm()
-            if (h2(epoch, 909) < 0.008 || (hm == 404 && epoch % 9 == 0)) glitch(5)
+            if (hm == 404 && epoch % 9 == 0) glitch(5)
+            else if (h2(epoch, 909) < GLITCH_CHANCE) chanceGlitch(5)
         }
         if (tick <= glitch) dirty = true
         if (!theme.still && (doubleArrayOf(1.2, 4.0, 5.5, 9.0, 11.0, 12.0, 15.0, 16.0).any { abs(idle - it) < 0.05 } || (idle < 5.6 && (beat == 10 || beat == 14)) ||
@@ -646,12 +663,27 @@ internal class GlyphWorld(
         const val STEP_UNITS = 3.0
         /** Ticks a new place takes to come out of the fog, whatever the typing does. */
         const val ARRIVE_TICKS = 8
-        /** Where the cats sit, as a part of the keyboard's width (104 and 172 points on the prototype's 393). */
-        const val MOMO_AT = 104.0 / 393.0
+        /**
+         * Where the cats sit, as a part of the keyboard's width (94 and 172 points on the prototype's 393). 莫莫 sat at 104, with her
+         * face behind the r of a ten-key row; at 94 her head is in the gap between the e and the r (three keys in), as 米米莫's is
+         * between the t and the y.
+         */
+        const val MOMO_AT = 94.0 / 393.0
         const val MIMI_AT = 172.0 / 393.0
         /** Past this width the cats do not drift further apart: a tablet keeps them together. */
         const val CAT_SPACE = 480.0
         const val MAX_MOTES = 8
+        /**
+         * How often the picture tears by itself. Per turn of the type (two a second at the full level, four at the highest): 0.0005 is
+         * about once in a quarter of an hour of typing, where the first 0.008 was once a minute.
+         */
+        const val GLITCH_CHANCE = 0.0005
+        /** The part of the borders a tear comes at (it was three in ten). */
+        const val BORDER_GLITCH = 0.06
+        /** Backspaces within fourteen ticks that make 米米莫 cross (it was five; a held key gives twelve a second). */
+        const val BACKSPACE_RUN = 8
+        /** Ticks after a tear in which none comes by chance: five minutes of the keyboard's clock. */
+        const val GLITCH_REST = FPS * 60 * 5
         /** Ticks the arrival takes: a little over half a second at twelve a second. */
         const val FORM = 7
     }

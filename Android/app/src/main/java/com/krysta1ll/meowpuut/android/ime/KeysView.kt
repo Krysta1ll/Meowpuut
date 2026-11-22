@@ -323,6 +323,24 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         null -> key.label.takeIf(GlyphKeyArt::hasBits)
     }
 
+    /**
+     * 字景: the cats under the keys took a new pose or place. The halo of the type over them thins where they are ([GlyphController.catCut]), so it is
+     * drawn again where they stand now and where they stood before. May be called from any thread.
+     */
+    internal fun catsMoved() {
+        val cats = glyph?.frame?.front?.cats
+        if (cats.isNullOrEmpty() || look.opaque) return
+        // A cat's raster is some 45 points wide and tall, with its feet near the bottom; a step lifts it two more.
+        val l = ((cats.minOf { it.x } - 10) * density).toInt() - left
+        val t = ((cats.minOf { it.feetY } - 64) * density).toInt() - top
+        val r = ((cats.maxOf { it.x } + 60) * density).toInt() - left
+        val b = ((cats.maxOf { it.feetY } + 10) * density).toInt() - top
+        val was = catsRect
+        catsRect = intArrayOf(l, t, r, b)
+        postInvalidateOnAnimation(minOf(l, was?.get(0) ?: l), minOf(t, was?.get(1) ?: t), maxOf(r, was?.get(2) ?: r), maxOf(b, was?.get(3) ?: b))
+    }
+    @Volatile private var catsRect: IntArray? = null
+
     /** The keys of 字景 in the open style: no caps, only legends cut in pixels, over whatever the land is doing behind them. */
     private fun drawGlyphKeys(canvas: Canvas, set: KeySet) {
         val colors = GlyphColors.of(look.dark)
@@ -331,6 +349,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         glyphSink.begin(canvas)
         glyphSink.eclipse = if (look.opaque) null else glyph?.eclipse(colors, left / density.toDouble(), top / density.toDouble())
         glyphSink.nearCut = if (look.opaque || look.dark) null else glyph?.nearCut(colors, left / density.toDouble(), top / density.toDouble())
+        glyphSink.catCut = if (look.opaque) null else glyph?.catCut(colors, left / density.toDouble(), top / density.toDouble())
         for ((r, row) in touches.placements.withIndex()) {
             val held = if (fingers) touches.pressedColumns(r) else 0
             for (placement in row) {

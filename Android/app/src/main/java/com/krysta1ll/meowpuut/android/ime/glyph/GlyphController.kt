@@ -94,8 +94,10 @@ internal class GlyphController(private val context: Context) {
     @Volatile private var worldEpoch = 0
     @Volatile var foreHold: Double? = null
     private var dbgLast = -1L
-    private val ring = arrayOfNulls<Bitmap>(3)
+    private val ring = arrayOfNulls<Bitmap>(4)
+    /** The pictures the screen may still be reading: the one the scene view last drew, and the one it drew before that (see [show]). */
     @Volatile private var showing = -1
+    @Volatile private var shownBefore = -1
     private var published = -1
     private var scheduled = false
     private var lastTickAt = 0L
@@ -291,6 +293,43 @@ internal class GlyphController(private val context: Context) {
     private var nearMaskBitmap: Bitmap? = null
     private var nearMaskSink: GlyphCanvasSink? = null
 
+    /** The cats' pictures, made once each (main thread: the front view draws them and the keys thin their halos over them). */
+    private val catRasters = HashMap<String, Raster>()
+    fun catRaster(d: CatDraw, pose: String, colors: GlyphColors, dark: Boolean): Raster {
+        val key = "${d.cat}/$pose/${d.face}/$dark/${d.night}/${d.suit}"
+        if (catRasters.size > 120) catRasters.clear()
+        return catRasters.getOrPut(key) { GlyphCats.raster(d.cat, pose, d.face, dark, d.night, colors, d.suit) }
+    }
+
+    /**
+     * Where the cats stand right now, as the front view draws them (the foot a key has just lifted included), for the halo of the keys' type to
+     * thin over them (see [GlyphCanvasSink.CatCut]); [dx], [dy] is where the view stands in the keyboard. Null when no cat is shown.
+     */
+    fun catCut(c: GlyphColors, dx: Double, dy: Double): GlyphCanvasSink.CatCut? {
+        val f = frame ?: return null
+        val cats = f.front.cats
+        if (cats.isEmpty()) return null
+        val u = f.layout.catUnit
+        val placed = cats.map { d ->
+            val walk = if (f.near != null) walkOf(d.cat) else null
+            GlyphCats.place(d, catRaster(d, walk?.first ?: d.pose, c, f.dark), d.hopY - (walk?.second ?: 0), u)
+        }
+        return GlyphCanvasSink.CatCut(placed, c.paper, dx, dy)
+    }
+
+    /** What the view whose type lies over the cats (the keys) does when they change: it draws that type again where they stand. Any thread. */
+    @Volatile var typeOverCats: (() -> Unit)? = null
+    private var catsSig = 0L
+    private fun catsSignature(cats: List<CatDraw>): Long {
+        var h = 17L
+        for (d in cats) {
+            h = h * 31 + d.cat.ordinal; h = h * 31 + d.pose.hashCode(); h = h * 31 + d.face.hashCode()
+            h = h * 31 + d.x; h = h * 31 + d.feetY; h = h * 31 + d.hopY
+            h = h * 31 + (if (d.night) 1 else 0) + (if (d.platform) 2 else 0) + (if (d.suit) 4 else 0)
+        }
+        return h
+    }
+
     /** The state of what is near right now: the live motion's clock, and the held place of a shot. */
     private fun liveState(n: GlyphNear) = n.state()
 
@@ -430,6 +469,7 @@ internal class GlyphController(private val context: Context) {
         lifted = true
         if (perf) android.util.Log.i("MeowpuutGlyphPerf", "step up target=$liveTarget foot=${walkOf(CatId.MIMI)?.first}")
         front.invalidateCats()                                                   // the leg lifts in this frame
+        typeOverCats?.invoke()
         main.postDelayed(comeDown, gap.times(0.6).toLong().coerceIn(60L, 160L))
     }
 
@@ -438,6 +478,7 @@ internal class GlyphController(private val context: Context) {
         if (!lifted) return
         lifted = false
         front.invalidateCats()
+        typeOverCats?.invoke()
         handler?.post(landRun)
     }
 
@@ -573,9 +614,9 @@ internal class GlyphController(private val context: Context) {
         val l = e.layout
         val w = ceil(l.width * renderScale).toInt().coerceAtLeast(1)
         val h = ceil((l.height + l.lift + l.tail) * renderScale).toInt().coerceAtLeast(1)
-        // Three pictures: one is on show, one is the last finished, one is free to draw into.
-        var i = 0
-        while (i == published || i == showing) i++
+        // Four pictures: the one on show, the one shown before it (the screen may not have let go of it yet), the last finished, and
+        // one free to draw into.
+        val i = GlyphFrames.free(ring.size, published, showing, shownBefore)
         var bitmap = ring[i]
         if (bitmap == null || bitmap.width != w || bitmap.height != h) {
             // The old one is left to the collector: a view may still be drawing it.
@@ -632,6 +673,8 @@ internal class GlyphController(private val context: Context) {
         scene.postInvalidateOnAnimation()
         nearView.postInvalidateOnAnimation()
         front.postInvalidateOnAnimation()
+        val sig = catsSignature(finished.front.cats)
+        if (sig != catsSig) { catsSig = sig; typeOverCats?.invoke() }           // a new pose, face or place: the type over them is drawn afresh
         val n = near
         if (n != null && n.passes && GlyphMotion.visible(n.foreAt, n.width)) for (v in overlays) v.postInvalidateOnAnimation()
         val name = e.scape.sceneName
@@ -660,8 +703,18 @@ internal class GlyphController(private val context: Context) {
 
     // ---- what the views read -------------------------------------------------------------------------------------
 
-    /** The scene view is drawing [f]: the render thread keeps off its bitmap until it is done. */
-    fun show(f: GlyphFrame?) { showing = f?.index ?: -1 }
+    /**
+     * The scene view has drawn [f]. Its bitmap is on the screen from now until the view draws another, and the screen reads the pixels
+     * later than the view's drawing (with hardware drawing they are taken when the frame is put together, and again whenever anything
+     * in the window is drawn afresh): the render thread keeps off that picture, and off the one shown before it, for as long. It used
+     * to keep off only while the view was drawing, so with keys coming fast it drew its next picture into the one on the screen, and
+     * the keyboard showed a frame of bare ground or of half a picture.
+     */
+    fun show(f: GlyphFrame) {
+        if (f.index == showing) return
+        shownBefore = showing
+        showing = f.index
+    }
 
     /** What the keyboard that is about to be shown can do before it is shown: faces, type pools, the first run of the code. */
     fun warm() {
@@ -724,19 +777,22 @@ internal class GlyphSceneView(context: Context, private val controller: GlyphCon
     }
 
     override fun onDraw(canvas: Canvas) {
-        val f = controller.frame
+        var f = controller.frame
         if (f == null) {
             canvas.drawColor(paper)
             return
         }
-        controller.show(f)
-        try {
-            src.set(0, 0, f.bitmap.width, f.bitmap.height)
-            dst.set(0, 0, width, height)
-            canvas.drawBitmap(f.bitmap, src, dst, paint)
-        } finally {
-            controller.show(null)
+        // The picture is marked as shown before it is drawn; if a newer one was finished meanwhile, that one is taken (the render
+        // thread may already have chosen the first to draw into).
+        while (true) {
+            controller.show(f!!)
+            val latest = controller.frame ?: break
+            if (latest === f) break
+            f = latest
         }
+        src.set(0, 0, f!!.bitmap.width, f.bitmap.height)
+        dst.set(0, 0, width, height)
+        canvas.drawBitmap(f.bitmap, src, dst, paint)
     }
 }
 

@@ -13,6 +13,7 @@ import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPools
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphSink
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphSpectacle
 import com.krysta1ll.meowpuut.android.ime.glyph.KeyCap
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphWorld
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -212,9 +213,9 @@ class GlyphFixesTest {
         // at night the black cat is only his eyes and does not turn his back, unless he is in a suit on the Moon
         assertTrue(at(world(dark = true), 7.0, mimi).startsWith("sit/"))
         assertEquals("back/neutral", at(world(scene = 11, dark = true), 7.0, mimi))
-        // five deletions: both are dizzy while the picture tears, then he is angry
+        // a run of deletions: both are dizzy while the picture tears, then he is angry
         val d = world()
-        repeat(5) { d.backspace(null); d.tick++ }
+        repeat(GlyphWorld.BACKSPACE_RUN) { d.backspace(null); d.tick++ }
         assertEquals("sit/dizzy" to "sit/dizzy", at(d, 0.0, mimi) to at(d, 0.0, momo))
         d.tick += 6
         assertEquals("sit/angry", at(d, 0.0, mimi).let { if (it.endsWith("angry")) it else d.catState(mimi).let { s -> s.pose + "/" + s.face } })

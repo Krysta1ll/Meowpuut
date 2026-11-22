@@ -15,6 +15,15 @@ internal object GlyphCats {
     /** One cat pixel is this many points on the keyboard. */
     const val POINTS = 2
 
+    /**
+     * Where the raster of a cat stands: its feet at [d]'s feet less the lift of a step ([hopY], negative is up), each cat with its own
+     * height. The front view draws it there, and the keys thin the halo of their type over it there.
+     */
+    fun place(d: CatDraw, raster: Raster, hopY: Int, unit: Double): PlacedCat {
+        val top = d.feetY - (raster.h - 2 * MARGIN) * unit + hopY          // (Mimi is taller, and a suit adds a row)
+        return PlacedCat(raster, d.x - MARGIN * unit, top - MARGIN * unit, unit)
+    }
+
     val POSES = listOf("walkA", "walkB", "sit", "sleep", "back", "loaf")
     val FACES = listOf("neutral", "blink", "happy", "smug", "wide", "left", "focus", "meow", "sparkle", "love", "dizzy", "angry", "wink", "up", "blep", "yawn")
 
