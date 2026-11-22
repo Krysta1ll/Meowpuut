@@ -70,6 +70,11 @@
     <string name="mixed_japanese_note">開啟後，拼音和注音裡可以直接打日文詞（帶貓爪的候選），例如 sushi 打出寿司。</string>
     <string name="remember_choices">記住選詞</string>
     <string name="remember_choices_note">常選的中文詞會往前排。記錄只存在這台裝置。</string>
+    <string name="clipboard">剪貼簿</string>
+    <string name="clipboard_note">複製的文字只留在這台裝置，一小時後自動刪除，釘住的除外。</string>
+    <string name="clear_clipboard">清空剪貼簿</string>
+    <string name="clear_clipboard_confirm">要清空剪貼簿嗎？釘住的文字也會一併刪除。</string>
+    <string name="stamp_clipboard_cleared">剪貼簿已清空。</string>
     <string name="dictionary_title">自訂詞庫</string>
     <string name="dictionary_count">自訂詞庫（%1$d / %2$d）</string>
     <string name="dictionary_empty">加入讀音和詞句，輸入完整讀音時就會出現在候選前方。資料只存在這台裝置。</string>

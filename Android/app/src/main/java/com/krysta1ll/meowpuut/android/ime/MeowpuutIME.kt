@@ -28,6 +28,7 @@ import com.krysta1ll.meowpuut.android.engine.Edit
 import com.krysta1ll.meowpuut.android.engine.EnglishSuggestions
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.engine.Lexicons
+import com.krysta1ll.meowpuut.android.ime.glyph.CatId
 import kotlin.math.abs
 
 /**
@@ -102,6 +103,18 @@ class MeowpuutIME : InputMethodService(),
     private var keyContext: KeyContext? = null
     private var keySet: KeySet? = null
 
+    // The clipboard (ClipboardShelf.kt): the copied text of the last hour, kept on this device only, and the slip offered once.
+    private var shelf: ClipboardShelf? = null
+    private val slip = ClipboardSlip()
+    private var clipboardManager: android.content.ClipboardManager? = null
+    private var clipboardListener: android.content.ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var clipboardOpen = false
+    /** Not a password field and not one the editor wants left alone: the slip and the panel may show. */
+    private var clipFieldAllowed = false
+    /** The rows the clipboard panel shows now (a tap names a row, and the shelf may have moved since). */
+    private var clipRows: List<ClipboardShelf.Item> = emptyList()
+    private val expireSlip = Runnable { refresh() }
+
     /** Shift as the keys show it: a held Shift counts even after its one letter is used up. */
     private val shift get() = if (caps.state == ShiftState.OFF && shiftHeld) ShiftState.ONCE else caps.state
 
@@ -129,6 +142,7 @@ class MeowpuutIME : InputMethodService(),
         reloadCustomSkin()
         composer.simplified = prefs.simplified
         composer.mixedJapanese = prefs.mixedJapanese
+        startClipboard()
         openLexicon()
         lexicons.loadSymbols {
             composer.symbols = it
@@ -138,6 +152,7 @@ class MeowpuutIME : InputMethodService(),
 
     override fun onDestroy() {
         prefs.store.unregisterOnSharedPreferenceChangeListener(this)
+        stopClipboard(wipe = false)
         moments.release()
         skinLoader.shutdown()
         keySounds.release()
@@ -151,10 +166,7 @@ class MeowpuutIME : InputMethodService(),
         view.keys.listener = this
         view.syllableRail.onSelect = ::onNineKeySyllable
         view.bar.listener = this
-        view.bar.onDismissKeyboard = { cat ->
-            if (cat != null) moments.dropped(cat)
-            requestHideSelf(0)
-        }
+        view.bar.onDismissKeyboard = { cat -> hideKeyboard(cat) }
         view.panel.listener = this
         // 字景's journey is the cats' own count of characters (eight units each); nothing of it is stored by the skin.
         keyboard = view
@@ -216,6 +228,8 @@ class MeowpuutIME : InputMethodService(),
         val inputType = attribute?.inputType ?: InputType.TYPE_NULL
         val variation = inputType and InputType.TYPE_MASK_VARIATION
         editorAllowsLearning = allowsChoiceMemory(inputType, attribute?.imeOptions ?: 0)
+        clipFieldAllowed = ClipboardRules.fieldAllowed(inputType, attribute?.imeOptions ?: 0)
+        clipboardOpen = false
         composer.rememberChoices = prefs.rememberChoices && editorAllowsLearning
         composer.allowCustomEntries = editorAllowsLearning
         val latinField = variation in LATIN_VARIATIONS
@@ -261,6 +275,8 @@ class MeowpuutIME : InputMethodService(),
         updateEnglish()
         configureWindow()
         applyLook()
+        // Copied while the keyboard was not running: the clip is read now, and offered if it is young enough.
+        if (!restarting) { readClip(fromListener = false); presentSlip() }
         refresh()
     }
 
@@ -273,6 +289,10 @@ class MeowpuutIME : InputMethodService(),
         keyboard?.previews?.clear()
         keyboard?.bar?.cancelTouch()
         if (finishingInput) pending.clear()
+        // The slip is offered once: leaving the field is the end of it.
+        slip.dismiss()
+        clipboardOpen = false
+        keyboard?.removeCallbacks(expireSlip)
         super.onFinishInputView(finishingInput)
     }
 
@@ -382,6 +402,15 @@ class MeowpuutIME : InputMethodService(),
             Prefs.PET_MOMENTS -> {
                 moments.settingChanged()
                 return
+            }
+            Prefs.CLIPBOARD -> {
+                if (prefs.clipboard) startClipboard() else stopClipboard(wipe = true)
+                clipboardOpen = false
+            }
+            Prefs.CLEAR_CLIPBOARD -> {
+                shelf?.clear()
+                slip.dismiss()
+                clipboardOpen = false
             }
             Prefs.CLEAR_PETS -> {
                 moments.clear()
@@ -568,6 +597,7 @@ class MeowpuutIME : InputMethodService(),
      * hardware key, or a key replayed after the lexicon loaded).
      */
     private fun typeEngine(code: Int, alternate: String?, asTyped: Boolean = false) {
+        slip.dismiss()
         if (alternate != null) {
             finishComposition()
             commit(alternate)
@@ -739,6 +769,8 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onKey(key: Key, text: String?) {
+        if (clipboardOpen) { clipboardOpen = false; refresh() }
+        if (key.isCharacter || key.action == KeyAction.Space || key.action == KeyAction.Segment) slip.dismiss()
         if (key.action != KeyAction.Emoji && emojiOpen) setEmoji(false)
         undoClearedText = null
         when (val action = key.action) {
@@ -760,6 +792,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onPage(page: Int) {
+        if (clipboardOpen) { clipboardOpen = false; refresh() }
         if (emojiOpen) setEmoji(false)
         if (this.page == page) return
         this.page = page
@@ -781,6 +814,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     private fun typeSymbol(text: String) {
+        slip.dismiss()
         val readingMark = when (text) {
             "ー" -> '-'
             "'" -> '\''
@@ -1095,6 +1129,7 @@ class MeowpuutIME : InputMethodService(),
     }
 
     override fun onPrediction(text: String) {
+        slip.dismiss()
         undoClearedText = null
         onTick()
         if (english) {
@@ -1118,7 +1153,19 @@ class MeowpuutIME : InputMethodService(),
             setEmoji(false)
             return
         }
-        if (!composer.composing && !expanded) return
+        if (clipboardOpen) {
+            clipboardOpen = false
+            refresh(resetPanel = true)
+            return
+        }
+        if (!composer.composing && !expanded) {
+            // Nothing is being composed: the arrow opens what was copied lately, when there is any.
+            if (clipboardAvailable()) {
+                clipboardOpen = true
+                refresh(resetPanel = true)
+            }
+            return
+        }
         expanded = !expanded
         if (expanded && composer.candidates.size < 120) composer.loadMore()
         refresh(resetPanel = true)
@@ -1148,6 +1195,7 @@ class MeowpuutIME : InputMethodService(),
             }
             finishComposition()
         }
+        clipboardOpen = false
         emojiOpen = open
         expanded = false
         predictions = emptyList()
@@ -1170,30 +1218,157 @@ class MeowpuutIME : InputMethodService(),
             return
         }
         val nextMode = prefs.nextTouchMode(mode)                      // null: the five touches of 米米莫 are switched off in the settings
-        val name = when (nextMode) {
-            InputMode.ZHUYIN -> "注音"
-            InputMode.PINYIN -> "拼音"
-            InputMode.NINE_KEY -> words("九鍵拼音", "九键拼音")
-            InputMode.JAPANESE -> words("日語", "日语")
-            null -> null
-        }
+        val name = nextMode?.let { KeyStrip.modeName(it, words) }
         val outcome = view.bar.pet(cat, prefs.simplified, name.takeUnless { numericField })
         if (outcome != CatAffection.Outcome.Happy) return
         if (cat == Cat.MIMIMO) {
             if (numericField || nextMode == null) return
-            if (opening != null || pending.isNotEmpty()) {
-                view.bar.announce(words("詞庫載入中，請稍候", "词库载入中，请稍候"))
-                return
-            }
-            prefs.mode = nextMode ?: return
-            view.bar.announce(words("已切換到$name", "已切换到$name"))
+            switchInputMode(nextMode)
         } else {
-            prefs.simplified = !prefs.simplified
-            val simplified = prefs.simplified
-            var text = if (simplified) "已切换为简体中文" else "已切換為繁體中文"
-            if (!chineseActive) text += if (simplified) "（中文输入生效）" else "（中文輸入生效）"
-            view.bar.announce(text)
+            toggleScript()
         }
+    }
+
+    /** The way of typing [next], as the five touches of 米米莫 and the language key's strip switch it; false when it waits for the lexicon. */
+    private fun switchInputMode(next: InputMode): Boolean {
+        val view = keyboard ?: return false
+        if (opening != null || pending.isNotEmpty()) {
+            view.bar.announce(words("詞庫載入中，請稍候", "词库载入中，请稍候"))
+            return false
+        }
+        prefs.mode = next
+        val name = KeyStrip.modeName(next, words)
+        view.bar.announce(words("已切換到$name", "已切换到$name"))
+        return true
+    }
+
+    /** The script, as the five touches of 莫莫 and the language key's strip switch it. */
+    private fun toggleScript() {
+        val view = keyboard ?: return
+        prefs.simplified = !prefs.simplified
+        val simplified = prefs.simplified
+        var text = if (simplified) "已切换为简体中文" else "已切換為繁體中文"
+        if (!chineseActive) text += if (simplified) "（中文输入生效）" else "（中文輸入生效）"
+        view.bar.announce(text)
+    }
+
+    /** The keyboard goes away (a cat dropped onto the keys, or the strip's last item): what is being composed is kept as text. */
+    private fun hideKeyboard(cat: Cat?) {
+        if (cat != null) moments.dropped(cat)
+        requestHideSelf(0)
+    }
+
+    // The language key's strip (KeyStrip.kt): the same switches as the cats, from any skin.
+    override fun stripEntries(key: Key): List<KeyStrip.Entry> =
+        KeyStrip.entries(mode, prefs.mimimoModes, prefs.simplified, numericField)
+
+    override fun onStripChoice(key: Key, index: Int) {
+        when (val action = stripEntries(key).getOrNull(index)?.action) {
+            is KeyStrip.Action.Mode -> if (switchInputMode(action.mode)) keyboard?.glyph?.cheer(CatId.MIMI)
+            KeyStrip.Action.Script -> { toggleScript(); keyboard?.glyph?.cheer(CatId.MOMO) }
+            KeyStrip.Action.Hide -> hideKeyboard(null)
+            else -> Unit
+        }
+    }
+
+    // ---------------------------------------------------------------- clipboard
+
+    private fun startClipboard() {
+        if (!prefs.clipboard || clipboardListener != null) return
+        shelf = ClipboardShelf(java.io.File(noBackupFilesDir, ClipboardShelf.FILE_NAME))
+        val manager = getSystemService(android.content.ClipboardManager::class.java) ?: return
+        val listener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+            readClip(fromListener = true)
+            presentSlip()
+            if (keyboard != null) refresh()
+        }
+        manager.addPrimaryClipChangedListener(listener)
+        clipboardManager = manager
+        clipboardListener = listener
+    }
+
+    /** No more listening. [wipe]: the shelf and its pinned file are deleted too (the switch went off). */
+    private fun stopClipboard(wipe: Boolean) {
+        clipboardListener?.let { clipboardManager?.removePrimaryClipChangedListener(it) }
+        clipboardListener = null
+        clipboardManager = null
+        if (wipe) {
+            shelf?.clear()
+            ClipboardShelf.deleteFile(java.io.File(noBackupFilesDir, ClipboardShelf.FILE_NAME))
+            slip.forget()
+        }
+        shelf = null
+        clipboardOpen = false
+    }
+
+    /** Takes the primary clip if it is text and new: into the shelf (unless it is sensitive) and as the slip. */
+    private fun readClip(fromListener: Boolean) {
+        val manager = clipboardManager ?: return
+        if (!prefs.clipboard) return
+        try {
+            val clip = manager.primaryClip ?: return
+            val description = clip.description
+            if (clip.itemCount == 0 || !description.hasMimeType("text/*")) return
+            val stamp = description.timestamp
+            if (stamp <= 0L && !fromListener) return          // its age is unknown, and the slip is for the young
+            val time = if (stamp > 0L) stamp else System.currentTimeMillis()
+            val sensitive = description.extras?.getBoolean(ClipboardRules.SENSITIVE_EXTRA, false) == true
+            val text = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+            if (slip.copied(text, time, sensitive)) shelf?.add(text, sensitive, time)
+        } catch (_: RuntimeException) {
+            // Not allowed to read it now (another app has the focus): nothing to take.
+        }
+    }
+
+    /** Puts the slip forward in a field that may have it, and sets its end at three minutes. */
+    private fun presentSlip() {
+        if (!prefs.clipboard) return
+        slip.present(System.currentTimeMillis(), clipFieldAllowed)
+        scheduleSlipExpiry()
+    }
+
+    private fun scheduleSlipExpiry() {
+        val view = keyboard ?: return
+        view.removeCallbacks(expireSlip)
+        slip.remaining(System.currentTimeMillis())?.let { view.postDelayed(expireSlip, it + 50L) }
+    }
+
+    private fun clipboardAvailable(): Boolean =
+        prefs.clipboard && clipFieldAllowed && !composer.composing && pending.isEmpty() && !emojiOpen && shelf?.isEmpty == false
+
+    override fun onClipSlip() {
+        val clip = slip.visible(System.currentTimeMillis(), composer.composing, clipFieldAllowed && prefs.clipboard) ?: return
+        undoClearedText = null
+        onTick()
+        slip.dismiss()
+        suggestionSpace = false
+        commit(clip.text)
+        predictions = emptyList()
+        if (english) { updateAutoCaps(); updateEnglish() }
+        refresh()
+    }
+
+    override fun onClipboardItem(index: Int) {
+        val item = clipRows.getOrNull(index) ?: return
+        undoClearedText = null
+        onTick()
+        keySounds.play(AudioManager.FX_KEYPRESS_STANDARD, pick = true)
+        slip.dismiss()
+        clipboardOpen = false
+        suggestionSpace = false
+        commit(item.text)
+        predictions = emptyList()
+        if (english) { updateAutoCaps(); updateEnglish() }
+        refresh(resetPanel = true)
+    }
+
+    override fun onClipboardMenu(index: Int, choice: Int) {
+        val item = clipRows.getOrNull(index) ?: return
+        val shelf = shelf ?: return
+        onTick()
+        if (choice == ExpandedPanelView.CLIP_DELETE) shelf.remove(item.text)
+        else if (item.pinned) shelf.unpin(item.text) else shelf.pin(item.text)
+        refresh()
     }
 
     // ---------------------------------------------------------------- views
@@ -1344,7 +1519,9 @@ class MeowpuutIME : InputMethodService(),
         // A keyboard left up past midnight takes the new day's theme, between words only.
         if (composer.input.isEmpty() && festivalDay != java.time.LocalDate.now()) applyLook()
         val (returnTitle, accent) = returnTitle()
-        val showPanel = emojiOpen || (expanded && composer.composing)
+        if (clipboardOpen && !clipboardAvailable()) clipboardOpen = false
+        val showClipboard = clipboardOpen
+        val showPanel = emojiOpen || showClipboard || (expanded && composer.composing)
         val context = KeyContext(
             mode = mode,
             english = english,
@@ -1378,6 +1555,9 @@ class MeowpuutIME : InputMethodService(),
         val visible = if (english) all.indices.toList() else visibleCandidates()
         val composing = composer.composing
         val segmentLength = if (english || emojiOpen) 0 else composer.segmentLength
+        val slipClip = if (!showPanel && !emojiOpen && prefs.clipboard) {
+            slip.visible(System.currentTimeMillis(), composing || pending.isNotEmpty(), clipFieldAllowed)
+        } else null
         val undoLabel = if (!composing && !emojiOpen && undoClearedText != null) words("撤回清空", "撤回清空") else null
         view.bar.japaneseMimimo = if (mode == InputMode.JAPANESE && !english && prefs.cats) japaneseMimimo else null
         view.bar.update(CandidateBarView.Content(
@@ -1388,7 +1568,7 @@ class MeowpuutIME : InputMethodService(),
             punctuation = if (!emojiOpen && !composing && predictions.isEmpty() && chineseActive && !loading) QUICK_MARKS else emptyList(),
             status = if (emojiOpen) words("表情符號", "表情符号") else status(),
             expanded = showPanel,
-            canExpand = showPanel || (composing && all.isNotEmpty()),
+            canExpand = showPanel || (composing && all.isNotEmpty()) || clipboardAvailable(),
             moreAvailable = composer.moreAvailable,
             composing = composing,
             segmentLength = segmentLength,
@@ -1398,10 +1578,15 @@ class MeowpuutIME : InputMethodService(),
             mimimoSwitches = prefs.nextTouchMode(mode) != null,
             words = words,
             undoLabel = undoLabel,
+            clipSlip = slipClip?.shown,
+            clipSecret = slipClip?.sensitive == true,
         ), retainScroll = retainCandidateScroll)
         view.expanded = showPanel
         view.panel.words = words
-        if (emojiOpen) view.panel.show(emojiChoices, -1, false, resetPanel, emoji = true)
+        if (showClipboard) {
+            clipRows = shelf?.items().orEmpty()
+            view.panel.showClipboard(clipRows.map { ExpandedPanelView.ClipRow(it.text, it.pinned) }, resetPanel)
+        } else if (emojiOpen) view.panel.show(emojiChoices, -1, false, resetPanel, emoji = true)
         else if (showPanel) view.panel.show(all, composer.highlighted, mode.pinyinBased, resetPanel, syllables = syllables, segmentLength = segmentLength)
     }
 

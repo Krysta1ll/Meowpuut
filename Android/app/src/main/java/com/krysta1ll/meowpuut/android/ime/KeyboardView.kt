@@ -42,7 +42,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
     val bar = CandidateBarView(context, sprites, catSchedule, previews)
     val keys = KeysView(context, previews)
     val syllableRail = NineKeySyllableRailView(context)
-    val panel = ExpandedPanelView(context)
+    val panel = ExpandedPanelView(context, previews)
 
     private val density = resources.displayMetrics.density
     private val background = Paint()

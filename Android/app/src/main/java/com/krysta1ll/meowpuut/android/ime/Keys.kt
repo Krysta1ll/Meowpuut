@@ -44,6 +44,8 @@ data class Key(
     val holdLabel: String? = null,
     val swipeUpTone: KeyAction.PinyinTone? = null,
     val zhuyinPinyinHint: String? = null,
+    /** The language key: held, it opens the strip of [KeyStrip] (modes, script, hide the keyboard). */
+    val holdsStrip: Boolean = false,
 ) {
     val holdsRaw get() = holdLabel != null
     val isCharacter get() = action is KeyAction.Engine || action is KeyAction.Text
@@ -196,7 +198,7 @@ object KeyBuilder {
             context.mode == InputMode.JAPANESE -> t("切換到日文", "切换到日文")
             else -> t("切換到中文", "切换到中文")
         }
-        return Key(KeyAction.ToggleEnglish, label, style = KeyStyle.UTILITY, preview = false, fontSize = 16f, spoken = spoken)
+        return Key(KeyAction.ToggleEnglish, label, style = KeyStyle.UTILITY, preview = false, fontSize = 16f, spoken = spoken, holdsStrip = true)
     }
 
     private fun deleteKey(t: Words) =

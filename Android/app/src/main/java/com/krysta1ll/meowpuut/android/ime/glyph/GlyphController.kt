@@ -490,6 +490,11 @@ internal class GlyphController(private val context: Context) {
         }
     }
 
+    /** The language key's strip changed the way of typing ([CatId.MIMI]) or the script ([CatId.MOMO]): that cat hops, glad. */
+    fun cheer(cat: CatId) {
+        handler?.post { engine?.let { it.cheer(cat); publishFront(it) }; requestTick() }
+    }
+
     /** Text was committed to the editor. [secret]: it may be read for the words that do something (never in a field that is not to be learned from). */
     fun committed(text: String, graphemes: Int, japanese: Boolean, secret: Boolean) {
         handler?.post {

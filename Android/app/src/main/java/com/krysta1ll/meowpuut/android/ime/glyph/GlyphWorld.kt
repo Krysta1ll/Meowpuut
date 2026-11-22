@@ -336,7 +336,16 @@ internal class GlyphWorld(
     }
 
     fun feel(m: Map<CatId, String>, ticks: Int, jump: Boolean) {
-        mood = m; moodUntil = tick + ticks; hop = jump; hopAt = tick; dirty = true
+        mood = m; moodUntil = tick + ticks; hop = jump; hopAt = tick; hopOnly = null; dirty = true
+    }
+
+    /** Only this cat hops (set by [cheer]); null: whichever cats [hop] says. */
+    var hopOnly: CatId? = null
+
+    /** The language key's strip changed the way of typing (米米) or the script (莫莫): that cat hops, glad. */
+    fun cheer(cat: CatId) {
+        feel(mapOf(cat to "happy"), 12, true)
+        hopOnly = cat
     }
 
     /**
@@ -568,7 +577,7 @@ internal class GlyphWorld(
         if (tick < goodnight && !moving) return CatState("sleep", "neutral", z = mimi)
         if (tick < glitch) return CatState(if (moving) walk() else "sit", "dizzy")        // when the picture tears, so do they
         val m = mood
-        if (m != null && tick < moodUntil) return CatState(if (moving) walk() else "sit", m[cat] ?: "neutral", hop = hop)
+        if (m != null && tick < moodUntil) return CatState(if (moving) walk() else "sit", m[cat] ?: "neutral", hop = hop && (hopOnly == null || hopOnly == cat))
         if (moving) return CatState(foot ?: (if ((tick + (if (mimi) 0 else 1)) and 1 != 0) "walkA" else "walkB"),
             if (rate > 7) "wide" else if (mimi) "focus" else "neutral", bob = bob)
         if (idle < 1.2) return CatState(foot ?: "walkA", "neutral", bob = bob)
