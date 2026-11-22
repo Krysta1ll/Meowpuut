@@ -109,14 +109,25 @@ MINGW_BIN=/path/to/llvm-mingw/bin MEOWPUUT_LEXICON_DIR=/path/to/generated/lexico
 
 ### 在 Windows 上用 MSVC
 
-需要 CMake 3.16 以上、Visual Studio 的 C++ 工具（MSVC）、Windows 10 SDK 和 Rust（`cargo` 在 PATH 中，MSVC 目標）。CMake 會先呼叫 `cargo build --release -p meowpuut-ffi`。這份 CMake 只支援 MSVC，用其他編譯器設定時會直接報錯；MinGW 請用下面的 `scripts/build-windows-check.sh`。
+需要 CMake 3.16 以上、Visual Studio 的 C++ 工具（MSVC）、Windows 10 SDK、Rust（`cargo` 在 PATH 中，目標 `x86_64-pc-windows-msvc`），以及能 `import PIL` 的 Python（用來從 `assets/brand/AppIcon.png` 產生 `Meowpuut.ico`，尺寸與 `scripts/build-windows-ime.sh` 相同）。在「x64 Native Tools Command Prompt for VS」裡執行，或先呼叫 `vcvars64.bat`。若 `cmake` 不在 PATH 中，可用 Visual Studio 附帶的 `cmake.exe`。
+
+CMake 會先呼叫 `cargo build --locked --release -p meowpuut-ffi`，並以 `cargo rustc -- --print native-static-libs` 取得 Rust 標準庫需要的系統庫（略過 `/defaultlib:…`，CRT 仍由 MSVC 處理）。這份 CMake 只支援 MSVC，用其他編譯器設定時會直接報錯；MinGW 請用下面的 `scripts/build-windows-check.sh`。Debug 設定只編譯 C++；Rust 核心仍是 Release。
+
+已在 Visual Studio 2022（MSVC 14.44）與 Windows 10 SDK 10.0.26100 上驗證 Release 與 Debug 的建置，以及不需詞庫的 `ctest`。尚未驗證：安裝或註冊輸入法、實際打字、帶詞庫的 `session` 測試、在 Windows 上產生官方詞庫。
 
 ```powershell
-cmake -S Windows -B build/windows -A x64 -DMEOWPUUT_LEXICON_DIR="C:/path/to/lexicons"
+cmake -S Windows -B build/windows -A x64
 cmake --build build/windows --config Release
 cd build/windows
 ctest -C Release --output-on-failure
+
+cmake --build . --config Debug
+ctest -C Debug --output-on-failure
 ```
+
+若已有 `scripts/export-windows-lexicon.py` 匯出的詞庫，可加上 `-DMEOWPUUT_LEXICON_DIR=C:/path/to/lexicons`。未指定時預設查看 `Engine/.build/lexicon`。目錄裡有 `native-pinyin.tsv`、`native-zhuyin.tsv` 和 `native-japanese.tsv` 才會註冊 `session` 測試（若有 `mimo_base.bin` 會一併傳入）；`input_defaults` 和 `candidate_layout` 照常執行。這裡沒有 Windows 原生的詞庫編譯流程（`Engine/scripts/build-lexicon.sh` 需要 `swiftc`），請先在已支援的環境產生檔案。
+
+`MeowpuutTextService` 的圖示由 CMake 在建置時寫入建置目錄，不必再手動放置 `Meowpuut.ico`。若沒有 Python / Pillow，也可自行執行 `python scripts/generate-windows-ico.py assets/brand/AppIcon.png <build>/Meowpuut.ico` 後再設定。
 
 產生的目標：
 
@@ -126,11 +137,9 @@ ctest -C Release --output-on-failure
 | `MeowpuutCandidateLayout` | `UI/` 中不含 Windows 標頭的部分 |
 | `MeowpuutCandidateWindow` | `UI/CandidateWindow.cpp`，連結 d2d1、dwrite、windowscodecs |
 | `MeowpuutCandidatePreview` | 預覽程式，連結 imm32 |
-| `MeowpuutTextService` | 文字服務 DLL；建置前要在建置目錄放一個 `Meowpuut.ico`（還沒用 MSVC 建置過） |
+| `MeowpuutTextService` | 文字服務 DLL；建置時從 `assets/brand/AppIcon.png` 產生 `Meowpuut.ico` |
 | `MeowpuutPreviewAssets` | 每次建置都把 `UI/Assets` 重新複製到執行檔旁，貓圖或節日清單更新後不必重新連結 |
-| `meowpuut_session_test`、`meowpuut_layout_test` | 測試 |
-
-`MEOWPUUT_LEXICON_DIR` 須包含 `native-pinyin.tsv`、`native-zhuyin.tsv` 和 `native-japanese.tsv`，由 `scripts/export-windows-lexicon.py` 匯出。未指定時不註冊 `session` 測試，`candidate_layout` 測試照常執行。這裡沒有 Windows 原生的詞庫編譯流程，請先在已支援的環境產生檔案。
+| `meowpuut_session_test`、`meowpuut_layout_test`、`meowpuut_input_defaults_test` | 測試 |
 
 ## 候選窗
 
@@ -282,7 +291,7 @@ MOUSE=420,330 bash scripts/windows-vm.sh show hover --candidates '喵,貓,毛'  
 - 開始功能表搜尋、設定等 UWP 程式裡，候選窗是普通的最上層視窗，可能被蓋住。
 - 造型、色系、色調沒有設定的地方。
 - 日語混打只用小型的 `native-japanese.tsv`，還沒改讀 macOS、iOS 用的 `mimo_jp.bin`；也沒有個人詞庫、macOS 的 Swift 排序和 `/` 片語模組。
-- `CMakeLists.txt` 的 MSVC 建置（含 `MeowpuutTextService`）沒有實際跑過。
+- 已用 MSVC 建置 `MeowpuutTextService` 並跑過不需詞庫的 `ctest`；尚未在本機安裝或註冊輸入法，也尚未用官方詞庫跑 `session` 測試。
 - 虛擬機上看到：切到喵撲注音後，工作列的「中／英」指示有時不見，只剩鍵盤圖示；拼音時正常。
 - 點到候選窗玻璃和貓以外的地方（透明的陰影區）時，點擊落到下面的文件，程式會結束組字，讀音照原樣（字母或注音符號）留在文件裡。
 - 有程式還載著 DLL 時，移除後 `C:\Program Files\Meowpuut` 的資料夾要等那些程式關掉或重新開機才能刪。

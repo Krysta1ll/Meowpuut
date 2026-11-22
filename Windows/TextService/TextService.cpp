@@ -566,8 +566,13 @@ public:
         info->guidItem = kInputModeItem;
         info->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
         info->ulSort = 0;
-        wcsncpy(info->szDescription, L"喵撲中英切換", TF_LBI_DESC_MAXLEN - 1);
-        info->szDescription[TF_LBI_DESC_MAXLEN - 1] = 0;
+        {
+            const wchar_t description[] = L"喵撲中英切換";
+            const size_t cap = TF_LBI_DESC_MAXLEN - 1;
+            size_t i = 0;
+            for (; description[i] && i < cap; ++i) info->szDescription[i] = description[i];
+            info->szDescription[i] = 0;
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE GetStatus(DWORD *status) override {
