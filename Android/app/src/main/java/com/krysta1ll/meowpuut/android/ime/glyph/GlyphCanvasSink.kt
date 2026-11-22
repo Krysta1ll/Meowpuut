@@ -321,6 +321,28 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
     class NearCut(val mask: Bitmap, val perPoint: Float, val lift: Double, val paper: Int, val dx: Double, val dy: Double)
     var nearCut: NearCut? = null
 
+    /**
+     * The two cats stand under the keys' type: where a letter falls on one, its halo thins to a hairline so the cat is whole round it
+     * ([GlyphCatCut]). [cats] is where they stand right now; the offsets are where the view that draws the type stands in the keyboard.
+     */
+    class CatCut(val cats: List<PlacedCat>, val paper: Int, val dx: Double, val dy: Double)
+    var catCut: CatCut? = null
+
+    /** Draws [mask] with its halo thinned over the cats it lies on; false when it touches none (the ordinary, cached way then). */
+    private fun cutIntoCats(n: CatCut, mask: GlyphKeyArt.Mask, x: Double, y: Double, unit: Double, ink: Int, halo: Int?, round: Boolean): Boolean {
+        val cut = GlyphCatCut.compose(n.cats, n.paper, mask, x + n.dx, y + n.dy, unit, ink, halo, round) ?: return false
+        val c = canvas ?: return true
+        val bitmap = pixelBitmap(cut.pixels, cut.w, cut.h)
+        // The same rectangle on the screen as the ordinary way gives the type and its halo, so a letter does not shift when a cat comes under it.
+        val u = pixelSize(unit)
+        val l = (x * scale).roundToInt() - cut.reach * u
+        val t = ((y + oy) * scale).roundToInt() - cut.reach * u
+        dst.set(l, t, l + cut.w / cut.fine * u, t + cut.h / cut.fine * u)
+        c.drawBitmap(bitmap, null, dst, bitmapPaint)
+        bitmap.recycle()
+        return true
+    }
+
     /** Draws [mask] with the part of it that lies on the near art cut out in paper; false when no pixel of it does (the ordinary way then). */
     private fun cutNear(n: NearCut, mask: GlyphKeyArt.Mask, x: Double, y: Double, unit: Double, ink: Int, halo: Int?, round: Boolean): Boolean {
         val reach = if (halo != null) GlyphKeyArt.reach(round) else 0
@@ -411,6 +433,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
         val c = canvas ?: return
         nearCut?.let { if (cutNear(it, mask, x, y, unit, ink, halo, round)) return }
         eclipse?.let { if (eclipsed(it, mask, x, y, unit, ink, halo, round)) return }
+        catCut?.let { if (cutIntoCats(it, mask, x, y, unit, ink, halo, round)) return }
         val u = pixelSize(unit)
         val reach = if (halo != null) GlyphKeyArt.reach(round) else 0
         val cache = mask.extras

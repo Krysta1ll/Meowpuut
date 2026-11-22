@@ -114,6 +114,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             bar.glyph = controller
             controller.overlays = listOf(bar, keys)
             controller.signs = keys
+            controller.typeOverCats = keys::catsMoved
             controller.scene.paper = if (look.dark) 0xFF151413.toInt() else 0xFFECE8DC.toInt()
             controller.groundView.paper = controller.scene.paper
             configureGlyph()

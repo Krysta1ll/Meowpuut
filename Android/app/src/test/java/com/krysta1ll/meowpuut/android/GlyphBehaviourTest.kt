@@ -8,6 +8,7 @@ import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKey
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphLayout
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphNoise
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPools
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphWorld
 import com.krysta1ll.meowpuut.android.ime.glyph.KeyCap
 import com.krysta1ll.meowpuut.android.ime.glyph.CapRole
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyPainter
@@ -97,7 +98,7 @@ class GlyphBehaviourTest {
         val journey = GlyphJourney()
         var torn = 0
         var clean = 0
-        for (n in 1..25) {
+        for (n in 1..40) {
             val e = GlyphEngine(GlyphPools())
             e.configure(false, 2, false, false, false)
             e.setLayout(GlyphLayout.NONE)
@@ -109,10 +110,29 @@ class GlyphBehaviourTest {
             e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a")
             e.step(); e.step()
             val glitched = e.world.glitch > 0
-            assertEquals("border $n", GlyphNoise.h2(n, 5) < 0.3, glitched)
+            assertEquals("border $n", GlyphNoise.h2(n, 5) < GlyphWorld.BORDER_GLITCH, glitched)
             if (glitched) torn++ else clean++
         }
         assertTrue("torn $torn clean $clean", torn > 0 && clean > 0)
+        assertTrue("a tear at a border is the exception: $torn of 40", torn <= 4)
+    }
+
+    @Test
+    fun byItselfThePictureTearsRarelyAndNeverSoonAgain() {
+        // Twenty minutes of typing at the highest level, where the type turns four times a second.
+        val e = engine(level = 3)
+        val starts = ArrayList<Int>()
+        var torn = false
+        repeat(GlyphWorld.FPS * 60 * 20) { i ->
+            if (i % 100 == 0) e.key(GlyphKey.LETTER, 0.0, 0.0, false, "a")
+            e.step()
+            val now = e.world.tick < e.world.glitch
+            if (now && !torn) starts += e.world.tick
+            torn = now
+        }
+        assertTrue("it still happens: $starts", starts.isNotEmpty())
+        assertTrue("but not once a minute as it did: $starts", starts.size <= 4)
+        for (i in 1 until starts.size) assertTrue("no two within the rest: $starts", starts[i] - starts[i - 1] >= GlyphWorld.GLITCH_REST)
     }
 
     @Test

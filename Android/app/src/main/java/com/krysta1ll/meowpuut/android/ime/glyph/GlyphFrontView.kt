@@ -16,7 +16,6 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
     private val scale = context.resources.displayMetrics.density.coerceAtMost(3f)
     private val sink = GlyphCanvasSink(scale, gather = false)
     private val painter = GlyphKeyPainter(GlyphPixelFonts(context))
-    private val rasters = HashMap<String, Raster>()
     private val fishMask = GlyphKeyArt.mask(GlyphCats.FISH)
 
     init {
@@ -25,11 +24,7 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
         isFocusable = false
     }
 
-    private fun cat(d: CatDraw, pose: String, colors: GlyphColors, dark: Boolean): Raster {
-        val key = "${d.cat}/$pose/${d.face}/$dark/${d.night}/${d.suit}"
-        if (rasters.size > 120) rasters.clear()
-        return rasters.getOrPut(key) { GlyphCats.raster(d.cat, pose, d.face, dark, d.night, colors, d.suit) }
-    }
+    private fun cat(d: CatDraw, pose: String, colors: GlyphColors, dark: Boolean): Raster = controller.catRaster(d, pose, colors, dark)
 
     override fun onDraw(canvas: Canvas) = draw0(canvas)
 
@@ -67,7 +62,7 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             val hopY = d.hopY - (walk?.second ?: 0)
             sig = sig * 31 + pose.hashCode() + hopY * 1009L
             val r = cat(d, pose, c, f.dark)
-            val top = d.feetY - (r.h - 2 * GlyphCats.MARGIN) * u + hopY       // each cat has its own height (Mimi is taller, and a suit adds a row)
+            val placed = GlyphCats.place(d, r, hopY, u)                 // each cat has its own height; the keys thin their halos over it at the same place
             if (f.near != null && !d.platform) {                       // with depth the cat stands on its own shadow: a few fine dots under its feet
                 val bx = d.x
                 val tone = if (f.dark) c.paper else c.ink                    // (at night the shadow is the dark on the faintly lit ground)
@@ -92,10 +87,10 @@ internal class GlyphFrontView(context: Context, private val controller: GlyphCon
             }
             d.afterImageDx?.let { dx ->                                // a glitch leaves an after-image
                 val save = canvas.saveLayerAlpha(null, 102)
-                sink.raster(r, d.x + dx - GlyphCats.MARGIN * u, top - GlyphCats.MARGIN * u, u)
+                sink.raster(r, placed.left + dx, placed.top, u)
                 canvas.restoreToCount(save)
             }
-            sink.raster(r, d.x - GlyphCats.MARGIN * u, top - GlyphCats.MARGIN * u, u)
+            sink.raster(r, placed.left, placed.top, u)
             if (d.zzz && walk == null) for (i in 0 until 3) {
                 painter.label(sink, c, "ㄗ", d.x + 36.0 * k + i * 11 + ((d.zPhase + i) % 2), d.feetY - 24.0 * k - i * 12, 1.0, 1.0, centre = true, halo = true)
             }

@@ -6,6 +6,7 @@ import com.krysta1ll.meowpuut.android.ime.glyph.GlyphController
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphEngine
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphJourney
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKey
+import com.krysta1ll.meowpuut.android.ime.glyph.GlyphWorld
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphLayout
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPools
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphScenes
@@ -219,7 +220,7 @@ class GlyphEngineTest {
     fun theCatsKeepApartAndFollowTheWidth() {
         val e = engine()
         val narrow = cat(e, CatId.MOMO).x to cat(e, CatId.MIMI).x
-        assertEquals(104, narrow.first)
+        assertEquals(94, narrow.first)
         assertEquals(172, narrow.second)
         val wide = GlyphEngine(GlyphPools())
         wide.configure(false, 2, false, false, false)
@@ -334,14 +335,26 @@ class GlyphEngineTest {
     }
 
     @Test
-    fun fiveQuickBackspacesTearThePicture() {
+    fun aRunOfQuickBackspacesTearsThePictureButNotAgainSoon() {
         val e = engine()
-        repeat(4) { e.key(GlyphKey.DELETE, 0.0, 0.0, false); e.step() }
+        repeat(GlyphWorld.BACKSPACE_RUN - 1) { e.key(GlyphKey.DELETE, 0.0, 0.0, false); e.step() }
         assertTrue(e.world.glitch <= e.world.tick)
         e.key(GlyphKey.DELETE, 0.0, 0.0, false)
         assertTrue(e.world.glitch > e.world.tick)
+        // A held delete key is a run every second: the picture does not tear at each.
+        repeat(20) { e.step() }
+        repeat(3 * GlyphWorld.BACKSPACE_RUN) { e.key(GlyphKey.DELETE, 0.0, 0.0, false); e.step() }
+        assertTrue("no second tear within the rest", e.world.glitch <= e.world.tick)
+        // The words still tear it at once, rest or no rest.
+        e.committed("glitch", 6, false, secret = true)
+        assertTrue(e.world.glitch > e.world.tick)
+        // After the rest a run does it again.
+        repeat(GlyphWorld.GLITCH_REST + 30) { e.step() }
+        assertTrue(e.world.glitch <= e.world.tick)
+        repeat(GlyphWorld.BACKSPACE_RUN) { e.key(GlyphKey.DELETE, 0.0, 0.0, false); e.step() }
+        assertTrue("after the rest", e.world.glitch > e.world.tick)
         val slow = engine()
-        repeat(8) { slow.key(GlyphKey.DELETE, 0.0, 0.0, false); repeat(15) { slow.step() } }
+        repeat(GlyphWorld.BACKSPACE_RUN + 3) { slow.key(GlyphKey.DELETE, 0.0, 0.0, false); repeat(15) { slow.step() } }
         assertTrue("slow ones do not", slow.world.glitch <= slow.world.tick)
     }
 
