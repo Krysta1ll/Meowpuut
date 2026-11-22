@@ -27,14 +27,14 @@
 
 | 平台 | 版本 | 下載 |
 | --- | --- | --- |
-| iPhone、iPad（iOS 17 以上） | 正式版 | [App Store](https://apps.apple.com/app/id6832432299) |
+| iPhone、iPad（iOS 17 以上） | 正式版 | [App Store](https://apps.apple.com/app/apple-store/id6832432299?pt=129766469&ct=github&mt=8) |
 | Mac（macOS 27 以上，Apple 晶片） | 窗臺 · 26A034 | [安裝盤 .dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-26a034/Meowpuut-Sill-26A034-arm64.dmg) · [安裝套件 .pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-26a034/Meowpuut-Sill-26A034-arm64.pkg) |
 | Android（8.0 以上） | 稜鏡 · 26A025 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-26a025/Meowpuut-Prism-26A025.apk) |
 | Windows 10、11 | 門廊 · 26A003 | [x64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-26a003/Meowpuut-Porch-26A003-x64.zip) · [Arm64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-26a003/Meowpuut-Porch-26A003-arm64.zip) |
 
 更新說明和 SHA-256 校驗檔：[Mac](https://github.com/Krysta1ll/Meowpuut/releases/tag/macos-sill-26a034) · [Android](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-prism-26a025) · [Windows](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-porch-26a003)。[歷史版本](https://github.com/Krysta1ll/Meowpuut/releases)。
 
-- **iPhone、iPad**：從 [App Store](https://apps.apple.com/app/id6832432299) 安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
+- **iPhone、iPad**：從 [App Store](https://apps.apple.com/app/apple-store/id6832432299?pt=129766469&ct=github&mt=8) 安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
 - **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好要登出再登入，再到系統設定加入輸入法。
 - **Android**：0.8.0、0.9.0 和 0.9.1 發布版可直接更新。裝過 0.1.0 的話，Android 會要求先移除舊版。
 - **Windows**：安裝包未簽署，Windows 可能會先跳出警告。一般電腦用 x64；Arm 處理器的電腦（例如 Snapdragon 筆電）用 Arm64，它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機，在模擬執行的 x64 程式裡打不出中文。安裝步驟見[安裝說明](docs/INSTALL.md#windows)。

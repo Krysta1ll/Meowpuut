@@ -1,6 +1,6 @@
 # 安裝喵撲 Meowpuut
 
-iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id6832432299)。其他平台的正式版與更新說明見 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases)。
+iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/apple-store/id6832432299?pt=129766469&ct=github&mt=8)。其他平台的正式版與更新說明見 [GitHub Releases](https://github.com/Krysta1ll/Meowpuut/releases)。
 
 - [iPhone、iPad](#iphoneipad)
 - [Mac](#mac)
@@ -12,7 +12,7 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 需要 iOS 或 iPadOS 17 以上。
 
-1. 從 [App Store](https://apps.apple.com/app/id6832432299) 安裝喵撲。
+1. 從 [App Store](https://apps.apple.com/app/apple-store/id6832432299?pt=129766469&ct=github&mt=8) 安裝喵撲。
 2. 到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」，選「喵撲」。不用打開「允許完整取用」。
 3. 在任何可以打字的地方，按住或點地球鍵切到喵撲。
 
