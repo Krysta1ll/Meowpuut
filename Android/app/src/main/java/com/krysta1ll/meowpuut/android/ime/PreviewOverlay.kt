@@ -155,6 +155,11 @@ class PreviewOverlay(context: Context) : View(context) {
             } else {
                 text.color = look.keyText
             }
+            if (option == KeyStrip.HIDE_ICON) {
+                face.color = text.color
+                Glyphs.keyboardDown(canvas, left + cell / 2, box.centerY, min(s.fontSize * 0.95f, cell - 10f), face)
+                continue
+            }
             // Long options (^_^) shrink to their cell.
             text.textSize = s.fontSize
             val wide = text.measureText(option)

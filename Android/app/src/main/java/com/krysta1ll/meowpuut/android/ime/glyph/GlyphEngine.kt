@@ -110,6 +110,8 @@ internal class GlyphEngine(val pools: GlyphPools, clockHm: () -> Int = { -1 }, n
         }
     }
 
+    fun cheer(cat: CatId) = world.cheer(cat)
+
     fun committed(text: String, graphemes: Int, japanese: Boolean, secret: Boolean) {
         // A word rises through the seam, into the strip above the keyboard, unless the picture is the safe one.
         world.committed(text, graphemes, japanese, secret, scape.skyOffset, layout.barTop, if (theme.opaque) 10.0 else 5.0 - layout.lift)

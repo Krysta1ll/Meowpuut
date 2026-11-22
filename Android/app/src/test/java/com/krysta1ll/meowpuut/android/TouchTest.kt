@@ -149,6 +149,8 @@ class TouchTest {
         override fun onCursorEnd() { events += "cursor-end" }
         override fun onTick() = Unit
         override fun onKeyHold(key: Key) { events += "hold:${key.action}" }
+        override fun stripEntries(key: Key) = com.krysta1ll.meowpuut.android.ime.KeyStrip.entries(mode, null, false, false)
+        override fun onStripChoice(key: Key, index: Int) { events += "strip:$index" }
     }
 
     @Test
@@ -701,5 +703,51 @@ class TouchTest {
         b3.touches.up(0, del3.centerX, del3.centerY - 34f)
         assertTrue(b3.events.contains("delete-all"))
         assertEquals(0, b3.host.pendingTimers)
+    }
+
+    // ---- the language key's strip: hold, slide, let go
+
+    @Test
+    fun aTapOnTheLanguageKeyStillTogglesAndAHoldOpensTheStrip() {
+        val b = Board()
+        val toggle = b.frame(KeyAction.ToggleEnglish)
+        b.tap(toggle)
+        assertEquals(listOf("key:ABC"), b.events)
+        b.events.clear()
+        b.down(0, toggle)
+        b.host.advance(KeyTouches.ALTERNATES_DELAY)
+        // Pinyin now, then the rest of the rotation, the script and hiding.
+        assertEquals(5, b.host.options.size)
+        assertEquals(0, b.host.selected)
+        b.up(0, toggle)
+        assertEquals("letting go where it started chooses nothing", emptyList<String>(), b.events)
+    }
+
+    @Test
+    fun slidingToAnItemAndLettingGoChoosesIt() {
+        val b = Board()
+        val toggle = b.frame(KeyAction.ToggleEnglish)
+        b.down(0, toggle)
+        b.host.advance(KeyTouches.ALTERNATES_DELAY)
+        val strip = b.host.strip!!
+        val last = strip.box.left + AlternatesStrip.PADDING + strip.cell * 4.5f
+        b.touches.move(0, last, strip.box.centerY)
+        assertEquals(4, b.host.selected)
+        b.touches.up(0, last, strip.box.centerY)
+        assertEquals(listOf("strip:4"), b.events)
+        assertNull(b.host.strip)
+    }
+
+    @Test
+    fun lettingGoWellAwayFromTheStripChoosesNothing() {
+        val b = Board()
+        val toggle = b.frame(KeyAction.ToggleEnglish)
+        b.down(0, toggle)
+        b.host.advance(KeyTouches.ALTERNATES_DELAY)
+        val strip = b.host.strip!!
+        b.touches.move(0, strip.box.left + 20f, strip.box.top - 80f)
+        assertEquals(-1, b.host.selected)
+        b.touches.up(0, strip.box.left + 20f, strip.box.top - 80f)
+        assertEquals(emptyList<String>(), b.events)
     }
 }

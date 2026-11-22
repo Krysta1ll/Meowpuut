@@ -49,6 +49,7 @@ import com.krysta1ll.meowpuut.android.engine.ChoiceMemory
 import com.krysta1ll.meowpuut.android.engine.InputMode
 import com.krysta1ll.meowpuut.android.ime.CandidateBarView
 import com.krysta1ll.meowpuut.android.ime.CandidateRegionLayout
+import com.krysta1ll.meowpuut.android.ime.ClipboardShelf
 import com.krysta1ll.meowpuut.android.ime.Cat
 import com.krysta1ll.meowpuut.android.ime.CatSprites
 import com.krysta1ll.meowpuut.android.ime.CustomSkinLoader
@@ -237,6 +238,23 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         toggle(input, R.string.english_auto_caps, prefs.englishAutoCaps) { prefs.englishAutoCaps = it }
         toggle(input, R.string.remember_choices, prefs.rememberChoices) { prefs.rememberChoices = it }
         note(input, R.string.remember_choices_note)
+        toggle(input, R.string.clipboard, prefs.clipboard) {
+            prefs.clipboard = it
+            // Off: what was kept goes too, the pinned file included (the keyboard, if it is running, forgets its copy on seeing the switch).
+            if (!it) ClipboardShelf.deleteFile(java.io.File(noBackupFilesDir, ClipboardShelf.FILE_NAME))
+        }
+        note(input, R.string.clipboard_note)
+        input.addView(action(R.string.clear_clipboard) {
+            AlertDialog.Builder(this)
+                .setMessage(R.string.clear_clipboard_confirm)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.clear_clipboard) { _, _ ->
+                    ClipboardShelf.deleteFile(java.io.File(noBackupFilesDir, ClipboardShelf.FILE_NAME))
+                    prefs.requestClearClipboard()
+                    stamp.show(getString(R.string.stamp_ok), getString(R.string.stamp_clipboard_cleared))
+                }
+                .show()
+        })
         input.addView(action(R.string.dictionary_title) { CustomDictionaryDialog(this, prefs).show() })
         val memoryEmpty = note(input, R.string.choice_memory_empty).apply { visibility = View.GONE }
         input.addView(action(R.string.clear_choice_memory) {

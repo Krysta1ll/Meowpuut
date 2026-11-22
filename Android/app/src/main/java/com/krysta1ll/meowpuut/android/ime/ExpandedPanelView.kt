@@ -19,6 +19,7 @@ import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeProvider
 import android.widget.OverScroller
 import com.krysta1ll.meowpuut.android.engine.Candidate
+import com.krysta1ll.meowpuut.android.engine.CandidateKind
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphCanvasSink
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphKeyPainter
 import com.krysta1ll.meowpuut.android.ime.glyph.GlyphPixelFonts
@@ -35,13 +36,20 @@ import kotlin.math.roundToInt
  * Covers the key rows above the bottom row while the bar is expanded.
  */
 @SuppressLint("ViewConstructor")
-class ExpandedPanelView(context: Context) : View(context) {
+class ExpandedPanelView(context: Context, private val previews: PreviewOverlay? = null) : View(context) {
     interface Listener {
         fun onCandidate(index: Int)
         fun onSyllable(syllable: String) {}
         /** Scrolled near the end; the keyboard may append more candidates. */
         fun onNeedMore()
+        /** The clipboard list: row [index] was tapped. */
+        fun onClipboardItem(index: Int) {}
+        /** The clipboard list: row [index] was held and [choice] ([CLIP_PIN] or [CLIP_DELETE]) chosen. */
+        fun onClipboardMenu(index: Int, choice: Int) {}
     }
+
+    /** A row of the clipboard list (the text as kept, and whether it is pinned). */
+    class ClipRow(val text: String, val pinned: Boolean)
 
     var listener: Listener? = null
     var look: Look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
@@ -64,6 +72,8 @@ class ExpandedPanelView(context: Context) : View(context) {
     private var highlighted = 0
     private var japaneseMarks = true
     private var emoji = false
+    /** The clipboard list: one row each, left aligned, middle-ellipsised. */
+    private var clipRows: List<ClipRow>? = null
     private val density = resources.displayMetrics.density
     private val glyphPainter by lazy { GlyphKeyPainter(GlyphPixelFonts(context)) }
     private val glyphSink by lazy { GlyphCanvasSink(density, gather = false) }
@@ -110,7 +120,9 @@ class ExpandedPanelView(context: Context) : View(context) {
         list: List<Candidate>, highlighted: Int, japaneseMarks: Boolean, resetScroll: Boolean,
         emoji: Boolean = false, syllables: List<String> = emptyList(), segmentLength: Int = 0,
     ) {
-        val changed = candidates !== list || this.japaneseMarks != japaneseMarks || this.emoji != emoji ||
+        val leavingClipboard = clipRows != null
+        clipRows = null
+        val changed = leavingClipboard || candidates !== list || this.japaneseMarks != japaneseMarks || this.emoji != emoji ||
             this.syllables != syllables || this.segmentLength != segmentLength
         if (!resetScroll && !changed && this.highlighted == highlighted) return
         val syllablesChanged = this.syllables != syllables
@@ -123,6 +135,27 @@ class ExpandedPanelView(context: Context) : View(context) {
         if (resetScroll) { scroll = 0f; scroller.forceFinished(true) }
         if (resetScroll || syllablesChanged) chipScroll = 0f
         if (changed) { pressed = -1; pressedChip = -1; relayout() }
+        accessibility.invalidateAll()
+        invalidate()
+    }
+
+    /** The recent clipboard in the panel: [rows] (pinned first), one line each. */
+    fun showClipboard(rows: List<ClipRow>, resetScroll: Boolean) {
+        val same = clipRows?.let { old -> old.size == rows.size && old.indices.all { old[it].text == rows[it].text && old[it].pinned == rows[it].pinned } } == true
+        if (same && !resetScroll) return
+        clipRows = rows
+        candidates = rows.map { row ->
+            val flat = row.text.trim().replace(Regex("\\s+"), " ")
+            Candidate(if (flat.length > 300) flat.take(180) + flat.takeLast(100) else flat, CandidateKind.LITERAL)
+        }
+        syllables = emptyList()
+        highlighted = -1
+        emoji = false
+        segmentLength = 0
+        if (resetScroll) { scroll = 0f; scroller.forceFinished(true) }
+        pressed = -1
+        cancelClipboardHold()
+        relayout()
         accessibility.invalidateAll()
         invalidate()
     }
@@ -160,7 +193,7 @@ class ExpandedPanelView(context: Context) : View(context) {
         bold.textSize = fontSize
         val margin = 10f
         val usable = width - 2 * margin
-        val totalColumns = if (emoji && width >= 320f) 6 else 4
+        val totalColumns = if (clipRows != null) 1 else if (emoji && width >= 320f) 6 else 4
         val unit = (usable - (totalColumns - 1) * GAP) / totalColumns
         val mark = fontSize * 0.45f + CandidateBarView.PAW_GAP
         val hasBar = !emoji && syllables.isNotEmpty()
@@ -186,11 +219,11 @@ class ExpandedPanelView(context: Context) : View(context) {
             val japanese = c.japanese && japaneseMarks
             val continues = c.continues(segmentLength)
             val label = if (continues) c.text + words("（續）", "（续）") else c.text
-            val natural = (if (look.isGlyph) glyphWidth(label) else bold.measureText(label)) + 28f + if (japanese) mark else 0f
-            val columns = if (emoji) 1 else min(totalColumns, max(1, ceil((natural + GAP) / (unit + GAP)).toInt()))
+            val natural = (if (look.isGlyph) glyphWidth(label) else bold.measureText(label)) + (if (clipRows != null) CLIP_INDENT + 14f else 28f) + if (japanese) mark else 0f
+            val columns = if (emoji || clipRows != null) 1 else min(totalColumns, max(1, ceil((natural + GAP) / (unit + GAP)).toInt()))
             if (columnsUsed + columns > totalColumns) { y += ROW; x = 0f; columnsUsed = 0 }
             val w = columns * unit + (columns - 1) * GAP
-            val shown = if (!emoji && natural > w) ellipsize(label, w - 28f - (if (japanese) mark else 0f)) else label
+            val shown = if (!emoji && natural > w) ellipsize(label, w - (if (clipRows != null) CLIP_INDENT + 14f else 28f) - (if (japanese) mark else 0f)) else label
             list += Cell(i, margin + x, y, w, shown, japanese, continues)
             x += w + GAP
             columnsUsed += columns
@@ -254,8 +287,14 @@ class ExpandedPanelView(context: Context) : View(context) {
             val textWidth = if (look.isGlyph) glyphWidth(cell.shown) else p.measureText(cell.shown)
             val pawSize = p.textSize * 0.45f
             val markWidth = if (cell.japanese) pawSize + CandidateBarView.PAW_GAP else 0f
-            val tx = cell.left + (cell.width - textWidth - markWidth) / 2
+            val clip = clipRows?.getOrNull(cell.index)
+            val tx = if (clip != null) cell.left + CLIP_INDENT else cell.left + (cell.width - textWidth - markWidth) / 2
             val cy = top + cellHeight / 2
+            if (clip != null && clip.pinned) {
+                paint.color = if (look.usesSteppedMaterial) look.pixelAccent else look.accent
+                rect.set(cell.left + 11f, cy - 3.5f, cell.left + 18f, cy + 3.5f)
+                if (look.usesSteppedMaterial) canvas.drawRect(rect, paint) else canvas.drawOval(rect, paint)
+            }
             if (look.isGlyph) drawGlyphText(canvas, cell.shown, tx, cy, p.color) else canvas.drawText(cell.shown, tx, cy - (p.ascent() + p.descent()) / 2, p)
             if (cell.japanese) {
                 paint.color = if (selected) Look.withAlpha(look.pillText, 0.85f) else look.candidateSecondary
@@ -270,7 +309,7 @@ class ExpandedPanelView(context: Context) : View(context) {
         }
         if (candidates.isEmpty()) {
             text.color = look.candidateSecondary
-            val label = words("暫無候選", "暂无候选")
+            val label = if (clipRows != null) words("沒有複製的文字", "没有复制的文字") else words("暫無候選", "暂无候选")
             if (look.isGlyph) drawGlyphText(canvas, label, (w - glyphWidth(label)) / 2, h / 2, text.color)
             else canvas.drawText(label, (w - text.measureText(label)) / 2, h / 2, text)
         }
@@ -346,11 +385,18 @@ class ExpandedPanelView(context: Context) : View(context) {
                 downScroll = if (inSyllableBar) chipScroll else scroll
                 pressed = if (inSyllableBar) -1 else cellAt(x, y)
                 pressedChip = if (inSyllableBar) chipAt(x) else -1
+                if (clipRows != null && pressed >= 0 && previews != null) postDelayed(openClipboardMenu, KeyTouches.ALTERNATES_DELAY)
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
                 velocity?.addMovement(event)
+                clipMenu?.let {
+                    val index = it.strip.indexAt(x)
+                    if (index != it.selected) { it.selected = index; previews?.selectAlternate(index, fromBar = true) }
+                    return true
+                }
                 val delta = if (inSyllableBar) abs(x - downX) else abs(y - downY)
+                if (delta > slop || abs(x - downX) > slop) cancelClipboardHold()
                 if (!dragging && delta > slop) { dragging = true; pressed = -1; pressedChip = -1 }
                 if (dragging) {
                     if (inSyllableBar) {
@@ -364,6 +410,18 @@ class ExpandedPanelView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 velocity?.addMovement(event)
+                val menu = clipMenu
+                if (menu != null) {
+                    val index = menu.index
+                    val choice = menu.selected
+                    cancelClipboardHold()
+                    velocity?.recycle(); velocity = null
+                    pressed = -1; pressedChip = -1
+                    invalidate()
+                    listener?.onClipboardMenu(index, choice)
+                    return true
+                }
+                cancelClipboardHold()
                 if (dragging) {
                     if (!inSyllableBar) {
                         velocity?.computeCurrentVelocity(1000)
@@ -376,19 +434,48 @@ class ExpandedPanelView(context: Context) : View(context) {
                     if (idx >= 0 && idx == pressedChip) listener?.onSyllable(chips[idx].text)
                 } else {
                     val n = cellAt(x, y)
-                    if (n >= 0 && n == pressed) listener?.onCandidate(cells[n].index)
+                    if (n >= 0 && n == pressed) {
+                        if (clipRows != null) listener?.onClipboardItem(cells[n].index) else listener?.onCandidate(cells[n].index)
+                    }
                 }
                 velocity?.recycle(); velocity = null
                 pressed = -1; pressedChip = -1
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
+                cancelClipboardHold()
                 velocity?.recycle(); velocity = null
                 pressed = -1; pressedChip = -1
                 invalidate()
             }
         }
         return true
+    }
+
+    private class ClipMenu(val index: Int, val strip: AlternatesStrip, var selected: Int)
+    private var clipMenu: ClipMenu? = null
+    private val openClipboardMenu = Runnable {
+        val overlay = previews ?: return@Runnable
+        val n = pressed
+        val rows = clipRows ?: return@Runnable
+        val cell = cells.getOrNull(n) ?: return@Runnable
+        val row = rows.getOrNull(cell.index) ?: return@Runnable
+        val options = listOf(if (row.pinned) words("取消釘住", "取消钉住") else words("釘住", "钉住"), words("刪除", "删除"))
+        val keyTop = top / density + cell.top - scroll + 3f
+        val strip = KeyBalloon.alternates(Box(downX - 32f, keyTop, 64f, ROW - 6f), options.size, width / density, keepOnScreen = true)
+        clipMenu = ClipMenu(cell.index, strip, 0)
+        pressed = -1
+        overlay.showAlternates(strip, options, 0, 17f, fromBar = true)
+        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        invalidate()
+    }
+
+    private fun cancelClipboardHold() {
+        removeCallbacks(openClipboardMenu)
+        if (clipMenu != null) {
+            clipMenu = null
+            previews?.hideAlternates(fromBar = true)
+        }
     }
 
     private fun accessibleCells(): List<VirtualAccessibility.Item> {
@@ -407,12 +494,19 @@ class ExpandedPanelView(context: Context) : View(context) {
                 Rect(((cell.left - GAP / 2) * density).toInt(), (max(barOffset, top) * density).toInt(),
                     ((cell.left + cell.width + GAP / 2) * density).toInt(), (min(h, top + ROW) * density).toInt()),
                 (when {
+                    clipRows != null -> words("剪貼簿：", "剪贴板：")
                     emoji -> words("表情符號：", "表情符号：")
                     cell.japanese -> words("日語候選：", "日语候选：")
                     else -> words("候選：", "候选：")
                 }) + candidates[cell.index].text +
                     if (cell.continues) words("，保留後續讀音", "，保留后续读音") else "",
-                selected = cell.index == highlighted)
+                selected = cell.index == highlighted,
+                custom = clipRows?.getOrNull(cell.index)?.let { row ->
+                    listOf(
+                        VirtualAccessibility.LongClick(if (row.pinned) words("取消釘住", "取消钉住") else words("釘住", "钉住")) { listener?.onClipboardMenu(cell.index, CLIP_PIN) },
+                        VirtualAccessibility.LongClick(words("刪除", "删除")) { listener?.onClipboardMenu(cell.index, CLIP_DELETE) },
+                    )
+                } ?: emptyList())
         }
         return barItems + gridItems
     }
@@ -427,5 +521,8 @@ class ExpandedPanelView(context: Context) : View(context) {
         private const val GAP = 4f
         private const val SYLLABLE_BAR = 38f
         private const val CHIP_ID_BASE = 100_000
+        private const val CLIP_INDENT = 26f
+        const val CLIP_PIN = 0
+        const val CLIP_DELETE = 1
     }
 }

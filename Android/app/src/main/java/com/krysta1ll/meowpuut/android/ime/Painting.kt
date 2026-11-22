@@ -438,6 +438,49 @@ object Glyphs {
         canvas.drawLine(cx, cy - r, cx, cy + r, paint)
     }
 
+    /** A keyboard with a chevron under it (hide the keyboard): a rounded outline of keys and a V pointing down. */
+    fun keyboardDown(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {
+        val w = size * 1.1f
+        val h = size * 0.56f
+        val top = cy - size * 0.5f
+        paint.style = Paint.Style.STROKE
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = size * 0.085f
+        oval.set(cx - w / 2, top, cx + w / 2, top + h)
+        canvas.drawRoundRect(oval, size * 0.1f, size * 0.1f, paint)
+        val dot = size * 0.05f
+        paint.style = Paint.Style.FILL
+        for (i in -2..2) canvas.drawCircle(cx + i * w * 0.19f, top + h * 0.34f, dot, paint)
+        canvas.drawRect(cx - w * 0.25f, top + h * 0.62f - dot, cx + w * 0.25f, top + h * 0.62f + dot, paint)
+        paint.style = Paint.Style.STROKE
+        val v = size * 0.17f
+        val vy = top + h + size * 0.2f
+        path.reset()
+        path.moveTo(cx - v, vy)
+        path.lineTo(cx, vy + v * 0.9f)
+        path.lineTo(cx + v, vy)
+        canvas.drawPath(path, paint)
+    }
+
+    /** A clipboard: a board with a clip at its top and two lines of text (the slip's mark on every skin but 字景). */
+    fun clipboard(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {
+        val w = size * 0.74f
+        val h = size * 0.92f
+        paint.style = Paint.Style.STROKE
+        paint.strokeJoin = Paint.Join.ROUND
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = size * 0.09f
+        oval.set(cx - w / 2, cy - h / 2 + size * 0.07f, cx + w / 2, cy + h / 2)
+        canvas.drawRoundRect(oval, size * 0.12f, size * 0.12f, paint)
+        paint.style = Paint.Style.FILL
+        oval.set(cx - w * 0.24f, cy - h / 2 - size * 0.02f, cx + w * 0.24f, cy - h / 2 + size * 0.2f)
+        canvas.drawRoundRect(oval, size * 0.07f, size * 0.07f, paint)
+        paint.style = Paint.Style.STROKE
+        canvas.drawLine(cx - w * 0.25f, cy + size * 0.05f, cx + w * 0.25f, cy + size * 0.05f, paint)
+        canvas.drawLine(cx - w * 0.25f, cy + size * 0.27f, cx + w * 0.1f, cy + size * 0.27f, paint)
+    }
+
     fun heart(canvas: Canvas, cx: Float, cy: Float, size: Float, paint: Paint) {
         val s = size / 2
         path.reset()

@@ -25,6 +25,8 @@ internal class KeyCap(
     val role: CapRole,
     val pressed: Boolean,
     val enabled: Boolean = true,
+    /** A tiny dot in the top right corner: the key does more when it is held (the language key). */
+    val hint: Boolean = false,
 )
 
 /** One candidate in the bar: its box, text and whether it is the chosen one or a Japanese word. */
@@ -121,6 +123,12 @@ internal class GlyphKeyPainter(private val font: GlyphPixelFont) {
             val onSign = !solid && (sign == Sign.DAY || sign == Sign.LIT)
             val legendInk = if (solid) c.paper else if (sign == Sign.LIT) c.paper else ink
             legend(g, cap, cx, cy, legendInk, if (solid || onSign) null else c.paper)
+            if (cap.hint) {
+                val hx = q(cap.x + cap.w - 10, 2.0)
+                val hy = q(cap.y + 5, 2.0)
+                if (!solid && !onSign) g.rect(hx - 2, hy - 2, 8.0, 8.0, c.paper)
+                g.rect(hx, hy, 4.0, 4.0, legendInk)
+            }
         }
     }
 
@@ -190,6 +198,34 @@ internal class GlyphKeyPainter(private val font: GlyphPixelFont) {
         val y0 = Math.round(mid - m.h * face.scale / 2).toDouble()
         g.bits(m, x0, y0, face.scale, if (on) c.paper else c.ink, if (open && !on) c.paper else null, round = true)
         if (cand.japanese) paw(g, c, x0 + tw + 4, mid - 5, on, open && !on)
+    }
+
+    /**
+     * The clipboard slip: a slip of paper (the candidate's text inside a border of 2-point dots in ink), first in the row. Pressed, it is
+     * a block of ink with the type turned to paper like a chosen candidate.
+     */
+    fun slip(g: GlyphSink, c: GlyphColors, cand: CandidateCap, face: CandidateFace, mid: Double, pillHeight: Double, chips: Boolean) {
+        val half = (pillHeight / 2).coerceIn(15.0, 19.0)
+        val w = Math.floor((cand.w - 2) / 4) * 4 + 2
+        val h = Math.floor((half * 2 - 2) / 4) * 4 + 2
+        val x = q(cand.x + (cand.w - w) / 2, 2.0)
+        val y = q(mid - h / 2, 2.0)
+        val on = cand.pressed
+        if (on) {
+            stepped(g, x - 2, y - 2, w + 4, h + 4, 2.0, c.paper)
+            stepped(g, x, y, w, h, 2.0, c.ink)
+        } else {
+            g.rect(x, y, w, h, c.paper)
+            var dx = 0.0
+            while (dx < w) { g.rect(x + dx, y, 2.0, 2.0, c.ink); g.rect(x + dx, y + h - 2, 2.0, 2.0, c.ink); dx += 4.0 }
+            var dy = 4.0
+            while (dy < h - 2) { g.rect(x, y + dy, 2.0, 2.0, c.ink); g.rect(x + w - 2, y + dy, 2.0, 2.0, c.ink); dy += 4.0 }
+        }
+        val m = mask(cand.text, face.size, 400, false)
+        val tw = m.w * face.scale
+        val x0 = Math.round(cand.x + (cand.w - tw) / 2).toDouble()
+        val y0 = Math.round(mid - m.h * face.scale / 2).toDouble()
+        g.bits(m, x0, y0, face.scale, if (on) c.paper else c.ink, null, round = true)
     }
 
     /** Where a candidate's own type begins and ends (left and right, in points): the birds settle on it. */

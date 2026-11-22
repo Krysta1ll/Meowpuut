@@ -80,6 +80,8 @@ class CandidateBarView(
         fun onSeat(cat: Cat) {}
         /** Restores text removed by a swipe-up clear-all gesture on Delete. */
         fun onUndoClear() {}
+        /** The clipboard slip was tapped: its text is committed. */
+        fun onClipSlip() {}
     }
 
     /** What the row shows; set as a whole by the keyboard. */
@@ -103,6 +105,9 @@ class CandidateBarView(
         val mimimoSwitches: Boolean = true,
         val words: Words = Words(false),
         val undoLabel: String? = null,
+        /** The clipboard slip, first in the row while nothing is being composed: the text on one line, or dots when it is secret. */
+        val clipSlip: String? = null,
+        val clipSecret: Boolean = false,
     )
 
     var listener: Listener? = null
@@ -368,7 +373,7 @@ class CandidateBarView(
         val newRow = next.candidates != content.candidates || next.visible != content.visible ||
             next.predictions != content.predictions || next.punctuation != content.punctuation ||
             next.japaneseMarks != content.japaneseMarks || next.segmentLength != content.segmentLength ||
-            next.undoLabel != content.undoLabel
+            next.undoLabel != content.undoLabel || next.clipSlip != content.clipSlip
         bar.content = next
         if (newRow && next.composing) {
             toast = null
@@ -430,6 +435,14 @@ class CandidateBarView(
         val viewport = candidateRow.width
         val room = viewport - x
         val maxCell = min(region.maximumCandidateWidth(candidateRow), room.coerceAtLeast(MIN_CANDIDATE_WIDTH))
+        c.clipSlip?.takeIf { !c.composing && c.candidates.isEmpty() }?.let { slip ->
+            val lead = slipLead(font)
+            val cap = min(maxCell, viewport * 0.62f)
+            val shown = if (measureText(slip, textPaint) > cap - 22f - lead) ellipsizeFor(slip, textPaint, cap - 22f - lead).toString() else slip
+            val width = (measureText(shown, textPaint) + 22f + lead).coerceIn(MIN_CANDIDATE_WIDTH, cap)
+            list += Item(4, 0, slip, shown, x, width, false)
+            x += width + gap
+        }
         if (c.candidates.isNotEmpty()) {
             fun textWidth(text: String) = max(measureText(text, selectedPaint), measureText(text, textPaint))
             // Keep the inline emoji and the leading prefix on the first screen when they fit.
@@ -524,6 +537,9 @@ class CandidateBarView(
         items = list
         contentWidth = list.lastOrNull()?.let { it.x + it.width } ?: 0f
     }
+
+    /** Room the clipboard mark takes before the slip's text (none in 字景, whose slip is a bordered paper). */
+    private fun slipLead(font: Float) = if (look.isGlyph) 0f else font * 0.8f + 5f
 
     private val maxScroll get() = max(0f, contentWidth - candidateRow.width)
 
@@ -1115,7 +1131,8 @@ class CandidateBarView(
             if (!shows(item)) continue
             val selected = item.kind == 0 && item.index == content.highlighted
             val cap = CandidateCap((row.left + item.x - scroll).toDouble(), item.width.toDouble(), item.shown, selected, item.japanese, pressed = n == pressedItem)
-            glyphPainter.candidate(glyphSink, c, cap, face, cy, region.pillHeight.toDouble(), chips)
+            if (item.kind == 4) glyphPainter.slip(glyphSink, c, cap, face, cy, region.pillHeight.toDouble(), chips)
+            else glyphPainter.candidate(glyphSink, c, cap, face, cy, region.pillHeight.toDouble(), chips)
             if (item.kind == 0) {          // the candidates themselves: a bird settles on the top of one
                 val (l, r) = glyphPainter.candidateSpan(cap, face)
                 edges += l; edges += r
@@ -1166,17 +1183,17 @@ class CandidateBarView(
             if (selected) {
                 pill.draw(canvas, x, pillTop, item.width, region.pillHeight, look, shadow = fullEffects)
             }
-            if (pressed || item.kind == 1 || item.kind == 3) {
+            if (pressed || item.kind == 1 || item.kind == 3 || item.kind == 4) {
                 pressPaint.color = when {
                     selected -> Look.withAlpha(Color.BLACK, 0.16f)
                     pressed -> Look.withAlpha(look.pill.second, if (look.dark) 0.32f else 0.24f)
-                    item.kind == 3 -> Look.withAlpha(look.pill.second, if (look.dark) 0.22f else 0.14f)
+                    item.kind == 3 || item.kind == 4 -> Look.withAlpha(look.pill.second, if (look.dark) 0.22f else 0.14f)
                     else -> Look.withAlpha(look.pill.second, if (look.dark) 0.14f else 0.10f)
                 }
                 rect.set(x, pillTop, x + item.width, pillTop + region.pillHeight)
                 if (look.usesSteppedMaterial) canvas.drawRect(rect, pressPaint)
                 else canvas.drawRoundRect(rect, region.pillHeight / 2, region.pillHeight / 2, pressPaint)
-                if (item.kind == 3 && !look.usesSteppedMaterial) {
+                if ((item.kind == 3 || item.kind == 4) && !look.usesSteppedMaterial) {
                     pressPaint.style = Paint.Style.STROKE
                     pressPaint.strokeWidth = 0.9f
                     pressPaint.color = Look.withAlpha(look.tint, if (look.dark) 0.56f else 0.42f)
@@ -1193,8 +1210,13 @@ class CandidateBarView(
             }
             val textWidth = measureText(item.shown, paint)
             val markWidth = if (item.japanese) font * 0.45f + PAW_GAP else 0f
-            val tx = x + (item.width - textWidth - markWidth) / 2
+            val lead = if (item.kind == 4) slipLead(font) else 0f
+            val tx = x + (item.width - textWidth - markWidth - lead) / 2 + lead
             canvas.drawText(item.shown, tx, baseline, paint)
+            if (item.kind == 4) {
+                glyphPaint.color = look.candidateSecondary
+                Glyphs.clipboard(canvas, tx - lead + font * 0.4f, cy, font * 0.8f, glyphPaint)
+            }
             if (item.japanese) {
                 glyphPaint.color = if (selected) Look.withAlpha(look.pillText, 0.85f) else look.candidateSecondary
                 Glyphs.paw(canvas, tx + textWidth + PAW_GAP + font * 0.225f, cy - font * 0.05f, font * 0.45f, glyphPaint)
@@ -1575,6 +1597,7 @@ class CandidateBarView(
             1 -> listener?.onPrediction(item.text)
             2 -> listener?.onPunctuation(item.text)
             3 -> listener?.onUndoClear()
+            4 -> listener?.onClipSlip()
         }
     }
 
@@ -1902,6 +1925,7 @@ class CandidateBarView(
                     if (item.continues) words("，保留後續讀音", "，保留后续读音") else ""
                 1 -> words("聯想詞：", "联想词：") + item.text
                 3 -> item.text
+                4 -> if (content.clipSecret) words("剪貼簿，內容已隱藏", "剪贴板，内容已隐藏") else words("剪貼簿：", "剪贴板：") + item.text
                 else -> words("標點：", "标点：") + item.text
             }
             out += VirtualAccessibility.Item(n, bounds, label, selected = item.kind == 0 && item.index == content.highlighted)

@@ -201,6 +201,16 @@ class Prefs(context: Context) {
     /** Debug builds only: holds one moment of 字景's arrival, 0..1; unset lets it run. */
     val glyphForm: Double? get() = if (debuggable && store.contains(GLYPH_FORM)) store.getFloat(GLYPH_FORM, 1f).toDouble() else null
 
+    /** The clipboard slip and shelf (ClipboardShelf): on unless switched off. */
+    var clipboard: Boolean
+        get() = store.getBoolean(CLIPBOARD, true)
+        set(value) = store.edit().putBoolean(CLIPBOARD, value).apply()
+
+    /** Asks the running keyboard to forget what it kept of the clipboard (the app deletes the pinned file itself). */
+    fun requestClearClipboard() {
+        store.edit().putLong(CLEAR_CLIPBOARD, System.nanoTime()).apply()
+    }
+
     var cats: Boolean
         get() = store.getBoolean(skinKey(CATS), true)
         set(value) = store.edit().putBoolean(skinKey(CATS), value).apply()
@@ -243,6 +253,8 @@ class Prefs(context: Context) {
         const val PET_MOMENTS = "petMoments"
         /** Written by the app when the cat records are cleared; the running keyboard clears its copy on seeing it. */
         const val CLEAR_PETS = "clearPetsRequest"
+        const val CLIPBOARD = "clipboard"
+        const val CLEAR_CLIPBOARD = "clearClipboardRequest"
         const val SHAPE = "shape"
         const val TONE = "tone"
         const val PALETTE = "palette"

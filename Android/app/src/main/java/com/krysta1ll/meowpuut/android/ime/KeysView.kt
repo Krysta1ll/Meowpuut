@@ -364,7 +364,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                     else -> CapRole.PLAIN
                 }
                 val cap = KeyCap(f.left.toDouble(), f.top.toDouble(), f.width.toDouble(), f.height.toDouble(), key.label,
-                    glyphArt(key), role, pressed, enabled = key.enabled && !cursorMode)
+                    glyphArt(key), role, pressed, enabled = key.enabled && !cursorMode, hint = key.holdsStrip)
                 glyphPainter.key(glyphSink, colors, cap, composing, chips = look.opaque)          // the keys are only type, in the street as everywhere
             }
         }
@@ -479,6 +479,12 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     private fun drawKeyLegend(canvas: Canvas, key: Key, frame: Box, layout: LabelLayout?, depth: Float, cursorMode: Boolean) {
         if (!cursorMode) {
             drawLabel(canvas, key, frame, layout, depth)
+            if (key.holdsStrip && key.enabled) {
+                // A small dot in the corner: this key does more when it is held (the strip). In the key's own legend colour.
+                iconPaint.style = Paint.Style.FILL
+                iconPaint.color = Look.withAlpha(if (key.style == KeyStyle.ACCENT) Color.WHITE else look.keyText, if (look.dark) 0.75f else 0.6f)
+                canvas.drawCircle(frame.right - 7f, frame.top + 7f + depth, 1.7f, iconPaint)
+            }
             if (look.isCentenary && key.action == KeyAction.Space && layout != null) {
                 drawCentenarySeal(canvas, key, frame, layout, depth)
             }
@@ -753,6 +759,9 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                         touches.deleteAll(r, placement.column)
                     },
                 )
+                key.holdsStrip -> listener?.stripEntries(key).orEmpty().withIndex().drop(1).map { (index, entry) ->
+                    VirtualAccessibility.LongClick(entry.spoken) { touches.chooseStrip(r, placement.column, index) }
+                }
                 else -> emptyList()
             }
             out += VirtualAccessibility.Item(r * 100 + placement.column,

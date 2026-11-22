@@ -61,6 +61,16 @@ Debug 建置另有「客串小螃蟹」開關（預設關閉，release 建置沒
 - Rust 函式庫依建置類型放在 `.build/rust/android/<debug|release>/<abi>/`。
 - 版一的限制：圖框（`cats.trim`）與 `*_side_hold` 圖 Android 不畫；`cats.seating: edges` 只在 `base: classic` 生效。
 
+## 語言鍵長按
+
+按住語言鍵（ABC、中/英、拼、ㄅ、あ），用長按字母替代字的同一條橫列（`KeysView.showAlternates`）展開切換列；手指滑到項目、放開就選，放在原處或滑離橫列放開什麼都不做。輕點仍是切換英文。項目依序是：目前的輸入方式（手指起點，放開不動等於沒事）、摸米米莫五下輪流的其他輸入方式（設定裡的 `mimimoModes`；少於兩種，或在數字欄位，就不列）、繁→简／简→繁、收起鍵盤（鍵盤朝下的圖示）。動作走的是摸貓同一段程式：換輸入方式與摸米米莫相同（詞庫載入中也一樣只報讀「詞庫載入中」），切換繁簡與摸莫莫相同，收起鍵盤與貓掉到鍵上相同（不播掉落動畫）。所有皮膚都一樣：語言鍵右上角有一個小圓點提示（用該皮膚按鍵文字的顏色；字景是墨點），其他皮膚的貓仍可摸。字景裡貓在畫面中、不能摸，這條長按是它唯一的入口，所以切換輸入方式時米米跳一下、切換繁簡時莫莫跳一下（`GlyphWorld.cheer`）；其他皮膚沿用原本的朗讀提示。TalkBack 在這個鍵上有每個項目的動作。項目清單在 `KeyStrip`，不碰 Android，有單元測試。
+
+## 剪貼簿
+
+設定「輸入」裡的「剪貼簿」開關（預設開），旁邊有「清空剪貼簿」。複製的文字只留在這台裝置：不同步、不寫入日誌、不傳到任何地方。`ClipboardShelf`（不依賴 Android，有單元測試）：未釘住的只在記憶體，最新的在前、最多 20 則、一小時後刪除，同一段文字再複製一次移到最前；釘住的不過期，是唯一寫到磁碟的（app 的 no-backup 目錄 `clipboard-pinned.txt`，不進備份）；超過 5000 字的存下前 5000 字。標了 `android.content.extra.IS_SENSITIVE` 的（密碼、卡號）永遠不進架子。輸入法在 `onCreate` 掛 `OnPrimaryClipChangedListener`、`onDestroy` 拿掉，進入輸入框時也看一眼目前的剪貼簿（鍵盤沒開時複製的，用 `ClipDescription.getTimestamp()` 算新舊）。開關關掉就沒有監聽、架子清空、釘住的檔案刪掉。
+
+沒有在組字時，3 分鐘內複製、還沒提供過的那一段會當成候選列的第一項「紙條」：點一下送出；點了、開始打字、滿 3 分鐘、離開輸入框，就不再出現（每段只提供一次）。字景裡是一張紙條（候選字外一圈 2 dp 的墨點邊框），其他皮膚是文字前面一個小剪貼簿圖示；敏感的內容顯示 ••••••。沒有在組字、架子不是空的時，候選列原本的展開箭頭會打開展開面板，列出架子（釘住的在前，其餘新到舊），一行一則、中間省略；點一下送出並關閉，長按出現「釘住／取消釘住」「刪除」。密碼欄位與 `IME_FLAG_NO_PERSONALIZED_LEARNING` 的欄位完全不顯示紙條與面板。
+
 ## 安裝與啟用
 
 ```sh
@@ -81,7 +91,8 @@ adb shell ime set com.krysta1ll.meowpuut.android/.ime.MeowpuutIME
 | `ime/KeyTouches.kt`、`KeyStates.kt` | 每根手指按在哪個鍵、放開時打出什麼：無死角的觸控區、多指連打、刪除鍵加速、長按空白鍵移游標、從 Shift 或符號鍵滑到字元、Shift 連按大寫鎖定、長按替代字。不依賴 Android，由單元測試直接驅動 |
 | `ime/KeysView.kt` | 按鍵繪製，把觸控交給 `KeyTouches` |
 | `ime/CandidateBarView.kt` | 玻璃候選列、米米莫與莫莫、單行候選、聯想詞與快速標點 |
-| `ime/ExpandedPanelView.kt` | 展開後的候選面板 |
+| `ime/ExpandedPanelView.kt` | 展開後的候選面板（也列剪貼簿） |
+| `ime/KeyStrip.kt`、`ime/ClipboardShelf.kt` | 語言鍵長按的項目清單；剪貼簿架子、紙條規則（都不依賴 Android） |
 | `app/SettingsActivity.kt` | 啟用步驟、試打、輸入與外觀設定 |
 
 `app/src/test` 的測試不需要裝置：版面與觸控區（`GeometryTest`）、候選排序與 Shift、刪除、節日清單的規則（`LogicTest`）、照腳本按鍵的手指（`TouchTest`）。

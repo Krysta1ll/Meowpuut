@@ -27,6 +27,10 @@ interface KeyListener {
     fun onTick()
     /** A key with a long-press action was held (Return while composing Zhuyin); the tap is then not typed. */
     fun onKeyHold(key: Key) {}
+    /** The items of the strip a held [Key.holdsStrip] key offers; the first is where the finger starts. */
+    fun stripEntries(key: Key): List<KeyStrip.Entry> = emptyList()
+    /** The finger let go on item [index] (never the first) of the strip. */
+    fun onStripChoice(key: Key, index: Int) {}
 }
 
 class KeyTouches(private val host: Host) {
@@ -94,6 +98,8 @@ class KeyTouches(private val host: Host) {
         var options: List<String> = emptyList()
         var strip: AlternatesStrip? = null
         var selected: Int = 0
+        /** The held alternates are the language key's strip: letting go chooses an item, away from it nothing. */
+        var menu: Boolean = false
         var cursorAnchor: Float = 0f
         var cursorSteps: Int = 0
         var generation: Int = 0
@@ -127,6 +133,7 @@ class KeyTouches(private val host: Host) {
             options = emptyList()
             strip = null
             selected = 0
+            menu = false
             cursorAnchor = 0f
             cursorSteps = 0
             generation++
@@ -285,7 +292,8 @@ class KeyTouches(private val host: Host) {
                 listener?.onPage(action.page)
             }
             KeyAction.Return -> if (key.holdsRaw) scheduleHold(p, ALTERNATES_DELAY) { fireHold(p) }
-            is KeyAction.PinyinTone, KeyAction.ToggleEnglish, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
+            KeyAction.ToggleEnglish -> if (key.holdsStrip) scheduleHold(p, ALTERNATES_DELAY) { openStrip(p) }
+            is KeyAction.PinyinTone, KeyAction.Globe, KeyAction.Emoji, KeyAction.ClearComposition -> Unit
         }
     }
 
@@ -331,7 +339,8 @@ class KeyTouches(private val host: Host) {
                 host.redraw()
             }
             Mode.ALTERNATES -> {
-                val index = p.strip?.indexAt(x) ?: return
+                val strip = p.strip ?: return
+                val index = if (p.menu && awayFromStrip(strip, x, y)) -1 else strip.indexAt(x)
                 if (index != p.selected) {
                     p.selected = index
                     host.selectAlternate(index)
@@ -400,7 +409,10 @@ class KeyTouches(private val host: Host) {
                 if (p.key.rollsOver || withinReleaseSlop(p, x, y)) commit(p, null)
             }
             Mode.ALTERNATES -> {
-                if (!p.committed) commit(p, p.options.getOrNull(p.selected))
+                if (p.menu) {
+                    p.committed = true
+                    if (p.selected > 0) listener?.onStripChoice(p.key, p.selected)
+                } else if (!p.committed) commit(p, p.options.getOrNull(p.selected))
             }
             Mode.CURSOR -> listener?.onCursorEnd()
             Mode.DELETE -> {
@@ -553,6 +565,36 @@ class KeyTouches(private val host: Host) {
         host.redraw()
     }
 
+    /** The language key was held: its strip opens over it (the alternates strip, with the way of typing now under the finger). */
+    private fun openStrip(p: Pointer) {
+        val entries = listener?.stripEntries(p.key).orEmpty()
+        if (entries.size < 2 || width <= 0f) return
+        val options = entries.map { it.label }
+        val strip = KeyBalloon.alternates(p.frame, options.size, width)
+        host.hideBalloon(p.id)
+        p.mode = Mode.ALTERNATES
+        p.menu = true
+        p.options = options
+        p.strip = strip
+        p.selected = 0
+        host.showAlternates(strip, options, 0)
+        listener?.onTick()
+        host.redraw()
+    }
+
+    /** Well off the strip sideways or above it: letting go there chooses nothing. */
+    private fun awayFromStrip(strip: AlternatesStrip, x: Float, y: Float): Boolean =
+        x < strip.box.left - STRIP_SLACK || x > strip.box.right + STRIP_SLACK || y < strip.box.top - STRIP_SLACK
+
+    /** A TalkBack action on the language key: the same as sliding to item [index] of its strip. */
+    fun chooseStrip(row: Int, column: Int, index: Int) {
+        val key = keyOf(row, column) ?: return
+        if (!key.enabled || !key.holdsStrip) return
+        host.pulseKeyPress(row, column)
+        listener?.onTick()
+        listener?.onStripChoice(key, index)
+    }
+
     private fun enterCursor(p: Pointer) {
         p.mode = Mode.CURSOR
         // From where the finger is now, not where it came down.
@@ -634,5 +676,6 @@ class KeyTouches(private val host: Host) {
         const val ALTERNATES_DELAY = 450L
         const val CURSOR_DELAY = 400L
         const val CURSOR_STEP = 9f
+        private const val STRIP_SLACK = 48f
     }
 }
