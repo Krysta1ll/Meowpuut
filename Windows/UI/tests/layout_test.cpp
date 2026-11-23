@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -671,13 +672,20 @@ void testShadowMask() {
     CHECK(px[(20 * 40 + 20) * 4] > 60 && px[(20 * 40 + 20) * 4] < 140);
 }
 std::string readFile(const std::string &path) {
+#ifdef _WIN32
+    std::ifstream in(std::filesystem::u8path(path), std::ios::binary);
+#else
     std::ifstream in(path, std::ios::binary);
+#endif
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
 // The repository root, from this file's path.
 std::string repoRoot() {
-    const std::string file = __FILE__;
+    std::string file = __FILE__;
+    for (char &c : file) {
+        if (c == '\\') c = '/';
+    }
     const auto at = file.rfind("Windows/UI/tests/");
     return at == std::string::npos ? std::string() : file.substr(0, at); // "" when compiled from the root
 }
@@ -726,7 +734,7 @@ void testFestivals() {
     // Every day of 2026-2030 against the file the Swift tests write.
     const auto shipped = parseFestivalManifest(readFile(root + "Windows/UI/Assets/festivals/festivals.json"));
     CHECK(shipped.themes.size() == 24);
-    std::ifstream lines(root + "Android/app/src/test/resources/festivals/worn-2026-2030.txt");
+    std::istringstream lines(readFile(root + "Android/app/src/test/resources/festivals/worn-2026-2030.txt"));
     std::string line;
     std::getline(lines, line);
     FestivalWardrobe some;

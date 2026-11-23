@@ -233,7 +233,7 @@ std::optional<CatPlacement> seatCat(Cat cat, const CatSprite &art, bool left, co
     // How far into the round end the cut may start, and how much of the cat
     // the edge may hide: at its sides, and under its face.
     const float cornerReach = 4 * s.unit, hiddenSide = 4 * s.unit, hiddenFace = 1.5f * s.unit;
-    for (float slide = at ? -1 : 0; slide <= 0.3f * s.glass.width; slide += slide < 0 ? 1 : 2 * s.unit) {
+    for (float slide = at ? -1.f : 0.f; slide <= 0.3f * s.glass.width; slide += slide < 0 ? 1.f : 2 * s.unit) {
         const float from = slide < 0 ? *at
                            : left    ? s.glass.x + s.endRadius - cornerReach + slide
                                      : s.glass.right() - s.endRadius + cornerReach - slide - span;
