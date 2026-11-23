@@ -93,7 +93,7 @@ build_rust() {
 
 # What the keyboard reads: the Chinese lexicon, its word-pair and trigram tables, the mimo-jp word list and emoji associations
 # (and mimo_en.bin, the English word list, staged by ensure_english_lexicon).
-LEXICON_FILES="mimo_base.bin mimo_pairs.bin mimo_trigrams.bin native-japanese.tsv associations.json"
+LEXICON_FILES="mimo_base.bin mimo_pairs.bin mimo_trigrams.bin mimo_assoc.bin native-japanese.tsv associations.json"
 # Everything scripts/compile-native-lexicon.py reads.
 LEXICON_SOURCES="Engine/DataSources Engine/Resources/Lexicon Engine/scripts"
 lexicon_current() {

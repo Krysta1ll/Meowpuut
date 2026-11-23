@@ -82,6 +82,14 @@ class Lexicons(private val context: Context) {
                     Log.w(TAG, "trigram table unavailable", e)
                     false
                 }
+                val assoc = try {
+                    context.assets.openFd("lexicon/mimo_assoc.bin").use { fd ->
+                        NativeEngine.attachAssocFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "assoc table unavailable", e)
+                    false
+                }
                 // English words inside pinyin and nine-key Chinese (after the Chinese readings); Zhuyin takes none.
                 val english = pinyin && try {
                     context.assets.openFd("lexicon/mimo_en.bin").use { fd ->
@@ -100,7 +108,7 @@ class Lexicons(private val context: Context) {
                     }
                 }
                 Log.i(TAG, "lexicon ${if (pinyin) "pinyin" else "zhuyin"} ready in ${SystemClock.elapsedRealtime() - started} ms, " +
-                    "${NativeEngine.lexiconHeapBytes(lex) / 1024} KiB, word pairs ${if (pairs) "on" else "off"}, English ${if (english) "on" else "off"}, " +
+                    "${NativeEngine.lexiconHeapBytes(lex) / 1024} KiB, word pairs ${if (pairs) "on" else "off"}, trigrams ${if (trigrams) "on" else "off"}, assoc ${if (assoc) "on" else "off"}, English ${if (english) "on" else "off"}, " +
                     "$mixed Japanese words for mixed typing")
             }
             main.post {

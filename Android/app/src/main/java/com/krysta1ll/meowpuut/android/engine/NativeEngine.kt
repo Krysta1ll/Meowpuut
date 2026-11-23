@@ -18,6 +18,7 @@ object NativeEngine {
     @JvmStatic external fun lexiconFromFd(fd: Int, offset: Long, length: Long, pinyin: Boolean): Long
     @JvmStatic external fun attachPairsFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
     @JvmStatic external fun attachTrigramsFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
+    @JvmStatic external fun attachAssocFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
     /** Pinyin lexicons only, before any session: English words inside pinyin and nine-key Chinese. */
     @JvmStatic external fun attachEnglishFromFd(lexicon: Long, fd: Int, offset: Long, length: Long): Boolean
     @JvmStatic external fun lexiconDestroy(lexicon: Long)

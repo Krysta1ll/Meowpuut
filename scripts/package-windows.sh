@@ -44,7 +44,7 @@ for ARCH in x64 arm64; do
   mkdir -p "$STAGE/lexicon"
   cp "$OUT/build/${ARCH}/MeowpuutTextService.dll" "$STAGE/"
   cp -R Windows/UI/Assets "$STAGE/Assets"
-  for table in mimo_base.bin mimo_pairs.bin mimo_trigrams.bin native-japanese.tsv; do cp "$OUT/export/$table" "$STAGE/lexicon/"; done
+  for table in mimo_base.bin mimo_pairs.bin mimo_trigrams.bin mimo_assoc.bin native-japanese.tsv; do cp "$OUT/export/$table" "$STAGE/lexicon/"; done
   cp -R "$OUT/export/Licenses" "$STAGE/Licenses"
   # Linked into the DLL: libc++, libunwind and compiler-rt (LLVM), the
   # MinGW-w64 runtime, and the Rust standard library.

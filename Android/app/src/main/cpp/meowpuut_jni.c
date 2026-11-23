@@ -171,6 +171,16 @@ JNIEXPORT jboolean JNICALL FN(attachTrigramsFromFd)(JNIEnv *env, jclass cls, jlo
     return mpn_lexicon_attach_trigrams((MPNLexicon *)(intptr_t)lexicon, data, (size_t)length, unmap_asset, mapping) ? JNI_TRUE : JNI_FALSE;
 }
 
+// Attaches the script-aware cross-word association table (mimo_assoc.bin) before any session is made;
+// unmapped like the lexicon.
+JNIEXPORT jboolean JNICALL FN(attachAssocFromFd)(JNIEnv *env, jclass cls, jlong lexicon, jint fd, jlong offset, jlong length) {
+    (void)env; (void)cls;
+    struct asset_mapping *mapping = NULL;
+    const char *data = map_asset(fd, offset, length, &mapping);
+    if (!data) return JNI_FALSE;
+    return mpn_lexicon_attach_assoc((MPNLexicon *)(intptr_t)lexicon, data, (size_t)length, unmap_asset, mapping) ? JNI_TRUE : JNI_FALSE;
+}
+
 // Attaches the English word list (mimo_en.bin) to a pinyin lexicon before any
 // session is made: English words beyond mimo-latin in pinyin and nine-key
 // Chinese. Unmapped like the lexicon. False for a Zhuyin lexicon or another file.

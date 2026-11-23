@@ -301,6 +301,8 @@ SharedLexicon sharedLexicon(bool pinyin) {
         mpn_lexicon_attach_pairs(raw, pairs->bytes, pairs->size, unmap, pairs);
     if (Mapping *trigrams = mapFile(dir / L"mimo_trigrams.bin"))
         mpn_lexicon_attach_trigrams(raw, trigrams->bytes, trigrams->size, unmap, trigrams);
+    if (Mapping *assoc = mapFile(dir / L"mimo_assoc.bin"))
+        mpn_lexicon_attach_assoc(raw, assoc->bytes, assoc->size, unmap, assoc);
     SharedLexicon lexicon(raw, mpn_lexicon_destroy);
     g_lexicons[pinyin] = lexicon;
     g_lexiconFailed[pinyin] = false;

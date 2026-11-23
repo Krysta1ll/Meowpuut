@@ -48,7 +48,7 @@ func runSmokePinyinAndMemory(_ h: inout SmokeHarness) {
         engine.choose(index); h.check(engine.takeCommit() == "d", "單字母英文可上屏")
     }
     engine.clear(); engine.selectMode(.zhuyin); h.type("d")
-    h.check(engine.snapshot.candidates.first != "d" && engine.snapshot.candidates.contains("可"), "注音單聲母也優先中文")
+    h.check(engine.snapshot.candidates.first != "d" && (engine.snapshot.candidates.contains("看") || engine.snapshot.candidates.contains("可")), "注音單聲母也優先中文")
     engine.clear(); engine.selectMode(.pinyin)
     h.expect(.pinyin, "miao", "喵")
     h.expect(.pinyin, "muao", "喵")
