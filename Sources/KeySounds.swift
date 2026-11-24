@@ -17,10 +17,28 @@ final class KeySoundPlayer {
     private var loaded: KeySound?
     private var index = 0
     private var watch: AnyCancellable?
+    private var idleRelease: DispatchWorkItem?
 
     private init() {
-        // Load a set when it is chosen, so the first key does not wait for the files.
-        watch = Preferences.shared.$keySound.sink { [weak self] sound in self?.load(sound) }
+        watch = Preferences.shared.$keySound.sink { [weak self] sound in
+            guard let self else { return }
+            if !sound.isCustom { self.releasePlayers() }
+        }
+    }
+
+    private func releasePlayers() {
+        idleRelease?.cancel()
+        idleRelease = nil
+        for group in players.values { for player in group { player.stop() } }
+        players.removeAll()
+        loaded = nil
+    }
+
+    private func scheduleIdleRelease() {
+        idleRelease?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.releasePlayers() }
+        idleRelease = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: work)
     }
 
     /// The folder of a set inside the app.
@@ -57,6 +75,7 @@ final class KeySoundPlayer {
         player.volume = Float(preferences.keySoundVolume) / 100
         player.currentTime = 0
         player.play()
+        scheduleIdleRelease()
     }
 
     /// Plays a key press. Space, Return or a number that commits a shown

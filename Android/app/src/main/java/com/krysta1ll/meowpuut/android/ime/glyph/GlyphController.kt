@@ -166,17 +166,23 @@ internal class GlyphController(private val context: Context) {
 
     /** The keyboard went away (or the skin did). Nothing typed is remembered and the thread ends. */
     fun stop() {
+        visible = false
         val t = thread ?: return
         main.removeCallbacks(comeDown); lifted = false
         carriedTarget = max(carriedTarget, max(worldTarget, liveTarget))
         ground.clear(); groundExact = DoubleArray(0)
         hiddenAt = SystemClock.uptimeMillis()
+        ringView.release()
+        nearMaskBitmap?.recycle(); nearMaskBitmap = null
+        nearMaskSink?.release(); nearMaskSink = null
+        nearMaskAlpha = null; nearMaskFrame = null
+        catRasters.clear()
         val h = handler
         thread = null
         handler = null
         h?.removeCallbacksAndMessages(null)
         h?.post {
-            engine?.forget()
+            engine?.let { layerStrips.release(it.scape); it.forget() }
             engine = null
             sink?.release(); sink = null
             for (i in ring.indices) ring[i] = null
@@ -192,36 +198,51 @@ internal class GlyphController(private val context: Context) {
      */
     fun trim() {
         ringView.release()
+        nearMaskBitmap?.recycle(); nearMaskBitmap = null
+        nearMaskSink?.release(); nearMaskSink = null
+        nearMaskAlpha = null; nearMaskFrame = null
+        catRasters.clear()
         val h = handler
         if (h == null) { ground.clear(); return }
+        val isVisibleNow = visible
         h.post {
             val e = engine ?: return@post
             layersOn = false
             e.scape.groundLive = false
             layerStrips.release(e.scape)
+            sink?.release()
             ground.clear(); groundExact = DoubleArray(0)
             for (i in ring.indices) ring[i] = null
             e.world.dirty = true
-            requestTick()
+            if (isVisibleNow) requestTick()
         }
-        groundView.postInvalidateOnAnimation()
+        if (isVisibleNow) groundView.postInvalidateOnAnimation()
     }
 
     /** The keyboard is hidden, but the view stays: the clock stops, what was typed is dropped, the distance is saved. */
     fun pause() {
+        visible = false
         val h = handler ?: return
         hiddenAt = SystemClock.uptimeMillis()
         main.removeCallbacks(comeDown); landStep()
-        ringView.clear()
+        ringView.release()
+        nearMaskBitmap?.recycle(); nearMaskBitmap = null
+        nearMaskAlpha = null; nearMaskFrame = null
+        catRasters.clear()
         h.removeCallbacks(tick)
         h.post {
             val e = engine ?: return@post
             e.forget()
+            layerStrips.release(e.scape)
+            sink?.release()
+            for (i in ring.indices) ring[i] = null
+            e.world.dirty = true
             scheduled = false
         }
     }
 
     fun resume() {
+        visible = true
         refreshSystemState()
         // What the last time left on the screen is not shown again: the picture begins from the paper.
         if (arrivalDue()) { frame = null; scene.invalidate(); front.invalidate() }
@@ -246,6 +267,7 @@ internal class GlyphController(private val context: Context) {
 
     /** When the keyboard was last put away (uptime), 0 when it has not been. */
     @Volatile private var hiddenAt = 0L
+    @Volatile private var visible = true
 
 
 
@@ -282,16 +304,31 @@ internal class GlyphController(private val context: Context) {
         if (n.dark) return null
         val w = f.bitmap.width
         val h = f.bitmap.height
+        val cached = nearMaskAlpha
+        if (nearMaskFrame === f && nearMaskPaper == c.paper && cached != null && cached.size == w * h) {
+            return GlyphCanvasSink.NearCut(cached, w, h, renderScale, f.layout.lift, c.paper, dx, dy)
+        }
         var m = nearMaskBitmap
-        if (m == null || m.width != w || m.height != h) { m = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8); nearMaskBitmap = m }
+        if (m == null || m.width != w || m.height != h) {
+            m?.recycle()
+            m = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8)
+            nearMaskBitmap = m
+        }
         m.eraseColor(0)
         val g = nearMaskSink ?: GlyphCanvasSink(renderScale, gather = false).also { nearMaskSink = it }
         g.begin(Canvas(m), f.layout.lift)
         drawNearLive(g, c, n, front = false)
-        return GlyphCanvasSink.NearCut(m, renderScale, f.layout.lift, c.paper, dx, dy)
+        val alpha = if (cached != null && cached.size == w * h) cached else ByteArray(w * h).also { nearMaskAlpha = it }
+        m.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(alpha))
+        nearMaskFrame = f
+        nearMaskPaper = c.paper
+        return GlyphCanvasSink.NearCut(alpha, w, h, renderScale, f.layout.lift, c.paper, dx, dy)
     }
     private var nearMaskBitmap: Bitmap? = null
     private var nearMaskSink: GlyphCanvasSink? = null
+    private var nearMaskAlpha: ByteArray? = null
+    private var nearMaskFrame: Any? = null
+    private var nearMaskPaper: Int = 0
 
     /** The cats' pictures, made once each (main thread: the front view draws them and the keys thin their halos over them). */
     private val catRasters = HashMap<String, Raster>()

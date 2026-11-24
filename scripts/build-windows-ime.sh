@@ -49,10 +49,10 @@ WARN=(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wno-sign-conversion -Werro
 DEFS=(-DUNICODE -D_UNICODE -DNOMINMAX -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00)
 objects=()
 for src in "$UI/Blur.cpp" "$UI/CandidateLayout.cpp" "$UI/Festival.cpp" "$UI/GlassShape.cpp" "$UI/Scene.cpp" \
-           "$UI/SvgSnapshot.cpp" "$UI/Theme.cpp" "$UI/CandidateWindow.cpp" Windows/Session.cpp Windows/Keyboard.cpp \
+           "$UI/Theme.cpp" "$UI/CandidateWindow.cpp" Windows/Session.cpp Windows/Keyboard.cpp \
            Windows/TextService/TextService.cpp; do
   obj="$OUT/obj/$(basename "${src%.cpp}").o"
-  "$CXX" -std=c++17 "${WARN[@]}" -O2 "${DEFS[@]}" -I "$UI" -c "$src" -o "$obj" &
+  "$CXX" -std=c++17 "${WARN[@]}" -O2 -ffunction-sections -fdata-sections -fvisibility=hidden "${DEFS[@]}" -I "$UI" -c "$src" -o "$obj" &
   objects+=("$obj")
 done
 wait
@@ -68,7 +68,7 @@ EOF
   Windows/TextService/TextService.rc -O coff -o "$OUT/obj/TextService.res.o"
 
 # shellcheck disable=SC2086 # RUST_NATIVE is a list of -l flags
-"$CXX" -shared -static -s -O2 -o "$OUT/MeowpuutTextService.dll" "${objects[@]}" "$OUT/obj/TextService.res.o" \
+"$CXX" -shared -static -s -O2 -Wl,--gc-sections -o "$OUT/MeowpuutTextService.dll" "${objects[@]}" "$OUT/obj/TextService.res.o" \
   Windows/TextService/TextService.def "$RUST_LIB" \
   -ld2d1 -ldwrite -lwindowscodecs -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 $RUST_NATIVE
 echo "Built $OUT/MeowpuutTextService.dll ($(du -h "$OUT/MeowpuutTextService.dll" | cut -f1))"

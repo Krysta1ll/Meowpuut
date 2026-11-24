@@ -496,7 +496,7 @@ final class CandidatePanelController {
 
     private func build() -> (CandidatePanel, CandidateHostingView) {
         if let panel, let hosting { return (panel, hosting) }
-        let view = GlassCandidateView(engine: engine, cats: Preferences.shared.catGlassSkin, expanded: false, canExpand: false,
+        let view = GlassCandidateView(engine: engine, cats: Preferences.shared.catGlassSkin, expanded: false, canExpand: false, visible: false,
             onChoose: { [weak self] in self?.onChoose($0) }, onPage: { [weak self] in self?.onPage($0) },
             onToggle: { [weak self] in self?.onToggle() }, onAppearanceChange: { [weak self] in self?.onAppearanceChange() })
         let hosting = CandidateHostingView(rootView: view)
@@ -522,7 +522,7 @@ final class CandidatePanelController {
     /// Fits the panel to the current candidates and returns its frame by the
     /// caret. `start` is where the composition began; `caret` is where it ends now.
     @discardableResult
-    func layout(expanded: Bool, canExpand: Bool, caret: NSRect, start: NSRect?, screens: [CandidateScreen]) -> NSRect? {
+    func layout(expanded: Bool, canExpand: Bool, caret: NSRect, start: NSRect?, screens: [CandidateScreen], makeVisible: Bool = false) -> NSRect? {
         let (panel, hosting) = build()
         guard let index = candidateDisplay(for: caret, screens: screens.map(\.frame)) else { return nil }
         let bounds = screens[index].visibleFrame
@@ -536,16 +536,27 @@ final class CandidatePanelController {
         let wanted = collapsed + (expanded ? GlassCandidateView.minimumPanelHeight(textSize: textSize, windowSize: windowSize) : 0)
         let useBelow = candidateGoesBelow(height: wanted, anchor: caret, bounds: bounds, keeping: below)
         below = useBelow
-        var view = hosting.rootView
-        view.cats = cats
-        view.expanded = expanded
-        view.canExpand = canExpand
-        // Over the caret the panel opens upward, so the bar stays by the line being typed.
-        view.panelAbove = !useBelow
-        view.maxHeight = (useBelow ? room.below : room.above) + Desk.margin.top + Desk.margin.bottom
-        view.maxWidth = bounds.width + Desk.margin.left + Desk.margin.right
+        let newMaxHeight = (useBelow ? room.below : room.above) + Desk.margin.top + Desk.margin.bottom
+        let newMaxWidth = bounds.width + Desk.margin.left + Desk.margin.right
         gridWidthLimit = candidateGridWidthLimit(bounds.width - (cats ? Desk.glassLeft + Desk.momoOverhang : 0))
-        hosting.rootView = view
+        let existing = hosting.rootView
+        let nextVisible = makeVisible ? true : existing.visible
+        let nextDay = (makeVisible && !panel.isVisible) ? CatSchedule.day() : existing.catDay
+        if existing.cats != cats || existing.expanded != expanded || existing.canExpand != canExpand
+            || existing.panelAbove != !useBelow || existing.maxHeight != newMaxHeight
+            || existing.maxWidth != newMaxWidth || existing.visible != nextVisible || existing.catDay != nextDay {
+            var view = existing
+            view.cats = cats
+            view.expanded = expanded
+            view.canExpand = canExpand
+            // Over the caret the panel opens upward, so the bar stays by the line being typed.
+            view.panelAbove = !useBelow
+            view.maxHeight = newMaxHeight
+            view.maxWidth = newMaxWidth
+            view.visible = nextVisible
+            view.catDay = nextDay
+            hosting.rootView = view
+        }
         panel.title = InterfaceText.system("喵撲候選", "喵扑候选")
         hosting.layoutSubtreeIfNeeded()
         let size = hosting.fittingSize
@@ -553,18 +564,16 @@ final class CandidatePanelController {
         let rowWidth = size.width - lead - Desk.margin.right
         let x = candidateAnchorX(start: start, caret: caret, length: (engine.snapshot.preedit as NSString).length, rowWidth: rowWidth)
         let frame = candidateFrame(size: size, anchor: caret, bounds: bounds, margin: Desk.margin, lead: lead, x: x, keeping: useBelow)
-        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        if panel.frame != frame { panel.setFrame(frame, display: !panel.isVisible) }
         return frame
     }
 
     /// Shows the panel without activating anything. Frames change at once: a
     /// window that eases after every key reads as lag.
     func show(expanded: Bool, canExpand: Bool, caret: NSRect, start: NSRect?, screens: [CandidateScreen] = CandidateScreen.current) {
-        guard layout(expanded: expanded, canExpand: canExpand, caret: caret, start: start, screens: screens) != nil,
-              let panel, let hosting else { return }
-        hosting.rootView.visible = true
+        guard layout(expanded: expanded, canExpand: canExpand, caret: caret, start: start, screens: screens, makeVisible: true) != nil,
+              let panel else { return }
         if !panel.isVisible {
-            hosting.rootView.catDay = CatSchedule.day()
             panel.alphaValue = 0
             panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { context in
@@ -577,8 +586,12 @@ final class CandidatePanelController {
 
     func hide() {
         guard let panel else { return }
-        hosting?.rootView.visible = false
-        panel.orderOut(nil)
+        if let hosting, hosting.rootView.visible {
+            hosting.rootView.visible = false
+            // Flush while still in the display tree so SwiftUI cancels repeatForever animations.
+            hosting.layoutSubtreeIfNeeded()
+        }
+        if panel.isVisible { panel.orderOut(nil) }
         below = nil
         placedLine = nil
         spoken = ""

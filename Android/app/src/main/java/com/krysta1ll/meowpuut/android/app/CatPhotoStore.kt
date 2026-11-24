@@ -329,6 +329,7 @@ class CatPhotoStore(context: Context) {
         shutDown = true
         mainHandler.removeCallbacksAndMessages(null)
         executor.shutdownNow()
+        bitmaps.evictAll()
     }
 
     companion object {

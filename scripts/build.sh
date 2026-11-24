@@ -60,7 +60,8 @@ cp .build/MeowpuutCatTemplate.tiff "$APP/Contents/Resources/"
 swiftc -target "$TARGET" scripts/Register.swift -o .build/register-input-source
 bash scripts/build-rust.sh macos
 # The checks ship in the app: Sources/Smoke*.swift and Tests/ run under --smoke.
-swiftc -j "$JOBS" $SOURCES Sources/Smoke.swift Sources/SmokePinyin.swift Sources/SmokeMixed.swift Sources/SmokeLayout.swift Tests/CandidateLayoutTests.swift Sources/main.swift .build/rust/macosx/libmeowpuut_ffi.a \
+SWIFT_OPT="${MEOWPUUT_SWIFT_OPT:--O -whole-module-optimization}"
+swiftc $SWIFT_OPT -j "$JOBS" $SOURCES Sources/Smoke.swift Sources/SmokePinyin.swift Sources/SmokeMixed.swift Sources/SmokeLayout.swift Tests/CandidateLayoutTests.swift Sources/main.swift .build/rust/macosx/libmeowpuut_ffi.a \
   -target "$TARGET" -import-objc-header Sources/Bridge.h -lsqlite3 \
   -framework AppKit -framework SwiftUI -framework InputMethodKit \
   -o "$APP/Contents/MacOS/Meowpuut"

@@ -277,7 +277,13 @@ Mapping *mapFile(const std::filesystem::path &path) {
         if (m->section) m->bytes = static_cast<const char *>(MapViewOfFile(m->section, FILE_MAP_READ, 0, 0, 0));
         m->size = static_cast<std::size_t>(size.QuadPart);
     }
-    if (m->bytes) return m;
+    if (m->bytes) {
+        // The mapped view keeps the section and backing file alive until UnmapViewOfFile;
+        // release both kernel handles immediately so every host process holds fewer handles.
+        if (m->section) { CloseHandle(m->section); m->section = nullptr; }
+        if (m->file != INVALID_HANDLE_VALUE) { CloseHandle(m->file); m->file = INVALID_HANDLE_VALUE; }
+        return m;
+    }
     unmap(m);
     return nullptr;
 }
@@ -301,8 +307,6 @@ SharedLexicon sharedLexicon(bool pinyin) {
         mpn_lexicon_attach_pairs(raw, pairs->bytes, pairs->size, unmap, pairs);
     if (Mapping *trigrams = mapFile(dir / L"mimo_trigrams.bin"))
         mpn_lexicon_attach_trigrams(raw, trigrams->bytes, trigrams->size, unmap, trigrams);
-    if (Mapping *assoc = mapFile(dir / L"mimo_assoc.bin"))
-        mpn_lexicon_attach_assoc(raw, assoc->bytes, assoc->size, unmap, assoc);
     SharedLexicon lexicon(raw, mpn_lexicon_destroy);
     g_lexicons[pinyin] = lexicon;
     g_lexiconFailed[pinyin] = false;
@@ -375,6 +379,17 @@ wchar_t punctuation(InputMode mode, const KeyEvent &event) {
     case '}': return L'』';
     default: return 0;
     }
+}
+
+// Keys that can open a new reading from an empty buffer; mirrors Keyboard.cpp
+// so navigation, modifiers, and shortcuts never instantiate a Session or mmap lexicons.
+bool canStartComposition(InputMode mode, const KeyEvent &event) {
+    if (event.shift || event.control || event.alt || event.win) return false;
+    const char ch = event.printable;
+    if (ch < 0x20 || ch > 0x7e) return false;
+    if (mode == InputMode::Pinyin) return ch >= 'a' && ch <= 'z';
+    constexpr std::string_view startKeys = "1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/-";
+    return startKeys.find(ch) != std::string_view::npos;
 }
 
 bool isShift(WPARAM vk) { return vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT; }
@@ -805,7 +820,13 @@ public:
 
     // ITfKeyEventSink
     HRESULT STDMETHODCALLTYPE OnSetFocus(BOOL foreground) override {
-        if (!foreground) hideWindow();
+        if (!foreground) {
+            hideWindow();
+            try {
+                pruneIdleContexts();
+            } catch (...) {
+            }
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE OnTestKeyDown(ITfContext *context, WPARAM vk, LPARAM lp, BOOL *eaten) override {
@@ -1081,6 +1102,15 @@ private:
 
     Plan plan(ITfContext *context, WPARAM vk, LPARAM lp) {
         if (!activated_ || english_ || !context || !usable(context)) return {};
+        const auto existing = states_.find(context);
+        const bool hadComposition = existing != states_.end() && existing->second->session &&
+                                    existing->second->session->hasComposition();
+        if (!hadComposition) {
+            if (isModifier(vk) || (GetKeyState(VK_CAPITAL) & 1)) return {};
+            const KeyEvent preview = keyEvent(vk, lp);
+            if (preview.control || preview.alt || preview.win) return {};
+            if (!canStartComposition(mode_, preview) && !punctuation(mode_, preview)) return {};
+        }
         ContextState *s = stateFor(context);
         if (!s) return {};
         Session &session = *s->session;
@@ -1299,6 +1329,30 @@ private:
         }
         mode_ = next;
         english_ = false;
+        // Drop idle sessions of the previous mode so its shared lexicon can unmap promptly.
+        for (auto &entry : states_) {
+            ContextState &s = *entry.second;
+            if (!s.composition && s.pending.empty() && s.session && !s.session->hasComposition()) {
+                s.session.reset();
+                s.last = {};
+            }
+        }
+    }
+
+    // Releases idle per-context sessions and layout sinks when focus leaves this thread,
+    // keeping background host processes near zero private memory and breaking ITfContext cycles.
+    void pruneIdleContexts() {
+        for (auto it = states_.begin(); it != states_.end();) {
+            ContextState &s = *it->second;
+            const bool idle = !s.composition && s.pending.empty() && (!s.session || !s.session->hasComposition());
+            if (idle) {
+                unadviseLayout(s);
+                if (active_ == it->second) active_.reset();
+                it = states_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     // --- Traditional / Simplified ---------------------------------------------

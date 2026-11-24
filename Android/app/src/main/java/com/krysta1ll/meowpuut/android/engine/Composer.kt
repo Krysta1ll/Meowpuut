@@ -380,8 +380,9 @@ class Composer {
         if (coreFetched >= coreTotal || preferred.keys.all { text ->
                 first.any { it.text == text && it.consumed == raw.length && !it.japanese }
             }) return first
-        // A word picked from a later page can still move to the front.
-        return first + fetchCore(coreFetched, coreTotal - coreFetched)
+        // A word picked from a later page can still move to the front (capped to avoid unbounded main-thread JNI churn).
+        val extra = min(256, coreTotal) - coreFetched
+        return if (extra > 0) first + fetchCore(coreFetched, extra) else first
     }
 
     /** The Japanese words for a Pinyin reading: none while mixed typing is off. */

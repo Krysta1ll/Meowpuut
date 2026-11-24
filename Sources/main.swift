@@ -4,12 +4,24 @@ import InputMethodKit
 
 @objc(MeowpuutInputController)
 class MeowpuutInputController: IMKInputController {
-    private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
+    // IMK retains one controller per open client app; sharing one Engine and one
+    // CandidatePanelController avoids N × (~1.8 MB Rust session + ~4 MB SwiftUI panel).
+    private static let sharedEngine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
+    private static var sharedCandidates: CandidatePanelController?
+    private var engine: Engine { Self.sharedEngine }
     private var shiftTap = ShiftTapTracker()
     /// Set when `deliver` hands text to the app; the typing sound uses it to tell a pick from a key.
     private var committed = false
-    private lazy var candidates: CandidatePanelController = {
-        let controller = CandidatePanelController(engine: engine)
+    private var candidates: CandidatePanelController {
+        let controller = Self.sharedCandidates ?? {
+            let created = CandidatePanelController(engine: Self.sharedEngine)
+            Self.sharedCandidates = created
+            return created
+        }()
+        bindCandidates(controller)
+        return controller
+    }
+    private func bindCandidates(_ controller: CandidatePanelController) {
         controller.onChoose = { [weak self] index in
             guard let self, let client = self.client() else { return }
             // A click chooses what is under it, in the row or in the panel.
@@ -31,8 +43,7 @@ class MeowpuutInputController: IMKInputController {
             guard let self, let client = self.client() else { return }
             self.deliver(client)
         }
-        return controller
-    }()
+    }
     /// The caret now (end of the marked text) and where this composition began.
     private var anchor: NSRect?
     private var compositionStart: NSRect?
@@ -222,7 +233,7 @@ class MeowpuutInputController: IMKInputController {
             anchor = nil
             compositionStart = nil
             pointerAnchor = nil
-            candidates.hide()
+            Self.sharedCandidates?.hide()
             return
         }
         anchor = caret(client, markedText: preedit) ?? anchor
@@ -243,16 +254,19 @@ class MeowpuutInputController: IMKInputController {
         shiftTap.reset()
         if let client = self.client() {
             // Keep the selected text when focus changes instead of dropping a composition.
-            if engine.isReady { engine.finishComposition(); deliver(client) }
+            if engine.isReady && (!engine.snapshot.input.isEmpty || !engine.snapshot.preedit.isEmpty) {
+                engine.finishComposition(); deliver(client)
+            }
         }
-        ChoiceMemory.shared.flush()
-        engine.clear(); anchor = nil; compositionStart = nil; pointerAnchor = nil; composing = false; setCandidatesExpanded(false); candidates.hide()
+        ChoiceMemory.shared.compactIfNeededAsync()
+        engine.clear(); anchor = nil; compositionStart = nil; pointerAnchor = nil; composing = false; setCandidatesExpanded(false); Self.sharedCandidates?.hide()
     }
     override func commitComposition(_ sender: Any!) {
         if let client = self.client(), engine.isReady { engine.finishComposition(); deliver(client) }
     }
     override func activateServer(_ sender: Any!) {
         shiftTap.reset()
+        if let controller = Self.sharedCandidates { bindCandidates(controller) }
         engine.selectMode(Preferences.shared.inputMode)
         engine.applyMixJapanese()
         engine.modeChanged()
@@ -326,10 +340,24 @@ class MeowpuutInputController: IMKInputController {
     @objc func toggleScript() { Preferences.shared.simplified.toggle(); engine.modeChanged(); if let client = self.client() { deliver(client) } }
 }
 
-final class Application: NSObject, NSApplicationDelegate {
+final class Application: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var server: IMKServer?
     var window: NSWindow?
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showStudio(); return true }
+    func applicationWillTerminate(_ notification: Notification) {
+        ChoiceMemory.shared.flush()
+    }
+    func windowWillClose(_ notification: Notification) {
+        guard let closed = notification.object as? NSWindow, closed === window else { return }
+        // Tear down the SwiftUI Studio view hierarchy when closed so hidden previews
+        // and animations release all RAM and stop DisplayLink wakeups.
+        closed.delegate = nil
+        closed.contentView = nil
+        window = nil
+        if !Preferences.enginePreview && !Preferences.testing {
+            NSApp.setActivationPolicy(.prohibited)
+        }
+    }
     func startInputServer() -> Bool {
         let bundle = Bundle.main
         guard let connection = bundle.object(forInfoDictionaryKey: "InputMethodConnectionName") as? String,
@@ -354,6 +382,7 @@ final class Application: NSObject, NSApplicationDelegate {
             window?.title = Preferences.enginePreview ? t("Meowpuut 引擎試打", "Meowpuut 引擎试打") : "Meowpuut"
             window?.contentView = NSHostingView(rootView: Studio()); window?.center()
             window?.isReleasedWhenClosed = false
+            window?.delegate = self
             let menu = NSMenu(); let appItem = NSMenuItem(); menu.addItem(appItem)
             let submenu = NSMenu(); submenu.addItem(withTitle: t("結束 Meowpuut", "退出 Meowpuut"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); appItem.submenu = submenu
             let edit = NSMenuItem(); menu.addItem(edit); edit.submenu = NSMenu(title: t("編輯", "编辑"))

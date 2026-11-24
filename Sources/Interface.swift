@@ -218,7 +218,7 @@ struct TypingCandidates: View {
 private struct AppearancePreview: View {
     @Environment(\.colorScheme) private var systemScheme
     @ObservedObject var preferences = Preferences.shared
-    @StateObject private var sample = Engine(mode: .pinyin)
+    @StateObject private var sample = Engine(deferredMode: .pinyin)
     @State private var expanded = false
     var t: InterfaceText
 
@@ -231,7 +231,7 @@ private struct AppearancePreview: View {
     }
 
     var body: some View {
-        GlassCandidateView(engine: sample, cats: preferences.catGlassSkin, expanded: expanded, canExpand: true,
+        GlassCandidateView(engine: sample, cats: preferences.catGlassSkin, expanded: expanded, canExpand: true, visible: false,
                            onChoose: { sample.snapshot.highlighted = $0 }, onPage: { _ in }, onToggle: { expanded.toggle() })
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
@@ -274,7 +274,7 @@ struct Studio: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @StateObject var engine = Engine()
+    @StateObject var engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
     @ObservedObject var preferences = Preferences.shared
     @ObservedObject var memory = ChoiceMemory.shared
     @State private var confirmingMemoryClear = false

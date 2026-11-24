@@ -69,7 +69,9 @@ internal class SkinGallery(
             setStroke(dp(1), foilStroke)
         }
         addView(ImageView(context).apply {
-            setImageResource(R.drawable.centenary_duo)
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }
+            val bmp = android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.centenary_duo, opts)
+            if (bmp != null) setImageBitmap(bmp) else setImageResource(R.drawable.centenary_duo)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = context.getString(R.string.skin_centenary_art)
         }, LayoutParams(dp(106), dp(84)).apply { marginEnd = dp(12) })

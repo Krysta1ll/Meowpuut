@@ -376,13 +376,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             drawGlyphKeys(canvas, set)
             return
         }
-        hintOpacity = if (set.hasZhuyinPinyinHints && coveredHeight <= 0f && !touches.cursorMode &&
-            !look.opaque && look.effects != EffectsLevel.LIGHTWEIGHT && ValueAnimator.areAnimatorsEnabled() &&
-            isShown && getLocalVisibleRect(visibleHintBounds)) {
-            postInvalidateDelayed(50)
-            val phase = (SystemClock.uptimeMillis() % 4_200L) / 4_200.0
-            (0.78 + 0.12 * cos(phase * 2 * PI)).toFloat()
-        } else if (look.opaque) 1f else 0.88f
+        hintOpacity = if (look.opaque) 1f else 0.85f
         canvas.save()
         canvas.scale(density, density)
         val pixel = look.usesSteppedMaterial

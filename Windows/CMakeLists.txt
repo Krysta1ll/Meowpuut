@@ -26,17 +26,17 @@ if(WIN32)
 endif()
 target_compile_features(MeowpuutWindowsSession PUBLIC cxx_std_17)
 if(MSVC)
-    target_compile_options(MeowpuutWindowsSession PRIVATE /utf-8 /W4)
+    target_compile_options(MeowpuutWindowsSession PRIVATE /utf-8 /W4 $<$<CONFIG:Release>:/GL /Gw /Gy>)
 endif()
 
 # Candidate window layout: portable C++17, no Windows headers. Shared by the
 # Direct2D window, the SVG snapshots and the layout test.
 add_library(MeowpuutCandidateLayout STATIC
-    UI/Blur.cpp UI/CandidateLayout.cpp UI/Festival.cpp UI/GlassShape.cpp UI/Scene.cpp UI/SvgSnapshot.cpp UI/Theme.cpp)
+    UI/Blur.cpp UI/CandidateLayout.cpp UI/Festival.cpp UI/GlassShape.cpp UI/Scene.cpp UI/Theme.cpp)
 target_include_directories(MeowpuutCandidateLayout PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/UI")
 target_compile_features(MeowpuutCandidateLayout PUBLIC cxx_std_17)
 if(MSVC)
-    target_compile_options(MeowpuutCandidateLayout PRIVATE /utf-8 /W4)
+    target_compile_options(MeowpuutCandidateLayout PRIVATE /utf-8 /W4 $<$<CONFIG:Release>:/GL /Gw /Gy>)
 endif()
 
 if(WIN32)
@@ -45,7 +45,7 @@ if(WIN32)
                           user32 gdi32 advapi32)
     target_compile_definitions(MeowpuutCandidateWindow PUBLIC UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
     if(MSVC)
-        target_compile_options(MeowpuutCandidateWindow PRIVATE /utf-8 /W4)
+        target_compile_options(MeowpuutCandidateWindow PRIVATE /utf-8 /W4 $<$<CONFIG:Release>:/GL /Gw /Gy>)
     endif()
 
     # The TSF text service. Its icon, Meowpuut.ico, is made from
@@ -56,7 +56,8 @@ if(WIN32)
     target_compile_definitions(MeowpuutTextService PRIVATE
         MEOWPUUT_VERSION="門廊 · 26A003" MEOWPUUT_VERSION_NUMBERS=0,9,0,3)
     target_include_directories(MeowpuutTextService PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
-    target_compile_options(MeowpuutTextService PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/utf-8 /W4>)
+    target_compile_options(MeowpuutTextService PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/utf-8 /W4 $<$<CONFIG:Release>:/GL /Gw /Gy>>)
+    target_link_options(MeowpuutTextService PRIVATE $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF>)
 
     add_executable(MeowpuutCandidatePreview WIN32 Preview/PreviewApp.cpp Preview/Preview.rc)
     target_link_libraries(MeowpuutCandidatePreview PRIVATE MeowpuutWindowsSession MeowpuutCandidateWindow shell32 imm32)
@@ -92,7 +93,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME input_defaults COMMAND meowpuut_input_defaults_test)
 
-    add_executable(meowpuut_layout_test UI/tests/layout_test.cpp)
+    add_executable(meowpuut_layout_test UI/tests/layout_test.cpp UI/SvgSnapshot.cpp)
     target_link_libraries(meowpuut_layout_test PRIVATE MeowpuutCandidateLayout)
     if(MSVC)
         target_compile_options(meowpuut_layout_test PRIVATE /utf-8 /W4)

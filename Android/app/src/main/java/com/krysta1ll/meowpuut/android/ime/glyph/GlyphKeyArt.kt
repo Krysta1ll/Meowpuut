@@ -83,6 +83,8 @@ internal object GlyphKeyArt {
 
         /** What a platform has made of this mask (pictures in colours), so it makes each only once. Not part of the mask. */
         val extras = HashMap<Any, Any>()
+        var grownSquare: Mask? = null
+        var grownRound: Mask? = null
     }
 
     /** The hand-cut [rows] (X is ink) as a mask. */
@@ -98,6 +100,8 @@ internal object GlyphKeyArt {
      * grows by the prototype's round halo, about three pixels. The result is [reach] pixels larger on every side.
      */
     fun grown(mask: Mask, round: Boolean): Mask {
+        val cached = if (round) mask.grownRound else mask.grownSquare
+        if (cached != null) return cached
         val reach = if (round) HALO_REACH else 1
         val w = mask.w + 2 * reach
         val h = mask.h + 2 * reach
@@ -107,7 +111,7 @@ internal object GlyphKeyArt {
             else for (dy in -1..1) for (dx in -1..1) on[(y + reach + dy) * w + x + reach + dx] = true
             on[(y + reach) * w + x + reach] = true
         }
-        return Mask(w, h, on)
+        return Mask(w, h, on).also { if (round) mask.grownRound = it else mask.grownSquare = it }
     }
 
     fun reach(round: Boolean) = if (round) HALO_REACH else 1

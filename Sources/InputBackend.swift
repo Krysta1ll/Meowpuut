@@ -200,9 +200,7 @@ final class NativeBackend: InputBackend {
     init(mode: InputMode = .zhuyin, mixJapanese: Bool = Preferences.shared.mixJapanese) throws {
         self.mode = mode
         self.mixJapanese = mixJapanese
-        #if os(iOS)
         Self.releaseInactiveLexicons(keeping: mode)
-        #endif
         guard let handle = Self.makeSession(for: mode) else { throw CocoaError(.fileReadCorruptFile) }
         session = handle
         if mixJapanese, mode == .pinyin || mode == .nineKey, let japanese = JapaneseLexicon.shared {
@@ -308,21 +306,69 @@ final class NativeBackend: InputBackend {
 final class WordEvidence {
     static let shared = WordEvidence()
     private var db: OpaquePointer?
+    private let lock = NSLock()
+    private var statements: [String: OpaquePointer] = [:]
     private init() {
         guard let path = Bundle.main.path(forResource: "language-evidence", ofType: "sqlite") else { return }
         if sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) != SQLITE_OK {
             sqlite3_close(db); db = nil
         }
     }
-    deinit { sqlite3_close(db) }
+    deinit {
+        for stmt in statements.values { sqlite3_finalize(stmt) }
+        sqlite3_close(db)
+    }
+    private func prepared(_ sql: String) -> OpaquePointer? {
+        if let cached = statements[sql] {
+            sqlite3_reset(cached)
+            sqlite3_clear_bindings(cached)
+            return cached
+        }
+        guard let db else { return nil }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return nil }
+        statements[sql] = stmt
+        return stmt
+    }
+    static func stripPinyinReading(_ input: String, dropZero: Bool = false) -> String {
+        var out = String()
+        out.reserveCapacity(input.utf8.count)
+        for ch in input.lowercased() {
+            if ch == "ü" && dropZero { out.append("v"); continue }
+            if ch == " " || ch == "'" || ch == "\u{2019}" { continue }
+            if ch >= "1" && ch <= "5" { continue }
+            if dropZero && ch == "0" { continue }
+            out.append(ch)
+        }
+        return out
+    }
+    static func normalizeJaReading(_ reading: String) -> String {
+        let bytes = Array(reading.utf8)
+        guard bytes.count >= 2 else { return reading }
+        var out: [UInt8] = []
+        out.reserveCapacity(bytes.count)
+        var i = 0
+        while i < bytes.count {
+            if bytes[i] == 110, i + 1 < bytes.count, bytes[i + 1] == 110 {
+                let next = i + 2 < bytes.count ? bytes[i + 2] : 0
+                let consonantOrEnd = next == 0 || ((97...122).contains(next) && next != 97 && next != 101 && next != 105 && next != 111 && next != 117 && next != 121)
+                if consonantOrEnd {
+                    out.append(110)
+                    i += 2
+                    continue
+                }
+            }
+            out.append(bytes[i])
+            i += 1
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
     func dictionary(input: String, mode: InputMode, simplified: Bool) -> [String: Int] {
-        guard let db, !input.isEmpty else { return [:] }
-        let reading = mode == .pinyin ? input.lowercased().replacingOccurrences(of: "[1-5 '’]", with: "", options: .regularExpression) : input
+        guard db != nil, !input.isEmpty else { return [:] }
+        let reading = mode == .pinyin ? Self.stripPinyinReading(input) : input
         let column = mode == .pinyin ? "reading" : (input.contains(where: { " 6347".contains($0) }) ? "phonetic" : "bare")
         let text = simplified ? "hans" : "hant"
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT \(text),weight,toned FROM lexicon WHERE \(column)=? ORDER BY weight DESC LIMIT 256", -1, &statement, nil) == SQLITE_OK else { return [:] }
-        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT \(text),weight,toned FROM lexicon WHERE \(column)=? ORDER BY weight DESC LIMIT 256"
         var constraints: [Int: Character] = [:]
         var position = 0
         if mode == .pinyin {
@@ -331,6 +377,10 @@ final class WordEvidence {
                 else if ch.isLetter { position += 1 }
             }
         }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let statement = prepared(sql) else { return [:] }
+        defer { sqlite3_reset(statement) }
         var result: [String: Int] = [:]
         reading.withCString { readingCStr in
             _ = sqlite3_bind_text(statement, 1, readingCStr, -1, nil)
@@ -353,16 +403,46 @@ final class WordEvidence {
         }
         return result
     }
-    func words(language: String, input: String, candidates: [IndexedCandidate] = []) -> [String: Int] {
-        guard let db else { return [:] }
-        var reading = input.lowercased().replacingOccurrences(of: "ü", with: "v")
-            .replacingOccurrences(of: "[0-5 '\u{2019}]", with: "", options: .regularExpression)
-        if language == "ja" {
-            reading = reading.replacingOccurrences(of: "nn(?=[bcdfghjklmpqrstvwxz]|$)", with: "n", options: .regularExpression)
+    func zhuyinAbbreviations(_ keys: String, simplified: Bool) -> [String: Int] {
+        guard db != nil, (2...4).contains(keys.count),
+              keys.allSatisfy({ "1qaz2wsxedcrfv5tgbyhn".contains($0) }) else { return [:] }
+        let column = simplified ? "hans" : "hant"
+        let sql = "SELECT \(column),weight FROM zhuyin_initials WHERE initials=? ORDER BY position LIMIT 32"
+        lock.lock()
+        defer { lock.unlock() }
+        var reading = keys
+        let statement: OpaquePointer
+        if let cached = prepared(sql) {
+            statement = cached
+        } else {
+            let fallback = "SELECT \(column),weight FROM lexicon WHERE phonetic GLOB ? AND length(hant)=\(keys.count) ORDER BY weight DESC LIMIT 32"
+            guard let cached = prepared(fallback) else { return [:] }
+            statement = cached
+            reading = keys.map { "\($0)*[ 6347]" }.joined()
         }
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT word,weight FROM words WHERE language=? AND reading=?", -1, &statement, nil) == SQLITE_OK else { return [:] }
-        defer { sqlite3_finalize(statement) }
+        defer { sqlite3_reset(statement) }
+        var result: [String: Int] = [:]
+        reading.withCString { readCStr in
+            _ = sqlite3_bind_text(statement, 1, readCStr, -1, nil)
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let ptr = sqlite3_column_text(statement, 0) {
+                    let word = String(cString: ptr)
+                    result[word] = max(result[word] ?? 0, Int(sqlite3_column_int64(statement, 1)) / 8)
+                }
+            }
+        }
+        return result
+    }
+    func words(language: String, input: String, candidates: [IndexedCandidate] = []) -> [String: Int] {
+        guard db != nil else { return [:] }
+        var reading = Self.stripPinyinReading(input, dropZero: true)
+        if language == "ja" {
+            reading = Self.normalizeJaReading(reading)
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let statement = prepared("SELECT word,weight FROM words WHERE language=? AND reading=?") else { return [:] }
+        defer { sqlite3_reset(statement) }
         var result: [String: Int] = [:]
         language.withCString { langCStr in
             reading.withCString { readCStr in
@@ -375,17 +455,15 @@ final class WordEvidence {
                 }
             }
         }
-        if language == "zh", !candidates.isEmpty {
-            var vocabulary: OpaquePointer?
-            if sqlite3_prepare_v2(db, "SELECT weight FROM words WHERE language='zh' AND reading='' AND word=?", -1, &vocabulary, nil) == SQLITE_OK {
-                defer { sqlite3_finalize(vocabulary) }
-                for item in candidates {
-                    sqlite3_reset(vocabulary)
-                    item.text.withCString { itemCStr in
-                        _ = sqlite3_bind_text(vocabulary, 1, itemCStr, -1, nil)
-                        if sqlite3_step(vocabulary) == SQLITE_ROW {
-                            result[item.text] = max(result[item.text] ?? 0, Int(sqlite3_column_int64(vocabulary, 0)))
-                        }
+        if language == "zh", !candidates.isEmpty,
+           let vocabulary = prepared("SELECT weight FROM words WHERE language='zh' AND reading='' AND word=?") {
+            defer { sqlite3_reset(vocabulary) }
+            for item in candidates {
+                sqlite3_reset(vocabulary)
+                item.text.withCString { itemCStr in
+                    _ = sqlite3_bind_text(vocabulary, 1, itemCStr, -1, nil)
+                    if sqlite3_step(vocabulary) == SQLITE_ROW {
+                        result[item.text] = max(result[item.text] ?? 0, Int(sqlite3_column_int64(vocabulary, 0)))
                     }
                 }
             }

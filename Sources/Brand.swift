@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -29,12 +30,27 @@ enum Brand {
 struct BrandMark: View {
     var size: CGFloat
 
+    private static func loadDownsampledCGImage(maxPixelSize: Int = 144) -> CGImage? {
+        guard let url = Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png"),
+              let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
     #if os(macOS)
-    private static let image: NSImage? = Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png")
-        .flatMap { NSImage(contentsOf: $0) }
+    private static let image: NSImage? = loadDownsampledCGImage().map {
+        NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height))
+    } ?? Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
     #elseif os(iOS)
-    private static let image: UIImage? = Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png")
-        .flatMap { UIImage(contentsOfFile: $0.path) }
+    private static let image: UIImage? = loadDownsampledCGImage().map { UIImage(cgImage: $0) }
+        ?? Bundle.main.url(forResource: "MeowpuutMark", withExtension: "png").flatMap { UIImage(contentsOfFile: $0.path) }
     #endif
 
     private var image: Image {

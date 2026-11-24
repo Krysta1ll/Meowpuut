@@ -145,7 +145,7 @@ class ExpandedPanelView(context: Context, private val previews: PreviewOverlay? 
         if (same && !resetScroll) return
         clipRows = rows
         candidates = rows.map { row ->
-            val flat = row.text.trim().replace(Regex("\\s+"), " ")
+            val flat = row.text.trim().replace(WHITESPACE_RUN, " ")
             Candidate(if (flat.length > 300) flat.take(180) + flat.takeLast(100) else flat, CandidateKind.LITERAL)
         }
         syllables = emptyList()
@@ -524,5 +524,6 @@ class ExpandedPanelView(context: Context, private val previews: PreviewOverlay? 
         private const val CLIP_INDENT = 26f
         const val CLIP_PIN = 0
         const val CLIP_DELETE = 1
+        private val WHITESPACE_RUN = Regex("\\s+")
     }
 }

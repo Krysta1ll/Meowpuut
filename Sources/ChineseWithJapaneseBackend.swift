@@ -47,9 +47,14 @@ final class ChineseWithJapaneseBackend: InputBackend {
         self.mixJapanese = mixJapanese
         self.literalSpaceAddsSpace = literalSpaceAddsSpace
         self.emojiCell = emojiCell
-        let side = try JapaneseBackend()
-        side.pinyinSide = true
-        engines = [try NativeBackend(mode: mode, mixJapanese: mixJapanese), side]
+        let primary = try NativeBackend(mode: mode, mixJapanese: mixJapanese)
+        if mode == .pinyin && mixJapanese {
+            let side = try JapaneseBackend()
+            side.pinyinSide = true
+            engines = [primary, side]
+        } else {
+            engines = [primary]
+        }
     }
     func snapshot() -> Snapshot {
         if rememberedChoicesEnabled != Preferences.shared.rememberChoices || memoryRevision != ChoiceMemory.shared.revision {
@@ -256,36 +261,24 @@ final class ChineseWithJapaneseBackend: InputBackend {
         state.page = page; state.pageSize = 7; state.lastPage = (page + 1) * 7 >= choices.count
         state.highlighted = 0
     }
-    private static let evidence: OpaquePointer? = {
-        var db: OpaquePointer?
-        guard let path = Bundle.main.path(forResource: "language-evidence", ofType: "sqlite"),
-              sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { return nil }
-        return db
-    }()
+    /// Pure-Swift Hiragana-to-Katakana mapping (avoids loading ICU transform tables).
+    private static func hiraganaToKatakana(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        scalars.reserveCapacity(text.unicodeScalars.count)
+        for s in text.unicodeScalars {
+            if (0x3041...0x3096).contains(s.value), let mapped = UnicodeScalar(s.value + 0x60) {
+                scalars.append(mapped)
+            } else {
+                scalars.append(s)
+            }
+        }
+        return String(scalars)
+    }
     /// Zhuyin typed as initials only (ㄋㄏ for 你好), the way pinyin takes nh.
     /// Words with one syllable per initial, each starting with it; an eighth of
     /// the word's weight, as the pinyin abbreviation rows get.
     private static func zhuyinAbbreviations(_ keys: String, simplified: Bool) -> [String: Int] {
-        guard let evidence, (2...4).contains(keys.count),
-              keys.allSatisfy({ "1qaz2wsxedcrfv5tgbyhn".contains($0) }) else { return [:] }
-        var statement: OpaquePointer?
-        let column = simplified ? "hans" : "hant"
-        let sql = "SELECT \(column),weight FROM zhuyin_initials WHERE initials=? ORDER BY position LIMIT 32"
-        var reading = keys
-        if sqlite3_prepare_v2(evidence, sql, -1, &statement, nil) != SQLITE_OK {
-            // An older bundled dictionary may not yet have the initials index.
-            let fallback = "SELECT \(column),weight FROM lexicon WHERE phonetic GLOB ? AND length(hant)=\(keys.count) ORDER BY weight DESC LIMIT 32"
-            guard sqlite3_prepare_v2(evidence, fallback, -1, &statement, nil) == SQLITE_OK else { return [:] }
-            reading = keys.map { "\($0)*[ 6347]" }.joined()
-        }
-        defer { sqlite3_finalize(statement) }
-        _ = sqlite3_bind_text(statement, 1, reading, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        var result: [String: Int] = [:]
-        while sqlite3_step(statement) == SQLITE_ROW {
-            let word = String(cString: sqlite3_column_text(statement, 0))
-            result[word] = max(result[word] ?? 0, Int(sqlite3_column_int64(statement, 1)) / 8)
-        }
-        return result
+        WordEvidence.shared.zhuyinAbbreviations(keys, simplified: simplified)
     }
     private func mixedCandidate(_ input: String) -> String? {
         let reading = input.lowercased()
@@ -369,8 +362,10 @@ final class ChineseWithJapaneseBackend: InputBackend {
         lateJapanese = []
         let chineseTexts = nativeTexts.union(dictionary.keys)
         // The kana strings of the reading are offered anyway, in their own place.
-        let sideReading = snapshots[1].preedit.replacingOccurrences(of: " ", with: "")
-        let kanaTexts: Set<String> = [sideReading, sideReading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? sideReading]
+        let sideSnapshot = snapshots.count > 1 ? snapshots[1] : Snapshot()
+        let sidePool = pools.count > 1 ? pools[1] : []
+        let sideReading = sideSnapshot.preedit.replacingOccurrences(of: " ", with: "")
+        let kanaTexts: Set<String> = sideReading.isEmpty ? [] : [sideReading, Self.hiraganaToKatakana(sideReading)]
         for word in japaneseWords where knownJapanese[word.text] == nil {
             let reviewed = word.flags & JapaneseLexicon.reviewedFlag != 0
             // A word of the large list with the text of a Chinese candidate adds nothing; the Chinese one stays.
@@ -381,13 +376,11 @@ final class ChineseWithJapaneseBackend: InputBackend {
         japaneseRank = knownJapanese
         // Words left out above must not come back through the side engine's list.
         let droppedJapanese = Set(japaneseWords.map(\.text)).subtracting(knownJapanese.keys)
-        let japanese = pools[1].filter { knownJapanese[$0.text] != nil && !lateJapanese.contains($0.text) }
+        let japanese = sidePool.filter { knownJapanese[$0.text] != nil && !lateJapanese.contains($0.text) }
             .sorted { (knownJapanese[$0.text] ?? 0) > (knownJapanese[$1.text] ?? 0) }
         var required: String?
         // Same evidence as the old SQLite query: a reviewed reading, apostrophes, tones and nn read loosely.
-        let evidence = pinyinFirst ? raw.lowercased().replacingOccurrences(of: "ü", with: "v")
-            .replacingOccurrences(of: "[0-5 '\u{2019}]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "nn(?=[bcdfghjklmpqrstvwxz]|$)", with: "n", options: .regularExpression) : ""
+        let evidence = (pinyinFirst && mixJapanese) ? WordEvidence.normalizeJaReading(WordEvidence.stripPinyinReading(raw, dropZero: true)) : ""
         let literal = unmatchedPinyin || (englishKeys && !hasTones && EnglishEvidence.prefers(raw, context: englishContext,
             chinese: pinyinFirst && !dictionary.isEmpty,
             japanese: pinyinFirst && mixJapanese && JapaneseLexicon.reviewedEvidence.contains(evidence)))
@@ -430,9 +423,9 @@ final class ChineseWithJapaneseBackend: InputBackend {
         // in the panel (owner's rule, 2026-11-11). It is never required and
         // never the kept Japanese cell (compactJapanese); tier() below puts it
         // behind all Chinese and Japanese words. Japanese mode is unchanged.
-        let reading = snapshots[1].preedit.replacingOccurrences(of: " ", with: "")
+        let reading = sideReading
         let japaneseReading = pinyinFirst && !hasTones && !reading.isEmpty && reading.unicodeScalars.allSatisfy { (0x3040...0x30ff).contains($0.value) }
-        bareKana = japaneseReading ? [reading, reading.applyingTransform(.hiraganaToKatakana, reverse: false) ?? reading]
+        bareKana = japaneseReading ? [reading, Self.hiraganaToKatakana(reading)]
             .filter { knownJapanese[$0] == nil } : [] // はい for hai is a word, not a bare spelling
         for text in bareKana { append(text, source: -1, index: 0) }
         // Short letters as typed (ok, ai). Zhuyin raw input is key codes (sc for ㄋㄏ), never offered.
@@ -443,13 +436,13 @@ final class ChineseWithJapaneseBackend: InputBackend {
         if !supplementFirst { for text in additions.prefix(7) { append(text, source: -3, index: 0) } }
         for item in chinese.dropFirst(3) { append(item.text, source: chineseSource, index: item.index) }
         if japaneseReading {
-            for item in pools[1].dropFirst() where !lateJapanese.contains(item.text) && !droppedJapanese.contains(item.text) {
+            for item in sidePool.dropFirst() where !lateJapanese.contains(item.text) && !droppedJapanese.contains(item.text) {
                 append(item.text, source: 1, index: item.index)
             }
         } else {
             for item in japanese.dropFirst() { append(item.text, source: 1, index: item.index) }
         }
-        for item in pools[1] where lateJapanese.contains(item.text) { append(item.text, source: 1, index: item.index) }
+        for item in sidePool where lateJapanese.contains(item.text) { append(item.text, source: 1, index: item.index) }
         state = Snapshot(preedit: pinyinFirst || literal ? raw : snapshots[0].preedit, commit: pendingCommit, input: raw, requiredCandidate: required, literalCandidate: literal, confidentCandidates: dictionary.filter { $0.value >= 2000 }.map(\.key), candidateWeights: dictionary)
         var japaneseTexts = choices.filter { $0.source == 1 }.map(\.text) + bareKana
         if let mixed { japaneseTexts.append(mixed) }

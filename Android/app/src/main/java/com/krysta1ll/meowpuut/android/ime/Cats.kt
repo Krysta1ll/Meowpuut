@@ -145,6 +145,12 @@ class CatSprites(private val resources: Resources) {
         cat, decode(if (cat == Cat.MIMIMO) R.drawable.cat_mimimo_side_hold else R.drawable.cat_momo_side_hold),
     ).also { held[cat.ordinal] = it }
 
+    fun clear() {
+        arts.clear()
+        bodies.clear()
+        held.fill(null)
+    }
+
     private fun decode(id: Int): Bitmap {
         val options = BitmapFactory.Options().apply { inScaled = false }
         // On most screens it is drawn smaller than its pixels.

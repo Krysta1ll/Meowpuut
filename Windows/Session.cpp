@@ -3,30 +3,41 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
 
 namespace meowpuut {
-namespace { constexpr std::size_t pageSize = 7; }
-Session::Session(const std::filesystem::path &path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) throw std::runtime_error("Unable to open Meowpuut lexicon");
-    std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    if (file.bad()) throw std::runtime_error("Unable to read Meowpuut lexicon");
-    pinyin_ = data.compare(0, 18, "MEOWPUUT-PINYIN-1\n") == 0;
-    lexicon_.reset(mpn_lexicon_create(data.data(), data.size()), mpn_lexicon_destroy);
-    if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
-    session_.reset(mpn_session_create(lexicon_.get()));
-    if (!session_) throw std::runtime_error("Unable to create Meowpuut session");
-}
-Session::Session(SharedLexicon lexicon, bool pinyin) : lexicon_(std::move(lexicon)), pinyin_(pinyin) {
-    if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
-    session_.reset(mpn_session_create(lexicon_.get()));
-    if (!session_) throw std::runtime_error("Unable to create Meowpuut session");
-}
-std::size_t Session::registerJapaneseWords(const std::filesystem::path &path) {
-    if (!pinyin_ || japaneseRegistered_) return 0;
+namespace {
+constexpr std::size_t pageSize = 7;
+
+struct JapaneseEntry {
+    std::string reading;
+    std::string text;
+    int weight = 0;
+};
+
+struct CachedJapaneseLexicon {
+    std::filesystem::file_time_type mtime{};
+    std::uintmax_t size = 0;
+    std::shared_ptr<const std::vector<JapaneseEntry>> entries;
+};
+
+std::shared_ptr<const std::vector<JapaneseEntry>> loadJapaneseWords(const std::filesystem::path &path) {
+    static std::mutex lock;
+    static std::map<std::filesystem::path, CachedJapaneseLexicon> cache;
+
+    std::error_code ec;
+    const auto mtime = std::filesystem::last_write_time(path, ec);
+    const auto size = std::filesystem::file_size(path, ec);
+    if (!ec) {
+        std::lock_guard<std::mutex> guard(lock);
+        if (const auto it = cache.find(path); it != cache.end() && it->second.mtime == mtime && it->second.size == size)
+            return it->second.entries;
+    }
+
     std::ifstream file(path, std::ios::binary);
     if (!file) throw std::runtime_error("Unable to open Japanese lexicon");
     std::map<std::string, std::pair<std::string, int>> best;
@@ -48,9 +59,41 @@ std::size_t Session::registerJapaneseWords(const std::filesystem::path &path) {
         }
     }
     if (file.bad()) throw std::runtime_error("Unable to read Japanese lexicon");
+
+    auto entries = std::make_shared<std::vector<JapaneseEntry>>();
+    entries->reserve(best.size());
+    for (auto &word : best)
+        entries->push_back({word.first, std::move(word.second.first), word.second.second});
+
+    if (!ec) {
+        std::lock_guard<std::mutex> guard(lock);
+        cache[path] = {mtime, size, entries};
+    }
+    return entries;
+}
+}
+Session::Session(const std::filesystem::path &path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) throw std::runtime_error("Unable to open Meowpuut lexicon");
+    std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (file.bad()) throw std::runtime_error("Unable to read Meowpuut lexicon");
+    pinyin_ = data.compare(0, 18, "MEOWPUUT-PINYIN-1\n") == 0;
+    lexicon_.reset(mpn_lexicon_create(data.data(), data.size()), mpn_lexicon_destroy);
+    if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
+    session_.reset(mpn_session_create(lexicon_.get()));
+    if (!session_) throw std::runtime_error("Unable to create Meowpuut session");
+}
+Session::Session(SharedLexicon lexicon, bool pinyin) : lexicon_(std::move(lexicon)), pinyin_(pinyin) {
+    if (!lexicon_) throw std::runtime_error("Invalid Meowpuut lexicon");
+    session_.reset(mpn_session_create(lexicon_.get()));
+    if (!session_) throw std::runtime_error("Unable to create Meowpuut session");
+}
+std::size_t Session::registerJapaneseWords(const std::filesystem::path &path) {
+    if (!pinyin_ || japaneseRegistered_) return 0;
+    const auto entries = loadJapaneseWords(path);
     std::size_t count = 0;
-    for (const auto &word : best)
-        count += mpn_add_japanese_word(session_.get(), word.first.c_str(), word.second.first.c_str(), word.second.second) != 0;
+    for (const auto &word : *entries)
+        count += mpn_add_japanese_word(session_.get(), word.reading.c_str(), word.text.c_str(), word.weight) != 0;
     japaneseRegistered_ = true;
     refreshCandidates();
     return count;

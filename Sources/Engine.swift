@@ -189,11 +189,12 @@ final class Engine: ObservableObject {
     @Published private(set) var inputMode: InputMode = .zhuyin
     @Published private(set) var backendKind: InputBackendKind = .meowpuut
     var learningTail: (reading: String, text: String, time: TimeInterval)?
-    func learn(_ selections: [(reading: String, text: String)]) {
+    func learn(_ selections: [(reading: String, text: String)], remainingInput: String? = nil) {
+        let remaining = remainingInput ?? snapshot.input
         var records: [(reading: String, text: String)] = []
         for selection in selections {
             var reading = selection.reading
-            let suffix = reading.hasPrefix("py:") ? snapshot.input.lowercased() : snapshot.input
+            let suffix = reading.hasPrefix("py:") ? remaining.lowercased() : remaining
             if !suffix.isEmpty && reading.hasSuffix(suffix) { reading = String(reading.dropLast(suffix.count)) }
             records.append((reading, selection.text))
             let isChinese = !selection.text.isEmpty && selection.text.unicodeScalars.allSatisfy { (0x3400...0x9fff).contains($0.value) }
@@ -381,56 +382,76 @@ final class Engine: ObservableObject {
     func refresh() {
         guard moduleBuffer == nil, let backend else { return }
         let pendingCommit = snapshot.commit
-        snapshot = backend.snapshot()
-        let newCommit = snapshot.commit
-        snapshot.commit = pendingCommit + newCommit
+        var next = backend.snapshot()
+        let newCommit = next.commit
+        next.commit = pendingCommit + newCommit
         if !newCommit.isEmpty {
             if pendingChoices.isEmpty { learningTail = nil }
-            learn(pendingChoices)
+            learn(pendingChoices, remainingInput: next.input)
             pendingChoices = []
-        } else if snapshot.preedit.isEmpty { pendingChoices = [] }
-        browsing = false; pool = []
-        candidateOrder = snapshot.candidates.indices.map { snapshot.page * snapshot.pageSize + $0 }
-        if snapshot.candidateDetails.count != snapshot.candidates.count {
-            snapshot.candidateDetails = zip(candidateOrder, snapshot.candidates).map {
+        } else if next.preedit.isEmpty { pendingChoices = [] }
+        if browsing { browsing = false }
+        if !pool.isEmpty { pool = [] }
+        candidateOrder = next.candidates.indices.map { next.page * next.pageSize + $0 }
+        if next.candidateDetails.count != next.candidates.count {
+            next.candidateDetails = zip(candidateOrder, next.candidates).map {
                 IndexedCandidate(index: $0.0, text: $0.1, backendIndex: $0.0, source: inputMode == .japanese ? 1 : nil)
             }
         }
-        let preferred = ChoiceMemory.shared.preferred(for: pinKey, context: learningTail.flatMap { Date().timeIntervalSince1970 - $0.time < 20 ? $0.text : nil })
-        if snapshot.page == 0, !snapshot.input.isEmpty, !preferred.isEmpty {
+        let keyPrefix = pinKeyPrefix
+        let currentPinKey = keyPrefix + (inputMode == .pinyin ? next.input.lowercased() : next.input)
+        let preferred = ChoiceMemory.shared.preferred(for: currentPinKey, context: learningTail.flatMap { Date().timeIntervalSince1970 - $0.time < 20 ? $0.text : nil })
+        if next.page == 0, !next.input.isEmpty, !preferred.isEmpty {
             let available = candidates()
             var promoted: [Int] = []
             for text in preferred {
                 guard let found = available.first(where: { $0.text == text }), !promoted.contains(found.index) else { continue }
                 promoted.append(found.index)
             }
-            var visible = snapshot.candidateDetails
+            var visible = next.candidateDetails
             for id in promoted where !visible.contains(where: { $0.index == id }) {
                 if let item = available.first(where: { $0.index == id }) { visible.append(item) }
             }
             let context = learningTail.flatMap { Date().timeIntervalSince1970 - $0.time < 20 ? $0.text : nil }
-            let slots = visible.indices.filter { snapshot.candidateWeights[visible[$0].text] != nil }
+            let slots = visible.indices.filter { next.candidateWeights[visible[$0].text] != nil }
             let ranked = slots.map { visible[$0] }.sorted { a, b in
-                let aScore = snapshot.candidateWeights[a.text, default: 0] + ChoiceMemory.shared.boost(for: pinKey, text: a.text, context: context)
-                let bScore = snapshot.candidateWeights[b.text, default: 0] + ChoiceMemory.shared.boost(for: pinKey, text: b.text, context: context)
+                let aScore = next.candidateWeights[a.text, default: 0] + ChoiceMemory.shared.boost(for: currentPinKey, text: a.text, context: context)
+                let bScore = next.candidateWeights[b.text, default: 0] + ChoiceMemory.shared.boost(for: currentPinKey, text: b.text, context: context)
                 return aScore == bScore ? a.index < b.index : aScore > bScore
             }
             for (slot, item) in zip(slots, ranked) { visible[slot] = item }
             candidateOrder = Array(visible.map(\.index).prefix(7))
-            snapshot.candidates = Array(visible.map(\.text).prefix(7))
-            snapshot.candidateDetails = Array(visible.prefix(7))
-            snapshot.highlighted = 0
+            next.candidates = Array(visible.map(\.text).prefix(7))
+            next.candidateDetails = Array(visible.prefix(7))
+            next.highlighted = 0
         }
-        if snapshot.page == 0, inputMode == .pinyin,
-           !snapshot.candidates.contains(where: { snapshot.japaneseCandidates.contains($0) }) {
-            snapshot.compactJapanese = backend.compactJapanese()
+        if next.page == 0, inputMode == .pinyin,
+           !next.candidates.contains(where: { next.japaneseCandidates.contains($0) }) {
+            next.compactJapanese = backend.compactJapanese()
         } else {
-            snapshot.compactJapanese = nil
+            next.compactJapanese = nil
         }
-        if !newCommit.isEmpty && snapshot.preedit.isEmpty {
-            updatePredictions(context: newCommit)
-        } else if !snapshot.preedit.isEmpty && !predictions.isEmpty {
-            predictions = []
+        if snapshot != next { snapshot = next }
+        #if os(iOS)
+        let wantsPredictions = true
+        #else
+        let wantsPredictions = Preferences.testing
+        #endif
+        if wantsPredictions {
+            if !newCommit.isEmpty && snapshot.preedit.isEmpty {
+                updatePredictions(context: newCommit)
+            } else if !snapshot.preedit.isEmpty && !predictions.isEmpty {
+                predictions = []
+            }
+        }
+    }
+    private var pinKeyPrefix: String {
+        let script = Preferences.shared.simplified ? "s:" : "t:"
+        switch inputMode {
+        case .zhuyin: return script
+        case .pinyin: return "py:" + script
+        case .nineKey: return "t9:" + script
+        case .japanese: return "ja:"
         }
     }
     func setPredictionWordLimit(_ limit: Int) {

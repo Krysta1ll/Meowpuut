@@ -270,8 +270,15 @@ public:
         order_.clear();
     }
 
+    void trim(std::size_t keep) {
+        while (order_.size() > keep) {
+            index_.erase(order_.back().key);
+            order_.pop_back();
+        }
+    }
+
 private:
-    static constexpr std::size_t kCapacity = 768;
+    static constexpr std::size_t kCapacity = 192;
     struct Entry {
         std::string key;
         Com<IDWriteTextLayout> layout;
@@ -390,6 +397,8 @@ struct CandidateWindow::Impl {
     };
     std::vector<ShadowEntry> shadows; // one per Shadow command of the scene
     std::vector<bool> clips;          // open PushClip commands; true when a layer was pushed
+    std::vector<Com<ID2D1Layer>> layerPool; // reused across frames to avoid per-clip COM allocation
+    std::size_t layerDepth = 0;
 
     FestivalManifest manifest;
     std::optional<FestivalTheme> festival;
@@ -517,16 +526,20 @@ struct CandidateWindow::Impl {
     }
 
     // Picks the outfit for today; cheap when the date has not changed.
-    void refreshOutfit() {
+    // Returns true if the active festival outfit changed.
+    bool refreshOutfit() {
         SYSTEMTIME now{};
         GetLocalTime(&now);
         const LocalDate today{now.wYear, now.wMonth, now.wDay};
-        if (today.key() == outfitDay.key()) return;
+        if (today.key() == outfitDay.key()) return false;
         outfitDay = today;
+        const std::string prevId = festival ? festival->id : std::string();
         const FestivalTheme *worn = wornTheme(manifest, today, FestivalWardrobe{});
         if (worn) festival = *worn;
         else festival.reset();
         festivalLook = worn ? festivalArt(*worn) : nullptr;
+        const std::string nextId = festival ? festival->id : std::string();
+        return prevId != nextId;
     }
 
     bool outfitActive() const { return options.festivalOutfits && festival.has_value() && !highContrast; }
@@ -631,6 +644,8 @@ struct CandidateWindow::Impl {
     void discardDevice() {
         sprites.clear();
         shadows.clear();
+        layerPool.clear();
+        layerDepth = 0;
         brush.reset();
         rt.reset();
     }
@@ -810,19 +825,30 @@ struct CandidateWindow::Impl {
     }
 
     // A clip that cannot be made still counts, so its PopClip has a partner.
-    void pushClip(ID2D1Geometry *g, const D2D1_MATRIX_3X2_F &transform) {
-        Com<ID2D1Layer> layer;
-        if (FAILED(rt->CreateLayer(nullptr, layer.put()))) layer.reset();
+    void pushClip(ID2D1Geometry *g, const D2D1_MATRIX_3X2_F &transform, const D2D1_RECT_F &bounds) {
+        ID2D1Layer *layer = nullptr;
+        if (layerDepth < layerPool.size()) {
+            layer = layerPool[layerDepth].get();
+        } else {
+            Com<ID2D1Layer> created;
+            if (SUCCEEDED(rt->CreateLayer(nullptr, created.put()))) {
+                layer = created.get();
+                layerPool.push_back(std::move(created));
+            }
+        }
         D2D1_LAYER_PARAMETERS params;
-        params.contentBounds = rectF(-FLT_MAX, -FLT_MAX, FLT_MAX, FLT_MAX);
+        params.contentBounds = bounds;
         params.geometricMask = g;
         params.maskAntialiasMode = D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
         params.maskTransform = transform;
         params.opacity = g && layer ? 1.0f : 0.0f; // no clip available: draw nothing rather than spill
         params.opacityBrush = nullptr;
         params.layerOptions = D2D1_LAYER_OPTIONS_NONE;
-        if (layer) rt->PushLayer(&params, layer.get());
-        clips.push_back(static_cast<bool>(layer));
+        if (layer) {
+            rt->PushLayer(&params, layer);
+            ++layerDepth;
+        }
+        clips.push_back(layer != nullptr);
     }
 
     void replay(const Scene &scene) {
@@ -832,8 +858,10 @@ struct CandidateWindow::Impl {
         const auto outline = [&](std::size_t index) -> ID2D1Geometry * {
             return index < outlines.size() ? outlines[index].get() : nullptr;
         };
+        const auto sceneBounds = rectF(0, 0, scene.size.width, scene.size.height);
         std::size_t shadowSlot = 0;
         clips.clear();
+        layerDepth = 0;
         using Kind = DrawCommand::Kind;
         for (const DrawCommand &c : scene.commands) {
             Com<ID2D1Brush> hold;
@@ -851,7 +879,7 @@ struct CandidateWindow::Impl {
                     if (ID2D1Brush *b = brushFor(c.paint, hold)) rt->DrawGeometry(g, b, c.width, nullptr);
                 break;
             case Kind::PushClip:
-                pushClip(outline(c.path), identity());
+                pushClip(outline(c.path), identity(), sceneBounds);
                 break;
             case Kind::PushClipOut: {
                 // The window's rectangle with the outline taken out.
@@ -863,7 +891,7 @@ struct CandidateWindow::Impl {
                     ID2D1Geometry *parts[] = {all.get(), g};
                     if (FAILED(d2dFactory->CreateGeometryGroup(D2D1_FILL_MODE_ALTERNATE, parts, 2, outside.put()))) outside.reset();
                 }
-                pushClip(outside.get(), identity());
+                pushClip(outside.get(), identity(), sceneBounds);
                 break;
             }
             case Kind::PushClipOvals: {
@@ -884,12 +912,15 @@ struct CandidateWindow::Impl {
                 if (parts.empty() || FAILED(d2dFactory->CreateGeometryGroup(D2D1_FILL_MODE_WINDING, parts.data(),
                                                                             static_cast<UINT32>(parts.size()), group.put())))
                     group.reset();
-                pushClip(group.get(), d2d(c.transform));
+                pushClip(group.get(), d2d(c.transform), sceneBounds);
                 break;
             }
             case Kind::PopClip:
                 if (!clips.empty()) {
-                    if (clips.back()) rt->PopLayer();
+                    if (clips.back()) {
+                        rt->PopLayer();
+                        if (layerDepth > 0) --layerDepth;
+                    }
                     clips.pop_back();
                 }
                 break;
@@ -939,7 +970,10 @@ struct CandidateWindow::Impl {
         }
         // EndDraw fails on an open layer; close whatever a malformed scene left.
         while (!clips.empty()) {
-            if (clips.back()) rt->PopLayer();
+            if (clips.back()) {
+                rt->PopLayer();
+                if (layerDepth > 0) --layerDepth;
+            }
             clips.pop_back();
         }
     }
@@ -1043,14 +1077,30 @@ struct CandidateWindow::Impl {
         const HMONITOR monitor = MonitorFromRect(&where, MONITOR_DEFAULTTONEAREST);
         MONITORINFO info{};
         info.cbSize = sizeof info;
+        const LONG prevWorkWidth = work.right - work.left;
         if (GetMonitorInfoW(monitor, &info)) work = info.rcWork;
+        const bool workWidthChanged = (work.right - work.left) != prevWorkWidth;
         const float next = monitorScale(monitor);
-        if (std::fabs(next - scale) > 0.001f) {
+        const bool scaleChanged = std::fabs(next - scale) > 0.001f;
+        if (scaleChanged) {
             scale = next;
             sprites.clear(); // sized in device pixels
             shadows.clear();
         }
-        refreshOutfit();
+        const bool outfitChanged = refreshOutfit();
+        // Fast path: when only the caret moved (e.g. TSF OnLayoutChange or post-edit
+        // caret callback) and the rendered pixels are still current, move the layered
+        // window directly without re-running layout or software Direct2D rasterisation.
+        if (shown && !dirty && !scaleChanged && !workWidthChanged && !outfitChanged && pixels.cx > 0 && pixels.cy > 0) {
+            const PixelPoint at = placeNearCaret(layout, scale, {caret.left, caret.top, caret.right, caret.bottom},
+                                                 {work.left, work.top, work.right, work.bottom});
+            if (at.x != position.x || at.y != position.y) {
+                position.x = at.x;
+                position.y = at.y;
+                UpdateLayeredWindow(hwnd, nullptr, &position, nullptr, nullptr, nullptr, 0, nullptr, 0);
+            }
+            return;
+        }
         if (!render() || shown) return;
         shown = true;
         // Shows and raises the window without taking the focus.
@@ -1069,6 +1119,12 @@ struct CandidateWindow::Impl {
             stopTimers();
             ShowWindow(hwnd, SW_HIDE);
         }
+        // Trim per-frame caches when idle so background host processes stay lean.
+        shadows.clear();
+        decoded.clear();
+        if (sprites.size() > 16) sprites.clear();
+        if (dibW * dibH > 640u * 320u) releaseDib();
+        if (text) text->trim(64);
     }
 
     // --- cats ---------------------------------------------------------------
@@ -1276,7 +1332,17 @@ CandidateWindow::~CandidateWindow() { impl_->destroy(); }
 
 bool CandidateWindow::valid() const { return impl_->valid(); }
 
+namespace {
+bool sameViewContent(const CandidateViewModel &a, const CandidateViewModel &b) {
+    return a.highlighted == b.highlighted && a.page == b.page && a.lastPage == b.lastPage &&
+           a.expanded == b.expanded && a.shiftNumbers == b.shiftNumbers && a.shape == b.shape &&
+           a.decorations == b.decorations && a.preedit == b.preedit && a.modeLabel == b.modeLabel &&
+           a.candidates == b.candidates && a.japanese == b.japanese;
+}
+} // namespace
+
 void CandidateWindow::update(const CandidateViewModel &model) {
+    if (impl_->hasModel && sameViewContent(impl_->model, model)) return;
     impl_->model = model;
     impl_->hasModel = true;
     if (impl_->hovered && *impl_->hovered >= model.candidates.size()) impl_->hovered.reset();

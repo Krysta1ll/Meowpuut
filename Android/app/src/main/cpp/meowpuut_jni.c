@@ -101,9 +101,25 @@ static char *from_java(JNIEnv *env, jstring text) {
     return out;
 }
 
+static jclass g_string_class = NULL;
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
+    (void)reserved;
+    JNIEnv *env = NULL;
+    if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK || !env) {
+        return JNI_VERSION_1_6;
+    }
+    jclass local = (*env)->FindClass(env, "java/lang/String");
+    if (local) {
+        g_string_class = (*env)->NewGlobalRef(env, local);
+        (*env)->DeleteLocalRef(env, local);
+    }
+    return JNI_VERSION_1_6;
+}
+
 static jobjectArray string_array(JNIEnv *env, jsize count) {
-    jclass string_class = (*env)->FindClass(env, "java/lang/String");
-    return (*env)->NewObjectArray(env, count, string_class, NULL);
+    jclass cls = g_string_class ? g_string_class : (*env)->FindClass(env, "java/lang/String");
+    return (*env)->NewObjectArray(env, count, cls, NULL);
 }
 
 struct asset_mapping {
@@ -129,6 +145,8 @@ static const char *map_asset(jint fd, jlong offset, jlong length, struct asset_m
     size_t mapped = (size_t)length + delta;
     void *base = mmap(NULL, mapped, PROT_READ, MAP_PRIVATE, fd, aligned);
     if (base == MAP_FAILED) return NULL;
+    // Random trie/binary-search lookups: disable 128 KB kernel readahead to keep clean RSS low.
+    madvise(base, mapped, MADV_RANDOM);
     struct asset_mapping *mapping = malloc(sizeof *mapping);
     if (!mapping) {
         munmap(base, mapped);
@@ -297,7 +315,8 @@ JNIEXPORT jintArray JNICALL FN(candidateDetails)(JNIEnv *env, jclass cls, jlong 
     size_t to = count <= 0 ? from : from + (size_t)count;
     if (to > total) to = total;
     jsize n = to > from ? (jsize)(to - from) : 0;
-    jint *values = malloc(sizeof(jint) * (size_t)(n > 0 ? n * 2 : 1));
+    jint stack_values[128];
+    jint *values = (n <= 64) ? stack_values : malloc(sizeof(jint) * (size_t)(n * 2));
     if (!values) return (*env)->NewIntArray(env, 0);
     for (jsize i = 0; i < n; i++) {
         MPNCandidateInfo info;
@@ -313,7 +332,7 @@ JNIEXPORT jintArray JNICALL FN(candidateDetails)(JNIEnv *env, jclass cls, jlong 
     }
     jintArray result = (*env)->NewIntArray(env, n * 2);
     if (result && n > 0) (*env)->SetIntArrayRegion(env, result, 0, n * 2, values);
-    free(values);
+    if (values != stack_values) free(values);
     return result;
 }
 

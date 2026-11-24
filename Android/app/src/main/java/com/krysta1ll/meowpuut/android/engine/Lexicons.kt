@@ -52,10 +52,12 @@ class Lexicons(private val context: Context) {
             ready(session)
             return
         }
+        // Switching PINYIN <-> NINE_KEY reuses the already-mapped Pinyin MPNLexicon instead of remapping ~107 MB.
+        val reuseLex = if (lexicon != 0L && loadedMode?.pinyinBased == pinyin) lexicon else 0L
         worker.execute {
             if (mixedJapanese) loadJapanese()
             val started = SystemClock.elapsedRealtime()
-            val lex = try {
+            val lex = if (reuseLex != 0L) reuseLex else try {
                 context.assets.openFd("lexicon/mimo_base.bin").use { fd ->
                     NativeEngine.lexiconFromFd(fd.parcelFileDescriptor.fd, fd.startOffset, fd.length, pinyin)
                 }
@@ -65,39 +67,45 @@ class Lexicons(private val context: Context) {
             }
             var newSession = 0L
             if (lex != 0L) {
-                // Without the word-pair table the engine still works and ranks by word weight only.
-                val pairs = try {
-                    context.assets.openFd("lexicon/mimo_pairs.bin").use { fd ->
-                        NativeEngine.attachPairsFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                var pairs = reuseLex != 0L
+                var trigrams = reuseLex != 0L
+                var assoc = reuseLex != 0L
+                var english = reuseLex != 0L && pinyin
+                if (reuseLex == 0L) {
+                    // Without the word-pair table the engine still works and ranks by word weight only.
+                    pairs = try {
+                        context.assets.openFd("lexicon/mimo_pairs.bin").use { fd ->
+                            NativeEngine.attachPairsFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "word-pair table unavailable", e)
+                        false
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "word-pair table unavailable", e)
-                    false
-                }
-                val trigrams = try {
-                    context.assets.openFd("lexicon/mimo_trigrams.bin").use { fd ->
-                        NativeEngine.attachTrigramsFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                    trigrams = try {
+                        context.assets.openFd("lexicon/mimo_trigrams.bin").use { fd ->
+                            NativeEngine.attachTrigramsFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "trigram table unavailable", e)
+                        false
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "trigram table unavailable", e)
-                    false
-                }
-                val assoc = try {
-                    context.assets.openFd("lexicon/mimo_assoc.bin").use { fd ->
-                        NativeEngine.attachAssocFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                    assoc = try {
+                        context.assets.openFd("lexicon/mimo_assoc.bin").use { fd ->
+                            NativeEngine.attachAssocFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "assoc table unavailable", e)
+                        false
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "assoc table unavailable", e)
-                    false
-                }
-                // English words inside pinyin and nine-key Chinese (after the Chinese readings); Zhuyin takes none.
-                val english = pinyin && try {
-                    context.assets.openFd("lexicon/mimo_en.bin").use { fd ->
-                        NativeEngine.attachEnglishFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                    // English words inside pinyin and nine-key Chinese (after the Chinese readings); Zhuyin takes none.
+                    english = pinyin && try {
+                        context.assets.openFd("lexicon/mimo_en.bin").use { fd ->
+                            NativeEngine.attachEnglishFromFd(lex, fd.parcelFileDescriptor.fd, fd.startOffset, fd.length)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "English word list unavailable for pinyin", e)
+                        false
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "English word list unavailable for pinyin", e)
-                    false
                 }
                 newSession = if (mode == InputMode.NINE_KEY) NativeEngine.nineKeySessionCreate(lex) else NativeEngine.sessionCreate(lex)
                 var mixed = 0
@@ -107,18 +115,22 @@ class Lexicons(private val context: Context) {
                         if (NativeEngine.addJapaneseWord(newSession, reading, text, weight)) mixed++
                     }
                 }
-                Log.i(TAG, "lexicon ${if (pinyin) "pinyin" else "zhuyin"} ready in ${SystemClock.elapsedRealtime() - started} ms, " +
+                Log.i(TAG, "lexicon ${if (pinyin) "pinyin" else "zhuyin"} ${if (reuseLex != 0L) "reused" else "ready"} in ${SystemClock.elapsedRealtime() - started} ms, " +
                     "${NativeEngine.lexiconHeapBytes(lex) / 1024} KiB, word pairs ${if (pairs) "on" else "off"}, trigrams ${if (trigrams) "on" else "off"}, assoc ${if (assoc) "on" else "off"}, English ${if (english) "on" else "off"}, " +
                     "$mixed Japanese words for mixed typing")
             }
             main.post {
                 if (token != generation) {
                     if (newSession != 0L) NativeEngine.sessionDestroy(newSession)
-                    if (lex != 0L) NativeEngine.lexiconDestroy(lex)
+                    if (lex != 0L && lex != reuseLex) NativeEngine.lexiconDestroy(lex)
                     return@post
                 }
-                release()
-                lexicon = lex
+                if (lex != 0L && lex == reuseLex) {
+                    if (session != 0L) { NativeEngine.sessionDestroy(session); session = 0L }
+                } else {
+                    release()
+                    lexicon = lex
+                }
                 session = newSession
                 loadedMode = if (newSession != 0L) mode else null
                 loadedMixed = mixedJapanese

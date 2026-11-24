@@ -318,8 +318,9 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
      * By day, what is nearest in the picture (the corner's bank, what passes in front) lies over the keys' own type: where a letter falls
      * on it, the letter is cut out of it in the paper's colour, with no halo. [mask] is the near art alone (its alpha); the offsets are where the view stands.
      */
-    class NearCut(val mask: Bitmap, val perPoint: Float, val lift: Double, val paper: Int, val dx: Double, val dy: Double)
+    class NearCut(val alpha: ByteArray, val width: Int, val height: Int, val perPoint: Float, val lift: Double, val paper: Int, val dx: Double, val dy: Double)
     var nearCut: NearCut? = null
+    private var cutScratch = IntArray(0)
 
     /**
      * The two cats stand under the keys' type: where a letter falls on one, its halo thins to a hairline so the cat is whole round it
@@ -349,8 +350,12 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
         val left = x + n.dx - reach * unit
         val top = y + n.dy - reach * unit
         val base = if (halo != null) GlyphKeyArt.grown(mask, round) else mask
-        val out = IntArray(base.w * base.h)
+        val need = base.w * base.h
+        val out = if (cutScratch.size >= need) cutScratch.also { java.util.Arrays.fill(it, 0, need, 0) } else IntArray(need).also { cutScratch = it }
         var any = false
+        val mw = n.width
+        val mh = n.height
+        val alpha = n.alpha
         for (r in 0 until base.h) for (k in 0 until base.w) {
             val onBase = base.on[r * base.w + k]
             val mr = r - reach
@@ -359,7 +364,7 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
             if (!onBase && !isInk) continue
             val bx = ((left + (k + 0.5) * unit) * n.perPoint).toInt()
             val by = ((top + (r + 0.5) * unit + n.lift) * n.perPoint).toInt()
-            val over = bx in 0 until n.mask.width && by in 0 until n.mask.height && (n.mask.getPixel(bx, by) ushr 24) != 0
+            val over = bx in 0 until mw && by in 0 until mh && alpha[by * mw + bx] != 0.toByte()
             if (over) any = true
             out[r * base.w + k] = when {
                 isInk -> if (over) n.paper else mask.paint(mr * mask.w + mk, ink)
@@ -437,7 +442,8 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
         val u = pixelSize(unit)
         val reach = if (halo != null) GlyphKeyArt.reach(round) else 0
         val cache = mask.extras
-        val key = Triple(ink, halo, round)
+        val key: Long = ((ink.toLong() and 0xFFFFFFFFL) shl 32) or
+            ((halo?.toLong() ?: 0L) and 0xFFFFFFFFL) xor (if (halo != null) 0x55555555L else 0L) xor (if (round) 1L else 0L)
         val bitmap = (cache[key] as? Bitmap)?.takeIf { !it.isRecycled } ?: run {
             val base = if (halo != null) GlyphKeyArt.grown(mask, round) else mask
             val out = IntArray(base.w * base.h)
@@ -468,6 +474,8 @@ internal class GlyphCanvasSink(private val scale: Float, private val gather: Boo
     fun release() {
         kept.clear()
         runs.clear()
+        rasters.clear()
+        cutScratch = IntArray(0)
         rasters.clear()
     }
 }

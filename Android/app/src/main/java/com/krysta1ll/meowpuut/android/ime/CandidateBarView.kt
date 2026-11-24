@@ -157,7 +157,7 @@ class CandidateBarView(
             }
             if (effectsChanged || catsChanged || skinChanged) scheduleCatSleep()
             // 字景 sets the candidates in its own type: the widths of the row are measured in it.
-            if (skinChanged) { widthCache.clear(); layoutRow() }
+            if (skinChanged) { regularWidths.clear(); selectedWidths.clear(); layoutRow() }
             caches = null
             lensPaint = null
             seats = null
@@ -206,8 +206,10 @@ class CandidateBarView(
     private var fadeLeft: Shader? = null
     private var fadeRight: Shader? = null
     private var fadeKey = 0f
-    private val widthCache = HashMap<String, Float>()
+    private val regularWidths = HashMap<String, Float>()
+    private val selectedWidths = HashMap<String, Float>()
     private var widthCacheSize = 0f
+    private var cachedTimeScale = -1f
 
     private class Caches(val width: Int, val height: Int, val shadow: Bitmap?, val glass: Bitmap?)
     private var caches: Caches? = null
@@ -406,9 +408,19 @@ class CandidateBarView(
     private fun measureText(text: String, paint: Paint): Float {
         if (look.isGlyph) return glyphPainter.candidateWidth(text, GlyphKeyPainter.CandidateFace(GLYPH_PIXELS, glyphUnit.toDouble())).toFloat()
         val size = paint.textSize
-        if (size != widthCacheSize || widthCache.size > 512) { widthCache.clear(); widthCacheSize = size }
-        val key = if (paint === selectedPaint) "\u0001" + text else text
-        return widthCache.getOrPut(key) { paint.measureText(text) }
+        if (size != widthCacheSize || regularWidths.size + selectedWidths.size > 512) {
+            regularWidths.clear(); selectedWidths.clear(); widthCacheSize = size
+        }
+        val map = if (paint === selectedPaint) selectedWidths else regularWidths
+        return map.getOrPut(text) { paint.measureText(text) }
+    }
+
+    /** Drops offscreen bitmaps and width caches when the IME is trimmed in the background. */
+    fun trimCaches() {
+        caches = null
+        regularWidths.clear()
+        selectedWidths.clear()
+        cachedTimeScale = -1f
     }
 
     /** The text cut in the middle to fit [avail] points; in 字景's pixel type it is measured in that type. */
@@ -1878,9 +1890,14 @@ class CandidateBarView(
 
     /** The system's animator duration scale (developer options); 1 when animations are off. */
     private fun timeScale(): Float {
-        val scale = if (Build.VERSION.SDK_INT >= 33) ValueAnimator.getDurationScale()
-        else android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-        return if (scale > 0f) scale else 1f
+        if (Build.VERSION.SDK_INT >= 33) {
+            val scale = ValueAnimator.getDurationScale()
+            return if (scale > 0f) scale else 1f
+        }
+        if (cachedTimeScale > 0f) return cachedTimeScale
+        val scale = android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        cachedTimeScale = if (scale > 0f) scale else 1f
+        return cachedTimeScale
     }
 
     private fun animateLean(to: Float) {

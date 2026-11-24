@@ -42,6 +42,7 @@ final class ChoiceMemory: ObservableObject {
     private let readingLimit = 5000
     private let choiceLimit = 8
     private var uncompactedWalCount = 0
+    private var dirty = false
 
     init() { reload() }
 
@@ -109,6 +110,7 @@ final class ChoiceMemory: ObservableObject {
         }
         if replayed > 0 { trimReadingLimit() }
         uncompactedWalCount = replayed
+        dirty = replayed > 0 || (importing && !records.isEmpty)
         revision &+= 1
         error = loadFailed ? "選詞記錄讀取失敗，已保留原檔案。" : ""
         // Imported records move into this process's own files right away.
@@ -132,7 +134,12 @@ final class ChoiceMemory: ObservableObject {
         // count starts again. Without the reset every later choice would
         // rewrite the whole file.
         let compact = uncompactedWalCount >= 64
-        if compact { uncompactedWalCount = 0 }
+        if compact {
+            uncompactedWalCount = 0
+            dirty = false
+        } else {
+            dirty = true
+        }
         appendWal(walLines, shouldCompact: compact)
     }
 
@@ -222,14 +229,32 @@ final class ChoiceMemory: ObservableObject {
     private func save() {
         pendingSave?.cancel()
         uncompactedWalCount = 0
+        dirty = true
         let snapshot = records
-        let work = DispatchWorkItem { [weak self] in _ = self?.persist(snapshot) }
+        let work = DispatchWorkItem { [weak self] in
+            if self?.persist(snapshot) == true {
+                DispatchQueue.main.async { self?.dirty = false; self?.pendingSave = nil }
+            }
+        }
         pendingSave = work
         writer.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
-    @discardableResult func flush() -> Bool {
+    /// Background compaction on focus switch: zero work when clean, never blocks the main thread.
+    func compactIfNeededAsync() {
+        guard pendingSave != nil || uncompactedWalCount >= 16 else { return }
         pendingSave?.cancel()
+        pendingSave = nil
         uncompactedWalCount = 0
+        dirty = false
+        let snapshot = records
+        writer.async { [weak self] in _ = self?.persist(snapshot) }
+    }
+    @discardableResult func flush() -> Bool {
+        guard dirty || uncompactedWalCount > 0 || pendingSave != nil else { return true }
+        pendingSave?.cancel()
+        pendingSave = nil
+        uncompactedWalCount = 0
+        dirty = false
         let snapshot = records
         return writer.sync { persist(snapshot) }
     }

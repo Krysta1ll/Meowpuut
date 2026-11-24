@@ -8,3 +8,6 @@
 -keepclasseswithmembernames class com.krysta1ll.meowpuut.android.engine.NativeEnglish {
     native <methods>;
 }
+-keepclasseswithmembernames class com.krysta1ll.meowpuut.android.engine.NativePets {
+    native <methods>;
+}

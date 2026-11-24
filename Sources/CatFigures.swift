@@ -107,7 +107,18 @@ struct CatFigures: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .onChange(of: breathing, initial: true) { _, on in
-            withAnimation(on ? .easeInOut(duration: 2.6).repeatForever(autoreverses: true) : .easeOut(duration: 0.2)) { breath = on }
+            if on {
+                withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) { breath = true }
+            } else {
+                var tx = Transaction()
+                tx.disablesAnimations = true
+                withTransaction(tx) { breath = false }
+            }
+        }
+        .onDisappear {
+            var tx = Transaction()
+            tx.disablesAnimations = true
+            withTransaction(tx) { breath = false }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)

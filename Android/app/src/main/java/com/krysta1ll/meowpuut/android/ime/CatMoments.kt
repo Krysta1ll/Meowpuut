@@ -392,7 +392,10 @@ internal class CatMoments(
         handler.postDelayed(idle, delayMs.coerceIn(MIN_IDLE_MS, MAX_IDLE_MS))
     }
 
-    /** While a moment plays, key presses are noticed within 60 ms (120 ms for a sleeping cat) and end it. */
+    /**
+     * While a moment plays, checks for key presses within 100 ms; while sleeping/dozing,
+     * polls at a gentler 350 ms interval so idle CPU wakeups stay minimal without touching the key path.
+     */
     private val watcher = object : Runnable {
         override fun run() {
             if (!active) return
@@ -402,7 +405,7 @@ internal class CatMoments(
                 armIdle(dozeAfterMs)
                 return
             }
-            handler.postDelayed(this, if (!playing) 120L else 60L)
+            handler.postDelayed(this, if (playing) WATCH_MS else DOZE_WATCH_MS)
         }
     }
 
@@ -410,7 +413,7 @@ internal class CatMoments(
 
     private fun watch() {
         handler.removeCallbacks(watcher)
-        if (active) handler.postDelayed(watcher, 60L)
+        if (active) handler.postDelayed(watcher, if (playing) WATCH_MS else DOZE_WATCH_MS)
     }
 
     private companion object {
@@ -418,5 +421,7 @@ internal class CatMoments(
         const val MIN_IDLE_MS = 1_000L
         const val MAX_IDLE_MS = 60_000L
         const val SAMPLE_MS = 5_000L
+        const val WATCH_MS = 100L
+        const val DOZE_WATCH_MS = 350L
     }
 }
