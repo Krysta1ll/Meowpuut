@@ -1,0 +1,35 @@
+// Icon, manifest and version of MeowpuutDesk.exe (喵撲貓窩). The build passes
+// MEOWPUUT_VERSION ("門廊 · 26A003") and MEOWPUUT_VERSION_NUMBERS (0,9,0,3)
+// and puts Meowpuut.ico, made from assets/brand/AppIcon.png, on the include path.
+// The manifest: Per-Monitor V2 DPI awareness, asInvoker.
+#pragma code_page(65001)
+#include <winver.h>
+
+1 ICON "Meowpuut.ico"
+1 24 "Desk.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION MEOWPUUT_VERSION_NUMBERS
+PRODUCTVERSION MEOWPUUT_VERSION_NUMBERS
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040404B0"
+        BEGIN
+            VALUE "CompanyName", "Meowpuut"
+            VALUE "FileDescription", "Meowpuut desk pets"
+            VALUE "FileVersion", MEOWPUUT_VERSION
+            VALUE "InternalName", "MeowpuutDesk"
+            VALUE "LegalCopyright", "Code: MIT License. Cat artwork: all rights reserved."
+            VALUE "OriginalFilename", "MeowpuutDesk.exe"
+            VALUE "ProductName", "Meowpuut"
+            VALUE "ProductVersion", MEOWPUUT_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0404, 1200
+    END
+END

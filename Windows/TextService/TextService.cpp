@@ -11,6 +11,20 @@
 // the host refuses stays queued for the same document and is never sent to
 // another one.
 //
+// The candidates are also a TSF UI element (CandidateElement, UI-less mode): a
+// program that draws them itself, such as a game, says so in BeginUIElement and
+// our window stays hidden. The window is owned by the window being typed in.
+// There is no reading element: the reading is the composition in the document,
+// never a separate reading window.
+//
+// Typing is also told to the desk-pet process (Desk/PulseChannel.h): on each
+// key and commit one fixed-size pulse with running counts, the composing flag,
+// the composition origin quantized to 8 pt and two candidate-window bits. Never
+// the text, the key, the exact caret or the candidate window's size; nothing
+// from an AppContainer process, in secure mode or in a password field. It reads
+// one field back from the same section: whether 米米莫 is out on the desk, so
+// the candidate window seats only 莫莫 meanwhile (FINAL.md §4.2, 乙).
+//
 // This code runs inside other people's programs. Every entry point that TSF,
 // COM or the candidate window calls catches all exceptions: one that escaped
 // would end the host program.
@@ -22,7 +36,9 @@
 #include <olectl.h>
 #include <wchar.h>
 
+#include "../Desk/PulseChannel.h"
 #include "../InputDefaults.h"
+#include "../PetLedger.h"
 #include "../Keyboard.h"
 #include "../Session.h"
 #include "../UI/CandidateWindow.h"
@@ -144,7 +160,17 @@ std::wstring modulePath() {
     }
 }
 
-std::filesystem::path lexiconDirectory() { return std::filesystem::path(modulePath()).parent_path() / L"lexicon"; }
+// lexicon\ and Assets\ sit beside the DLL in a build folder, and one level up
+// when installed (Program Files\Meowpuut\<hash>\x64\MeowpuutTextService.dll).
+std::filesystem::path packageFolder(const wchar_t *name) {
+    const std::filesystem::path here = std::filesystem::path(modulePath()).parent_path();
+    std::error_code ec;
+    if (std::filesystem::is_directory(here / name, ec)) return here / name;
+    const std::filesystem::path up = here.parent_path() / name;
+    return std::filesystem::is_directory(up, ec) ? up : here / name;
+}
+
+std::filesystem::path lexiconDirectory() { return packageFolder(L"lexicon"); }
 
 std::wstring widen(const std::string &s) {
     if (s.empty()) return {};
@@ -444,6 +470,11 @@ struct ContextState {
     bool expanded = false;
     RECT caret{};
     bool haveCaret = false;
+    // The composition origin for the desk pulse: where the reading starts, read
+    // again only when a composition starts or text is committed (never per key).
+    RECT origin{};
+    bool haveOrigin = false;
+    bool originStale = true;
     DWORD layoutCookie = TF_INVALID_COOKIE; // ITfTextLayoutSink on this context
 };
 
@@ -676,6 +707,135 @@ HICON modeIcon(bool english) {
     return icon;
 }
 
+// --- UI-less mode: the candidate list as a TSF UI element -------------------------
+//
+// Microsoft, "UILess Mode Overview": a text service calls ITfUIElementMgr::BeginUIElement before
+// it shows UI. An application that draws the list itself (a game, a full-screen program) answers
+// *pbShow = FALSE, and the text service then keeps the element current with UpdateUIElement
+// until EndUIElement, without showing its own window. The application reads the list through
+// ITfCandidateListUIElement and acts on it through ITfCandidateListUIElementBehavior. Calls come
+// on this thread (TSF is apartment threaded).
+//
+// The element holds a copy of what it last published, so the application reads exactly the list
+// it was told about and nothing reaches the Service after Deactivate. The list is the page on
+// screen: the engine pages for itself and does not expose the candidates of other pages, so
+// there is one page, starting at 0, and paging (Page Down, the number keys' page) replaces the
+// strings. The candidate strings go only to the application this service is loaded in, as TSF
+// intends; nothing else leaves.
+class CandidateElement final : public ITfCandidateListUIElementBehavior, public Object {
+public:
+    static constexpr DWORD kAll = TF_CLUIE_DOCUMENTMGR | TF_CLUIE_COUNT | TF_CLUIE_SELECTION | TF_CLUIE_STRING |
+                                  TF_CLUIE_PAGEINDEX | TF_CLUIE_CURRENTPAGE;
+
+    explicit CandidateElement(Service *owner) : owner_(owner) {}
+    void detach() { owner_ = nullptr; }
+
+    // Takes the page on screen; returns the TF_CLUIE_* parts that changed (all of them the first time).
+    DWORD publish(std::vector<std::wstring> strings, UINT selection, ITfDocumentMgr *documentMgr) {
+        DWORD changed = published_ ? 0 : kAll;
+        if (strings.size() != strings_.size()) changed |= TF_CLUIE_COUNT;
+        if (strings != strings_) changed |= TF_CLUIE_STRING;
+        if (selection != selection_) changed |= TF_CLUIE_SELECTION;
+        if (documentMgr != documentMgr_.get()) changed |= TF_CLUIE_DOCUMENTMGR;
+        strings_ = std::move(strings);
+        selection_ = selection;
+        documentMgr_ = Ref<ITfDocumentMgr>::retain(documentMgr);
+        published_ = true;
+        flags_ |= changed;
+        return changed;
+    }
+    void markAll() { flags_ = kAll; }
+    // After the application has read the update (UpdateUIElement returns once its sink has).
+    void delivered() { flags_ = 0; }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override {
+        if (!out) return E_POINTER;
+        *out = nullptr;
+        if (iid == IID_IUnknown || iid == IID_ITfUIElement || iid == kIidCandidateListUIElement ||
+            iid == kIidCandidateListUIElementBehavior)
+            *out = static_cast<ITfCandidateListUIElementBehavior *>(this);
+        else
+            return E_NOINTERFACE;
+        AddRef();
+        return S_OK;
+    }
+    MEOWPUUT_REFCOUNT
+
+    // ITfUIElement
+    HRESULT STDMETHODCALLTYPE GetDescription(BSTR *description) override {
+        if (!description) return E_INVALIDARG;
+        *description = SysAllocString(L"喵撲候選字");
+        return *description ? S_OK : E_OUTOFMEMORY;
+    }
+    HRESULT STDMETHODCALLTYPE GetGUID(GUID *guid) override {
+        if (!guid) return E_INVALIDARG;
+        *guid = kCandidateElement;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Show(BOOL show) override;
+    HRESULT STDMETHODCALLTYPE IsShown(BOOL *show) override;
+
+    // ITfCandidateListUIElement
+    HRESULT STDMETHODCALLTYPE GetUpdatedFlags(DWORD *flags) override {
+        if (!flags) return E_INVALIDARG;
+        *flags = flags_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetDocumentMgr(ITfDocumentMgr **documentMgr) override {
+        if (!documentMgr) return E_INVALIDARG;
+        *documentMgr = documentMgr_.get();
+        if (!*documentMgr) return E_FAIL;
+        (*documentMgr)->AddRef();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetCount(UINT *count) override {
+        if (!count) return E_INVALIDARG;
+        *count = static_cast<UINT>(strings_.size());
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetSelection(UINT *index) override {
+        if (!index) return E_INVALIDARG;
+        *index = selection_;
+        return strings_.empty() ? S_FALSE : S_OK; // S_FALSE: no selection
+    }
+    HRESULT STDMETHODCALLTYPE GetString(UINT index, BSTR *text) override {
+        if (!text) return E_INVALIDARG;
+        *text = nullptr;
+        if (index >= strings_.size()) return E_INVALIDARG;
+        const std::wstring &s = strings_[index];
+        *text = SysAllocStringLen(s.data(), static_cast<UINT>(s.size()));
+        return *text ? S_OK : E_OUTOFMEMORY;
+    }
+    // Called with a null pIndex first for the count, as Microsoft's DXUT ImeUi does.
+    HRESULT STDMETHODCALLTYPE GetPageIndex(UINT *index, UINT size, UINT *pageCount) override {
+        if (!pageCount) return E_INVALIDARG;
+        *pageCount = 1;
+        if (!index) return S_OK;
+        if (size < 1) return E_INVALIDARG;
+        index[0] = 0;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE SetPageIndex(UINT *, UINT) override { return E_NOTIMPL; } // the engine's pages are fixed
+    HRESULT STDMETHODCALLTYPE GetCurrentPage(UINT *page) override {
+        if (!page) return E_INVALIDARG;
+        *page = 0;
+        return S_OK;
+    }
+
+    // ITfCandidateListUIElementBehavior: the same operations as the keys and the window.
+    HRESULT STDMETHODCALLTYPE SetSelection(UINT index) override;
+    HRESULT STDMETHODCALLTYPE Finalize() override;
+    HRESULT STDMETHODCALLTYPE Abort() override;
+
+private:
+    Service *owner_;
+    std::vector<std::wstring> strings_;
+    UINT selection_ = 0;
+    Ref<ITfDocumentMgr> documentMgr_;
+    DWORD flags_ = 0;
+    bool published_ = false;
+};
+
 class EditSession final : public ITfEditSession, public Object {
 public:
     // caretOnly: read where the reading is and place the window, change nothing.
@@ -738,11 +898,18 @@ public:
     HRESULT STDMETHODCALLTYPE Activate(ITfThreadMgr *threadMgr, TfClientId clientId) override {
         return ActivateEx(threadMgr, clientId, 0);
     }
-    HRESULT STDMETHODCALLTYPE ActivateEx(ITfThreadMgr *threadMgr, TfClientId clientId, DWORD) override {
+    HRESULT STDMETHODCALLTYPE ActivateEx(ITfThreadMgr *threadMgr, TfClientId clientId, DWORD flags) override {
         if (!threadMgr) return E_INVALIDARG;
         try {
             threadMgr_ = Ref<ITfThreadMgr>::retain(threadMgr);
             clientId_ = clientId;
+            // TF_TMAE_UIELEMENTENABLEDONLY: the program draws every piece of input UI itself (a game
+            // that activated TSF in UI-less mode). Our window then never appears, whatever
+            // BeginUIElement answers.
+            DWORD active = 0;
+            auto ex = query<ITfThreadMgrEx>(threadMgr, IID_ITfThreadMgrEx);
+            uiElementOnly_ = (flags & TF_TMAE_UIELEMENTENABLEDONLY) != 0 ||
+                             (ex && SUCCEEDED(ex->GetActiveFlags(&active)) && (active & TF_TMF_UIELEMENTENABLEDONLY) != 0);
             keystrokes_ = query<ITfKeystrokeMgr>(threadMgr, IID_ITfKeystrokeMgr);
             HRESULT result = keystrokes_ ? keystrokes_->AdviseKeyEventSink(clientId_, static_cast<ITfKeyEventSink *>(this), TRUE)
                                          : E_NOINTERFACE;
@@ -770,6 +937,7 @@ public:
                 IsEqualCLSID(profile.clsid, kServiceId))
                 mode_ = IsEqualGUID(profile.guidProfile, kZhuyinProfile) ? InputMode::Zhuyin : InputMode::Pinyin;
             firstRun();
+            pulse::Client::shared().prepare(!appContainerProcess()); // once per process; off the key path
             simplified_ = storedSimplified();
             langBar_ = query<ITfLangBarItemMgr>(threadMgr, IID_ITfLangBarItemMgr);
             button_ = Ref<ModeButton>::adopt(new ModeButton(this));
@@ -794,6 +962,12 @@ public:
             }
         } catch (...) {
         }
+        try {
+            PetLedger::shared().flush();
+            if (pulsed_) sendPulse(nullptr); // nothing is composing here any more
+        } catch (...) {
+        }
+        endElement(); // while the thread manager is still at hand
         window_.reset(); // before the DLL can unload: the window class belongs to it
         if (button_) {
             if (langBar_) langBar_->RemoveItem(static_cast<ITfLangBarItemButton *>(button_.get()));
@@ -843,6 +1017,8 @@ public:
             } else {
                 *eaten = next.act != Act::Pass;
             }
+            // A key the program gets (English, a shortcut) is counted here: OnKeyDown will not come.
+            if (!*eaten) pulseKey(context, vk);
         } catch (...) {
         }
         return S_OK;
@@ -857,6 +1033,7 @@ public:
             *eaten = next.act != Act::FinishThenPass;
             const auto state = states_.at(context);
             perform(state, next);
+            if (*eaten) pulseKey(context, vk);
         } catch (...) {
             // Keep the reading; the key is not passed on twice.
             hideWindow();
@@ -903,6 +1080,7 @@ public:
                 }
                 unadviseLayout(*found->second);
                 states_.erase(found);
+                PetLedger::shared().flush(); // the field this was typed in is gone
             }
         } catch (...) {
         }
@@ -939,8 +1117,10 @@ public:
                 s.last = {};
                 s.highlighted = 0;
                 s.expanded = false;
+                s.originStale = true;
                 if (s.session) s.session->clear();
                 if (entry.second == active_) hideWindow();
+                sendPulse(&s);
             }
         } catch (...) {
         }
@@ -1015,6 +1195,7 @@ public:
             // Refused text stays queued for this document and goes with the next change.
             if (FAILED(result)) return result;
             s.pending.clear();
+            s.originStale = true; // the next reading starts after the committed text
         }
         if (!s.preedit.empty()) {
             if (!s.composition) startComposition(cookie, s);
@@ -1055,12 +1236,85 @@ public:
             window_->setOptions(options);
         }
     }
+    // 清除打字紀錄…: asks, then clears the ledger for every program (the epoch rises, so another
+    // process's later write cannot bring the old numbers back).
+    void askClearLedger() {
+        const bool hans = simplified_;
+        const int answer = MessageBoxW(
+            nullptr,
+            hans ? L"清除打字记录？\n打字记录只记数量：字数、哪几天、一天里的哪个时段，不记你打了什么。"
+                 : L"清除打字紀錄？\n打字紀錄只記數量：字數、哪幾天、一天裡的哪個時段，不記你打了什麼。",
+            L"喵撲", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+        if (answer == IDYES) PetLedger::shared().clear();
+    }
     void switchEnglish() { toggleEnglish(active_ ? active_->context.get() : nullptr); }
     void chooseScript(bool simplified) {
         if (simplified != simplified_) toggleSimplified();
     }
 
+    // From the candidate list element, called by the program (UI-less mode).
+    // ITfUIElement::Show: the program takes over drawing (FALSE) or hands it back (TRUE). Taking
+    // over keeps the element and sends updates from now on ("UILess Mode Overview", option 1).
+    void elementShow(bool show) {
+        if (!element_) return;
+        const bool hostDraws = uiElementOnly_ || !show;
+        if (hostDraws == hostDraws_) return;
+        hostDraws_ = hostDraws;
+        if (hostDraws_) {
+            hideOwnWindow();
+            element_->markAll();
+            updateElement();
+        } else if (active_) {
+            showWindow(*active_);
+        }
+    }
+    bool ownWindowShown() const { return !hostDraws_ && window_ && window_->visible(); }
+    // SetSelection moves the highlight (← →), Finalize takes the highlighted candidate (Enter),
+    // Abort cancels the reading (Esc on the bar). A call from inside the program's own UI element
+    // sink is refused: TSF does not allow the nested Begin/Update/EndUIElement it would cause.
+    HRESULT elementSelect(UINT index) {
+        return fromElement([&](const std::shared_ptr<ContextState> &s) {
+            if (index >= s->last.candidates.size()) return E_INVALIDARG;
+            s->highlighted = index;
+            showWindow(*s);
+            return S_OK;
+        });
+    }
+    HRESULT elementFinalize() {
+        return fromElement([&](const std::shared_ptr<ContextState> &s) {
+            const auto count = s->last.candidates.size();
+            if (count == 0 || !s->session->chooseOnPage(std::min(s->highlighted, count - 1))) return E_FAIL;
+            deliver(s);
+            return S_OK;
+        });
+    }
+    HRESULT elementAbort() {
+        return fromElement([&](const std::shared_ptr<ContextState> &s) {
+            s->session->clear();
+            deliver(s);
+            return S_OK;
+        });
+    }
+
 private:
+    template <class F>
+    HRESULT fromElement(F &&f) noexcept {
+        if (notifying_ || !activated_) return E_FAIL;
+        AddRef();
+        HRESULT result = E_FAIL;
+        try {
+            if (active_ && active_->session && active_->session->hasComposition()) {
+                result = f(active_);
+                if (pulseCommits_ && active_) sendPulse(active_.get()); // a candidate the program's own list chose
+            }
+        } catch (...) {
+            hideWindow();
+            result = E_FAIL;
+        }
+        Release();
+        return result;
+    }
+
     // --- key planning -------------------------------------------------------
     // plan() has no visible effect, so OnTestKeyDown and OnKeyDown agree.
     bool usable(ITfContext *context) const {
@@ -1238,12 +1492,33 @@ private:
         if (session.hasComposition()) session.commitLiteralWithSpace();
     }
 
+    // The word-count ledger (PetLedger.h): only the number of characters, never the text. Nothing is counted
+    // in secure mode or in the fields this service does not take over (password, read-only).
+    bool secureMode() const {
+        DWORD flags = 0;
+        auto ex = query<ITfThreadMgrEx>(threadMgr_.get(), IID_ITfThreadMgrEx);
+        return !ex || FAILED(ex->GetActiveFlags(&flags)) || (flags & TF_TMF_SECUREMODE) != 0;
+    }
+    void recordCommit(ContextState &s, const std::string &committed, const std::wstring &tail) {
+        if (committed.empty() && tail.empty()) return;
+        try {
+            if (!usable(s.context.get()) || secureMode()) return;
+            const std::size_t graphemes = countGraphemes(committed) + countGraphemes(narrow(tail));
+            PetLedger::shared().committed(graphemes);
+            pulseCommits_ += 1;
+            pulseGraphemes_ += static_cast<std::uint32_t>(std::min<std::size_t>(graphemes, UINT32_MAX));
+        } catch (...) {
+        }
+    }
+
     // Moves the session's commit into the pending queue, then asks for an edit
     // session to write it and the new reading.
     void deliver(const std::shared_ptr<ContextState> &state, const std::wstring &tail = {}, bool now = false) {
         ContextState &s = *state;
         Snapshot snapshot = s.session->takeSnapshot();
         s.pending += widen(snapshot.committed) + tail;
+        // Counted once, here, when the text enters the queue; a retried write never comes back through this.
+        recordCommit(s, snapshot.committed, tail);
         if (snapshot.input != s.last.input || snapshot.page != s.last.page) s.highlighted = 0;
         if (!snapshot.committed.empty() || !tail.empty() || snapshot.input.empty()) s.expanded = false;
         snapshot.committed.clear();
@@ -1382,7 +1657,10 @@ private:
     void fromWindow(F &&f) noexcept {
         AddRef();
         try {
-            if (active_ && active_->session) f(active_);
+            if (active_ && active_->session) {
+                f(active_);
+                if (pulseCommits_) sendPulse(active_.get()); // a candidate chosen with the mouse
+            }
         } catch (...) {
             hideWindow();
         }
@@ -1393,6 +1671,7 @@ private:
         if (window_ || !activated_) return;
         ui::CandidateWindowOptions options;
         options.simplified = simplified_;
+        options.assetDirectory = packageFolder(L"Assets").wstring();
         ui::CandidateWindowCallbacks callbacks;
         callbacks.choose = [this](std::size_t index) {
             fromWindow([&](const std::shared_ptr<ContextState> &s) {
@@ -1414,28 +1693,45 @@ private:
         window_ = std::make_unique<ui::CandidateWindow>(static_cast<HINSTANCE>(g_module), options, std::move(callbacks));
     }
 
+    // Shows the active context's candidates: through the UI element always, and in our own window
+    // unless the program draws them itself.
     void showWindow(ContextState &s) {
         if (!activated_ || &s != active_.get()) return;
         if (!s.session || !s.session->hasComposition() || s.last.candidates.empty()) {
             hideWindow();
             return;
         }
+        presentElement(s);
+        if (uiElementOnly_ || hostDraws_) {
+            hideOwnWindow();
+            return;
+        }
         ensureWindow();
         if (!window_ || !window_->valid()) return;
+        window_->setOwner(ownerWindow(s));
         if (!window_->visible()) {
+            // The settings the companion writes are read when a composition starts: a change shows at the next one.
             const auto stored = ui::loadCandidateTextSize();
-            if (stored != window_->options().textSize) {
+            const auto skin = ui::loadCandidateSkin();
+            if (stored != window_->options().textSize || skin != window_->options().skin) {
                 auto options = window_->options();
                 options.textSize = stored;
+                options.skin = skin;
                 window_->setOptions(options);
             }
+            // 字景 shows the app's place: how far the ledger says the journey has gone (characters committed).
+            if (skin == ui::CandidateSkin::Glyph) window_->setJourney(static_cast<std::int64_t>(PetLedger::shared().committedGraphemes()));
         }
         ui::CandidateWindowState view;
         view.highlighted = s.highlighted;
         view.expanded = s.expanded;
         view.zhuyin = s.mode == InputMode::Zhuyin;
         view.simplified = simplified_;
-        window_->update(ui::makeViewModel(s.last, view, window_->options().shape));
+        ui::CandidateViewModel model = ui::makeViewModel(s.last, view, window_->options().shape);
+        // FINAL.md §4.2 乙: while 米米莫 walks on your window's top edge with the desk (貓窩), only 莫莫
+        // sits on the glass; both when the desk is not running. One shared-memory read, no wait.
+        model.seated = pulse::Client::shared().glassCats();
+        window_->update(model);
         if (s.haveCaret) window_->showNear(s.caret);
     }
 
@@ -1445,8 +1741,93 @@ private:
         s.layoutCookie = TF_INVALID_COOKIE;
     }
 
+    // The candidates leave the screen: our window, and the program's drawing of the element.
     void hideWindow() noexcept {
+        hideOwnWindow();
+        endElement();
+    }
+    void hideOwnWindow() noexcept {
         if (window_) window_->hide();
+    }
+
+    // Microsoft, "IME requirements", Owned window: the view's window, or the focus window when the
+    // view has none. CandidateWindow takes its top-level ancestor on this thread.
+    static HWND ownerWindow(ContextState &s) {
+        HWND window = nullptr;
+        Ref<ITfContextView> view;
+        if (FAILED(s.context->GetActiveView(view.put())) || !view || FAILED(view->GetWnd(&window))) window = nullptr;
+        return window ? window : GetFocus();
+    }
+
+    // --- UI element (UI-less mode) ---------------------------------------------
+    // Begins the element the first time candidates appear, then publishes each change. The
+    // program reads the list inside BeginUIElement already (DXUT's ImeUi does), so the element is
+    // filled before it is handed over. After *pbShow = FALSE, TSF expects an UpdateUIElement with
+    // every flag set; while our window shows the list, updates are not needed (SampleIME sends
+    // them only when the program draws).
+    void presentElement(ContextState &s) noexcept {
+        if (notifying_) return;
+        try {
+            std::vector<std::wstring> strings;
+            strings.reserve(s.last.candidates.size());
+            for (const auto &candidate : s.last.candidates) strings.push_back(widen(candidate));
+            const UINT selection = static_cast<UINT>(std::min(s.highlighted, strings.size() - 1));
+            Ref<ITfDocumentMgr> documentMgr;
+            if (FAILED(s.context->GetDocumentMgr(documentMgr.put()))) documentMgr.reset();
+            if (element_) {
+                if (element_->publish(std::move(strings), selection, documentMgr.get()) != 0 && hostDraws_) updateElement();
+                return;
+            }
+            hostDraws_ = false;
+            auto manager = query<ITfUIElementMgr>(threadMgr_.get(), IID_ITfUIElementMgr);
+            if (!manager) return;
+            auto *created = new (std::nothrow) CandidateElement(this);
+            if (!created) return;
+            auto element = Ref<CandidateElement>::adopt(created);
+            element->publish(std::move(strings), selection, documentMgr.get());
+            BOOL show = TRUE; // [in, out]: stays TRUE when nobody draws instead of us
+            DWORD id = TF_INVALID_UIELEMENTID;
+            notifying_ = true;
+            const HRESULT begun = manager->BeginUIElement(static_cast<ITfCandidateListUIElementBehavior *>(element.get()),
+                                                          &show, &id);
+            notifying_ = false;
+            if (FAILED(begun)) {
+                element->detach();
+                return;
+            }
+            element_ = std::move(element);
+            elementId_ = id;
+            // On a UI-element-only thread our window never appears, so the program is kept informed
+            // even if it answered TRUE.
+            hostDraws_ = uiElementOnly_ || !show;
+            if (hostDraws_) {
+                element_->markAll();
+                updateElement();
+            }
+        } catch (...) {
+            notifying_ = false;
+        }
+    }
+    void updateElement() noexcept {
+        if (!element_ || notifying_) return;
+        if (auto manager = query<ITfUIElementMgr>(threadMgr_.get(), IID_ITfUIElementMgr)) {
+            notifying_ = true;
+            manager->UpdateUIElement(elementId_);
+            notifying_ = false;
+        }
+        element_->delivered();
+    }
+    void endElement() noexcept {
+        if (!element_) return;
+        Ref<CandidateElement> element = std::move(element_);
+        const DWORD id = std::exchange(elementId_, TF_INVALID_UIELEMENTID);
+        hostDraws_ = false;
+        element->detach();
+        if (auto manager = query<ITfUIElementMgr>(threadMgr_.get(), IID_ITfUIElementMgr)) {
+            const bool outer = std::exchange(notifying_, true); // may be reached from the program's sink
+            manager->EndUIElement(id);
+            notifying_ = outer;
+        }
     }
 
     // --- edit session pieces ---------------------------------------------------
@@ -1461,6 +1842,7 @@ private:
         if (SUCCEEDED(composer->StartComposition(cookie, range.get(), static_cast<ITfCompositionSink *>(this),
                                                  composition.put())))
             s.composition = composition; // null when the host declines
+        s.originStale = true;
     }
 
     void setAttribute(TfEditCookie cookie, ITfContext *context, ITfRange *range) {
@@ -1512,6 +1894,7 @@ private:
             toPhysical(window, rect);
             s.caret = rect;
             s.haveCaret = true;
+            readOrigin(cookie, s, view.get(), range.get(), window);
             return;
         }
         if (s.haveCaret) return;
@@ -1524,6 +1907,57 @@ private:
             s.caret = rect;
             s.haveCaret = true;
         }
+    }
+
+    // The desk pulse's origin: the start of the reading (its range collapsed to the start), or the
+    // caret where the next reading will start. Read only when stale (a composition started, text was
+    // committed), so a per-key caret never leaves the IME.
+    static void readOrigin(TfEditCookie cookie, ContextState &s, ITfContextView *view, ITfRange *range, HWND window) {
+        if (!s.originStale) return;
+        Ref<ITfRange> start;
+        RECT rect{};
+        BOOL clipped = FALSE;
+        if (SUCCEEDED(range->Clone(start.put())) && start && SUCCEEDED(start->Collapse(cookie, TF_ANCHOR_START)) &&
+            SUCCEEDED(view->GetTextExt(cookie, start.get(), &rect, &clipped)) && rect.bottom > rect.top) {
+            toPhysical(window, rect);
+            s.origin = rect;
+            s.haveOrigin = true;
+            s.originStale = false;
+        }
+    }
+
+    // --- desk pulse (Desk/PulseChannel.h) -------------------------------------------
+    // Counted only where the ledger counts: a context this service takes over, not in secure mode.
+    // Never blocks, never allocates: a few compartment reads and one shared-memory write.
+    void pulseKey(ITfContext *context, WPARAM vk) {
+        if (isModifier(vk) || !context || !usable(context) || secureMode()) return;
+        pulseKeys_ += 1;
+        const auto found = states_.find(context);
+        sendPulse(found == states_.end() ? nullptr : found->second.get());
+    }
+
+    void sendPulse(const ContextState *s) {
+        pulse::Input in;
+        in.keys = pulseKeys_;
+        in.commits = pulseCommits_;
+        in.graphemes = pulseGraphemes_;
+        pulseKeys_ = pulseCommits_ = pulseGraphemes_ = 0; // a pulse the desk does not take is dropped, not retried
+        if (s) {
+            in.composing = s->session && s->session->hasComposition();
+            if (s->haveOrigin) {
+                in.haveOrigin = true;
+                in.originX = s->origin.left;
+                in.originY = s->origin.top;
+                in.lineHeight = s->origin.bottom - s->origin.top;
+            }
+            in.expanded = s->expanded;
+            // The candidate window opened above the line when there was no room below.
+            RECT box{};
+            const HWND popup = window_ && window_->visible() ? window_->hwnd() : nullptr;
+            in.above = popup && s->haveCaret && GetWindowRect(popup, &box) && box.bottom <= s->caret.top;
+        }
+        pulsed_ = true;
+        pulse::Client::shared().send(in);
     }
 
     Ref<ITfThreadMgr> threadMgr_;
@@ -1542,7 +1976,32 @@ private:
     std::unordered_map<ITfContext *, std::shared_ptr<ContextState>> states_;
     std::shared_ptr<ContextState> active_; // the context whose candidates are on screen
     std::unique_ptr<ui::CandidateWindow> window_;
+    // UI-less mode.
+    bool uiElementOnly_ = false;     // TF_TMF_UIELEMENTENABLEDONLY: never our own window
+    Ref<CandidateElement> element_;  // between BeginUIElement and EndUIElement
+    DWORD elementId_ = TF_INVALID_UIELEMENTID;
+    bool hostDraws_ = false;         // the program answered *pbShow = FALSE, or called Show(FALSE)
+    bool notifying_ = false;         // inside a call into ITfUIElementMgr (the program's sink runs there)
+    // Since the last pulse.
+    std::uint32_t pulseKeys_ = 0, pulseCommits_ = 0, pulseGraphemes_ = 0;
+    bool pulsed_ = false;
 };
+
+HRESULT CandidateElement::Show(BOOL show) {
+    try {
+        if (owner_) owner_->elementShow(show != FALSE);
+    } catch (...) {
+    }
+    return S_OK;
+}
+HRESULT CandidateElement::IsShown(BOOL *show) {
+    if (!show) return E_INVALIDARG;
+    *show = owner_ && owner_->ownWindowShown() ? TRUE : FALSE;
+    return S_OK;
+}
+HRESULT CandidateElement::SetSelection(UINT index) { return owner_ ? owner_->elementSelect(index) : E_FAIL; }
+HRESULT CandidateElement::Finalize() { return owner_ ? owner_->elementFinalize() : E_FAIL; }
+HRESULT CandidateElement::Abort() { return owner_ ? owner_->elementAbort() : E_FAIL; }
 
 bool ModeButton::english() const { return owner_ && owner_->english(); }
 HRESULT ModeButton::OnClick(TfLBIClick click, POINT, const RECT *) {
@@ -1568,6 +2027,9 @@ HRESULT ModeButton::InitMenu(ITfMenu *menu) {
         menu->AddMenuItem(3 + i, i == selectedSize ? TF_LBMENUF_RADIOCHECKED : 0,
                           nullptr, nullptr, label, static_cast<ULONG>(lstrlenW(label)), nullptr);
     }
+    menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
+    const wchar_t *clear = simplified ? L"清除打字记录…" : L"清除打字紀錄…";
+    menu->AddMenuItem(7, 0, nullptr, nullptr, clear, static_cast<ULONG>(lstrlenW(clear)), nullptr);
     return S_OK;
 }
 HRESULT ModeButton::OnMenuSelect(UINT id) {
@@ -1575,6 +2037,7 @@ HRESULT ModeButton::OnMenuSelect(UINT id) {
         if (owner_ && (id == 1 || id == 2)) owner_->chooseScript(id == 2);
         if (owner_ && id == 6) owner_->toggleMixedJapanese();
         if (owner_ && id >= 3 && id <= 5) owner_->chooseCandidateTextSize(static_cast<ui::CandidateTextSize>(id - 3));
+        if (owner_ && id == 7) owner_->askClearLedger();
     } catch (...) {
     }
     return S_OK;
@@ -1673,8 +2136,10 @@ HRESULT registerProfiles(bool install, const std::wstring &dll) {
     Ref<ITfCategoryMgr> categories;
     result = CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr, categories.putVoid());
     if (FAILED(result)) return result;
-    for (const GUID *category :
-         {&GUID_TFCAT_TIP_KEYBOARD, &GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, &kCategoryImmersive, &kCategorySystray}) {
+    // kCategoryUIElementEnabled: "UILess Mode Overview" — without it a program that activates TSF
+    // with TF_TMAE_UIELEMENTENABLEDONLY (games drawing their own candidates) does not load us at all.
+    for (const GUID *category : {&GUID_TFCAT_TIP_KEYBOARD, &GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, &kCategoryImmersive,
+                                 &kCategorySystray, &kCategoryUIElementEnabled}) {
         result = install ? categories->RegisterCategory(kServiceId, *category, kServiceId)
                          : categories->UnregisterCategory(kServiceId, *category, kServiceId);
         if (install && FAILED(result)) return result;

@@ -7,3 +7,13 @@ ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUNDLE/Contents/In
 # the retired generated icon, never settings or personal dictionary data.
 /bin/rm -f "$BUNDLE/Contents/Resources/MeowpuutInputGlyph.tiff"
 /usr/bin/codesign --verify --strict "$BUNDLE"
+# Add the input source to the signed-in user's session so no logout is needed. Best effort: when
+# there is no console user or macOS refuses, the install still succeeds and the user logs out.
+# A running older copy is stopped first; macOS starts the new one when the user types.
+/usr/bin/pkill -x Meowpuut 2>/dev/null || true
+CONSOLE_USER=$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || true)
+if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
+  CONSOLE_UID=$(/usr/bin/id -u "$CONSOLE_USER")
+  /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -H -u "$CONSOLE_USER" "$BUNDLE/Contents/MacOS/Meowpuut" --register || true
+fi
+exit 0

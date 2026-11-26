@@ -101,10 +101,11 @@ func runIndependentSmoke() -> Never {
     // The mixed-typing checks below are for 中日混打 on; the switch has its own checks (runMixSwitchSmoke).
     Preferences.shared.mixJapanese = true
     Preferences.shared.pins = [:]
-    let appearanceDefaults = UserDefaults(suiteName: "app.meowpuut.smoke")!
+    let appearanceDefaults = Preferences.shared.defaults
     Preferences.shared.candidateTone = .light
     Preferences.shared.candidatePalette = .sage
     Preferences.shared.glassStrength = .vivid
+    Preferences.shared.flushSettings()
     h.check(appearanceDefaults.string(forKey: "glassStrength") == "vivid", "玻璃強度會儲存")
     h.check(appearanceDefaults.string(forKey: "candidateTone") == "light" && appearanceDefaults.string(forKey: "candidatePalette") == "sage", "深淺色調與色系分開持久儲存")
     Preferences.shared.catGlassSkin = true
@@ -117,7 +118,8 @@ func runIndependentSmoke() -> Never {
     }
     Preferences.shared.keySound = .tap
     Preferences.shared.keySoundVolume = 40
-    h.check(appearanceDefaults.string(forKey: "keySound") == "tap" && appearanceDefaults.integer(forKey: "keySoundVolume") == 40, "按鍵聲與音量會儲存")
+    Preferences.shared.flushSettings()
+    h.check(appearanceDefaults.string(forKey: "keySound") == "tap" && appearanceDefaults.object(forKey: "keySoundVolume") as? Int == 40, "按鍵聲與音量會儲存")
     Preferences.shared.keySound = .off
     h.check(KeySoundPlayer.role(for: h.layoutEvent(0, "a")) == .key && KeySoundPlayer.role(for: h.layoutEvent(49, " ")) == .space
             && KeySoundPlayer.role(for: h.layoutEvent(51, "\u{7f}")) == .delete && KeySoundPlayer.role(for: h.layoutEvent(36, "\r")) == .returnKey
@@ -352,6 +354,10 @@ func runIndependentSmoke() -> Never {
     runCandidateWindowChecks(&h)
     runMixSwitchSmoke(&h)
     runFirstRunSmoke(&h)
+    runLedgerSmoke(&h)
+    runDeskSeatsSmoke(&h)
+    runSettingsSmoke(&h)
+    runGlyphSmoke(&h)
 
     ChoiceMemory.shared.clear()
     ChoiceMemory.shared.flush()

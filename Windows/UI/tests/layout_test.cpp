@@ -418,6 +418,31 @@ void testHitTesting() {
     CHECK(hitTest(L, {1, 1}).kind == HitKind::None);
 }
 
+// FINAL.md §4.2 乙: while 米米莫 walks on your window's top edge only 莫莫 sits on the glass, and the
+// glass itself does not move or change size when he leaves or comes back.
+void testDeskSeat() {
+    FixedMeasurer measurer;
+    for (auto shape : {GlassShape::Capsule, GlassShape::Wave, GlassShape::Cloud})
+        for (bool expanded : {false, true}) {
+            auto model = sample();
+            model.shape = shape;
+            model.expanded = expanded;
+            const auto both = layoutCandidates(model, measurer);
+            model.seated = 2;
+            const auto L = layoutCandidates(model, measurer);
+            CHECK(both.cats.size() == 2);
+            CHECK(L.cats.size() == 1 && L.cats[0].cat == Cat::Momo);
+            if (L.cats.size() != 1 || both.cats.size() != 2) continue;
+            CHECK(L.size.width == both.size.width && L.size.height == both.size.height);
+            CHECK(L.glass.bounds.x == both.glass.bounds.x && L.anchorX == both.anchorX);
+            CHECK(L.cats[0].frame.x == both.cats[1].frame.x && L.cats[0].frame.y == both.cats[1].frame.y);
+            CHECK(hitTest(L, {L.cats[0].touch().midX(), L.cats[0].touch().midY()}).kind == HitKind::Momo);
+            CHECK(hitTest(L, {both.cats[0].touch().midX(), both.cats[0].touch().midY()}).kind != HitKind::Mimimo);
+            model.seated = 0;
+            CHECK(layoutCandidates(model, measurer).cats.empty());
+        }
+}
+
 void testZhuyinNumbersAndContrast() {
     FixedMeasurer measurer;
     auto model = sample();
@@ -759,6 +784,10 @@ void testFestivals() {
             model.festival = art;
             const auto L = layoutCandidates(model, measurer);
             CHECK(L.dressed && L.cats.size() == 2 && L.ornament && L.ornament->x > L.chevron.midX() && L.ornament->right() <= L.size.width);
+            model.seated = 2;  // 米米莫 is out on the desk: the dressed 莫莫 alone
+            const auto alone = layoutCandidates(model, measurer);
+            CHECK(alone.dressed && alone.cats.size() == 1 && alone.cats[0].cat == Cat::Momo);
+            model.seated = 3;
             model.decorations = false;  // high contrast: no cats, no ornaments
             const auto plain = layoutCandidates(model, measurer);
             CHECK(!plain.dressed && !plain.ornament);
@@ -810,6 +839,7 @@ int main() {
     testTextSizes();
     testExpandedAndPaging();
     testHitTesting();
+    testDeskSeat();
     testZhuyinNumbersAndContrast();
     testScene();
     testSvg();

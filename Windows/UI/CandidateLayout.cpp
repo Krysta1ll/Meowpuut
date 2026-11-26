@@ -267,7 +267,9 @@ std::optional<CatPlacement> seatCat(Cat cat, const CatSprite &art, bool left, co
 // candidates take and `stageTop` the top of the room kept for the cats.
 // `bar` is the collapsed bar when this is the panel: 米米莫 keeps his seat
 // from there where the panel's edge allows, so he does not jump when it opens.
-void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &row, const CandidateLayout *bar = nullptr) {
+// `seated` (CandidateViewModel::seated) leaves out a cat who is on the desk.
+void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &row, unsigned seated,
+              const CandidateLayout *bar = nullptr) {
     const TopEdge edge(L.glass);
     // The arrow as Scene.cpp draws it: 9.2 × 4.8 with a 1.7 stroke.
     const RectF arrow{L.chevron.midX() - 5.5f, L.chevron.midY() - 3.3f, 11, 6.6f};
@@ -282,18 +284,21 @@ void seatCats(CandidateLayout &L, float bodyTop, float stageTop, const RectF &ro
         const CatPlacement &was = bar->cats.front();
         at = was.frame.x + was.sprite->cutLeft * was.frame.width;
     }
-    // On a festival day the dressed pair, when both fit; otherwise the everyday cats.
-    if (L.festival) {
-        const auto mimimo = seatCat(Cat::Mimimo, L.festival->mimimo, true, stage, at);
-        const auto momo = seatCat(Cat::Momo, L.festival->momo, false, stage);
-        if (mimimo && momo && !mimimo->body().inset(-4 * unit, 0).intersects(momo->body())) {
-            L.cats = {*mimimo, *momo};
+    const bool wantMimimo = (seated & 1u) != 0, wantMomo = (seated & 2u) != 0;
+    // On a festival day the dressed cats, when every one of them fits; otherwise the everyday cats.
+    if (L.festival && (wantMimimo || wantMomo)) {
+        const auto mimimo = wantMimimo ? seatCat(Cat::Mimimo, L.festival->mimimo, true, stage, at) : std::nullopt;
+        const auto momo = wantMomo ? seatCat(Cat::Momo, L.festival->momo, false, stage) : std::nullopt;
+        const bool all = (mimimo || !wantMimimo) && (momo || !wantMomo);
+        if (all && (!mimimo || !momo || !mimimo->body().inset(-4 * unit, 0).intersects(momo->body()))) {
+            if (mimimo) L.cats.push_back(*mimimo);
+            if (momo) L.cats.push_back(*momo);
             L.dressed = true;
             return;
         }
     }
-    const auto mimimo = seatCat(Cat::Mimimo, *catArt(Cat::Mimimo).sprite, true, stage, at);
-    const auto momo = seatCat(Cat::Momo, *catArt(Cat::Momo).sprite, false, stage);
+    const auto mimimo = wantMimimo ? seatCat(Cat::Mimimo, *catArt(Cat::Mimimo).sprite, true, stage, at) : std::nullopt;
+    const auto momo = wantMomo ? seatCat(Cat::Momo, *catArt(Cat::Momo).sprite, false, stage) : std::nullopt;
     // Should the two ever meet, 莫莫 stays: five clicks on her switch the script.
     const bool apart = !mimimo || !momo || !mimimo->body().inset(-4 * unit, 0).intersects(momo->body());
     if (mimimo && apart) L.cats.push_back(*mimimo);
@@ -522,7 +527,8 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
                 bottom = std::max(bottom, strip.bottom());
             }
             bottom = std::max(bottom, frame.right.bottom());
-            seatCats(L, bodyTop, frame.left.y, {rowStart, bodyTop + (G - pillHeight) / 2, rowEnd - rowStart, pillHeight});
+            seatCats(L, bodyTop, frame.left.y, {rowStart, bodyTop + (G - pillHeight) / 2, rowEnd - rowStart, pillHeight},
+                     model.seated);
             L.ornament = festivalOrnament(L, glassRight + m.padRight);
         }
         L.size = {glassRight + m.padRight, std::ceil(bottom + m.padBottom)};
@@ -615,7 +621,7 @@ CandidateLayout layoutCandidates(const CandidateViewModel &model, TextMeasurer &
         CandidateViewModel collapsed = model;
         collapsed.expanded = false;
         const CandidateLayout bar = layoutCandidates(collapsed, measurer, limits, m);
-        seatCats(L, bodyTop, frame.left.y, {panelLeft + insetX, textTop, inner, gridBottom - textTop}, &bar);
+        seatCats(L, bodyTop, frame.left.y, {panelLeft + insetX, textTop, inner, gridBottom - textTop}, model.seated, &bar);
     }
     L.size = {right + m.padRight, std::ceil(bottom + m.padBottom)};
     L.anchorX = rowStart;

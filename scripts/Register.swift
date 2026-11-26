@@ -1,10 +1,15 @@
 import Carbon
 import Foundation
+// Diagnostic twin of `Meowpuut --register` (Sources/InputSourceRegistration.swift); prints every property.
 guard CommandLine.arguments.count == 2 else { fputs("需要應用程式路徑\n", stderr); exit(2) }
 let url = URL(fileURLWithPath: CommandLine.arguments[1])
 let status = TISRegisterInputSource(url as CFURL)
 guard status == noErr else { fputs("輸入法註冊失敗：OSStatus \(status)\n", stderr); exit(1) }
 print("已註冊 Meowpuut 輸入來源。")
+// Enable what macOS lets a program enable; the rest stays for System Settings.
+for source in TISCreateInputSourceList([kTISPropertyBundleID as String: "app.meowpuut.inputmethod.Meowpuut"] as CFDictionary, true)?.takeRetainedValue() as? [TISInputSource] ?? [] {
+    _ = TISEnableInputSource(source)
+}
 let filter = [kTISPropertyBundleID as String: "app.meowpuut.inputmethod.Meowpuut"] as CFDictionary
 let list = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource] ?? []
 let count = list.count

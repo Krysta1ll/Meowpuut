@@ -75,6 +75,240 @@
   ],
   "artwork" : "Generated character illustrations; no 3D rig or mesh included.",
   "colorSpace" : "sRGB",
+  "deskArtwork" : "Desktop-pet poses (2026-11-23): the 3D renders of clay-3d-stage1 round-9 (both walks as 12-frame cycles, turn, fall, momo_lift) and, kept as they were, the GPT image-generation illustrations from the 06 pack references (mimimo_look_up, momo_look_up, mimimo_lift, momo_sleep), normalised by design-preview/pc/clay-tools/normalize_poses.py; no 3D rig or mesh included.",
+  "deskSprites" : [
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_1",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f02",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f03",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_2",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f05",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f06",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_3",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f08",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f09",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_4",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f11",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "mimimo_walk_f12",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "mimimo_turn",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "mimimo_look_up",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (GPT)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.06],
+      "facing" : "front",
+      "id" : "mimimo_lift",
+      "logicalSize" : [64, 80],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (GPT)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "mimimo_fall",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_1",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f02",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f03",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_2",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f05",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f06",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_3",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f08",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f09",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_4",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f11",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "right",
+      "id" : "momo_walk_f12",
+      "logicalSize" : [96, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "momo_turn",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "momo_look_up",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (GPT)"
+    },
+    {
+      "anchorNormalized" : [0.4986, 0.1278],
+      "facing" : "front",
+      "id" : "momo_lift",
+      "logicalSize" : [64, 80],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "momo_fall",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (3D round-9)"
+    },
+    {
+      "anchorNormalized" : [0.5, 0.9],
+      "facing" : "front",
+      "id" : "momo_sleep",
+      "logicalSize" : [64, 64],
+      "source" : "design-preview/pc/CLAY-POSES.md P0 (GPT)"
+    }
+  ],
   "edgeSprites" : [
     {
       "anchorNormalized" : [

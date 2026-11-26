@@ -70,6 +70,11 @@ struct CandidateViewModel {
     std::string modeLabel;                // e.g. "拼 · 繁"
     GlassShape shape = GlassShape::Capsule;
     bool decorations = true;              // false in high contrast: no cats
+    // The cats on the glass: bit 0 米米莫, bit 1 莫莫 (MP_PETS_MIMIMO, MP_PETS_MOMO).
+    // While 米米莫 walks on your window's top edge (the desk's 乙 seat, FINAL.md
+    // §4.2) only 莫莫 sits here; the text service reads it from the desk's
+    // section (Desk/PulseChannel.h glassCats).
+    unsigned seated = 3;
     std::optional<std::size_t> hovered;   // candidate under the pointer
     std::optional<std::size_t> pressed;   // candidate under a held mouse button
     CatReaction reactions[2];             // indexed by Cat; the window sets them after a click
