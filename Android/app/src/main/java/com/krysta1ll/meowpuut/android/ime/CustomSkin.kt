@@ -40,9 +40,19 @@ data class SkinKeys(val character: Int, val utility: Int, val text: Int)
 /** A cat picture the skin replaces: its image stem and the geometry the installer measured. */
 data class SkinCatSprite(val image: String, val sprite: CatSprite)
 
-/** The right end's ornament cluster: image stem and size in dp. */
+/** An optional spacebar sticker or corner ornament: image stem and size in dp. */
 data class SkinEnd(val image: String, val width: Float, val height: Float) {
     fun piece() = FestivalPiece(image, width, height)
+}
+
+/** Optional keystroke particle emitter (`keys.particles`): shape kind + light/dark ARGB palettes. */
+data class SkinKeyParticles(val kind: KeyParticleKind, val light: IntArray, val dark: IntArray) {
+    fun palette(dark: Boolean): IntArray = if (dark) this.dark else light
+
+    override fun equals(other: Any?): Boolean =
+        other is SkinKeyParticles && kind == other.kind && light.contentEquals(other.light) && dark.contentEquals(other.dark)
+
+    override fun hashCode(): Int = 31 * (31 * kind.hashCode() + light.contentHashCode()) + dark.contentHashCode()
 }
 
 /** Sound roles to stems of `<stem>.wav`, and the skin's gain. */
@@ -77,6 +87,11 @@ data class SkinOverlay(
     val sprites: Map<String, SkinCatSprite>,
     val rightEnd: SkinEnd?,
     val sounds: SkinSounds?,
+    val spaceMark: SkinEnd? = null,
+    val keyParticles: SkinKeyParticles? = null,
+    /** Optional whole-body interaction poses (`mimimo_grab`, `momo_grab`, `*_happy`, `*_sleep`). */
+    val extraSprites: Map<String, SkinCatSprite> = emptyMap(),
+    val leftEnd: SkinEnd? = null,
 ) {
     fun palette(dark: Boolean) = if (dark) this.dark else light
     fun keys(dark: Boolean) = if (dark) keysDark else keysLight
@@ -87,11 +102,17 @@ data class SkinOverlay(
     fun name(simplified: Boolean) = names[if (simplified) "hans" else "hant"] ?: names["en"] ?: ref.id
 
     /** Every image stem the skin uses, for the loader. */
-    val images: List<String> get() = sprites.values.map { it.image } + listOfNotNull(rightEnd?.image)
+    val images: List<String> get() =
+        sprites.values.map { it.image } +
+        extraSprites.values.map { it.image } +
+        listOfNotNull(leftEnd?.image, rightEnd?.image, spaceMark?.image)
 
     companion object {
         /** The perched poses a skin may replace; `*_side_hold` is held by the lifted cat's mesh, which has fixed paw landmarks. */
         val SPRITE_NAMES = listOf("mimimo", "momo").flatMap { cat -> listOf("peek", "rest", "lounge").map { "${cat}_edge_$it" } }
+
+        /** Whole-body interactive poses a skin may optionally supply (`*_grab`, `*_happy`, `*_sleep`). */
+        val EXTRA_SPRITE_NAMES = listOf("mimimo", "momo").flatMap { cat -> listOf("grab", "happy", "sleep").map { "${cat}_$it" } }
 
         /** The test-keys policy of §9.5: a release build never trusts a skin signed by a test key. */
         fun trustAllowed(debuggable: Boolean, acceptsTestKeys: Boolean) = debuggable || !acceptsTestKeys
@@ -142,6 +163,10 @@ data class SkinOverlay(
                 sprites = sprites(cats.optJSONObject("sprites")),
                 rightEnd = cats.optJSONObject("ends")?.optJSONObject("right")?.let { end(it) },
                 sounds = m.optJSONObject("sounds")?.let { sounds(it) },
+                spaceMark = keys.optJSONObject("spaceMark")?.let { end(it) },
+                keyParticles = keys.optJSONObject("particles")?.let { particles(it) },
+                extraSprites = extraSprites(cats.optJSONObject("sprites")),
+                leftEnd = cats.optJSONObject("ends")?.optJSONObject("left")?.let { end(it) },
             )
         }
 
@@ -207,6 +232,39 @@ data class SkinOverlay(
             require(SkinRef.isName(image))
             val size = numbers(o.getJSONArray("size"), 2, 8f, 64f)
             return SkinEnd(image, size[0], size[1])
+        }
+
+        private fun extraSprites(o: JSONObject?): Map<String, SkinCatSprite> {
+            o ?: return emptyMap()
+            val out = LinkedHashMap<String, SkinCatSprite>()
+            for (name in EXTRA_SPRITE_NAMES) {
+                val s = o.optJSONObject(name) ?: continue
+                val image = s.getString("image")
+                require(SkinRef.isName(image))
+                val size = numbers(s.getJSONArray("size"), 2, 8f, 128f)
+                val anchor = numbers(s.getJSONArray("anchor"), 2, 0f, 1f)
+                val bounds = s.optJSONArray("bounds")?.let {
+                    numbers(it, 4, 0f, 1f).also { b -> require(b[0] < b[2] && b[1] < b[3]) }
+                } ?: listOf(0f, 0f, 1f, 1f)
+                out[name] = SkinCatSprite(image, CatSprite(name, size[0], size[1], anchor[0], anchor[1],
+                    bounds[0], bounds[1], bounds[2], bounds[3], 0f, 1f, emptyList()))
+            }
+            return out
+        }
+
+        private fun particles(o: JSONObject): SkinKeyParticles {
+            val kind = when (o.getString("kind")) {
+                "petal" -> KeyParticleKind.PETAL
+                "sparkle" -> KeyParticleKind.SPARKLE
+                "snow" -> KeyParticleKind.SNOW
+                else -> throw IllegalArgumentException("particle kind")
+            }
+            fun paletteArray(key: String): IntArray {
+                val arr = o.getJSONArray(key)
+                require(arr.length() in 1..4)
+                return IntArray(arr.length()) { color(arr.getString(it)) }
+            }
+            return SkinKeyParticles(kind, paletteArray("light"), paletteArray("dark"))
         }
 
         private fun sounds(o: JSONObject): SkinSounds {

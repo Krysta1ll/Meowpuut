@@ -20,7 +20,7 @@ android {
         applicationId = "com.krysta1ll.meowpuut.android"
         minSdk = 26
         targetSdk = 37
-        val buildNumber = 26
+        val buildNumber = 27
         versionCode = buildNumber
         versionName = "稜鏡 · 26A" + buildNumber.toString().padStart(3, '0')
         ndk {

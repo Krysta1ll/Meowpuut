@@ -77,14 +77,17 @@ internal class ChoiceMemory(private val store: SharedPreferences) {
         }
 
         fun selectionReading(input: CharSequence, candidate: Candidate): String {
-            if (candidate.kind != CandidateKind.CHINESE || candidate.coreIndex < 0 ||
+            if (candidate.kind != CandidateKind.CHINESE ||
                 candidate.consumed !in 1..input.length || candidate.text.isEmpty() ||
                 !candidate.text.codePoints().allMatch { Character.UnicodeScript.of(it) == Character.UnicodeScript.HAN }
             ) return ""
             return input.substring(0, candidate.consumed).trimEnd('\'').lowercase()
         }
 
-        /** Only exchange complete Chinese choices, leaving the other candidate slots alone. */
+        /**
+         * Only exchange complete Chinese choices, leaving the other candidate slots alone.
+         * Learned multi-segment whole sentences not already in [choices] are surfaced at the top.
+         */
         fun rank(choices: List<Candidate>, length: Int, preferred: Map<String, Int>): List<Candidate> {
             if (preferred.isEmpty()) return choices
             val slots = choices.indices.filter {
@@ -92,10 +95,20 @@ internal class ChoiceMemory(private val store: SharedPreferences) {
                 choice.kind == CandidateKind.CHINESE && choice.coreIndex >= 0 && choice.consumed == length
             }
             val recency = preferred.keys.withIndex().associate { (index, text) -> text to index }
+            val existingTexts = choices.mapTo(HashSet()) { it.text }
+            val missingLearned = preferred.entries
+                .filter { (text, count) -> count >= 2 && text !in existingTexts && text.length >= 2 }
+                .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }
+                    .thenBy { recency[it.key] ?: Int.MAX_VALUE })
+                .map { (text, _) -> Candidate(text, CandidateKind.CHINESE, coreIndex = -1, consumed = length) }
             val sorted = slots.map(choices::get).sortedWith(compareByDescending<Candidate> { preferred[it.text] ?: 0 }
                 .thenBy { recency[it.text] ?: Int.MAX_VALUE })
             val result = choices.toMutableList()
             slots.forEachIndexed { index, slot -> result[slot] = sorted[index] }
+            if (missingLearned.isNotEmpty() && length > 0) {
+                val insertAt = slots.firstOrNull() ?: 0
+                result.addAll(insertAt, missingLearned)
+            }
             return result
         }
     }

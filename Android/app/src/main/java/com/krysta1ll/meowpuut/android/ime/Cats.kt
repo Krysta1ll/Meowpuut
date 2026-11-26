@@ -58,13 +58,30 @@ class CatSprites(private val resources: Resources) {
     /** A custom skin's decoded pictures, set once its files are verified (CustomSkinLoader); never read from disk here. */
     private var skinArts: Map<String, Art> = emptyMap()
     private var skinEnd: Pair<SkinEnd, Bitmap>? = null
+    private var skinLeftEnd: Pair<SkinEnd, Bitmap>? = null
+    private var skinSpaceMark: Pair<SkinEnd, Bitmap>? = null
 
-    fun useSkin(sprites: Map<String, Art>, end: Pair<SkinEnd, Bitmap>?) {
+    fun useSkin(
+        sprites: Map<String, Art>,
+        end: Pair<SkinEnd, Bitmap>?,
+        leftEnd: Pair<SkinEnd, Bitmap>? = null,
+        spaceMark: Pair<SkinEnd, Bitmap>? = null,
+    ) {
         skinArts = sprites
         skinEnd = end
+        skinLeftEnd = leftEnd
+        skinSpaceMark = spaceMark
     }
 
     fun endArt(end: SkinEnd): Bitmap? = skinEnd?.takeIf { it.first == end }?.second
+    fun leftEndArt(end: SkinEnd): Bitmap? = skinLeftEnd?.takeIf { it.first == end }?.second
+    fun spaceMarkArt(mark: SkinEnd): Bitmap? = skinSpaceMark?.takeIf { it.first == mark }?.second
+    fun skinGrab(cat: Cat): Art? = skinArts["${cat.key}_grab"]
+    fun skinPose(cat: Cat, pose: CatBodyPose): Art? = when (pose) {
+        CatBodyPose.HAPPY, CatBodyPose.GREET, CatBodyPose.JUMP -> skinArts["${cat.key}_happy"]
+        CatBodyPose.SLEEP -> skinArts["${cat.key}_sleep"]
+        CatBodyPose.IDLE -> null
+    }
     private val bodies = HashMap<Int, Bitmap>()
     private val held = arrayOfNulls<HeldCatArt>(Cat.entries.size)
 

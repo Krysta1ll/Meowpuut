@@ -66,7 +66,7 @@ final class KeySoundPlayer {
         let preferences = Preferences.shared
         guard preferences.keySound.isCustom, preferences.keySoundVolume > 0 else { return }
         load(preferences.keySound)
-        let sample = role == .key && preferences.keySound == .penta
+        let sample = role == .key && preferences.keySound.usesKeyPosition
             ? "key\(Self.pentaNote(keyCode))"
             : role.rawValue
         guard let choices = players[sample], !choices.isEmpty else { return }

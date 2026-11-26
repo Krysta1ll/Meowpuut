@@ -52,11 +52,23 @@ class ClipboardShelf(private val file: File? = null, private val now: () -> Long
     fun unpin(text: String) {
         val at = pinned.indexOfFirst { it.text == text }
         if (at < 0) return
-        val item = pinned.removeAt(at).copy(pinned = false)
+        val item = pinned.removeAt(at).copy(pinned = false, time = now())
         unpinned.add(item)
         unpinned.sortByDescending { it.time }
         while (unpinned.size > MAX_ITEMS) unpinned.removeAt(unpinned.lastIndex)
         save()
+    }
+
+    /** Records an extracted system clip into [slip] and, when kept, into this shelf. */
+    fun ingest(clip: ExtractedClip, slip: ClipboardSlip, at: Long = now()): Boolean {
+        if (clip.text.isBlank()) return false
+        val stamp = clip.timestamp
+        val offerSlip = stamp > 0L || clip.fromListener
+        val slipTime = if (stamp > 0L) stamp else if (clip.fromListener) at else 0L
+        if (!slip.copied(clip.text, slipTime, clip.sensitive, offerSlip = offerSlip)) return false
+        val shelfTime = if (stamp > 0L) stamp else at
+        add(clip.text, clip.sensitive, shelfTime)
+        return true
     }
 
     fun remove(text: String) {
@@ -81,6 +93,7 @@ class ClipboardShelf(private val file: File? = null, private val now: () -> Long
         val target = file ?: return
         if (pinned.isEmpty()) { deleteFile(target); return }
         try {
+            target.parentFile?.mkdirs()
             val out = StringBuilder()
             for (item in pinned) out.append(item.time).append(' ').append(item.text.length).append('\n').append(item.text).append('\n')
             val temp = File(target.parentFile, target.name + ".tmp")
@@ -112,6 +125,13 @@ class ClipboardShelf(private val file: File? = null, private val now: () -> Long
         }
     }
 
+    data class ExtractedClip(
+        val text: String,
+        val timestamp: Long,
+        val sensitive: Boolean,
+        val fromListener: Boolean,
+    )
+
     companion object {
         const val MAX_ITEMS = 20
         const val MAX_PINNED = 50
@@ -142,10 +162,10 @@ class ClipboardSlip {
     private var seen: Pair<String, Long>? = null
 
     /** A clip was copied (true), or only seen again (false): it replaces the one before, and has not been offered. The same clip seen again (the keyboard reads the clipboard whenever it opens) is not new. */
-    fun copied(text: String, time: Long, sensitive: Boolean): Boolean {
+    fun copied(text: String, time: Long, sensitive: Boolean, offerSlip: Boolean = true): Boolean {
         if (text.isBlank() || seen == text to time) return false
         seen = text to time
-        clip = Clip(text.take(ClipboardShelf.MAX_CHARS), time, sensitive)
+        clip = if (offerSlip) Clip(text.take(ClipboardShelf.MAX_CHARS), time, sensitive) else null
         presented = null
         return true
     }
@@ -205,4 +225,40 @@ object ClipboardRules {
     }
 
     const val SENSITIVE_EXTRA = "android.content.extra.IS_SENSITIVE"
+}
+
+/** Pure text extraction over ClipData items so MIME, HTML, multi-item, and SecurityException fallback are unit-tested on JVM. */
+object ClipboardClipExtractor {
+    class ItemSource(
+        val plainText: CharSequence? = null,
+        val htmlText: String? = null,
+        val uriScheme: String? = null,
+        val coerceToText: () -> CharSequence? = { plainText ?: htmlText },
+    )
+
+    fun extract(hasTextMime: Boolean, items: List<ItemSource>): String? {
+        if (items.isEmpty()) return null
+        val parts = ArrayList<String>(items.size)
+        var total = 0
+        for (item in items) {
+            val hasInlineText = !item.plainText.isNullOrBlank() || !item.htmlText.isNullOrBlank()
+            if (!hasTextMime && !hasInlineText) continue
+            val raw = try {
+                item.coerceToText()?.toString()
+            } catch (_: RuntimeException) {
+                item.plainText?.toString()
+            }
+            val value = raw?.takeIf { it.isNotBlank() }
+                ?: item.plainText?.toString()?.takeIf { it.isNotBlank() }
+                ?: continue
+            if (!hasInlineText && item.uriScheme.equals("content", ignoreCase = true) &&
+                value.startsWith("content://", ignoreCase = true)
+            ) continue
+            parts += value
+            total += value.length
+            if (total >= ClipboardShelf.MAX_CHARS) break
+        }
+        if (parts.isEmpty()) return null
+        return if (parts.size == 1) parts[0] else parts.joinToString("\n")
+    }
 }

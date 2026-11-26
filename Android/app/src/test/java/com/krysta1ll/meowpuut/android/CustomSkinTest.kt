@@ -1,10 +1,14 @@
 package com.krysta1ll.meowpuut.android
 
+import com.krysta1ll.meowpuut.android.ime.EffectsLevel
 import com.krysta1ll.meowpuut.android.ime.GlassShape
 import com.krysta1ll.meowpuut.android.ime.GlassStrength
+import com.krysta1ll.meowpuut.android.ime.KeyParticleKind
 import com.krysta1ll.meowpuut.android.ime.KeyboardSkin
 import com.krysta1ll.meowpuut.android.ime.Look
 import com.krysta1ll.meowpuut.android.ime.Palette
+import com.krysta1ll.meowpuut.android.ime.PetForm
+import com.krysta1ll.meowpuut.android.ime.SkinCatArtwork
 import com.krysta1ll.meowpuut.android.ime.SkinOverlay
 import com.krysta1ll.meowpuut.android.ime.SkinRef
 import org.json.JSONObject
@@ -192,6 +196,10 @@ class CustomSkinTest {
     fun edgeHuggingCatsOnlyWhereTheBaseHasThatArtwork() {
         val edges = { base: String -> overlay { it.put("base", base).getJSONObject("cats").put("seating", "edges") }!! }
         assertTrue(look(edges("classic")).edgeHuggingCats)
+        val classicUltra = look(edges("classic")).copy(effects = EffectsLevel.ULTRA)
+        assertEquals(PetForm.THREE_D, classicUltra.resolvedPetForm)
+        assertEquals(SkinCatArtwork.SCULPTED, classicUltra.resolvedCatArtwork)
+        assertFalse(classicUltra.edgeHuggingCats)
         // current and pixel have no edge-hugging pictures: perched, never a crash for a missing sprite.
         assertFalse(look(edges("current")).edgeHuggingCats)
         assertFalse(look(edges("pixel")).edgeHuggingCats)
@@ -257,5 +265,40 @@ class CustomSkinTest {
         assertTrue(SkinOverlay.trustAllowed(debuggable = false, acceptsTestKeys = false))
         // a release build that somehow links the test-keys library: no skin is loaded
         assertFalse(SkinOverlay.trustAllowed(debuggable = false, acceptsTestKeys = true))
+    }
+
+    @Test
+    fun parsesExtendedSpaceMarkParticlesLeftEndAndWholeBodySprites() {
+        val o = overlay { root ->
+            root.getJSONObject("keys")
+                .put("spaceMark", JSONObject().put("image", "space_mark").put("size", org.json.JSONArray(listOf(22, 22))))
+                .put("particles", JSONObject()
+                    .put("kind", "petal")
+                    .put("light", org.json.JSONArray(listOf("#FFB7C5", "#FFD4DF")))
+                    .put("dark", org.json.JSONArray(listOf("#E88BA0", "#C86D84"))))
+            val cats = root.getJSONObject("cats")
+            cats.getJSONObject("ends")
+                .put("left", JSONObject().put("image", "left").put("size", org.json.JSONArray(listOf(24, 24))))
+            cats.getJSONObject("sprites")
+                .put("momo_grab", JSONObject().put("image", "momo_grab").put("size", org.json.JSONArray(listOf(64, 64))).put("anchor", org.json.JSONArray(listOf(0.5, 0.24)))
+                    .put("bounds", org.json.JSONArray(listOf(0.1, 0.2, 0.9, 0.8))))
+                .put("momo_happy", JSONObject().put("image", "momo_happy").put("size", org.json.JSONArray(listOf(64, 64))).put("anchor", org.json.JSONArray(listOf(0.5, 0.88))))
+        }!!
+        assertEquals("space_mark", o.spaceMark?.image)
+        assertEquals(22f, o.spaceMark?.width)
+        assertEquals(KeyParticleKind.PETAL, o.keyParticles?.kind)
+        assertEquals(2, o.keyParticles?.palette(dark = false)?.size)
+        assertEquals(2, o.keyParticles?.palette(dark = true)?.size)
+        assertEquals("left", o.leftEnd?.image)
+        assertEquals(setOf("momo_grab", "momo_happy"), o.extraSprites.keys)
+        val grabSprite = o.extraSprites.getValue("momo_grab").sprite
+        val happySprite = o.extraSprites.getValue("momo_happy").sprite
+        assertEquals(0.24f, grabSprite.anchorY, 1e-6f)
+        assertEquals(0.1f, grabSprite.left, 1e-6f)
+        assertEquals(0.8f, grabSprite.bottom, 1e-6f)
+        assertEquals(0f, happySprite.left, 1e-6f)
+        assertEquals(1f, happySprite.bottom, 1e-6f)
+        assertTrue(o.images.containsAll(listOf("space_mark", "left", "momo_grab", "momo_happy")))
+        assertNull(overlay { it.getJSONObject("keys").put("particles", JSONObject().put("kind", "confetti").put("light", org.json.JSONArray(listOf("#FFB7C5"))).put("dark", org.json.JSONArray(listOf("#E88BA0")))) })
     }
 }

@@ -3,6 +3,7 @@ package com.krysta1ll.meowpuut.android
 import com.krysta1ll.meowpuut.android.ime.Cat
 import com.krysta1ll.meowpuut.android.ime.CatBodyPose
 import com.krysta1ll.meowpuut.android.ime.CatPose
+import com.krysta1ll.meowpuut.android.ime.EffectsLevel
 import com.krysta1ll.meowpuut.android.ime.GlassShape
 import com.krysta1ll.meowpuut.android.ime.GlassStrength
 import com.krysta1ll.meowpuut.android.ime.KeyboardSkin
@@ -94,5 +95,52 @@ class PetFormTest {
         assertEquals(PetForm.PIXEL, lookForcedPixel.resolvedPetForm)
         assertEquals(SkinCatArtwork.PIXEL, lookForcedPixel.resolvedCatArtwork)
         assertFalse(lookForcedPixel.edgeHuggingCats)
+    }
+
+    @Test
+    fun ultraForces3DOnNonGlyphSkinsAndLeavesGlyphUntouched() {
+        val nonGlyphSkins = listOf(
+            KeyboardSkin.CLASSIC_CLOUD,
+            KeyboardSkin.PIXEL,
+            KeyboardSkin.CENTENARY,
+            KeyboardSkin.CURRENT,
+        )
+        for (skin in nonGlyphSkins) {
+            for (pref in PetFormPreference.entries) {
+                val ultra = Look(
+                    dark = false, shape = GlassShape.CAPSULE, palette = Palette.ROSE, strength = GlassStrength.BALANCED,
+                    cats = true, effects = EffectsLevel.ULTRA, skin = skin, petForm = pref,
+                )
+                assertEquals("$skin/$pref", PetForm.THREE_D, ultra.resolvedPetForm)
+                assertEquals("$skin/$pref", SkinCatArtwork.SCULPTED, ultra.resolvedCatArtwork)
+                assertFalse("$skin/$pref", ultra.edgeHuggingCats)
+            }
+        }
+
+        // Non-ULTRA keeps existing behavior intact (including classic edge-hugging & legacy artwork).
+        val classicFull = Look(
+            dark = false, shape = GlassShape.CLOUD, palette = Palette.ROSE, strength = GlassStrength.BALANCED,
+            cats = true, effects = EffectsLevel.FULL, skin = KeyboardSkin.CLASSIC_CLOUD, petForm = PetFormPreference.AUTO,
+        )
+        assertEquals(PetForm.THREE_D, classicFull.resolvedPetForm)
+        assertEquals(SkinCatArtwork.LEGACY, classicFull.resolvedCatArtwork)
+        assertTrue(classicFull.edgeHuggingCats)
+
+        // GLYPH remains completely untouched in ULTRA.
+        val glyphAuto = Look(
+            dark = false, shape = GlassShape.CAPSULE, palette = Palette.ROSE, strength = GlassStrength.BALANCED,
+            cats = true, effects = EffectsLevel.ULTRA, skin = KeyboardSkin.GLYPH, petForm = PetFormPreference.AUTO,
+        )
+        assertEquals(PetForm.PIXEL, glyphAuto.resolvedPetForm)
+        assertEquals(SkinCatArtwork.PIXEL, glyphAuto.resolvedCatArtwork)
+        assertFalse(glyphAuto.edgeHuggingCats)
+
+        val glyphPixel = glyphAuto.copy(petForm = PetFormPreference.PIXEL)
+        assertEquals(PetForm.PIXEL, glyphPixel.resolvedPetForm)
+        assertEquals(SkinCatArtwork.PIXEL, glyphPixel.resolvedCatArtwork)
+
+        val glyphThreeD = glyphAuto.copy(petForm = PetFormPreference.THREE_D)
+        assertEquals(PetForm.THREE_D, glyphThreeD.resolvedPetForm)
+        assertEquals(SkinCatArtwork.SCULPTED, glyphThreeD.resolvedCatArtwork)
     }
 }

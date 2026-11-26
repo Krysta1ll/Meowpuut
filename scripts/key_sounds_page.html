@@ -73,7 +73,7 @@ textarea { font: 17px/1.5 var(--font); width: 100%; box-sizing: border-box; min-
 <main>
   <header>
     <h1>喵撲按鍵聲</h1>
-    <p>六組，全部由公式算出來。點下面的鍵盤，或按「打一句」聽它打字。</p>
+    <p>八組，全部由公式算出來。點下面的鍵盤，或按「打一句」聽它打字。</p>
     <p class="note">iPhone 開著靜音時可能沒有聲音，請先把側邊的靜音關掉。</p>
   </header>
 
@@ -136,7 +136,7 @@ function keyX(ch) {
 }
 function kindFor(setId, ch) {
   const k = { " ": "space", "*": "pick", "<": "delete", "\n": "return" }[ch] || "key";
-  return k === "key" && setId === "penta" ? "key" + Math.min(5, Math.floor(keyX(ch.toLowerCase()) * 6 / 10)) : k;
+  return k === "key" && buffers[setId] && buffers[setId].key0 ? "key" + Math.min(5, Math.floor(keyX(ch.toLowerCase()) * 6 / 10)) : k;
 }
 
 // Play one sound now or at ctx time `when`; repeats avoid the variant used last time.

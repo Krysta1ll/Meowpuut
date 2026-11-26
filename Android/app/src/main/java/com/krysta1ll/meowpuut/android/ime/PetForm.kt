@@ -25,17 +25,21 @@ enum class PetFormPreference(val key: String) {
     THREE_D("3d"),
     PIXEL("pixel");
 
-    fun resolved(skin: KeyboardSkin): PetForm = when (this) {
-        THREE_D -> PetForm.THREE_D
-        PIXEL -> PetForm.PIXEL
-        AUTO -> if (skin.catArtwork == SkinCatArtwork.PIXEL) PetForm.PIXEL else PetForm.THREE_D
-    }
+    fun resolved(skin: KeyboardSkin, effects: EffectsLevel = EffectsLevel.STANDARD): PetForm =
+        if (effects == EffectsLevel.ULTRA && skin != KeyboardSkin.GLYPH) PetForm.THREE_D
+        else when (this) {
+            THREE_D -> PetForm.THREE_D
+            PIXEL -> PetForm.PIXEL
+            AUTO -> if (skin.catArtwork == SkinCatArtwork.PIXEL) PetForm.PIXEL else PetForm.THREE_D
+        }
 
-    fun resolvedArtwork(skin: KeyboardSkin): SkinCatArtwork = when (this) {
-        AUTO -> skin.catArtwork
-        PIXEL -> SkinCatArtwork.PIXEL
-        THREE_D -> if (skin.catArtwork == SkinCatArtwork.PIXEL) SkinCatArtwork.SCULPTED else skin.catArtwork
-    }
+    fun resolvedArtwork(skin: KeyboardSkin, effects: EffectsLevel = EffectsLevel.STANDARD): SkinCatArtwork =
+        if (effects == EffectsLevel.ULTRA && skin != KeyboardSkin.GLYPH) SkinCatArtwork.SCULPTED
+        else when (this) {
+            AUTO -> skin.catArtwork
+            PIXEL -> SkinCatArtwork.PIXEL
+            THREE_D -> if (skin.catArtwork == SkinCatArtwork.PIXEL) SkinCatArtwork.SCULPTED else skin.catArtwork
+        }
 
     companion object {
         fun of(key: String?): PetFormPreference = entries.firstOrNull { it.key == key } ?: AUTO

@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
  * candidate panel over the key rows, and the balloon overlay above all.
  */
 @SuppressLint("ViewConstructor")
-class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedule) : FrameLayout(context) {
+class KeyboardView(context: Context, private val sprites: CatSprites, catSchedule: CatSchedule) : FrameLayout(context) {
     /** Key balloons and alternates. Not called overlay: every View has one of those already. */
     val previews = PreviewOverlay(context)
     val bar = CandidateBarView(context, sprites, catSchedule, previews)
@@ -181,6 +181,7 @@ class KeyboardView(context: Context, sprites: CatSprites, catSchedule: CatSchedu
             updateGlyph()
             clipToOutline = !floating && !value.usesSteppedMaterial
             bar.look = value
+            keys.spaceMark = value.overlay?.spaceMark?.let { mark -> sprites.spaceMarkArt(mark)?.let { mark to it } }
             keys.look = value
             syllableRail.look = value
             panel.look = value

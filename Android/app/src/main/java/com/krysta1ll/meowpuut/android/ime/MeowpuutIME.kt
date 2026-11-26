@@ -114,6 +114,9 @@ class MeowpuutIME : InputMethodService(),
     /** The rows the clipboard panel shows now (a tap names a row, and the shelf may have moved since). */
     private var clipRows: List<ClipboardShelf.Item> = emptyList()
     private val expireSlip = Runnable { refresh() }
+    private val retryClipSync = Runnable {
+        if (keyboardWindowVisible) syncClipboard(fromListener = false, refreshView = true, scheduleRetry = false)
+    }
 
     /** Shift as the keys show it: a held Shift counts even after its one letter is used up. */
     private val shift get() = if (caps.state == ShiftState.OFF && shiftHeld) ShiftState.ONCE else caps.state
@@ -206,11 +209,14 @@ class MeowpuutIME : InputMethodService(),
             keyboardWindowVisible = true
             keyboard?.bar?.let(moments::appear)
         }
+        // Android 10+/13+ only grants primaryClip access once the IME window is shown.
+        syncClipboard(fromListener = false, refreshView = true, scheduleRetry = true)
     }
 
     override fun onWindowHidden() {
         super.onWindowHidden()
         keyboardWindowVisible = false
+        keyboard?.removeCallbacks(retryClipSync)
         moments.hidden()
         keyboard?.bar?.endPresentation()
     }
@@ -275,8 +281,8 @@ class MeowpuutIME : InputMethodService(),
         updateEnglish()
         configureWindow()
         applyLook()
-        // Copied while the keyboard was not running: the clip is read now, and offered if it is young enough.
-        if (!restarting) { readClip(fromListener = false); presentSlip() }
+        // Copied while the keyboard was not running or during restarting input: sync now (and again on window show).
+        syncClipboard(fromListener = false, refreshView = false, scheduleRetry = false)
         refresh()
     }
 
@@ -407,10 +413,16 @@ class MeowpuutIME : InputMethodService(),
                 return
             }
             Prefs.CLIPBOARD -> {
-                if (prefs.clipboard) startClipboard() else stopClipboard(wipe = true)
+                if (prefs.clipboard) {
+                    startClipboard()
+                    if (keyboardWindowVisible) syncClipboard(fromListener = false, refreshView = false, scheduleRetry = true)
+                } else {
+                    stopClipboard(wipe = true)
+                }
                 clipboardOpen = false
             }
             Prefs.CLEAR_CLIPBOARD -> {
+                keyboard?.removeCallbacks(retryClipSync)
                 shelf?.clear()
                 slip.dismiss()
                 clipboardOpen = false
@@ -502,8 +514,13 @@ class MeowpuutIME : InputMethodService(),
                 ic.commitText("", 1)
             }
         }
-        if (committed && edit.confirmedReading.isNotEmpty() && composer.rememberChoices) {
-            choiceMemory.remember(composer.mode, composer.simplified, edit.confirmedReading, edit.commit)
+        if (committed && composer.rememberChoices) {
+            if (edit.confirmedReading.isNotEmpty()) {
+                choiceMemory.remember(composer.mode, composer.simplified, edit.confirmedReading, edit.commit)
+            }
+            if (edit.sentenceReading.isNotEmpty() && edit.sentenceCommit.isNotEmpty()) {
+                choiceMemory.remember(composer.mode, composer.simplified, edit.sentenceReading, edit.sentenceCommit)
+            }
         }
         if (!composer.composing) {
             expanded = false
@@ -520,14 +537,18 @@ class MeowpuutIME : InputMethodService(),
         if (!composer.composing) return
         var guard = 0
         while (composer.composing && guard++ < 32) {
+            if (mode == InputMode.NINE_KEY && composer.candidates.isEmpty()) {
+                applyEdit(Composer.finishFallbackCommit(mode, composer), true)
+                return
+            }
             val edit = composer.chooseHighlighted()
             if (!edit.handled) {
-                applyEdit(Edit(true, composer.takeLiteral()), true)
+                applyEdit(Composer.finishFallbackCommit(mode, composer), true)
                 break
             }
             applyEdit(edit, true)
         }
-        if (composer.composing) applyEdit(Edit(true, composer.takeLiteral()), true)
+        if (composer.composing) applyEdit(Composer.finishFallbackCommit(mode, composer), true)
     }
 
     private fun commit(text: String, connection: InputConnection? = currentInputConnection): Boolean {
@@ -628,8 +649,8 @@ class MeowpuutIME : InputMethodService(),
         }
         if (!composer.ready) {
             if (lexiconFailed) {
-                // Without a lexicon Pinyin letters are at least typed as they are.
-                if (mode.pinyinBased && !nineKeySeparator) commit(c.toChar().toString())
+                // Without a lexicon Pinyin letters are at least typed as they are (never raw 9-key digits).
+                if (Composer.allowsRawFallback(mode) && mode.pinyinBased && !nineKeySeparator) commit(c.toChar().toString())
                 return
             }
             if (currentInputConnection == null) return
@@ -643,7 +664,7 @@ class MeowpuutIME : InputMethodService(),
         val wasComposing = composer.composing
         val edit = composer.type(c)
         if (!edit.handled) {
-            if (nineKeySeparator) return
+            if (nineKeySeparator || !Composer.allowsRawFallback(mode)) return
             finishComposition()
             commit(c.toChar().toString())
             return
@@ -1281,9 +1302,7 @@ class MeowpuutIME : InputMethodService(),
         shelf = ClipboardShelf(java.io.File(noBackupFilesDir, ClipboardShelf.FILE_NAME))
         val manager = getSystemService(android.content.ClipboardManager::class.java) ?: return
         val listener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
-            readClip(fromListener = true)
-            presentSlip()
-            if (keyboard != null) refresh()
+            syncClipboard(fromListener = true, refreshView = keyboard != null, scheduleRetry = keyboardWindowVisible)
         }
         manager.addPrimaryClipChangedListener(listener)
         clipboardManager = manager
@@ -1292,6 +1311,7 @@ class MeowpuutIME : InputMethodService(),
 
     /** No more listening. [wipe]: the shelf and its pinned file are deleted too (the switch went off). */
     private fun stopClipboard(wipe: Boolean) {
+        keyboard?.removeCallbacks(retryClipSync)
         clipboardListener?.let { clipboardManager?.removePrimaryClipChangedListener(it) }
         clipboardListener = null
         clipboardManager = null
@@ -1304,22 +1324,49 @@ class MeowpuutIME : InputMethodService(),
         clipboardOpen = false
     }
 
+    private enum class ClipReadResult { CHANGED, UNCHANGED, UNAVAILABLE }
+
+    private fun syncClipboard(fromListener: Boolean, refreshView: Boolean, scheduleRetry: Boolean) {
+        keyboard?.removeCallbacks(retryClipSync)
+        when (readClip(fromListener)) {
+            ClipReadResult.CHANGED -> {
+                presentSlip()
+                if (refreshView) refresh()
+            }
+            ClipReadResult.UNAVAILABLE -> {
+                if (scheduleRetry) keyboard?.postDelayed(retryClipSync, CLIP_RETRY_DELAY_MS)
+            }
+            ClipReadResult.UNCHANGED -> Unit
+        }
+    }
+
     /** Takes the primary clip if it is text and new: into the shelf (unless it is sensitive) and as the slip. */
-    private fun readClip(fromListener: Boolean) {
-        val manager = clipboardManager ?: return
-        if (!prefs.clipboard) return
-        try {
-            val clip = manager.primaryClip ?: return
+    private fun readClip(fromListener: Boolean): ClipReadResult {
+        val manager = clipboardManager ?: return ClipReadResult.UNCHANGED
+        val currentShelf = shelf ?: return ClipReadResult.UNCHANGED
+        if (!prefs.clipboard) return ClipReadResult.UNCHANGED
+        return try {
+            val clip = manager.primaryClip ?: return ClipReadResult.UNAVAILABLE
+            if (clip.itemCount == 0) return ClipReadResult.UNCHANGED
             val description = clip.description
-            if (clip.itemCount == 0 || !description.hasMimeType("text/*")) return
-            val stamp = description.timestamp
-            if (stamp <= 0L && !fromListener) return          // its age is unknown, and the slip is for the young
-            val time = if (stamp > 0L) stamp else System.currentTimeMillis()
-            val sensitive = description.extras?.getBoolean(ClipboardRules.SENSITIVE_EXTRA, false) == true
-            val text = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
-            if (slip.copied(text, time, sensitive)) shelf?.add(text, sensitive, time)
+            val hasTextMime = description?.hasMimeType("text/*") == true
+            val items = (0 until clip.itemCount).map { index ->
+                val item = clip.getItemAt(index)
+                ClipboardClipExtractor.ItemSource(
+                    plainText = item.text,
+                    htmlText = item.htmlText,
+                    uriScheme = item.uri?.scheme,
+                    coerceToText = { item.coerceToText(this) },
+                )
+            }
+            val text = ClipboardClipExtractor.extract(hasTextMime, items) ?: return ClipReadResult.UNCHANGED
+            val stamp = description?.timestamp ?: 0L
+            val sensitive = description?.extras?.getBoolean(ClipboardRules.SENSITIVE_EXTRA, false) == true
+            val changed = currentShelf.ingest(ClipboardShelf.ExtractedClip(text, stamp, sensitive, fromListener), slip)
+            if (changed) ClipReadResult.CHANGED else ClipReadResult.UNCHANGED
         } catch (_: RuntimeException) {
-            // Not allowed to read it now (another app has the focus): nothing to take.
+            // Not allowed to read it now (another app has the focus): retry once window is active.
+            ClipReadResult.UNAVAILABLE
         }
     }
 
@@ -1398,7 +1445,7 @@ class MeowpuutIME : InputMethodService(),
 
     private fun useCustomSkin(loaded: LoadedSkin?) {
         customSkin = loaded
-        sprites.useSkin(loaded?.cats.orEmpty(), loaded?.end)
+        sprites.useSkin(loaded?.cats.orEmpty(), loaded?.end, loaded?.leftEnd, loaded?.spaceMark)
         keySounds.useSkin(loaded?.sounds)
     }
 
@@ -1478,7 +1525,8 @@ class MeowpuutIME : InputMethodService(),
         if (english) return "space"
         if (!composer.composing) return "空格"
         return when (mode) {
-            InputMode.PINYIN, InputMode.NINE_KEY -> if (composer.candidates.isNotEmpty()) t("選詞", "选词") else "原文＋空格"
+            InputMode.PINYIN, InputMode.NINE_KEY -> if (composer.candidates.isNotEmpty()) t("選詞", "选词")
+                else if (Composer.allowsRawFallback(mode)) "原文＋空格" else "空格"
             InputMode.JAPANESE -> t("選詞", "选词")
             InputMode.ZHUYIN -> if (composer.input.lastOrNull()?.let { it in " 6347" } == true) t("選詞", "选词") else t("一聲", "一声")
         }
@@ -1604,6 +1652,7 @@ class MeowpuutIME : InputMethodService(),
         /** How much text before the cursor is read for the suggestions: the word being typed and two words before it. */
         private const val CONTEXT_CHARS = 96
         private const val UNDO_CLEAR_MAX_CHARS = 16_384
+        private const val CLIP_RETRY_DELAY_MS = 120L
         private val NO_SUGGESTIONS = EnglishSuggestions.Plan("", emptyList())
         private const val ZHUYIN_KEYS = "1qaz2wsxedcrfv5tgbyhnujm8ik,9ol.0p;/-"
         private val QUICK_MARKS = listOf("，", "。", "？", "！", "、")

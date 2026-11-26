@@ -33,9 +33,10 @@ enum CandidatePalette: String, CaseIterable, Identifiable {
 /// Typing sounds (docs/SOUNDS.md). The Mac has no system key click, so it
 /// offers 關閉 and the built-in sets.
 enum KeySound: String, CaseIterable {
-    case off, system, water, marimba, glass, felt, penta, harmonic, tap
+    case off, system, water, marimba, glass, felt, penta, harmonic, tap, thock
 
     var isCustom: Bool { self != .off && self != .system }
+    var usesKeyPosition: Bool { self == .penta || self == .thock }
 
     func title(_ t: (String, String) -> String) -> String {
         switch self {
@@ -48,6 +49,7 @@ enum KeySound: String, CaseIterable {
         case .penta: t("五聲", "五声")
         case .harmonic: "泛音"
         case .tap: t("輕敲", "轻敲")
+        case .thock: t("沉韻", "沉韵")
         }
     }
 }

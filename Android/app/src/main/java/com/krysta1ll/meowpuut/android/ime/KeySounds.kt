@@ -14,9 +14,10 @@ enum class KeySound(val label: Int) {
     OFF(R.string.sound_off), SYSTEM(R.string.sound_system),
     WATER(R.string.sound_water), MARIMBA(R.string.sound_marimba), GLASS(R.string.sound_glass),
     FELT(R.string.sound_felt), PENTA(R.string.sound_penta), HARMONIC(R.string.sound_harmonic),
-    TAP(R.string.sound_tap);
+    TAP(R.string.sound_tap), THOCK(R.string.sound_thock);
 
     val key: String get() = name.lowercase()
+    val usesKeyPosition: Boolean get() = this == PENTA || this == THOCK
 }
 
 /**
@@ -142,7 +143,7 @@ class KeySounds(private val context: Context) {
             audio.playSoundEffect(effect, volume)
             return
         }
-        val tones = kind == Kind.PRESET && selected == KeySound.PENTA || kind == Kind.SKIN && samples.containsKey("key0")
+        val tones = kind == Kind.PRESET && selected.usesKeyPosition || kind == Kind.SKIN && samples.containsKey("key0")
         val role = when {
             pick -> "pick"
             effect == AudioManager.FX_KEYPRESS_SPACEBAR -> "space"

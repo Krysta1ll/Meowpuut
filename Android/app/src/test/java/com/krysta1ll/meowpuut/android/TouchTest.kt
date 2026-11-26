@@ -750,4 +750,30 @@ class TouchTest {
         b.touches.up(0, strip.box.left + 20f, strip.box.top - 80f)
         assertEquals(emptyList<String>(), b.events)
     }
+
+    @Test
+    fun switchingToNineKeyNumberOrSymbolPageWithMicroDriftDoesNotInsertComma() {
+        val b = Board(mode = InputMode.NINE_KEY)
+        val numeric = b.frame(KeyAction.Page(KeyBuilder.NUMERIC_PAGE))
+        b.down(0, numeric)
+        assertEquals(KeyBuilder.NUMERIC_PAGE, b.page)
+        // Micro-drift inside the pressed key's release slop (where ',' sits on page 3) must not fire ','.
+        b.touches.move(0, numeric.centerX + 12f, numeric.centerY)
+        b.touches.up(0, numeric.centerX + 12f, numeric.centerY)
+        assertEquals(listOf("page:3"), b.events)
+        assertEquals(emptyList<String>(), b.typed)
+        assertEquals(KeyBuilder.NUMERIC_PAGE, b.page)
+
+        val back = b.frame(KeyAction.Page(0))
+        b.tap(back)
+        assertEquals(0, b.page)
+
+        val symbols = b.frame(KeyAction.Page(1))
+        b.down(0, symbols)
+        assertEquals(1, b.page)
+        b.touches.move(0, symbols.centerX + 11f, symbols.centerY - 5f)
+        b.touches.up(0, symbols.centerX + 11f, symbols.centerY - 5f)
+        assertEquals(emptyList<String>(), b.typed)
+        assertEquals(1, b.page)
+    }
 }

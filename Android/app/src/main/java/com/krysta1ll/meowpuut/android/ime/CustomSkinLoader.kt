@@ -21,6 +21,8 @@ class LoadedSkin(
     val cats: Map<String, CatSprites.Art>,
     val end: Pair<SkinEnd, Bitmap>?,
     val sounds: SkinSoundSet?,
+    val leftEnd: Pair<SkinEnd, Bitmap>? = null,
+    val spaceMark: Pair<SkinEnd, Bitmap>? = null,
 )
 
 /**
@@ -101,14 +103,24 @@ class CustomSkinLoader(context: Context) {
                 val bitmap = decode(files, entry.image, entry.sprite.width, entry.sprite.height) ?: return reject("image")
                 arts[name] = CatSprites.Art(entry.sprite, bitmap)
             }
+            for ((name, entry) in overlay.extraSprites) {
+                val bitmap = decode(files, entry.image, entry.sprite.width, entry.sprite.height) ?: return reject("image")
+                arts[name] = CatSprites.Art(entry.sprite, bitmap)
+            }
             val end = overlay.rightEnd?.let { piece ->
+                (piece to (decode(files, piece.image, piece.width, piece.height) ?: return reject("image")))
+            }
+            val leftEnd = overlay.leftEnd?.let { piece ->
+                (piece to (decode(files, piece.image, piece.width, piece.height) ?: return reject("image")))
+            }
+            val spaceMark = overlay.spaceMark?.let { piece ->
                 (piece to (decode(files, piece.image, piece.width, piece.height) ?: return reject("image")))
             }
             val sounds = overlay.sounds?.let { set ->
                 val clips = set.files.values.flatten().associateWith { files["$it.wav"] ?: return reject("sound") }
                 SkinSoundSet(dir.path, set, clips)
             }
-            return LoadedSkin(overlay, arts, end, sounds)
+            return LoadedSkin(overlay, arts, end, sounds, leftEnd, spaceMark)
         }
 
         /**

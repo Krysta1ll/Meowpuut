@@ -1,6 +1,7 @@
 package com.krysta1ll.meowpuut.android
 
 import com.krysta1ll.meowpuut.android.engine.InputMode
+import com.krysta1ll.meowpuut.android.ime.ClipboardClipExtractor
 import com.krysta1ll.meowpuut.android.ime.ClipboardRules
 import com.krysta1ll.meowpuut.android.ime.ClipboardShelf
 import com.krysta1ll.meowpuut.android.ime.ClipboardSlip
@@ -169,5 +170,95 @@ class ClipboardTest {
         assertEquals(listOf("注音", "繁→简", KeyStrip.HIDE_ICON), numeric.map { it.label })
         val off = KeyStrip.entries(InputMode.ZHUYIN, setOf(InputMode.ZHUYIN), false, false)
         assertTrue(off.none { it.action is KeyStrip.Action.Mode })
+    }
+
+    // ---- sync, unpin, and ClipData extraction
+
+    @Test
+    fun unpinningAnOldPinnedItemGivesItAFreshHour() {
+        val s = shelf()
+        s.add("pinned earlier")
+        s.pin("pinned earlier")
+        clock += 5 * hour
+        s.unpin("pinned earlier")
+        assertEquals(listOf("pinned earlier"), s.items().map { it.text })
+        clock += hour - 1000
+        assertEquals(listOf("pinned earlier"), s.items().map { it.text })
+        clock += 2000
+        assertTrue(s.isEmpty)
+    }
+
+    @Test
+    fun ingestSyncsExternalZeroTimestampClipToShelfWithoutStaleSlip() {
+        val s = shelf()
+        val slip = ClipboardSlip()
+        val clip = ClipboardShelf.ExtractedClip("copied outside", timestamp = 0L, sensitive = false, fromListener = false)
+        assertTrue(s.ingest(clip, slip, at = clock))
+        slip.present(clock, fieldAllowed = true)
+        assertNull("unknown-age external clip must not flash a stale slip", slip.visible(clock, composing = false, fieldAllowed = true))
+        assertEquals(listOf("copied outside"), s.items().map { it.text })
+        assertFalse("re-syncing the same clip after reopen is a no-op", s.ingest(clip, slip, at = clock + 1000))
+        s.remove("copied outside")
+        assertFalse("deleting the clip stays deleted on next window show", s.ingest(clip, slip, at = clock + 2000))
+    }
+
+    @Test
+    fun ingestHandlesRecentExternalSyncConsecutiveCopiesAndSensitiveClips() {
+        val s = shelf()
+        val slip = ClipboardSlip()
+        // External copy 10s before IME opens: both shelf and slip receive it.
+        assertTrue(s.ingest(ClipboardShelf.ExtractedClip("first", clock - 10_000, sensitive = false, fromListener = false), slip, at = clock))
+        slip.present(clock, fieldAllowed = true)
+        assertEquals("first", slip.visible(clock, composing = false, fieldAllowed = true)?.text)
+        // Consecutive copy via listener with zero timestamp: still offers slip and moves to top.
+        clock += 1000
+        assertTrue(s.ingest(ClipboardShelf.ExtractedClip("second", timestamp = 0L, sensitive = false, fromListener = true), slip, at = clock))
+        slip.present(clock, fieldAllowed = true)
+        assertEquals("second", slip.visible(clock, composing = false, fieldAllowed = true)?.text)
+        assertEquals(listOf("second", "first"), s.items().map { it.text })
+        // Sensitive clip: masked slip only, never persisted to shelf.
+        clock += 1000
+        assertTrue(s.ingest(ClipboardShelf.ExtractedClip("otp-1234", clock, sensitive = true, fromListener = true), slip, at = clock))
+        slip.present(clock, fieldAllowed = true)
+        assertEquals(ClipboardSlip.MASK, slip.visible(clock, composing = false, fieldAllowed = true)?.shown)
+        assertEquals(listOf("second", "first"), s.items().map { it.text })
+    }
+
+    @Test
+    fun clipExtractorHandlesHtmlMultiItemNonTextMimeAndSecurityExceptions() {
+        val html = ClipboardClipExtractor.extract(
+            hasTextMime = true,
+            listOf(ClipboardClipExtractor.ItemSource(plainText = null, htmlText = "<b>hello</b>", coerceToText = { "hello" })),
+        )
+        assertEquals("hello", html)
+
+        val nonTextMime = ClipboardClipExtractor.extract(
+            hasTextMime = false,
+            listOf(ClipboardClipExtractor.ItemSource(plainText = "from custom mime", coerceToText = { "from custom mime" })),
+        )
+        assertEquals("from custom mime", nonTextMime)
+
+        val multi = ClipboardClipExtractor.extract(
+            hasTextMime = true,
+            listOf(
+                ClipboardClipExtractor.ItemSource(uriScheme = "content", coerceToText = { throw SecurityException("denied") }),
+                ClipboardClipExtractor.ItemSource(plainText = "   ", coerceToText = { "   " }),
+                ClipboardClipExtractor.ItemSource(plainText = "line A"),
+                ClipboardClipExtractor.ItemSource(plainText = "line B"),
+            ),
+        )
+        assertEquals("line A\nline B", multi)
+
+        val contentUriOnly = ClipboardClipExtractor.extract(
+            hasTextMime = true,
+            listOf(ClipboardClipExtractor.ItemSource(uriScheme = "content", coerceToText = { "content://media/external/images/1" })),
+        )
+        assertNull(contentUriOnly)
+
+        val webUrl = ClipboardClipExtractor.extract(
+            hasTextMime = true,
+            listOf(ClipboardClipExtractor.ItemSource(uriScheme = "https", coerceToText = { "https://meowpuut.app" })),
+        )
+        assertEquals("https://meowpuut.app", webUrl)
     }
 }

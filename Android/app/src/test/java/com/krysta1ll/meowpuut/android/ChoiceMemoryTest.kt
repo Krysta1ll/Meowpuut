@@ -41,6 +41,23 @@ class ChoiceMemoryTest {
         memory.remember(InputMode.PINYIN, false, "wang", "王")
         assertEquals(emptyMap<String, Int>(), memory.preferred(InputMode.PINYIN, false, "9264"))
     }
+
+    @Test
+    fun learnedWholeSentenceSurfacesEvenWithoutCompleteCoreMatch() {
+        val memory = ChoiceMemory(MemoryPrefs())
+        repeat(2) { memory.remember(InputMode.PINYIN, false, "jintianzhenhao", "今天真好") }
+        val preferred = memory.preferred(InputMode.PINYIN, false, "jintianzhenhao")
+        assertEquals(mapOf("今天真好" to 2), preferred)
+
+        val partialCore = listOf(
+            com.krysta1ll.meowpuut.android.engine.Candidate("今天", com.krysta1ll.meowpuut.android.engine.CandidateKind.CHINESE, coreIndex = 0, consumed = 7),
+            com.krysta1ll.meowpuut.android.engine.Candidate("jintianzhenhao", com.krysta1ll.meowpuut.android.engine.CandidateKind.LITERAL, consumed = 14),
+        )
+        val ranked = ChoiceMemory.rank(partialCore, 14, preferred)
+        assertEquals("今天真好", ranked.first().text)
+        assertEquals(14, ranked.first().consumed)
+        assertEquals("jintianzhenhao", ChoiceMemory.selectionReading("jintianzhenhao", ranked.first()))
+    }
 }
 
 /** SharedPreferences in memory; apply() and commit() write at once. */

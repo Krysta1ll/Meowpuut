@@ -3,6 +3,7 @@ package com.krysta1ll.meowpuut.android.ime
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -46,7 +47,18 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         get() = touches.listener
         set(value) { touches.listener = value }
     var look: Look = Look(false, GlassShape.CAPSULE, Palette.ROSE, GlassStrength.BALANCED, true)
-        set(value) { if (field != value) { field = value; shaderHeight = -1f; invalidate() } }
+        set(value) {
+            if (field != value) {
+                field = value
+                shaderHeight = -1f
+                val kp = value.overlay?.keyParticles
+                keyParticles.configure(kp?.kind, kp?.palette(value.dark) ?: IntArray(0), value.effects != EffectsLevel.LIGHTWEIGHT && !value.opaque)
+                invalidate()
+            }
+        }
+    internal var spaceMark: Pair<SkinEnd, Bitmap>? = null
+        set(value) { if (field != value) { field = value; invalidate() } }
+    private val keyParticles = KeyParticlePool()
     internal var usesLensKeycaps = false
         set(value) {
             if (field == value) return
@@ -190,6 +202,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             shaderHeight = -1f
             clearKeyPress()
             touches.layout(set, place(set), width / density, sameShape = false)
+            if (old?.page != set.page && !touches.active) previews.clear()
         }
         layoutLabels(set)
         if (widthChanged) requestLayout()
@@ -467,6 +480,13 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
                 drawKeyLegend(canvas, key, f, labels.getOrNull(r)?.getOrNull(placement.column), depth, cursorMode)
             }
         }
+        val kp = look.overlay?.keyParticles
+        if (kp != null && look.effects != EffectsLevel.LIGHTWEIGHT && !look.opaque) {
+            keyParticles.configure(kp.kind, kp.palette(look.dark), true)
+            if (keyParticles.stepAndDraw(canvas, SystemClock.uptimeMillis(), 1f)) {
+                postInvalidateOnAnimation()
+            }
+        }
         canvas.restore()
     }
 
@@ -481,6 +501,8 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
             }
             if (look.isCentenary && key.action == KeyAction.Space && layout != null) {
                 drawCentenarySeal(canvas, key, frame, layout, depth)
+            } else if (key.action == KeyAction.Space && layout != null) {
+                drawSpaceMark(canvas, key, frame, layout, depth)
             }
         } else if (key.action == KeyAction.Space) {
             labelPaint.textSize = keyTextSize.fontSize(12f, resources.configuration.fontScale)
@@ -515,6 +537,22 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
         sealPaint.textSize = 9f
         sealPaint.color = if (look.dark) look.tint else 0xFF76542A.toInt()
         canvas.drawText("100", rect.centerX(), centerY - (sealPaint.ascent() + sealPaint.descent()) / 2, sealPaint)
+    }
+
+    private fun drawSpaceMark(canvas: Canvas, key: Key, frame: Box, layout: LabelLayout, depth: Float) {
+        val mark = spaceMark ?: return
+        if (frame.width < 120f || frame.height < 22f) return
+        labelPaint.textSize = layout.size
+        val markW = mark.first.width.coerceIn(10f, 32f)
+        val markH = mark.first.height.coerceIn(10f, 32f)
+        val left = frame.left + 9f
+        val right = left + markW
+        if (right + 6f > frame.centerX - labelPaint.measureText(key.label) / 2f) return
+        val centerY = frame.centerY + depth
+        rect.set(left, centerY - markH / 2f, right, centerY + markH / 2f)
+        iconPaint.alpha = if (look.opaque) 255 else 235
+        canvas.drawBitmap(mark.second, null, rect, iconPaint)
+        iconPaint.alpha = 255
     }
 
     /** All caps share these local shaders, which are rebuilt on theme or size changes. */
@@ -665,6 +703,7 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     }
 
     override fun onDetachedFromWindow() {
+        keyParticles.clear()
         touches.cancelAll()
         super.onDetachedFromWindow()
     }
@@ -720,6 +759,12 @@ class KeysView(context: Context, private val previews: PreviewOverlay) : View(co
     override fun redraw() = invalidate()
 
     override fun keyDown(key: Key, centerX: Float, centerY: Float) {
+        val kp = look.overlay?.keyParticles
+        if (kp != null && look.effects != EffectsLevel.LIGHTWEIGHT && !look.opaque && !centerX.isNaN() && !centerY.isNaN()) {
+            keyParticles.configure(kp.kind, kp.palette(look.dark), true)
+            keyParticles.spawn(centerX, centerY, 1f)
+            postInvalidateOnAnimation()
+        }
         val world = glyph ?: return
         val kind = when {
             key.action == KeyAction.Delete -> GlyphKey.DELETE

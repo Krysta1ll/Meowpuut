@@ -112,7 +112,7 @@ func runIndependentSmoke() -> Never {
     h.check(Preferences.shared.candidateTone == .light && Preferences.shared.candidatePalette == .sage, "切換皮膚保留共用配色")
     for sound in KeySound.allCases where sound.isCustom {
         let folder = KeySoundPlayer.folder(sound)
-        let roles = ["key", "space", "delete", "return", "pick"].map { $0 == "key" && sound == .penta ? "key0" : $0 }
+        let roles = ["key", "space", "delete", "return", "pick"].map { $0 == "key" && sound.usesKeyPosition ? "key0" : $0 }
         h.check(roles.allSatisfy { role in folder.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("\(role)-1.wav").path) } ?? false },
                 "按鍵聲「\(sound.title { a, _ in a })」已打包")
     }

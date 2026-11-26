@@ -133,4 +133,15 @@ class NineKeyOverhaulTest {
         val partial = Candidate("往", CandidateKind.CHINESE, coreIndex = 0, consumed = 5)
         assertEquals("wang", ChoiceMemory.selectionReading("WANG'468482", partial))
     }
+
+    @Test
+    fun unmatchedNineKeyDigitsNeverFallBackToRawCommit() {
+        val composer = com.krysta1ll.meowpuut.android.engine.Composer()
+        composer.attach(InputMode.NINE_KEY, 0)
+        assertTrue(!com.krysta1ll.meowpuut.android.engine.Composer.allowsRawFallback(InputMode.NINE_KEY))
+        assertTrue(com.krysta1ll.meowpuut.android.engine.Composer.allowsRawFallback(InputMode.PINYIN))
+        assertTrue(com.krysta1ll.meowpuut.android.engine.Composer.allowsRawFallback(InputMode.ZHUYIN))
+        val finish = com.krysta1ll.meowpuut.android.engine.Composer.finishFallbackCommit(InputMode.NINE_KEY, composer)
+        assertEquals("", finish.commit)
+    }
 }

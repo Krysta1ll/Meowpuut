@@ -310,8 +310,9 @@ class ExpandedPanelView(context: Context, private val previews: PreviewOverlay? 
         if (candidates.isEmpty()) {
             text.color = look.candidateSecondary
             val label = if (clipRows != null) words("沒有複製的文字", "没有复制的文字") else words("暫無候選", "暂无候选")
-            if (look.isGlyph) drawGlyphText(canvas, label, (w - glyphWidth(label)) / 2, h / 2, text.color)
-            else canvas.drawText(label, (w - text.measureText(label)) / 2, h / 2, text)
+            val cy = (barOffset + h) / 2
+            if (look.isGlyph) drawGlyphText(canvas, label, (w - glyphWidth(label)) / 2, cy, text.color)
+            else canvas.drawText(label, (w - text.measureText(label)) / 2, cy - (text.ascent() + text.descent()) / 2, text)
         }
         canvas.restore()
         if (chips.isNotEmpty()) drawSyllableBar(canvas, w)

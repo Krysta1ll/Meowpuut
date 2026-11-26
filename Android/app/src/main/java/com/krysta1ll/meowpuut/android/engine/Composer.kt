@@ -3,7 +3,13 @@ package com.krysta1ll.meowpuut.android.engine
 import kotlin.math.min
 
 /** What an action did: whether it was used, and text to insert into the editor. */
-data class Edit(val handled: Boolean, val commit: String = "", val confirmedReading: String = "")
+data class Edit(
+    val handled: Boolean,
+    val commit: String = "",
+    val confirmedReading: String = "",
+    val sentenceReading: String = "",
+    val sentenceCommit: String = "",
+)
 
 /**
  * One composition over an engine session. Pinyin and Zhuyin go through the
@@ -65,6 +71,9 @@ class Composer {
     private var session = 0L
     private var maxInput = 64
     private val raw = StringBuilder()
+    private val sentenceReading = StringBuilder()
+    private val sentenceCommit = StringBuilder()
+    private var sentenceSegments = 0
     private var coreTotal = 0
     private var coreFetched = 0
 
@@ -121,7 +130,8 @@ class Composer {
         var pending = ""
         if (raw.length >= maxInput) {
             // The engine's limit: keep the letters typed so far, then start again.
-            pending = rawLiteral()
+            // Nine-key must never dump raw unmatched digits into the editor.
+            pending = if (nineKey) candidates.firstOrNull()?.text.orEmpty() else rawLiteral()
             resetCore()
             if (separator) return Edit(true, pending)
         }
@@ -216,7 +226,8 @@ class Composer {
         return when (mode) {
             // A reading with no candidates is typed as its symbols rather than left stuck.
             InputMode.ZHUYIN -> if (raw.last() in TONES) chooseHighlighted(confirm = true) else typeZhuyin(' ')
-            InputMode.PINYIN, InputMode.NINE_KEY -> if (candidates.isNotEmpty()) chooseHighlighted(confirm = true) else Edit(true, takeLiteral() + " ")
+            InputMode.PINYIN -> if (candidates.isNotEmpty()) chooseHighlighted(confirm = true) else Edit(true, takeLiteral() + " ")
+            InputMode.NINE_KEY -> if (candidates.isNotEmpty()) chooseHighlighted(confirm = true) else Edit(true)
             InputMode.JAPANESE -> chooseHighlighted()
         }
     }
@@ -237,6 +248,7 @@ class Composer {
             }
         }
         raw.deleteCharAt(raw.length - 1)
+        if (raw.isEmpty()) resetSentence()
         if (mode != InputMode.JAPANESE && session != 0L) {
             if (raw.isEmpty()) {
                 NativeEngine.clear(session)
@@ -255,16 +267,43 @@ class Composer {
         choose(highlighted.coerceIn(0, (candidates.size - 1).coerceAtLeast(0)), confirm)
 
     fun choose(index: Int, confirm: Boolean = false): Edit {
-        val c = candidates.getOrNull(index) ?: return if (raw.isEmpty()) Edit(false) else Edit(true, takeLiteral())
-        if (mode == InputMode.ZHUYIN && c.kind == CandidateKind.LITERAL) return Edit(true, takeLiteral())
-        if (c.coreIndex >= 0) {
-            val reading = if (confirm && rememberChoices) ChoiceMemory.selectionReading(raw, c) else ""
-            if (session == 0L || !NativeEngine.choose(session, c.coreIndex)) return Edit(false)
-            val text = NativeEngine.takeCommitted(session)
-            keepSuffix(NativeEngine.input(session))
-            rebuild()
-            return Edit(true, text, reading)
+        val c = candidates.getOrNull(index) ?: return when {
+            raw.isEmpty() -> Edit(false)
+            mode == InputMode.NINE_KEY -> Edit(true)
+            else -> Edit(true, takeLiteral())
         }
+        if (mode == InputMode.ZHUYIN && c.kind == CandidateKind.LITERAL) return Edit(true, takeLiteral())
+        if (c.coreIndex >= 0 || (c.kind == CandidateKind.CHINESE && c.consumed == raw.length)) {
+            val reading = if (confirm && rememberChoices) ChoiceMemory.selectionReading(raw, c) else ""
+            val text: String
+            if (c.coreIndex >= 0) {
+                if (session == 0L || !NativeEngine.choose(session, c.coreIndex)) return Edit(false)
+                text = NativeEngine.takeCommitted(session)
+                keepSuffix(NativeEngine.input(session))
+                rebuild()
+            } else {
+                text = c.text
+                clearCoreState()
+            }
+            var mergedReading = ""
+            var mergedCommit = ""
+            if (confirm && rememberChoices && reading.isNotEmpty() && text.isNotEmpty()) {
+                sentenceReading.append(reading)
+                sentenceCommit.append(text)
+                sentenceSegments++
+                if (raw.isEmpty()) {
+                    if (sentenceSegments >= 2) {
+                        mergedReading = sentenceReading.toString()
+                        mergedCommit = sentenceCommit.toString()
+                    }
+                    resetSentence()
+                }
+            } else {
+                resetSentence()
+            }
+            return Edit(true, text, reading, mergedReading, mergedCommit)
+        }
+        resetSentence()
         if (c.kind == CandidateKind.MIXED_PREFIX) {
             val rest = raw.substring(min(c.consumed, raw.length))
             resetCore()
@@ -322,7 +361,13 @@ class Composer {
         return NativeEngine.predict(session, context.takeLast(8), limit).filter { it.isNotEmpty() }
     }
 
-    private fun resetCore() {
+    private fun resetSentence() {
+        sentenceReading.setLength(0)
+        sentenceCommit.setLength(0)
+        sentenceSegments = 0
+    }
+
+    private fun clearCoreState() {
         raw.setLength(0)
         if (session != 0L) {
             NativeEngine.clear(session)
@@ -334,6 +379,11 @@ class Composer {
         highlighted = 0
         coreTotal = 0
         coreFetched = 0
+    }
+
+    private fun resetCore() {
+        resetSentence()
+        clearCoreState()
     }
 
     private fun coreText(text: CharSequence) = if (mode == InputMode.PINYIN) text.toString().lowercase() else text.toString()
@@ -467,5 +517,16 @@ class Composer {
         private const val FIRST_BATCH = 48
         private const val TONES = " 6347"
         private val TONE_MARKS = mapOf('6' to "ˊ", '3' to "ˇ", '4' to "ˋ", '7' to "˙", ' ' to "ˉ")
+
+        /** Nine-key mode must never fall back to committing raw unmatched digits. */
+        internal fun allowsRawFallback(mode: InputMode): Boolean = mode != InputMode.NINE_KEY
+
+        /** Unmatched finish/commit text: clears instead of dumping digits in nine-key mode. */
+        internal fun finishFallbackCommit(mode: InputMode, composer: Composer): Edit =
+            if (allowsRawFallback(mode)) Edit(true, composer.takeLiteral())
+            else {
+                composer.clear()
+                Edit(true)
+            }
     }
 }

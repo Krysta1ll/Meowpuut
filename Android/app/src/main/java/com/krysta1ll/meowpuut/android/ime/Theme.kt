@@ -112,8 +112,8 @@ data class Look(
     /** Decoupled pet visual form preference (`auto`, `3d`, `pixel`), shared across all skins. */
     val petForm: PetFormPreference = PetFormPreference.AUTO,
 ) {
-    val resolvedPetForm: PetForm get() = petForm.resolved(skin)
-    val resolvedCatArtwork: SkinCatArtwork get() = petForm.resolvedArtwork(skin)
+    val resolvedPetForm: PetForm get() = petForm.resolved(skin, effects)
+    val resolvedCatArtwork: SkinCatArtwork get() = petForm.resolvedArtwork(skin, effects)
     val usesSteppedMaterial get() = skin.material == SkinMaterial.PIXEL || skin.material == SkinMaterial.GLYPH
     /** 字景: the paper-and-ink skin whose keys, bar and land are all set in type (its own colours are [glyphPalette]). */
     val isGlyph get() = skin == KeyboardSkin.GLYPH && overlay == null
@@ -123,7 +123,7 @@ data class Look(
      */
     val groundPlate: Int? get() = if (isGlyph) (if (dark) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()) else null
     /** The classic skin's edge-hugging cats; an overlay asks for them only where the base has that artwork. */
-    val edgeHuggingCats get() = resolvedPetForm == PetForm.THREE_D && (
+    val edgeHuggingCats get() = resolvedCatArtwork == SkinCatArtwork.LEGACY && (
         if (overlay != null) overlay.seatingEdges && skin.catArtwork == SkinCatArtwork.LEGACY
         else skin.catSeating == CatSeating.EDGE_HUGGING
     )

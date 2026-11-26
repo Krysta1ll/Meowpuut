@@ -169,6 +169,7 @@
     <string name="sound_penta">五聲</string>
     <string name="sound_harmonic">泛音</string>
     <string name="sound_tap">輕敲</string>
+    <string name="sound_thock">沉韻</string>
     <string name="stamp_ok">好</string>
     <string name="stamp_pass">合格</string>
     <string name="stamp_memory_cleared">選詞記錄已清除。</string>

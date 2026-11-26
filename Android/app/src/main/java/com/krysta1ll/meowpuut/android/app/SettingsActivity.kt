@@ -1098,7 +1098,7 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
         skinLoader.load(wanted) { loaded ->
             if (prefs.customSkin != wanted) return@load
             custom = loaded
-            sprites.useSkin(loaded?.cats.orEmpty(), loaded?.end)
+            sprites.useSkin(loaded?.cats.orEmpty(), loaded?.end, loaded?.leftEnd, loaded?.spaceMark)
             refresh()
         }
     }

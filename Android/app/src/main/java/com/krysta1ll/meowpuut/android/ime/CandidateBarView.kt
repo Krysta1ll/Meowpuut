@@ -144,7 +144,8 @@ class CandidateBarView(
         set(value) {
             if (field == value) return
             val effectsChanged = field.effects != value.effects
-            val catsChanged = field.cats != value.cats || field.petForm != value.petForm
+            val catsChanged = field.cats != value.cats || field.petForm != value.petForm ||
+                field.resolvedPetForm != value.resolvedPetForm || field.resolvedCatArtwork != value.resolvedCatArtwork
             val skinChanged = field.skin != value.skin
             field = value
             if (effectsChanged || skinChanged) {
@@ -657,7 +658,7 @@ class CandidateBarView(
         // The cats are in front of the glass and under the candidates.
         val seats = seats()
         if (seats.isEmpty()) for (cat in actors) cat.motion = null
-        if (look.supportsFestivals || look.overlay?.rightEnd != null) drawFestivalEnd(canvas)
+        if (look.supportsFestivals || look.overlay?.rightEnd != null || look.overlay?.leftEnd != null) drawFestivalEnd(canvas)
         if (fullEffects && !look.opaque && look.resolvedCatArtwork == SkinCatArtwork.SCULPTED) pawShadows(canvas, seats)
         catsAnimating = false
         drawRipple(canvas, now)
@@ -687,13 +688,15 @@ class CandidateBarView(
 
     private fun rectOf(box: Box): RectF = rect.apply { set(box.left, box.top, box.right, box.bottom) }
 
-    /** The festival's ornament cluster at the bar's right end, over the glass and under the cats and candidates. */
+    /** The festival or skin ornament clusters at the bar's ends, over the glass and under the cats and candidates. */
     private fun drawFestivalEnd(canvas: Canvas) {
+        leftOrnament?.let { canvas.drawBitmap(it.first, null, rectOf(it.second), bitmapPaint) }
         val ornament = festivalOrnament ?: return
         canvas.drawBitmap(ornament.first, null, rectOf(ornament.second), bitmapPaint)
     }
 
     private var festivalOrnament: Pair<Bitmap, Box>? = null
+    private var leftOrnament: Pair<Bitmap, Box>? = null
 
     /** Today's festival cluster where the skin wears festivals, else the custom skin's own right end. */
     private fun ornamentPiece(): FestivalPiece? =
@@ -716,6 +719,18 @@ class CandidateBarView(
             val glass = region.glass
             Festivals.placeRight(piece, glass, GlassOutline.contentBand(look.shape, glass.height), region.width,
                 expandButton.centerX + CandidateRegionLayout.ARROW_WIDTH / 2)?.let { box -> bitmap to box }
+        }
+        val leftPiece = look.overlay?.leftEnd
+        val leftBmp = leftPiece?.let { sprites.leftEndArt(it) }
+        leftOrnament = if (leftPiece == null || leftBmp == null || region.glass.width < 180f || look.opaque) null else {
+            val glass = region.glass
+            val band = GlassOutline.contentBand(look.shape, glass.height)
+            val tallest = (band.second - band.first).coerceAtLeast(1f)
+            val k = min(1f, tallest / leftPiece.height)
+            val w = leftPiece.width * k
+            val h = leftPiece.height * k
+            val cy = glass.top + (band.first + band.second) / 2f
+            leftBmp to Box(glass.left + 8f, cy - h / 2f, w, h)
         }
     }
 
@@ -935,8 +950,14 @@ class CandidateBarView(
         val bodyAlpha = if (body == null) 0f else if (cat.sleeping) sleepAlpha else pose?.bodyAlpha ?: 0f
         val whole = pose?.alpha ?: 1f
         val sink = if (pose == null || pose.drop <= 0f) 0f else pose.drop * (place.anchorY - place.visible.top + 3f)
-        if (bodyAlpha < 1f) drawSeatedCat(canvas, seat, tilt, wide, tall, (1f - bodyAlpha) * whole, sink)
-        if (body != null && bodyAlpha > 0f) drawStandingCat(canvas, seat, body, bodyAlpha * whole, tilt, wide, tall)
+        val customPose = body?.let { sprites.skinPose(cat.id, it) }
+        if (customPose != null && bodyAlpha > 0f) {
+            if (bodyAlpha < 1f) drawSeatedCat(canvas, seat, tilt, wide, tall, (1f - bodyAlpha) * whole, sink)
+            drawCustomWholePose(canvas, seat, customPose, bodyAlpha * whole, tilt, wide, tall)
+        } else {
+            if (bodyAlpha < 1f) drawSeatedCat(canvas, seat, tilt, wide, tall, (1f - bodyAlpha) * whole, sink)
+            if (body != null && bodyAlpha > 0f) drawStandingCat(canvas, seat, body, bodyAlpha * whole, tilt, wide, tall)
+        }
     }
 
     private fun drawSkinCat(canvas: Canvas, seat: Seat, frame: Box, pose: CatBodyPose?, bodyOpacity: Float = 1f) {
@@ -1004,6 +1025,25 @@ class CandidateBarView(
         glowPaint.alpha = 153
     }
 
+    private fun drawCustomWholePose(
+        canvas: Canvas, seat: Seat, art: CatSprites.Art, opacity: Float, tilt: Float, wide: Float, tall: Float,
+    ) {
+        val place = seat.place
+        val anchorYFrac = art.sprite.anchorY.coerceAtLeast(0.5f)
+        val height = min(place.anchorY / anchorYFrac, art.sprite.height * region.scale)
+        val width = height * art.sprite.width / art.sprite.height.coerceAtLeast(1f)
+        val x = place.visible.centerX.coerceIn(width / 2f, max(width / 2f, region.width - width / 2f))
+        val y = place.anchorY - height * anchorYFrac
+        dst.set(x - width / 2f, y, x + width / 2f, y + height)
+        canvas.save()
+        canvas.rotate(tilt * 0.55f, x, place.anchorY)
+        canvas.scale(wide, tall, x, place.anchorY)
+        bitmapPaint.alpha = (255 * opacity).roundToInt()
+        canvas.drawBitmap(art.bitmap, null, dst, bitmapPaint)
+        bitmapPaint.alpha = 255
+        canvas.restore()
+    }
+
     private fun drawStandingCat(
         canvas: Canvas, seat: Seat, pose: CatBodyPose, opacity: Float, tilt: Float, wide: Float, tall: Float,
     ) {
@@ -1037,7 +1077,7 @@ class CandidateBarView(
         }
         val fade = 1f - 0.6f * ((catFall - 0.7f) / 0.3f).coerceIn(0f, 1f)
         val held = if (!motionEnabled) 0f else if (droppingCat) 1f else catLift
-        val sculpted = look.skin.catArtwork == SkinCatArtwork.SCULPTED
+        val sculpted = look.resolvedCatArtwork == SkinCatArtwork.SCULPTED
         if (!sculpted) {
             bitmapPaint.alpha = (255f * fade).roundToInt()
             drawSkinCat(canvas, seat, place.frame, if (look.isCentenary) CatBodyPose.IDLE else CatBodyPose.GREET)
@@ -1046,14 +1086,30 @@ class CandidateBarView(
             canvas.drawBitmap(seat.bitmap, null, rectOf(place.frame), bitmapPaint)
         }
         if (held > 0f && sculpted) {
-            val visualAnchor = place.anchorY + catDragY - rise
-            val height = (visualAnchor / 0.88f).coerceIn(24f, 63f * region.scale)
-            val half = height * 4f / 11f
-            val y = place.anchorY - 0.88f * height
-            dst.set(place.anchorX - half, y, place.anchorX + half, y + height)
-            bitmapPaint.alpha = (255f * fade * held).roundToInt()
-            val elapsed = (now - catHeldAt).coerceAtLeast(0L) / catDragTimeScale
-            sprites.held(seat.actor.id).draw(canvas, dst, elapsed, held, bitmapPaint)
+            val customGrab = if (!seat.themed) sprites.skinGrab(seat.actor.id) else null
+            if (customGrab != null) {
+                val maxH = customGrab.sprite.height * region.scale
+                val avail = (place.anchorY + catDragY - rise).coerceAtLeast(0f)
+                val h = (avail / customGrab.sprite.anchorY.coerceAtLeast(0.2f)).coerceIn(min(24f, maxH), maxH)
+                val w = h * customGrab.sprite.width / customGrab.sprite.height.coerceAtLeast(1f)
+                val scruffY = place.anchorY - maxH * 0.12f
+                val y = scruffY - h * customGrab.sprite.anchorY
+                dst.set(place.anchorX - w * customGrab.sprite.anchorX, y, place.anchorX + w * (1f - customGrab.sprite.anchorX), y + h)
+                bitmapPaint.alpha = (255f * fade * held).roundToInt()
+                canvas.save()
+                if (motionEnabled) canvas.rotate(tilt * 0.55f, place.anchorX, scruffY)
+                canvas.drawBitmap(customGrab.bitmap, null, dst, bitmapPaint)
+                canvas.restore()
+            } else {
+                val visualAnchor = place.anchorY + catDragY - rise
+                val height = (visualAnchor / 0.88f).coerceIn(24f, 63f * region.scale)
+                val half = height * 4f / 11f
+                val y = place.anchorY - 0.88f * height
+                dst.set(place.anchorX - half, y, place.anchorX + half, y + height)
+                bitmapPaint.alpha = (255f * fade * held).roundToInt()
+                val elapsed = (now - catHeldAt).coerceAtLeast(0L) / catDragTimeScale
+                sprites.held(seat.actor.id).draw(canvas, dst, elapsed, held, bitmapPaint)
+            }
         }
         bitmapPaint.alpha = 255
         canvas.restore()
@@ -1581,7 +1637,13 @@ class CandidateBarView(
                 if (falls) catFall = fraction
                 if (fraction == 1f) {
                     catDragAnimator = null
-                    if (falls) onDismissKeyboard?.invoke(seat.actor.id) else resetCatDrag()
+                    if (falls) {
+                        onDismissKeyboard?.invoke(seat.actor.id)
+                    } else {
+                        val hadCustomGrab = look.resolvedCatArtwork == SkinCatArtwork.SCULPTED && !seat.themed && sprites.skinGrab(seat.actor.id) != null
+                        resetCatDrag()
+                        if (hadCustomGrab) moment(seat.actor.id, CatMotion.Event.FOUND, fade = false)
+                    }
                 }
                 invalidate()
             }
@@ -1668,7 +1730,7 @@ class CandidateBarView(
     // ---------------------------------------------------------------- moments
 
     /** Whether the cats sit behind the glass bar with its cut-out, so that sinking works. Classic and pixel skins fade instead. */
-    private val glassSeated get() = look.skin.catArtwork == SkinCatArtwork.SCULPTED && !look.edgeHuggingCats
+    private val glassSeated get() = look.resolvedCatArtwork == SkinCatArtwork.SCULPTED && !look.edgeHuggingCats
 
     /** The cats on screen as bits (MP_PETS_MIMIMO, MP_PETS_MOMO). */
     val petCats: Int get() = if (region.cats && look.cats) NativePets.MIMIMO or NativePets.MOMO else 0

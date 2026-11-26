@@ -195,9 +195,12 @@ class KeyTouches(private val host: Host) {
                 val p = slots[i]
                 if (p.mode != Mode.SHIFT && p.mode != Mode.PAGE) {
                     retire(p)
-                } else if (p.slid) {
-                    host.hideBalloon(p.id)
-                    p.slid = false
+                } else {
+                    cancelHold(p)
+                    if (p.slid) {
+                        host.hideBalloon(p.id)
+                        p.slid = false
+                    }
                 }
             }
         } else {
@@ -368,6 +371,7 @@ class KeyTouches(private val host: Host) {
 
     /** From Shift or a page key the finger may slide onto a character once past chord-slide hysteresis. */
     private fun slide(p: Pointer, x: Float, y: Float) {
+        if (p.mode == Mode.PAGE && !p.slid && withinReleaseSlop(p, x, y)) return
         if (!touchGrid.allowsModifierSlide(p.downX, p.downY, x, y, p.slid)) return
         val nextIndex = touchGrid.resolveHit(x, maxOf(0f, y))
         val row = touchGrid.rowOf(nextIndex)
