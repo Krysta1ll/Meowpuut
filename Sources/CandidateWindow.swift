@@ -22,6 +22,12 @@ enum CandidateTextSize: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which candidate window is worn (docs/SETTINGS.md `candidateSkin`): anything but "glyph" is the glass.
+enum CandidateSkin: String {
+    case glass, glyph
+    static func stored(_ value: String?) -> CandidateSkin { value.flatMap(CandidateSkin.init(rawValue:)) ?? .glass }
+}
+
 enum CandidateWindowSize: String, CaseIterable, Identifiable {
     case compact, standard, spacious
 
@@ -467,9 +473,11 @@ final class CandidateHostingView: NSHostingView<GlassCandidateView> {
 struct CandidateScreen {
     var frame: NSRect
     var visibleFrame: NSRect
+    /// Device pixels a point (the 字景 strip picks its pixel size from it).
+    var scale: CGFloat = 2
 
     static var current: [CandidateScreen] {
-        NSScreen.screens.map { CandidateScreen(frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        NSScreen.screens.map { CandidateScreen(frame: $0.frame, visibleFrame: $0.visibleFrame, scale: $0.backingScaleFactor) }
     }
 }
 
@@ -489,8 +497,25 @@ final class CandidatePanelController {
     var onPage: (Int32) -> Void = { _ in }
     var onToggle: () -> Void = {}
     var onAppearanceChange: () -> Void = {}
+    #if MEOWPUUT_GLYPH
+    /// The 字景 window (Sources/GlyphStrip.swift), made the first time the skin is worn; it takes the panel's content
+    /// view while the skin is on and gives it back to the glass when it is not.
+    private var glyph: GlyphStripView?
+    #endif
+
+    /// The app typed in has a full-screen window in front; measured when the window opens (`FullScreenProbe`).
+    private var fullScreen = false
 
     init(engine: Engine) { self.engine = engine }
+
+    /// 字景 is worn and compiled in.
+    private var wearsGlyph: Bool {
+        #if MEOWPUUT_GLYPH
+        return Preferences.shared.candidateSkin == .glyph
+        #else
+        return false
+        #endif
+    }
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -524,9 +549,15 @@ final class CandidatePanelController {
     @discardableResult
     func layout(expanded: Bool, canExpand: Bool, caret: NSRect, start: NSRect?, screens: [CandidateScreen]) -> NSRect? {
         let (panel, hosting) = build()
+        #if MEOWPUUT_GLYPH
+        if wearsGlyph { return layoutGlyph(expanded: expanded, canExpand: canExpand, caret: caret, start: start, screens: screens, panel: panel) }
+        if panel.contentView !== hosting { glyph?.hide(); panel.contentView = hosting }
+        #endif
         guard let index = candidateDisplay(for: caret, screens: screens.map(\.frame)) else { return nil }
         let bounds = screens[index].visibleFrame
-        let cats = Preferences.shared.catGlassSkin
+        // A full-screen app in front (asked once, when the window opens): the glass puts its cats away.
+        if !panel.isVisible { fullScreen = FullScreenProbe.frontIsFullScreen() }
+        let cats = Preferences.shared.catGlassSkin && !fullScreen
         // A new line starts over; on the same line the window stays on its side.
         if let line = placedLine, !candidateSameLine(line, caret) { below = nil }
         placedLine = caret
@@ -560,17 +591,24 @@ final class CandidatePanelController {
     /// Shows the panel without activating anything. Frames change at once: a
     /// window that eases after every key reads as lag.
     func show(expanded: Bool, canExpand: Bool, caret: NSRect, start: NSRect?, screens: [CandidateScreen] = CandidateScreen.current) {
+        let opening = !isVisible
         guard layout(expanded: expanded, canExpand: canExpand, caret: caret, start: start, screens: screens) != nil,
-              let panel, let hosting else { return }
+              let panel, let hosting else {
+            // 字景 with no candidates yet: the marked text is enough.
+            if wearsGlyph, isVisible { hide() }
+            return
+        }
+        if wearsGlyph {
+            if opening { panel.orderFrontRegardless() }
+            announce(expanded: expanded)
+            return
+        }
         hosting.rootView.visible = true
         if !panel.isVisible {
+            // No fade-in: FINAL.md §3 takes the first 0.08 s fade out.
             hosting.rootView.catDay = CatSchedule.day()
-            panel.alphaValue = 0
+            panel.alphaValue = 1
             panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.08
-                panel.animator().alphaValue = 1
-            }
         }
         announce(expanded: expanded)
     }
@@ -578,6 +616,9 @@ final class CandidatePanelController {
     func hide() {
         guard let panel else { return }
         hosting?.rootView.visible = false
+        #if MEOWPUUT_GLYPH
+        glyph?.hide()
+        #endif
         panel.orderOut(nil)
         below = nil
         placedLine = nil
@@ -585,6 +626,60 @@ final class CandidatePanelController {
         spokenPage = 0
         spokenExpanded = false
     }
+
+    #if MEOWPUUT_GLYPH
+    /// 字景: the strip under (or over) the caret, 6 pt away like the glass. The place it shows is the app's current
+    /// place: the journey's distance is the ledger's committed characters (`mp_glyph_strip_set_characters` converts to its units), read when the window opens.
+    private func layoutGlyph(expanded: Bool, canExpand: Bool, caret: NSRect, start: NSRect?, screens: [CandidateScreen], panel: CandidatePanel) -> NSRect? {
+        guard let index = candidateDisplay(for: caret, screens: screens.map(\.frame)) else { return nil }
+        let (specs, selected) = GlyphCandidates.specs(engine.snapshot, expanded: expanded)
+        guard !specs.isEmpty else { return nil }
+        let view: GlyphStripView
+        if let glyph { view = glyph } else {
+            view = GlyphStripView(frame: .zero)
+            view.onChoose = { [weak self] in self?.onChoose($0) }
+            view.onToggle = { [weak self] in self?.onToggle() }
+            view.onPage = { [weak self] in self?.onPage($0) }
+            view.menuBuilder = { [weak self, weak view] in
+                GlyphMenu.build(expanded: view?.isExpanded ?? false, canExpand: view?.canExpand ?? false,
+                                onToggle: { self?.onToggle() }, onChange: { self?.onAppearanceChange() })
+            }
+            glyph = view
+        }
+        if panel.contentView !== view { panel.contentView = view }
+        let preferences = Preferences.shared
+        // The tone chosen in the settings wins over the system's appearance.
+        switch preferences.candidateTone {
+        case .system: view.appearance = nil
+        case .light: view.appearance = NSAppearance(named: .aqua)
+        case .dark: view.appearance = NSAppearance(named: .darkAqua)
+        }
+        if let line = placedLine, !candidateSameLine(line, caret) { below = nil }
+        placedLine = caret
+        view.canExpand = canExpand
+        let opening = !panel.isVisible
+        if opening { fullScreen = FullScreenProbe.frontIsFullScreen() }
+        let look = GlyphLook.current(appearance: view.appearance, tone: preferences.candidateTone)
+        view.update(specs: specs, selected: selected, expanded: expanded, zhuyin: engine.candidateShortcut(0).hasPrefix("⇧"), look: look,
+                    backingScale: screens[index].scale, preedit: (engine.snapshot.preedit as NSString).length,
+                    paging: !fullScreen && expanded && (engine.snapshot.page > 0 || !engine.snapshot.lastPage) ? (engine.snapshot.page, engine.snapshot.lastPage) : nil, game: fullScreen,
+                    characters: opening ? Int64(clamping: PetLedger.shared.totalCharacters) : nil)
+        let bounds = screens[index].visibleFrame
+        let size = view.stripSize
+        // The strip's hard shadow hangs 2 pt right and down: clear space, like the glass's margin.
+        let inset = view.shadowInset
+        let margin = NSEdgeInsets(top: 0, left: 0, bottom: inset, right: inset)
+        let useBelow = candidateGoesBelow(height: size.height - inset, anchor: caret, bounds: bounds, keeping: below)
+        below = useBelow
+        gridWidthLimit = candidateGridWidthLimit(bounds.width)
+        panel.title = InterfaceText.system("喵撲候選", "喵扑候选")
+        let lead = view.firstLead
+        let x = candidateAnchorX(start: start, caret: caret, length: (engine.snapshot.preedit as NSString).length, rowWidth: size.width - lead)
+        let frame = candidateFrame(size: size, anchor: caret, bounds: bounds, margin: margin, lead: lead, x: x, keeping: useBelow)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        return frame
+    }
+    #endif
 
     /// A candidate was chosen: the next list is read even when its first candidate has the same text.
     func candidateChosen() { spoken = "" }

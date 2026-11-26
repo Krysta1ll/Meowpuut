@@ -203,7 +203,7 @@ struct TypingCandidates: View {
                         Button { onPage(0xff56) } label: {
                             Image(systemName: "chevron.right").frame(width: 30, height: 28)
                         }.disabled(engine.snapshot.lastPage).accessibilityLabel(t("下一頁", "下一页"))
-                    }.glassEffect(.regular, in: .capsule)
+                    }.controlGlass(in: Capsule())
                 }.buttonStyle(.plain)
             }
         }
@@ -278,6 +278,9 @@ struct Studio: View {
     @ObservedObject var preferences = Preferences.shared
     @ObservedObject var memory = ChoiceMemory.shared
     @State private var confirmingMemoryClear = false
+    @State private var confirmingLedgerClear = false
+    @State private var ledgerCharacters: UInt64 = 0
+    @State private var ledgerDays = 0
     @State private var section: Section
     @State private var inputSourceStatus = ""
     @State private var stamp: StampEvent?
@@ -361,6 +364,8 @@ struct Studio: View {
                 }
         }.tint(accent).frame(minWidth: 920, minHeight: 650)
         .onChange(of: preferences.simplified) { _, _ in engine.modeChanged() }
+        .onChange(of: section) { _, _ in refreshLedger() }
+        .onAppear { refreshLedger() }
         .onChange(of: preferences.rememberChoices) { _, _ in engine.refresh() }
         .onChange(of: preferences.mixJapanese) { _, _ in engine.finishComposition(); engine.applyMixJapanese() }
         .confirmationDialog(t("清除選詞記錄？", "清除选词记录？"), isPresented: $confirmingMemoryClear) {
@@ -370,6 +375,13 @@ struct Studio: View {
             }
             Button("取消", role: .cancel) {}
         } message: { Text(t("固定的首選會保留。", "固定的首选会保留。")) }
+        .confirmationDialog(t("清除打字紀錄？", "清除打字记录？"), isPresented: $confirmingLedgerClear) {
+            Button(t("清除紀錄", "清除记录"), role: .destructive) {
+                PetLedger.shared.clear(); refreshLedger()
+                stamped("好", t("打字紀錄已清除。", "打字记录已清除。"))
+            }
+            Button("取消", role: .cancel) {}
+        }
     }
 
     @ViewBuilder private var typing: some View {
@@ -493,6 +505,11 @@ struct Studio: View {
         }.frame(minHeight: 23)
     }
 
+    private func refreshLedger() {
+        ledgerCharacters = PetLedger.shared.totalCharacters
+        ledgerDays = PetLedger.shared.dayCount
+    }
+
     @ViewBuilder private var memorySection: some View {
         Toggle(t("記住選詞", "记住选词"), isOn: $preferences.rememberChoices)
         HStack {
@@ -501,6 +518,13 @@ struct Studio: View {
             Button(t("清除選詞記錄", "清除选词记录")) { confirmingMemoryClear = true }.disabled(memory.records.isEmpty && memory.error.isEmpty)
         }
         if !memory.error.isEmpty { Text(memory.error).foregroundStyle(.red) }
+        Text(t("打字紀錄只記數量：字數、哪幾天、一天裡的哪個時段，不記你打了什麼。", "打字记录只记数量：字数、哪几天、一天里的哪个时段，不记你打了什么。"))
+            .font(.caption).foregroundStyle(.secondary)
+        HStack {
+            Text(t("已記 \(ledgerCharacters) 個字，\(ledgerDays) 天", "已记 \(ledgerCharacters) 个字，\(ledgerDays) 天")).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button(t("清除打字紀錄", "清除打字记录")) { confirmingLedgerClear = true }.disabled(ledgerCharacters == 0 && ledgerDays == 0)
+        }
         if !memory.records.keys.contains(where: { !$0.hasPrefix("ctx|") }) && memory.error.isEmpty {
             Text(t("這一頁還空著。", "这一页还空着。")).font(PaperFont.title(.title3, simplified: t.simplified)).foregroundStyle(paper.inkSecondary.color)
                 .padding(.vertical, 12)

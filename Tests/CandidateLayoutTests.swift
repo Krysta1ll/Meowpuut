@@ -47,7 +47,7 @@ private func checkCandidateSizes(_ h: inout SmokeHarness) {
         }
     }
     h.check(fits && sized, "三種字級搭配三種候選窗尺寸，三種外形都可用且留白遞增")
-    let defaults = UserDefaults(suiteName: "app.meowpuut.smoke")!
+    let defaults = Preferences.shared.defaults
     h.check(applyAppearance("window-size:compact") && applyAppearance("text-size:large") &&
             preferences.candidateWindowSize == .compact && preferences.candidateTextSize == .large &&
             defaults.string(forKey: "candidateWindowSize") == "compact" && defaults.string(forKey: "candidateTextSize") == "large" &&
@@ -305,7 +305,7 @@ private func checkPanel(_ h: inout SmokeHarness) {
 
 private func checkAppearance(_ h: inout SmokeHarness) {
     let preferences = Preferences.shared
-    let defaults = UserDefaults(suiteName: "app.meowpuut.smoke")!
+    let defaults = Preferences.shared.defaults
     let saved = (preferences.glassShape, preferences.candidateTone, preferences.candidatePalette, preferences.glassStrength,
                  preferences.catGlassSkin, preferences.festivalOutfits)
     var applied = true

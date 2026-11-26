@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged by Tauri into the app's Info.plist. The Automation question macOS asks the first time 「顯示正在聽的歌」
+  reads the song from 「音樂」 or Spotify (src/now_playing.rs). Without it the request is refused silently.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>喵撲只讀「音樂」或 Spotify 正在播放的歌名，放進 Steam 好友看到的那一行。不會播放、暫停或改任何東西，歌名也從不存檔。</string>
+</dict>
+</plist>

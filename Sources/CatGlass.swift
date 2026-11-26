@@ -147,6 +147,8 @@ struct GlassCandidateView: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.colorScheme) private var systemScheme
     @ObservedObject private var preferences = Preferences.shared
+    /// Which cats 喵撲貓窩 has out on the desk (Sources/DeskPulse.swift): in 乙 Mimimo is not drawn here then.
+    @ObservedObject private var seats = GlassSeats.shared
     @ObservedObject var engine: Engine
     var cats: Bool
     var expanded: Bool
@@ -358,11 +360,19 @@ struct GlassCandidateView: View {
         .accessibilityHidden(true)
     }
 
-    /// The cats on a bar this wide. The day's arrangement is chosen among
+    /// The cats on a bar this wide, without Mimimo while she walks the top
+    /// edge of your window on the desk (FINAL.md §4.2 乙). There is no
+    /// arrangement for one cat: Momo keeps her seat and Mimimo's stays empty.
+    private func catPlaces(width: CGFloat, chevron: Bool) -> [CatPlacement] {
+        GlassSeats.seated(arrangedCats(width: width, chevron: chevron), seats: seats.desk,
+                          typingSeat: preferences.defaults.string(forKey: "typingSeat"))
+    }
+
+    /// Both cats on a bar this wide. The day's arrangement is chosen among
     /// those that fit a bar of ordinary width, so it stays the same while the
     /// bar grows and shrinks with the candidates; on a bar too short for it,
     /// the first arrangement that fits is shown.
-    private func catPlaces(width: CGFloat, chevron: Bool) -> [CatPlacement] {
+    private func arrangedCats(width: CGFloat, chevron: Bool) -> [CatPlacement] {
         let stage = Desk.stage(width: width, shape: style, chevron: chevron, textSize: textSize, windowSize: windowSize)
         // On a festival day the dressed pair sits at the two ends, as on iOS.
         if let theme = festival, let places = CatArrangement.named("ends")?.place(on: stage, sprite: { cat, pose in
@@ -554,9 +564,16 @@ private struct DeskPanelGlass: View, Equatable {
                 shape.fill(dark ? Color(red: 0.169, green: 0.153, blue: 0.161) : Color(red: 0.957, green: 0.949, blue: 0.965))
             } else {
                 shape.fill(Color.black.opacity(dark ? 0.35 : 0.13)).blur(radius: 1.3).offset(y: 0.6)
-                shape.fill(look.floor(strength))
-                shape.fill(dark ? smoke.opacity(amount + 0.12) : Color.white.opacity(amount))
-                    .glassEffect(dark ? Glass.regular.tint(smoke.opacity(0.55)) : Glass.regular, in: shape)
+                if #available(macOS 26, *) {
+                    shape.fill(look.floor(strength))
+                    shape.fill(dark ? smoke.opacity(amount + 0.12) : Color.white.opacity(amount))
+                        .glassEffect(dark ? Glass.regular.tint(smoke.opacity(0.55)) : Glass.regular, in: shape)
+                } else {
+                    // Before macOS 26: frosted material under the same fills (docs/DESIGN.md §3).
+                    shape.fill(.ultraThinMaterial).environment(\.colorScheme, dark ? .dark : .light)
+                    shape.fill(look.floor(strength))
+                    shape.fill(dark ? smoke.opacity(amount + 0.12) : Color.white.opacity(amount))
+                }
                 shape.fill(LinearGradient(colors: [.white.opacity(dark ? 0.07 : 0.26), .white.opacity(dark ? 0 : 0.05)],
                                           startPoint: .top, endPoint: .bottom))
             }
@@ -700,5 +717,13 @@ private struct DeskExpandedPanel: View {
         .disabled(disabled)
         .accessibilityLabel(label)
         .help(label + (key == 0xff55 ? "（⌥← / Page Up）" : "（⌥→ / Page Down）"))
+    }
+}
+
+extension GlassSeats {
+    /// The cats the glass draws: the arrangement's places, Mimimo's left out
+    /// while 喵撲貓窩 has her on the desk (showsMimimo). Momo keeps her place.
+    static func seated(_ places: [CatPlacement], seats: DeskSeats?, typingSeat: String?) -> [CatPlacement] {
+        showsMimimo(seats, typingSeat: typingSeat) ? places : places.filter { $0.cat != .mimimo }
     }
 }

@@ -29,5 +29,8 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 # Running the build can register its bundle ID with Launch Services.
 "$LSREGISTER" -u "$PWD/.build/Meowpuut.app" 2>/dev/null || true
 "$LSREGISTER" -f "$DEST"
-.build/register-input-source "$DEST"
-echo "已安裝。請在系統設定 → 鍵盤 → 輸入法中加入 Meowpuut；未顯示時請登出後重試。"
+if "$DEST/Contents/MacOS/Meowpuut" --register; then
+  echo "已安裝。請在系統設定 → 鍵盤 → 文字輸入 → 編輯中確認 Meowpuut；未顯示時才需要登出再登入。"
+else
+  echo "已安裝，但系統尚未接受輸入來源。請登出再登入，再到系統設定 → 鍵盤 → 文字輸入 → 編輯加入 Meowpuut。"
+fi

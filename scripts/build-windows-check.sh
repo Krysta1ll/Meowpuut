@@ -5,13 +5,22 @@
 #
 # 1. Layout tests (bounds-checked standard library, UndefinedBehaviorSanitizer;
 #    AddressSanitizer with MEOWPUUT_ASAN=1).
-# 2. session_test against the host Rust library and a generated lexicon
+# 1b. glyph_strip_test: the 字景 strip's platform half (atlas, slice, clock, hit tests) against the host Rust library
+#    built with --features glyph, with a fixed text engine in place of DirectWrite.
+# 2. pet_ledger_test (word-count ledger, no lexicon needed), then session_test against the host Rust library and a generated lexicon
 #    (MEOWPUUT_LEXICON_DIR, default Engine/.build/lexicon), when the lexicon exists.
+#    desk_test: the desk-pet process's portable parts (pulse channel and glass seat, world filter, clay walk frames,
+#    alpha hit test, dwell, the touches in the pet ledger, the activity tracker and Activity.bin) and the headless
+#    smoke run (Windows/Desk/DeskSmoke.h), bounds-checked and under UndefinedBehaviorSanitizer; the desk's sprite
+#    tables and CatSpriteData.h against assets/brand/cats/cats.json (`sprites` and `desk`).
 # 3. SVG snapshots of every shape, tone and state, converted to PNG
-#    (macOS: text is measured with Core Text; needs rsvg-convert).
+#    (macOS: text is measured with Core Text; needs rsvg-convert), and the 字景 candidate window, text included
+#    (render_glyph_previews, Core Text standing in for DirectWrite, the same GlyphStripView the window uses), plus its
+#    per-key cost.
 # 4. MinGW-w64 cross build of the Rust engine, the candidate window, the
-#    preview app and the text service DLL (scripts/build-windows-ime.sh), with
-#    GCC MinGW-w64 or llvm-mingw (MINGW_BIN).
+#    preview app, the text service DLL (scripts/build-windows-ime.sh) and the
+#    desk-pet process (scripts/build-windows-desk.sh), with GCC MinGW-w64 or
+#    llvm-mingw (MINGW_BIN).
 #
 # Output: .build/windows-check/
 set -euo pipefail
@@ -52,10 +61,63 @@ echo "== first-run defaults test"
 "$CXX" -std=c++17 "${WARN[@]}" -O1 -g Windows/tests/input_defaults_test.cpp -o "$OUT/input_defaults_test"
 run_test "$OUT/input_defaults_test"
 
+echo "== glyph strip test"
+# The 字景 strip (GlyphStrip.cpp) needs the Rust library built with --features glyph.
+cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --features glyph --crate-type staticlib
+"$CXX" -std=c++17 "${WARN[@]}" -O1 -g -I "$UI" "$UI/GlyphStrip.cpp" "$UI/tests/glyph_strip_test.cpp" \
+  target/release/libmeowpuut_ffi.a -o "$OUT/glyph_strip_test"
+run_test "$OUT/glyph_strip_test"
+
+echo "== pet ledger test"
+# Needs the host Rust library but not the lexicon.
+cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --features glyph --crate-type staticlib
+# MEOWPUUT_GLYPH as in the text service: the flush records the day's place (mp_glyph_place_of_characters).
+"$CXX" -std=c++17 "${WARN[@]}" -O1 -g -DMEOWPUUT_GLYPH Windows/PetLedger.cpp Windows/tests/pet_ledger_test.cpp \
+  target/release/libmeowpuut_ffi.a -o "$OUT/pet_ledger_test"
+run_test "$OUT/pet_ledger_test"
+
+echo "== desk tests"
+DESK=Windows/Desk
+DESK_SOURCES=("$DESK/PulseChannel.cpp" "$DESK/DeskWorld.cpp" "$DESK/DeskArt.cpp" "$DESK/DeskLoop.cpp" "$DESK/DeskSettings.cpp" "$DESK/DeskSmoke.cpp"
+              "$DESK/ActivityLedger.cpp" "$DESK/ForegroundWatcher.cpp" Windows/PetLedger.cpp)
+"$CXX" -std=c++17 "${WARN[@]}" -O1 -g -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG -D_GLIBCXX_ASSERTIONS \
+  "${DESK_SOURCES[@]}" "$DESK/tests/desk_test.cpp" target/release/libmeowpuut_ffi.a -o "$OUT/desk_test"
+run_test "$OUT/desk_test"
+"$CXX" -std=c++17 "${WARN[@]}" -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined \
+  "${DESK_SOURCES[@]}" "$DESK/tests/desk_test.cpp" target/release/libmeowpuut_ffi.a -o "$OUT/desk_test_ubsan"
+run_test "$OUT/desk_test_ubsan" >/dev/null
+echo "desk_test passed under UndefinedBehaviorSanitizer"
+# Every clay figure the desk and the candidate window draw, as their C++ tables have it, matches cats.json.
+python3 - "$DESK/DeskArt.cpp" "$UI/CatSpriteData.h" <<'EOF'
+import json, re, sys
+data = json.load(open('assets/brand/cats/cats.json'))
+cats, desk = data['sprites'], data.get('desk', {}).get('poses', {})
+seen, bad = set(), []
+def near(a, b):
+    return len(a) == len(b) and all(abs(x - y) < 5e-5 for x, y in zip(a, b))
+for path in sys.argv[1:]:
+    for line in open(path, encoding='utf-8'):
+        m = re.match(r'\s*\{"(\w+)",(.*)\},?\s*$', line)
+        if not m:
+            continue
+        name, v = m.group(1), [float(x) for x in re.findall(r'-?\d+(?:\.\d+)?', m.group(2))]
+        c = cats.get(name) or desk.get(name)
+        paws = [x for p in c.get('paws', []) for x in p] if c else []
+        if (not c or not near(v[0:2], c['size']) or not near(v[2:4], c['anchor']) or not near(v[4:8], c['bounds'])
+                or not near(v[8:10], c.get('cut', [0, 0])) or int(v[10]) != len(c.get('paws', []))
+                or (paws and not near(v[11:11 + len(paws)], paws))):
+            bad.append(f'{path}: {name}')
+        seen.add(name)
+missing = sorted((set(cats) | set(desk)) - seen)
+if bad or missing:
+    sys.exit('sprite tables differ from cats.json: ' + ', '.join(bad + [f'missing {n}' for n in missing]))
+print(f'sprite tables match cats.json ({len(seen)} figures)')
+EOF
+
 echo "== session test"
 LEX="${MEOWPUUT_LEXICON_DIR:-Engine/.build/lexicon}"
 if [ -f "$LEX/native-pinyin.tsv" ] && [ -f "$LEX/native-zhuyin.tsv" ] && [ -f "$LEX/native-japanese.tsv" ]; then
-  cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --crate-type staticlib
+  cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --features glyph --crate-type staticlib
   "$CXX" -std=c++17 -O2 Windows/Session.cpp Windows/Keyboard.cpp Windows/tests/session_test.cpp \
     target/release/libmeowpuut_ffi.a -o "$OUT/session_test"
   BASE=()
@@ -82,6 +144,18 @@ else
   echo "skipped: needs macOS and rsvg-convert"
 fi
 
+echo "== 字景 candidate window previews"
+if [ "$(uname)" = Darwin ]; then
+  "$CXX" -std=c++17 "${WARN[@]}" -O2 -I "$UI" "$UI/GlyphStrip.cpp" "$UI/tools/render_glyph_previews.cpp" target/release/libmeowpuut_ffi.a \
+    -framework CoreText -framework CoreGraphics -framework CoreFoundation -framework ImageIO -o "$OUT/render_glyph_previews"
+  rm -rf "$OUT/glyph-previews"
+  mkdir -p "$OUT/glyph-previews"
+  "$OUT/render_glyph_previews" "$UI/Assets/fonts" "$OUT/glyph-previews"
+  "$OUT/render_glyph_previews" "$UI/Assets/fonts" "$OUT/glyph-previews" bench
+else
+  echo "skipped: needs macOS (Core Text)"
+fi
+
 echo "== MinGW-w64 cross build"
 # GCC (brew install mingw-w64) or clang (llvm-mingw); MINGW_BIN may name the
 # toolchain's bin directory when it is not on PATH.
@@ -98,17 +172,17 @@ echo "compiler: $("$MCXX" --version | head -1)"
 WINDRES=x86_64-w64-mingw32-windres
 TARGET="${RUST_WINDOWS_TARGET:-x86_64-pc-windows-gnu}"
 rustup target list --installed | grep -qx "$TARGET" || rustup target add "$TARGET"
-cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --target "$TARGET" --crate-type staticlib
+cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --features glyph --target "$TARGET" --crate-type staticlib
 RUST_LIB="target/$TARGET/release/libmeowpuut_ffi.a"
 # Libraries the Rust standard library needs on this target.
-RUST_NATIVE=$(cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --target "$TARGET" --crate-type staticlib -- --print native-static-libs 2>&1 \
+RUST_NATIVE=$(cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --quiet --release -p meowpuut-ffi --features glyph --target "$TARGET" --crate-type staticlib -- --print native-static-libs 2>&1 \
   | sed -n 's/.*native-static-libs: //p' | tail -1)
 MW="$OUT/mingw"
 rm -rf "$MW"
 mkdir -p "$MW/obj"
-DEFS=(-DUNICODE -D_UNICODE -DNOMINMAX -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00)
+DEFS=(-DUNICODE -D_UNICODE -DNOMINMAX -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -DMEOWPUUT_GLYPH=1)
 objects=()
-for src in "${PORTABLE[@]}" "$UI/CandidateWindow.cpp" Windows/Session.cpp Windows/Keyboard.cpp Windows/Preview/PreviewApp.cpp; do
+for src in "${PORTABLE[@]}" "$UI/GlyphStrip.cpp" "$UI/GlyphText.cpp" "$UI/CandidateWindow.cpp" Windows/Session.cpp Windows/Keyboard.cpp Windows/Preview/PreviewApp.cpp; do
   obj="$MW/obj/$(basename "${src%.cpp}").o"
   "$MCXX" -std=c++17 "${WARN[@]}" -O2 "${DEFS[@]}" -I "$UI" -c "$src" -o "$obj"
   objects+=("$obj")
@@ -120,3 +194,4 @@ done
 cp -R "$UI/Assets" "$MW/Assets"
 echo "Built $MW/MeowpuutCandidatePreview.exe (copy a lexicon folder next to it before running on Windows)"
 bash scripts/build-windows-ime.sh x64 "$OUT/mingw-ime"
+bash scripts/build-windows-desk.sh x64 "$OUT/mingw-desk"

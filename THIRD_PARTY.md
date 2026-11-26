@@ -87,10 +87,10 @@
 
 ## 10. 字景皮膚的像素字型（SIL OFL 1.1，只用在字景皮膚的候選列、候選面板、注音與符號鍵面和狀態標示）
 
-`Android/app/src/main/assets/fonts/` 的檔案由 `scripts/subset_glyph_fonts.py` 從上游字型子集化而來；上游檔案不進版控（放在 `.build/font-sources/`，腳本檢查 sha256；`--check` 檢查產物是否過期）。字集是詞庫來源中出現十次以上的字、App 與鍵盤自己的字串、以及假名、注音、標點與拉丁字母區塊（`scripts/glyph-pixel-chars.txt`，`--regen-chars` 重寫）；字集之外的字退回系統字。授權全文與著作權聲明在 `Android/app/src/main/assets/font-licenses/OFL-pixel-fonts.txt`，隨 APK 附上，並列在 App 設定的授權頁。
+`Android/app/src/main/assets/fonts/` 的檔案由 `scripts/subset_glyph_fonts.py` 從上游字型子集化而來；上游檔案不進版控（放在 `.build/font-sources/`，腳本檢查 sha256；`--check` 檢查產物是否過期）。字集是詞庫來源中出現十次以上的字、App 與鍵盤自己的字串、以及假名、注音、標點與拉丁字母區塊（`scripts/glyph-pixel-chars.txt`，`--regen-chars` 重寫）；字集之外的字退回系統字。授權全文與著作權聲明在 `Android/app/src/main/assets/font-licenses/OFL-pixel-fonts.txt`，隨 APK 附上，並列在 App 設定的授權頁。macOS 輸入法的字景候選窗（`Sources/GlyphStrip.swift`）用同一份檔案：`scripts/build.sh` 把 `pixel_a.ttf`、`pixel_b.otf` 複製進 `Meowpuut.app/Contents/Resources/Fonts/`，授權全文複製為 `Contents/Resources/Licenses/OFL-pixel-fonts.txt`；字型只由 Core Text 以 12×k px 在候選窗內讀取，不安裝進系統。
 
-- **俐方體 11 號（Cubic 11）** v1.500（ACh-K，<https://github.com/ACh-K/Cubic-11>，**SIL OFL 1.1**；字形衍生自 JF Dot M+H 12 與 M+ BITMAP FONTS，Copyright (c) 2002-2005 COZ 與 M+ FONTS PROJECT）：子集改名為 “Meowpuut Pixel A”（`pixel_a.ttf`），先畫它有的字。授權檔沒有列保留字型名稱。
-- **Fusion Pixel Font** 12px proportional，zh_hant 變體，2026.11.10 版（TakWolf，<https://github.com/TakWolf/fusion-pixel-font>，Copyright (c) 2022 TakWolf，**SIL OFL 1.1**；由 Ark Pixel、Cubic 11、Galmuri 合成，三者授權一併附上）：子集改名為 “Meowpuut Pixel B”（`pixel_b.otf`），畫俐方體沒有的字（簡體字、日文漢字等）。授權檔沒有列保留字型名稱。
+- **俐方體 11 號（Cubic 11）** v1.500（ACh-K，<https://github.com/ACh-K/Cubic-11>，**SIL OFL 1.1**；字形衍生自 JF Dot M+H 12 與 M+ BITMAP FONTS，Copyright (c) 2002-2005 COZ 與 M+ FONTS PROJECT）：子集改名為 “Meowpuut Pixel A”（`pixel_a.ttf`；Android 與 macOS 都隨附），先畫它有的字。授權檔沒有列保留字型名稱。
+- **Fusion Pixel Font** 12px proportional，zh_hant 變體，2026.11.10 版（TakWolf，<https://github.com/TakWolf/fusion-pixel-font>，Copyright (c) 2022 TakWolf，**SIL OFL 1.1**；由 Ark Pixel、Cubic 11、Galmuri 合成，三者授權一併附上）：子集改名為 “Meowpuut Pixel B”（`pixel_b.otf`；Android 與 macOS 都隨附），畫俐方體沒有的字（簡體字、日文漢字等）。授權檔沒有列保留字型名稱。
 
 ## 引擎與整體授權說明
 

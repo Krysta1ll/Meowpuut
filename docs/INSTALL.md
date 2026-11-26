@@ -22,7 +22,7 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 ## Mac
 
-需要 macOS 27 以上的 Apple 晶片 Mac。Intel Mac 和較舊的 macOS 沒有測過。
+需要 macOS 15 以上的 Mac。同一個安裝檔同時支援 Apple 晶片和 Intel 處理器。macOS 15 以前的版本不支援。
 
 下面兩種選一種下載就好：
 
@@ -41,11 +41,11 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 ### 裝好以後
 
-1. 儲存工作，登出再登入。更新時也要這樣做，舊的輸入法才不會留在記憶體裡。
-2. 系統設定 → 鍵盤 → 文字輸入 → 編輯 → 加入 Meowpuut。名稱也可能顯示成「喵撲 Meowpuut」，在繁體中文那一類裡找。
+1. 安裝套件裝完時，會直接把喵撲加進目前的登入階段，不用登出。系統設定 → 鍵盤 → 文字輸入 → 編輯，確認清單裡有 Meowpuut（也可能顯示成「喵撲 Meowpuut」，在繁體中文那一類裡找）；沒有的話按加入。用安裝盤拖曳安裝時，打開一次 Meowpuut App，它會自己向系統登記。
+2. **只有輸入法沒有出現在清單裡時，才需要登出再登入。**更新時，安裝程式會先結束舊的喵撲，不必登出。
 3. 切到 Meowpuut，按 Control＋Option＋2 切到拼音，打 `nihao` 再按 1。預設是注音，按 Control＋Option＋1 切回來。
 
-清單裡找不到輸入法時，先確認裝到了 `/Library/Input Methods`、也已經重新登入過；不要在使用者資料夾和系統資料夾各留一份。
+清單裡找不到輸入法時，先確認裝到了 `/Library/Input Methods`，再登出登入一次；不要在使用者資料夾和系統資料夾各留一份。
 
 ### 沒有公證
 
@@ -57,7 +57,7 @@ iPhone、iPad 的正式版在 [App Store](https://apps.apple.com/app/id683243229
 
 ### 更新和移除
 
-更新：直接裝新的安裝套件，選詞記錄不會被覆蓋。裝完登出再登入。
+更新：直接裝新的安裝套件，選詞記錄不會被覆蓋。新版沒有生效時，才需要登出再登入。
 
 移除：先切到 ABC，從輸入來源清單移除 Meowpuut。在 Finder 用「前往檔案夾」打開 `/Library/Input Methods`，把 `Meowpuut.app` 丟到垃圾桶，然後登出。選詞記錄留在 `~/Library/Application Support/Meowpuut/`，確定不要了再自己刪。
 

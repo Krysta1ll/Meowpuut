@@ -1,0 +1,100 @@
+[package]
+name = "meowpuut-companion"
+version = "0.1.0"
+description = "喵撲 Meowpuut companion app: a thin Tauri view that exists only while its window is open"
+edition = "2021"
+license = "MIT"
+publish = false
+default-run = "meowpuut-companion"
+
+# Its own workspace: the Engine workspace is not an ancestor, and nothing above this folder should adopt it.
+[workspace]
+
+[lib]
+name = "meowpuut_companion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon: the menu-bar / notification-area icon of the windowless sharing mode (FINAL.md §11.2).
+tauri = { version = "2", features = ["tray-icon"] }
+# The hidden-apps editor's "pick an app" (a native open panel, called from Rust only; no JS permission).
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sys-locale = "0.3"
+# The local day and minute for the share time limit ("today") and the presence clock; already in Tauri's tree.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# The ledger rules (codec, book, merge) and the achievement table.
+meowpuut-pets = { path = "../../Engine/crates/meowpuut-pets" }
+# 時間花在哪裡: Activity.bin's codec and the Steam friends status line (FINAL.md §11).
+meowpuut-activity = { path = "../../Engine/crates/meowpuut-activity" }
+# 字景, the landscape in type: the journey scroll, the lead's pictures, the home keyboard and the first run's pictures
+# (glyph.rs). No dependencies of its own.
+meowpuut-glyph = { path = "../../Engine/crates/meowpuut-glyph" }
+# 生活照 (photos.rs): plain GETs of the phones' public photo bucket. Blocking and small (no async runtime of its own);
+# rustls with the bundled roots, so no system TLS differences between the two platforms. The only HTTP client here:
+# Tauri's own tree has reqwest only for wasm.
+ureq = { version = "2", default-features = false, features = ["tls"] }
+# The random install id of the opt-in Steam Cloud file name (cloud.rs). Already in Tauri's tree.
+getrandom = "0.3"
+# Steamworks (feature `steam`, off by default): achievements on open and the friends status line.
+steamworks = { version = "0.13", optional = true }
+# ISteamScreenshots::SetLocation, which steamworks-rs does not wrap (the same sys crate steamworks uses).
+steamworks-sys = { version = "0.13", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+# The desk's shared section (the "now" field, Windows/Desk/PulseChannel.h) and now playing (SMTC). Already in Tauri's
+# tree (0.62); these features only.
+windows = { version = "0.62", features = [
+  "Foundation",
+  "Media_Control",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+  "Win32_System_WinRT",
+] }
+
+# Posts the `app.meowpuut.settings.changed` distributed notification (docs/SETTINGS.md); already in Tauri's tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+# The desk's XPC service (a block for the connection's event handler), whether Music / Spotify are running (never
+# launch them to ask), a picked app's bundle id. All already in Tauri's tree.
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSRunningApplication"] }
+# Only with the `devcapture` feature (screenshots of the page for review; see src/devcapture.rs).
+objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKSnapshotConfiguration", "block2", "objc2-app-kit"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+# Steamworks (FINAL.md §6.2, §11): achievements settled once when the app opens, and the friends status line of the
+# opt-in sharing mode. Off by default, so a normal build needs no Steam and links no steam_api. Development uses App ID
+# 480 (Valve's public test app "Spacewar") from `steam_appid.txt` in this folder; see README「Steam」.
+steam = ["dep:steamworks", "dep:steamworks-sys"]
+# Development only, macOS: MEOWPUUT_CAPTURE=<file.png> makes the window photograph its own page (WKWebView
+# takeSnapshot) after MEOWPUUT_CAPTURE_DELAY_MS (default 2500) and quit. Needs no screen-recording permission.
+devcapture = [
+  "dep:objc2-web-kit",
+  "objc2-foundation/NSData",
+  "objc2-foundation/NSDictionary",
+  "objc2-foundation/NSError",
+  "objc2-app-kit/NSImage",
+  "objc2-app-kit/NSImageRep",
+  "objc2-app-kit/NSBitmapImageRep",
+]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

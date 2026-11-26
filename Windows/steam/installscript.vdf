@@ -1,0 +1,44 @@
+// Steam installscript for the Meowpuut Windows text service.
+// Source of the key names: https://partner.steamgames.com/doc/sdk/installscripts
+// (checked 2026-11-23). Keys confirmed there: "Run Process", "Run Process On Uninstall",
+// "Process 1", "Command 1", "HasRunKey", "NoCleanUp", "AsCurrentUser", "Requirement_OS",
+// "Is64BitWindows", the %INSTALLDIR% and %WinDir% variables, and "\\" for a backslash.
+//
+// UNCERTAIN (not confirmed by the page, check with Valve or a test depot):
+//  * "//" comments: Valve's VDF parser accepts them in other files; this one is not documented for installscripts.
+//    If Steam rejects the file, delete every line starting with "//".
+//  * The doc's "HasRunKey" example is a full registry key path; what Steam writes is documented as "the entry's
+//    name = 1" under it. Here the key is the Meowpuut key and the entry name carries the build number, so every
+//    new build runs the script once more. Bump the entry name and the key together on each release.
+//  * "Is64BitWindows" is the only OS filter used: it cannot tell x64 from Arm64. Install.ps1 does that itself.
+//  * %INSTALLDIR% is assumed to be the depot's root folder (Install.ps1 sits in the depot root).
+//  * Whether Steam expands %WinDir% in "Process 1" (the doc lists it among the path variables).
+//  * "Run Process On Uninstall" gets no HasRunKey / Requirement_OS here; the doc shows only Process 1 and Command 1.
+//
+// Install.ps1 -Steam needs administrator rights, copies the files to Program Files\Meowpuut\<hash>, registers
+// the 64-bit and 32-bit DLLs there, and exits 0 on success. A non-zero exit makes Steam run it again at the next launch.
+"InstallScript"
+{
+	"Run Process"
+	{
+		"InstalledBuild_26A003"
+		{
+			"HasRunKey"		"HKEY_LOCAL_MACHINE\\SOFTWARE\\Meowpuut\\SteamInstall"
+			"Process 1"		"%WinDir%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+			"Command 1"		"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%INSTALLDIR%\\Install.ps1\" -Steam"
+			"NoCleanUp"		"1"
+			"Requirement_OS"
+			{
+				"Is64BitWindows"	"1"
+			}
+		}
+	}
+	"Run Process On Uninstall"
+	{
+		"Meowpuut IME"
+		{
+			"Process 1"		"%WinDir%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+			"Command 1"		"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%INSTALLDIR%\\Install.ps1\" -Steam -Uninstall"
+		}
+	}
+}

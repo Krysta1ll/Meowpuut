@@ -29,7 +29,7 @@ for file in mimo_base.bin mimo_jp.bin mimo_pairs.bin associations.json never-vol
 done
 bash scripts/build-rust.sh macos
 swiftc -j "${MEOWPUUT_JOBS:-4}" $(bash scripts/build.sh --sources) scripts/GlassPreview.swift .build/rust/macosx/libmeowpuut_ffi.a \
-  -target "$(uname -m)-apple-macosx27.0" -import-objc-header Sources/Bridge.h -lsqlite3 \
+  -target "$(uname -m)-apple-macosx15.0" -import-objc-header Sources/Bridge.h -lsqlite3 \
   -framework AppKit -framework SwiftUI -framework Carbon -framework Metal -framework QuartzCore \
   -o "$BIN"
 cat > "$APP/Contents/Info.plist" <<'PLIST'

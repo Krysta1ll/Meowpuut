@@ -3,6 +3,8 @@
 
 #include "Blur.h"
 #include "Festival.h"
+#include "GlyphStrip.h"
+#include "GlyphText.h"
 #include "Scene.h"
 
 #include <d2d1.h>
@@ -162,6 +164,36 @@ float monitorScale(HMONITOR monitor) {
     return static_cast<float>(dpi > 0 ? dpi : 96) / 96.0f;
 }
 
+// The light-dismiss events Microsoft asks every IME window to raise ("IME requirements", IME
+// candidate window interaction with light dismiss surfaces), with the arguments of Microsoft's
+// SampleIME (CandidateWindow.cpp, _FireMessageToLightDismiss).
+void imeEvent(DWORD event, HWND window) {
+    if (window) NotifyWinEvent(event, window, OBJID_CLIENT, CHILDID_SELF);
+}
+
+// Borderless full-screen: the foreground window covers its whole monitor and has no title bar
+// (a maximised ordinary window keeps its caption; the desktop is not a program). Coordinates are
+// physical: callers run under DpiScope.
+//
+// Exclusive full-screen is not detected and cannot be helped: while a game owns the display
+// through an exclusive-mode swap chain, the desktop compositor shows no other window, this one
+// included. Only the game itself can show candidates there, through TSF's UI-less mode (the text
+// service's ITfCandidateListUIElement). Otherwise the person still types, without seeing the list.
+bool foregroundFillsMonitor() {
+    HWND front = GetForegroundWindow();
+    if (!front || front == GetShellWindow() || front == GetDesktopWindow()) return false;
+    if ((GetWindowLongPtrW(front, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;
+    wchar_t name[16] = {};
+    if (GetClassNameW(front, name, 16) && (lstrcmpW(name, L"Progman") == 0 || lstrcmpW(name, L"WorkerW") == 0)) return false;
+    RECT box{};
+    MONITORINFO info{};
+    info.cbSize = sizeof info;
+    const HMONITOR monitor = MonitorFromWindow(front, MONITOR_DEFAULTTONULL);
+    if (!monitor || !GetWindowRect(front, &box) || !GetMonitorInfoW(monitor, &info)) return false;
+    return box.left <= info.rcMonitor.left && box.top <= info.rcMonitor.top && box.right >= info.rcMonitor.right &&
+           box.bottom >= info.rcMonitor.bottom;
+}
+
 bool readDword(const wchar_t *path, const wchar_t *name, DWORD &out) {
     DWORD size = sizeof out;
     return RegGetValueW(HKEY_CURRENT_USER, path, name, RRF_RT_REG_DWORD, nullptr, &out, &size) == ERROR_SUCCESS;
@@ -307,7 +339,7 @@ private:
     std::unordered_map<std::string, std::list<Entry>::iterator> index_;
 };
 
-enum TimerId : UINT_PTR { kCatFrame = 1 };
+enum TimerId : UINT_PTR { kCatFrame = 1, kGlyphTick = 2 };
 
 // How long a cat's answer to a click lasts, in ms.
 constexpr ULONGLONG kReactionMs = 600;
@@ -339,9 +371,21 @@ void saveCandidateTextSize(CandidateTextSize size) {
     RegCloseKey(key);
 }
 
+CandidateSkin loadCandidateSkin() {
+    DWORD value = 0, length = sizeof value;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Meowpuut", L"CandidateSkin", RRF_RT_REG_DWORD, nullptr, &value, &length) ==
+            ERROR_SUCCESS &&
+        value == static_cast<DWORD>(CandidateSkin::Glyph))
+        return CandidateSkin::Glyph;
+    return CandidateSkin::Glass;
+}
+
 struct CandidateWindow::Impl {
     HINSTANCE instance = nullptr;
     HWND hwnd = nullptr;
+    HWND owner = nullptr;       // top-level window on this thread that owns hwnd, or null
+    int handling = 0;           // depth of handle(): hwnd is not replaced from inside its own messages
+    bool compact = false;       // borderless full-screen in front: the plain single row
     CandidateWindowOptions options;
     CandidateWindowCallbacks callbacks;
     bool comInitialized = false;
@@ -360,6 +404,7 @@ struct CandidateWindow::Impl {
     bool rendering = false;     // inside render(); guards against re-entry
     POINT position{0, 0};
     SIZE pixels{0, 0};
+    SIZE presented{0, 0};       // the size last handed to the window
 
     bool systemDark = false, transparency = true, highContrast = false;
 
@@ -378,6 +423,18 @@ struct CandidateWindow::Impl {
     HBITMAP dib = nullptr;
     HGDIOBJ oldBitmap = nullptr;
     UINT dibW = 0, dibH = 0;
+    void *dibBits = nullptr;    // the DIB's pixels, top-down, dibW * 4 bytes a row
+
+    // 字景 (GlyphStrip.h). The strip is created on first use; without the pixel fonts it stays null and the glass is drawn.
+    std::unique_ptr<DirectWriteGlyphText> glyphText;
+    std::unique_ptr<GlyphStripView> glyph;
+    bool glyphTried = false;
+    bool glyphFrame = false;    // the last frame drawn was the strip
+    SIZE glyphStripPx{0, 0};    // the strip inside the window (the rest is its drop shadow)
+    std::int64_t journeyCharacters = 0;
+    std::optional<GlyphKey> pendingKey; // the key that led to the model now held, applied by the next strip frame
+    CandidateViewModel previousModel;
+    bool hadPreviousModel = false;
 
     // Device-dependent: dropped together when the target is lost.
     Com<ID2D1DCRenderTarget> rt;
@@ -445,17 +502,54 @@ struct CandidateWindow::Impl {
             ++g_classUsers;
         }
         ReleaseSRWLockExclusive(&g_classLock);
-        // Created under per-monitor v2, the window stays that way whatever the
-        // host process is: its messages and coordinates are in physical pixels.
-        DpiScope dpi;
-        if (classRegistered)
-            CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"",
-                            WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, instance, this); // proc() stores hwnd
+        makeWindow(nullptr);
         memDC = CreateCompatibleDC(nullptr);
     }
 
+    // Top-level, topmost, never activated, no taskbar button; owned by `next` when given
+    // (Microsoft, "IME requirements", Owned window; SampleIME passes the view's window to
+    // CreateWindowEx the same way).
+    bool makeWindow(HWND next) {
+        if (!classRegistered) return false;
+        if (next && !IsWindow(next)) next = nullptr;
+        // Created under per-monitor v2, the window stays that way whatever the
+        // host process is: its messages and coordinates are in physical pixels.
+        // It is top-level (owned, not a child), so it may differ from its
+        // owner's DPI awareness ("Mixed-Mode DPI Scaling and DPI-aware APIs").
+        DpiScope dpi;
+        CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"", WS_POPUP,
+                        0, 0, 1, 1, next, nullptr, instance, this); // proc() stores hwnd
+        owner = hwnd ? next : nullptr;
+        return hwnd != nullptr;
+    }
+
+    void dropWindow() {
+        if (!hwnd) return;
+        if (GetCapture() == hwnd) ReleaseCapture();
+        DestroyWindow(hwnd); // WM_NCDESTROY clears hwnd and shown and raises the hide event; timers die with the window
+        hwnd = nullptr;
+        owner = nullptr;
+        hovered.reset();
+        pressed = {};
+        trackingLeave = false;
+        wheel = 0;
+        petStart[0] = petStart[1] = 0;
+    }
+
+    void setOwner(HWND window) {
+        HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
+        // A cross-thread owner attaches the threads' input queues (Raymond Chen, "Is it legal to have
+        // a cross-process parent/child or owner/owned window relationship?", The Old New Thing,
+        // 2013-04-12): one hung thread would then stall the other.
+        if (root && GetWindowThreadProcessId(root, nullptr) != GetCurrentThreadId()) root = nullptr;
+        if (hwnd && root == owner) return;
+        if (handling > 0 && hwnd) return; // replaced on a later call, outside this window's messages
+        dropWindow();
+        makeWindow(root);
+    }
+
     void destroy() {
-        if (hwnd) DestroyWindow(hwnd); // WM_NCDESTROY clears hwnd; timers die with the window
+        dropWindow();
         hwnd = nullptr;
         if (classRegistered) {
             AcquireSRWLockExclusive(&g_classLock);
@@ -464,6 +558,9 @@ struct CandidateWindow::Impl {
         }
         classRegistered = false;
         discardDevice();
+        if (hwnd) KillTimer(hwnd, kGlyphTick);
+        glyph.reset();
+        glyphText.reset();
         releaseDib();
         if (memDC) { DeleteDC(memDC); memDC = nullptr; }
         decoded.clear();
@@ -476,7 +573,8 @@ struct CandidateWindow::Impl {
         comInitialized = false;
     }
 
-    bool valid() const { return hwnd && memDC && d2dFactory && wic && text; }
+    // The window itself may be gone with its owner; showNear() makes a new one.
+    bool valid() const { return classRegistered && memDC && d2dFactory && wic && text; }
 
     std::wstring fontFamily() const { return options.simplified ? L"Microsoft YaHei UI" : L"Microsoft JhengHei UI"; }
     std::wstring locale() const { return options.simplified ? L"zh-CN" : L"zh-TW"; }
@@ -502,9 +600,10 @@ struct CandidateWindow::Impl {
     }
 
     Theme theme() const {
-        Theme t = makeTheme(dark() ? Appearance::Dark : Appearance::Light, options.palette, transparency, highContrast,
-                            sysColor(COLOR_WINDOW), sysColor(COLOR_WINDOWTEXT), sysColor(COLOR_HIGHLIGHT),
+        Theme t = makeTheme(dark() ? Appearance::Dark : Appearance::Light, options.palette, transparency && !compact,
+                            highContrast, sysColor(COLOR_WINDOW), sysColor(COLOR_WINDOWTEXT), sysColor(COLOR_HIGHLIGHT),
                             sysColor(COLOR_HIGHLIGHTTEXT), sysColor(COLOR_GRAYTEXT));
+        if (compact) t.causticCount = 0;
         if (outfitActive()) applyFestivalPill(t, *festival);
         return t;
     }
@@ -529,7 +628,7 @@ struct CandidateWindow::Impl {
         festivalLook = worn ? festivalArt(*worn) : nullptr;
     }
 
-    bool outfitActive() const { return options.festivalOutfits && festival.has_value() && !highContrast; }
+    bool outfitActive() const { return options.festivalOutfits && festival.has_value() && !highContrast && !compact; }
 
     // File behind a picture of the scene: a cat (catArt), or on a festival day
     // the dressed cats and the ornament cluster.
@@ -626,6 +725,7 @@ struct CandidateWindow::Impl {
         dib = nullptr;
         oldBitmap = nullptr;
         dibW = dibH = 0;
+        dibBits = nullptr;
     }
 
     void discardDevice() {
@@ -635,7 +735,8 @@ struct CandidateWindow::Impl {
         rt.reset();
     }
 
-    bool ensureTarget(UINT w, UINT h) {
+    // The top-down 32-bit DIB the frame is handed to the layered window from, at least w x h.
+    bool ensureDib(UINT w, UINT h) {
         if (w == 0 || h == 0 || w > 16384 || h > 16384) return false;
         if (!dib || w > dibW || h > dibH) {
             // Grow with some slack: the bar changes width on every keystroke.
@@ -654,7 +755,13 @@ struct CandidateWindow::Impl {
             oldBitmap = SelectObject(memDC, dib);
             dibW = newW;
             dibH = newH;
+            dibBits = bits;
         }
+        return true;
+    }
+
+    bool ensureTarget(UINT w, UINT h) {
+        if (!ensureDib(w, h)) return false;
         if (!rt) {
             // Software on purpose: an input method lives inside every
             // application, and a Direct3D device in each of them costs far
@@ -948,7 +1055,7 @@ struct CandidateWindow::Impl {
     CandidateViewModel frameModel() const {
         CandidateViewModel m = model;
         m.shape = options.shape;
-        m.decorations = !highContrast;
+        m.decorations = !highContrast && !compact; // the single row: no cats, so nothing to pet or animate
         m.festival = outfitActive() ? festivalLook : nullptr;
         m.hovered = hovered;
         if (pressed.kind == HitKind::Candidate) m.pressed = pressed.index;
@@ -960,11 +1067,123 @@ struct CandidateWindow::Impl {
         return m;
     }
 
+    // --- 字景 -----------------------------------------------------------------------------------------
+    // The strip needs its pixel fonts next to the DLL (Assets\fonts) and no high-contrast theme (that draws the
+    // plain bar in the system's own colours, which the glass's single row already does). Otherwise: the glass.
+    bool ensureGlyph() {
+        if (glyph) return true;
+        if (glyphTried) return false;
+        glyphTried = true;
+        glyphText = DirectWriteGlyphText::create(assetDir + L"\\fonts");
+        if (!glyphText) return false;
+        glyphText->setSimplified(options.simplified);
+        glyph = std::make_unique<GlyphStripView>(*glyphText);
+        if (!glyph->valid()) {
+            glyph.reset();
+            glyphText.reset();
+            return false;
+        }
+        return true;
+    }
+
+    bool useGlyph() { return options.skin == CandidateSkin::Glyph && !highContrast && ensureGlyph(); }
+
+    static std::int64_t tickMs() { return static_cast<std::int64_t>(GetTickCount64()); }
+
+    static std::int64_t unixMs() {
+        FILETIME ft{};
+        GetSystemTimeAsFileTime(&ft);
+        const std::uint64_t t = (static_cast<std::uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+        return static_cast<std::int64_t>(t / 10000 - 11644473600000ull); // 100 ns since 1601 -> ms since 1970
+    }
+
+    // Where the strip goes: its first word under the caret's left edge, 6 pt (k pixels each) below the caret, above
+    // it when there is no room, inside the work area.
+    POINT placeGlyph(SIZE size, unsigned k, double firstWordPt) const {
+        const LONG gap = static_cast<LONG>(6 * k);
+        LONG x = caret.left - static_cast<LONG>(std::lround(firstWordPt * static_cast<double>(k)));
+        LONG y = caret.bottom + gap;
+        if (y + size.cy > work.bottom) y = std::max(work.top, caret.top - gap - size.cy);
+        x = std::max(work.left, std::min(x, work.right - size.cx));
+        return {x, y};
+    }
+
+    bool renderGlyphFrame() {
+        DpiScope dpi;
+        GlyphStripView &g = *glyph;
+        GlyphLook look;
+        look.dark = dark();
+        look.level = 1;
+        look.still = !animationsOn();
+        look.safe = !transparency || look.still;
+        g.setLook(look);
+        g.setScale(static_cast<double>(scale));
+        g.setGame(compact);
+        g.setZhuyin(model.shiftNumbers);
+        g.setExpanded(model.expanded && !compact);
+        g.setDistance(journeyCharacters);
+        SYSTEMTIME now{};
+        GetLocalTime(&now);
+        g.setClock(now.wHour * 100 + now.wMinute, unixMs());
+        g.setCandidates(model.candidates, model.japanese, model.highlighted);
+        if (pendingKey) {
+            g.key(*pendingKey, tickMs());
+            pendingKey.reset();
+        }
+        const GlyphSize size = g.size();
+        if (size.pixelWidth == 0 || size.pixelHeight == 0 || !ensureDib(size.pixelWidth, size.pixelHeight) || !dibBits) return false;
+        if (!g.present(static_cast<std::uint8_t *>(dibBits), static_cast<std::size_t>(dibW) * 4, dibW, dibH)) return false;
+        pixels.cx = static_cast<LONG>(size.pixelWidth);
+        pixels.cy = static_cast<LONG>(size.pixelHeight);
+        glyphStripPx.cx = static_cast<LONG>(size.stripWidth);
+        glyphStripPx.cy = static_cast<LONG>(size.stripHeight);
+        const POINT before = position;
+        // Placement goes by the strip; the shadow may hang past the work area's edge.
+        if (haveCaret) position = placeGlyph(glyphStripPx, size.k, g.firstWordX());
+        const bool ok = commit(before, pixels);
+        if (ok) rescheduleGlyph();
+        return ok;
+    }
+
+    // One timer for everything the strip wants next: the land after a key, a 12 Hz step, one more atlas frame.
+    void rescheduleGlyph() {
+        if (!hwnd) return;
+        const int delay = glyph && shown ? glyph->nextDelayMs(tickMs()) : -1;
+        if (delay < 0) KillTimer(hwnd, kGlyphTick);
+        else SetTimer(hwnd, kGlyphTick, static_cast<UINT>(std::max(delay, 1)), nullptr);
+    }
+
+    void onGlyphTimer() {
+        if (!glyph || !glyphFrame || !shown) {
+            if (hwnd) KillTimer(hwnd, kGlyphTick);
+            return;
+        }
+        if (glyph->tick(tickMs())) {
+            dirty = true;
+            render(); // reschedules itself
+            return;
+        }
+        rescheduleGlyph();
+    }
+
+    // What the pointer is on, for either look.
+    Hit hitAtClient(LPARAM lp) const {
+        if (glyphFrame && glyph) {
+            const double k = static_cast<double>(std::max(1u, glyph->k()));
+            const GlyphHit h = glyph->hit(GET_X_LPARAM(lp) / k, GET_Y_LPARAM(lp) / k);
+            Hit out;
+            if (h.kind == GlyphHitKind::Candidate) { out.kind = HitKind::Candidate; out.index = h.index; }
+            else if (h.kind == GlyphHitKind::Arrow) out.kind = HitKind::Expand;
+            return out;
+        }
+        return hitTest(layout, clientDips(lp));
+    }
+
     // Draws the current content and hands it to the window. False when
     // nothing new reached the screen.
     bool render() {
         dirty = false;
-        if (!valid() || !hasModel) return false;
+        if (!valid() || !hasModel || !hwnd) return false;
         if (rendering) {
             // Reached from a message sent while this frame is being presented.
             dirty = true;
@@ -978,6 +1197,17 @@ struct CandidateWindow::Impl {
     }
 
     bool renderFrame() {
+        if (useGlyph()) {
+            glyphFrame = true;
+            if (renderGlyphFrame()) return true;
+            // Not drawn (a failed bitmap): the glass keeps the window useful.
+        }
+        glyphFrame = false;
+        if (hwnd) KillTimer(hwnd, kGlyphTick);
+        return renderGlassFrame();
+    }
+
+    bool renderGlassFrame() {
         DpiScope dpi;
         const CandidateViewModel m = frameModel();
         LayoutLimits limits;
@@ -1006,21 +1236,31 @@ struct CandidateWindow::Impl {
         }
         if (!drawn) return false;
 
+        const POINT before = position;
         if (haveCaret) {
             const PixelPoint at = placeNearCaret(layout, scale, {caret.left, caret.top, caret.right, caret.bottom},
                                                  {work.left, work.top, work.right, work.bottom});
             position.x = at.x;
             position.y = at.y;
         }
-        // The DIB holds premultiplied BGRA, which is what ULW_ALPHA expects.
+        return commit(before, pixels);
+    }
+
+    // The DIB holds premultiplied BGRA, which is what ULW_ALPHA expects. Hands it to the window at `position`
+    // and tells the light-dismiss surfaces when the window moved or changed size.
+    bool commit(const POINT &before, SIZE size) {
         POINT source{0, 0};
-        SIZE size = pixels;
         BLENDFUNCTION blend;
         blend.BlendOp = AC_SRC_OVER;
         blend.BlendFlags = 0;
         blend.SourceConstantAlpha = 255;
         blend.AlphaFormat = AC_SRC_ALPHA;
-        return UpdateLayeredWindow(hwnd, nullptr, &position, &size, memDC, &source, 0, &blend, ULW_ALPHA) != FALSE;
+        if (!UpdateLayeredWindow(hwnd, nullptr, &position, &size, memDC, &source, 0, &blend, ULW_ALPHA)) return false;
+        if (shown && (before.x != position.x || before.y != position.y || presented.cx != size.cx ||
+                      presented.cy != size.cy))
+            imeEvent(EVENT_OBJECT_IME_CHANGE, hwnd);
+        presented = size;
+        return true;
     }
 
     // One redraw on the next trip through the message loop, however many
@@ -1038,8 +1278,12 @@ struct CandidateWindow::Impl {
             return;
         }
         DpiScope dpi;
+        // Gone with its owner (owned windows are destroyed with it): a new one, owned by the same
+        // window if that still exists.
+        if (!hwnd && !makeWindow(owner)) return;
         caret = where;
         haveCaret = true;
+        compact = foregroundFillsMonitor();
         const HMONITOR monitor = MonitorFromRect(&where, MONITOR_DEFAULTTONEAREST);
         MONITORINFO info{};
         info.cbSize = sizeof info;
@@ -1055,6 +1299,8 @@ struct CandidateWindow::Impl {
         shown = true;
         // Shows and raises the window without taking the focus.
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        imeEvent(EVENT_OBJECT_IME_SHOW, hwnd);
+        if (glyphFrame) rescheduleGlyph();
     }
 
     void hide() {
@@ -1068,6 +1314,7 @@ struct CandidateWindow::Impl {
             if (GetCapture() == hwnd) ReleaseCapture();
             stopTimers();
             ShowWindow(hwnd, SW_HIDE);
+            imeEvent(EVENT_OBJECT_IME_HIDE, hwnd);
         }
     }
 
@@ -1076,7 +1323,9 @@ struct CandidateWindow::Impl {
     // that runs only while the window is on screen. With the system's
     // animations off the cat stays still.
     void stopTimers() {
-        KillTimer(hwnd, kCatFrame);
+        if (hwnd) KillTimer(hwnd, kCatFrame); // never KillTimer(nullptr, …): that is the host's thread timer
+        if (hwnd) KillTimer(hwnd, kGlyphTick);
+        if (glyph) glyph->idle();
         petStart[0] = petStart[1] = 0;
     }
 
@@ -1139,10 +1388,19 @@ struct CandidateWindow::Impl {
         switch (msg) {
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE; // a click on a candidate never takes the focus from the text field
+        case WM_POINTERACTIVATE:
+            return PA_NOACTIVATE; // nor a touch or a pen (SampleIME answers the same)
         case WM_NCHITTEST:
             // The shadow around the glass lets clicks through to the window below.
+            if (glyphFrame) {
+                // The strip is clickable; its hard drop shadow (the window's right and bottom edge) lets clicks through.
+                POINT at{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                ScreenToClient(hwnd, &at);
+                return at.x < glyphStripPx.cx && at.y < glyphStripPx.cy ? HTCLIENT : HTTRANSPARENT;
+            }
             return coversPoint(layout, screenDips(lp)) ? HTCLIENT : HTTRANSPARENT;
         case WM_MOUSEMOVE: {
+            if (glyphFrame) return 0; // the strip has no hover look: nothing to redraw
             const Hit hit = hitTest(layout, clientDips(lp));
             std::optional<std::size_t> next;
             if (hit.kind == HitKind::Candidate) next = hit.index;
@@ -1167,16 +1425,16 @@ struct CandidateWindow::Impl {
             }
             return 0;
         case WM_LBUTTONDOWN:
-            pressed = hitTest(layout, clientDips(lp));
+            pressed = hitAtClient(lp);
             SetCapture(hwnd);
-            if (pressed.kind == HitKind::Candidate) requestRedraw();
+            if (pressed.kind == HitKind::Candidate && !glyphFrame) requestRedraw();
             return 0;
         case WM_LBUTTONUP: {
             const Hit down = pressed;
             pressed = {};
             if (GetCapture() == hwnd) ReleaseCapture();
-            if (down.kind == HitKind::Candidate) requestRedraw();
-            const Hit hit = hitTest(layout, clientDips(lp));
+            if (down.kind == HitKind::Candidate && !glyphFrame) requestRedraw();
+            const Hit hit = hitAtClient(lp);
             if (down.kind == HitKind::None || hit.kind != down.kind || hit.index != down.index) return 0;
             // A callback may update, move or hide the window; nothing below touches state.
             switch (hit.kind) {
@@ -1209,12 +1467,13 @@ struct CandidateWindow::Impl {
             POINT p{0, 0};
             Hit hit;
             if (GetCursorPos(&p) && ScreenToClient(hwnd, &p))
-                hit = hitTest(layout, {static_cast<float>(p.x) / scale, static_cast<float>(p.y) / scale});
+                hit = hitAtClient(MAKELPARAM(static_cast<WORD>(static_cast<short>(p.x)), static_cast<WORD>(static_cast<short>(p.y))));
             SetCursor(LoadCursorW(nullptr, hit.kind != HitKind::None ? IDC_HAND : IDC_ARROW));
             return TRUE;
         }
         case WM_TIMER:
-            onTimer(wp);
+            if (wp == kGlyphTick) onGlyphTimer();
+            else onTimer(wp);
             return 0;
         case WM_SETTINGCHANGE:
             settingsChanged();
@@ -1253,14 +1512,20 @@ struct CandidateWindow::Impl {
         auto *impl = reinterpret_cast<Impl *>(GetWindowLongPtrW(window, GWLP_USERDATA));
         if (!impl) return DefWindowProcW(window, msg, wp, lp);
         if (msg == WM_NCDESTROY) {
-            // Also reached when something else destroys the window (thread exit).
+            // Also reached when something else destroys the window: its owner going away, or the
+            // thread ending. showNear() makes a new one.
+            if (impl->shown) imeEvent(EVENT_OBJECT_IME_HIDE, window);
             SetWindowLongPtrW(window, GWLP_USERDATA, 0);
             impl->hwnd = nullptr;
+            impl->owner = nullptr;
             impl->shown = false;
             impl->redrawPosted = false;
             return DefWindowProcW(window, msg, wp, lp);
         }
-        return impl->handle(msg, wp, lp);
+        ++impl->handling;
+        const LRESULT result = impl->handle(msg, wp, lp);
+        --impl->handling;
+        return result;
     }
 };
 
@@ -1277,12 +1542,25 @@ CandidateWindow::~CandidateWindow() { impl_->destroy(); }
 bool CandidateWindow::valid() const { return impl_->valid(); }
 
 void CandidateWindow::update(const CandidateViewModel &model) {
+    Impl &m = *impl_;
+    // Which key led here, for the strip's cats: the typed text grew or shrank (a letter, delete), the page or the
+    // highlight moved (←, →, Tab, page keys). The first model after the window was hidden is a letter.
+    m.pendingKey.reset();
+    if (!m.hadPreviousModel || !m.shown) m.pendingKey = GlyphKey::Letter;
+    else if (model.preedit != m.previousModel.preedit)
+        m.pendingKey = model.preedit.size() < m.previousModel.preedit.size() ? GlyphKey::Delete : GlyphKey::Letter;
+    else if (model.candidates != m.previousModel.candidates || model.highlighted != m.previousModel.highlighted)
+        m.pendingKey = GlyphKey::Other;
+    m.previousModel = model;
+    m.hadPreviousModel = true;
     impl_->model = model;
     impl_->hasModel = true;
     if (impl_->hovered && *impl_->hovered >= model.candidates.size()) impl_->hovered.reset();
     impl_->pressed = {};
     if (impl_->shown) impl_->requestRedraw();
 }
+
+void CandidateWindow::setOwner(HWND window) { impl_->setOwner(window); }
 
 void CandidateWindow::showNear(const RECT &caret) { impl_->showNear(caret); }
 
@@ -1294,6 +1572,7 @@ void CandidateWindow::setOptions(const CandidateWindowOptions &options) {
     const bool assets = options.assetDirectory != impl_->options.assetDirectory;
     impl_->options = options;
     if (impl_->text) impl_->text->setFamily(impl_->fontFamily(), impl_->locale());
+    if (impl_->glyphText) impl_->glyphText->setSimplified(options.simplified);
     if (assets) {
         impl_->assetDir = options.assetDirectory.empty() ? moduleDirectory() + L"\\Assets" : options.assetDirectory;
         impl_->decoded.clear();
@@ -1304,6 +1583,10 @@ void CandidateWindow::setOptions(const CandidateWindowOptions &options) {
 }
 
 const CandidateWindowOptions &CandidateWindow::options() const { return impl_->options; }
+
+void CandidateWindow::setJourney(std::int64_t committedCharacters) { impl_->journeyCharacters = committedCharacters; }
+
+bool CandidateWindow::glyphShown() const { return impl_->glyphFrame && impl_->shown; }
 
 void CandidateWindow::refreshSystemTheme() { impl_->settingsChanged(); }
 

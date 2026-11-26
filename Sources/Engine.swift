@@ -60,39 +60,56 @@ struct PhraseModule: Codable, Identifiable {
     var phrases: [String]
 }
 
+#if os(iOS)
+typealias SettingsStore = UserDefaults
+#endif
+
 final class Preferences: ObservableObject {
     static let shared = Preferences()
-    static let testing = CommandLine.arguments.contains("--smoke-languages") || CommandLine.arguments.contains("--smoke")
+    static let testing = CommandLine.arguments.contains("--smoke-languages") || CommandLine.arguments.contains("--smoke") || CommandLine.arguments.contains("--glyph-shots")
     static let enginePreview = Bundle.main.bundleIdentifier == "app.meowpuut.EnginePreview"
-    private let defaults = Preferences.testing ? UserDefaults(suiteName: "app.meowpuut.smoke")! : UserDefaults.standard
-    @Published var simplified: Bool { didSet { defaults.set(simplified, forKey: "simplified") } }
-    @Published var modulesEnabled: Bool { didSet { defaults.set(modulesEnabled, forKey: "modulesEnabled") } }
-    @Published var rememberChoices: Bool { didSet { defaults.set(rememberChoices, forKey: "rememberChoices") } }
+    /// macOS: the settings file (Sources/SettingsStore.swift, docs/SETTINGS.md). iOS keeps its UserDefaults.
+    #if os(macOS)
+    let defaults: SettingsStore
+    #else
+    private let defaults = UserDefaults.standard
+    #endif
+    /// True while `load()` sets the stored values, so that reading them is not writing them.
+    private var loading = false
+    /// Posted on the main queue when another process (the companion app) changed the settings file.
+    static let externalChange = Notification.Name("app.meowpuut.preferences.external")
+    private func save(_ value: Any?, _ key: String) { if !loading { defaults.set(value, forKey: key) } }
+    @Published var simplified: Bool = false { didSet { save(simplified, "simplified") } }
+    @Published var modulesEnabled: Bool = true { didSet { save(modulesEnabled, "modulesEnabled") } }
+    @Published var rememberChoices: Bool = true { didSet { save(rememberChoices, "rememberChoices") } }
     /// 中日混打: Japanese words inside Zhuyin-free Chinese typing (Pinyin and nine-key). Off for a new
     /// install; an install that predates the switch keeps its old behaviour (on), written once.
-    @Published var mixJapanese: Bool { didSet { defaults.set(mixJapanese, forKey: "mixJapanese") } }
-    @Published var catGlassSkin: Bool { didSet { defaults.set(catGlassSkin, forKey: "catGlassSkin") } }
+    @Published var mixJapanese: Bool = false { didSet { save(mixJapanese, "mixJapanese") } }
+    @Published var catGlassSkin: Bool = true { didSet { save(catGlassSkin, "catGlassSkin") } }
     /// Where the cats sit: `CatSchedule.daily`, or one arrangement's id.
-    @Published var catPlacement: String { didSet { defaults.set(catPlacement, forKey: "catPlacement") } }
-    @Published var candidateTone: CandidateTone { didSet { defaults.set(candidateTone.rawValue, forKey: "candidateTone") } }
+    @Published var catPlacement: String = CatSchedule.daily { didSet { save(catPlacement, "catPlacement") } }
+    @Published var candidateTone: CandidateTone = .system { didSet { save(candidateTone.rawValue, "candidateTone") } }
     #if os(macOS)
     @Published var candidateTextSize: CandidateTextSize = .standard {
-        didSet { defaults.set(candidateTextSize.rawValue, forKey: "candidateTextSize") }
+        didSet { save(candidateTextSize.rawValue, "candidateTextSize") }
     }
     @Published var candidateWindowSize: CandidateWindowSize = .standard {
-        didSet { defaults.set(candidateWindowSize.rawValue, forKey: "candidateWindowSize") }
+        didSet { save(candidateWindowSize.rawValue, "candidateWindowSize") }
     }
+    /// The candidate window's skin (docs/SETTINGS.md `candidateSkin`): the glass, or 字景. The companion app writes it
+    /// when the worn skin changes in the closet; the input method only reads it (nothing here writes the key).
+    @Published var candidateSkin: CandidateSkin = .glass
     #endif
-    @Published var glassStrength: GlassStrength { didSet { defaults.set(glassStrength.rawValue, forKey: "glassStrength") } }
-    @Published var candidatePalette: CandidatePalette { didSet { defaults.set(candidatePalette.rawValue, forKey: "candidatePalette") } }
-    @Published var glassShape: GlassShape { didSet { defaults.set(glassShape.rawValue, forKey: "glassShape") } }
+    @Published var glassStrength: GlassStrength = .balanced { didSet { save(glassStrength.rawValue, "glassStrength") } }
+    @Published var candidatePalette: CandidatePalette = .rose { didSet { save(candidatePalette.rawValue, "candidatePalette") } }
+    @Published var glassShape: GlassShape = .capsule { didSet { save(glassShape.rawValue, "glassShape") } }
     // The festival wardrobe (docs/FESTIVALS.md): the master switch and the themes switched off.
-    @Published var festivalOutfits: Bool { didSet { defaults.set(festivalOutfits, forKey: "festivalOutfits") } }
-    @Published var festivalsSkipped: [String] { didSet { defaults.set(festivalsSkipped, forKey: "festivalsSkipped") } }
+    @Published var festivalOutfits: Bool = true { didSet { save(festivalOutfits, "festivalOutfits") } }
+    @Published var festivalsSkipped: [String] = [] { didSet { save(festivalsSkipped, "festivalsSkipped") } }
     var festivalWardrobe: FestivalWardrobe { FestivalWardrobe(on: festivalOutfits, skipped: Set(festivalsSkipped)) }
     /// Typing sounds: off by default, as the Mac's own keyboard already makes a sound.
-    @Published var keySound: KeySound { didSet { defaults.set(keySound.rawValue, forKey: "keySound") } }
-    @Published var keySoundVolume: Int { didSet { defaults.set(keySoundVolume, forKey: "keySoundVolume") } }
+    @Published var keySound: KeySound = .off { didSet { save(keySound.rawValue, "keySound") } }
+    @Published var keySoundVolume: Int = 100 { didSet { save(keySoundVolume, "keySoundVolume") } }
     var inputMode: InputMode {
         get { InputMode(rawValue: defaults.string(forKey: "inputMode") ?? "") ?? .zhuyin }
         set { defaults.set(newValue.rawValue, forKey: "inputMode") }
@@ -103,7 +120,7 @@ final class Preferences: ObservableObject {
     }
     @Published var modules: [PhraseModule] = []
     @Published var moduleError = ""
-    @Published var pins: [String: String] { didSet { defaults.set(pins, forKey: "candidatePins") } }
+    @Published var pins: [String: String] = [:] { didSet { save(pins, "candidatePins") } }
     static let directory = testing
         ? FileManager.default.temporaryDirectory.appendingPathComponent("Meowpuut-Smoke-\(ProcessInfo.processInfo.processIdentifier)")
         : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -115,14 +132,22 @@ final class Preferences: ObservableObject {
     /// Whether an earlier version has run here: stored settings, its modules folder (made on the first run
     /// of every version before this one) or, on iOS, the app's settings file. Must be asked before this
     /// version writes anything.
-    private static func hasEarlierSettings(_ defaults: UserDefaults) -> Bool {
+    private static func hasEarlierSettings(_ defaults: SettingsStore) -> Bool {
         if earlierSettingKeys.contains(where: { defaults.object(forKey: $0) != nil }) { return true }
         #if os(iOS)
         if SharedKeyboardSettings.read() != nil { return true }
         #endif
         return !testing && FileManager.default.fileExists(atPath: directory.appendingPathComponent("Modules").path)
     }
+    /// 中日混打 when nothing is stored: off for a new install, on for one that predates the switch.
+    private var mixFallback = false
     private init() {
+        #if os(macOS)
+        let legacy = (Preferences.testing ? UserDefaults(suiteName: "app.meowpuut.smoke")?.persistentDomain(forName: "app.meowpuut.smoke")
+                      : UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")) ?? [:]
+        // The first launch of the version that has the file copies the old settings into it; the old domain stays as it was.
+        defaults = SettingsStore(directory: Preferences.directory, legacy: legacy, keys: Self.earlierSettingKeys + ["mixJapanese"])
+        #endif
         let earlier = Self.hasEarlierSettings(defaults)
         if !earlier {
             // First run: the input mode and script of the system language and region. Only the result is stored.
@@ -135,8 +160,25 @@ final class Preferences: ObservableObject {
         if storedMix == nil { storedMix = SharedKeyboardSettings.read()?.mixJapanese }
         #endif
         let mix = MixJapaneseDefault.resolve(stored: storedMix, existingInstall: earlier)
-        mixJapanese = mix.value
+        mixFallback = mix.value
         if mix.needsWrite { defaults.set(mix.value, forKey: "mixJapanese") }
+        load()
+        reload()
+        #if os(macOS)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [defaults] _ in defaults.flush() }
+        defaults.onExternalChange = { [weak self] in
+            self?.load()
+            NotificationCenter.default.post(name: Preferences.externalChange, object: nil)
+        }
+        #endif
+    }
+
+    /// Sets every published setting from the store (start, and when the settings file was changed by another process).
+    /// Reading is not writing: nothing is stored from here.
+    private func load() {
+        loading = true
+        defer { loading = false }
+        mixJapanese = defaults.object(forKey: "mixJapanese") as? Bool ?? mixFallback
         // 米米莫 and 莫莫 are the default on every platform.
         catGlassSkin = defaults.object(forKey: "catGlassSkin") as? Bool ?? true
         catPlacement = defaults.string(forKey: "catPlacement") ?? CatSchedule.daily
@@ -149,6 +191,7 @@ final class Preferences: ObservableObject {
         #if os(macOS)
         candidateTextSize = defaults.string(forKey: "candidateTextSize").flatMap(CandidateTextSize.init(rawValue:)) ?? .standard
         candidateWindowSize = defaults.string(forKey: "candidateWindowSize").flatMap(CandidateWindowSize.init(rawValue:)) ?? .standard
+        candidateSkin = CandidateSkin.stored(defaults.string(forKey: "candidateSkin"))
         #endif
         glassStrength = GlassStrength(rawValue: defaults.string(forKey: "glassStrength") ?? "") ?? .balanced
         candidatePalette = CandidatePalette(rawValue: defaults.string(forKey: "candidatePalette") ?? "") ?? .rose
@@ -156,8 +199,13 @@ final class Preferences: ObservableObject {
         modulesEnabled = defaults.object(forKey: "modulesEnabled") as? Bool ?? true
         rememberChoices = defaults.object(forKey: "rememberChoices") as? Bool ?? (Self.testing || !Self.enginePreview)
         pins = defaults.dictionary(forKey: "candidatePins") as? [String: String] ?? [:]
-        reload()
     }
+
+    #if os(macOS)
+    /// Writes held changes now, and takes in a change another process made to the file.
+    func flushSettings() { defaults.flush() }
+    func refreshSettings() { defaults.refreshIfChanged() }
+    #endif
 
     func reload() {
         do {

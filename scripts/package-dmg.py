@@ -11,14 +11,14 @@ app = root / '.build/Meowpuut.app'
 build = plistlib.loads((app / 'Contents/Info.plist').read_bytes())['CFBundleVersion']
 label = os.environ.get('MEOWPUUT_RELEASE_LABEL', f'Sill-26A{int(build):03d}')
 out = Path(os.environ.get('MEOWPUUT_RELEASE_DIR', root / '.build/releases')).resolve()
-package = out / f'Meowpuut-{label}-arm64.pkg'
+package = out / f'Meowpuut-{label}-universal.pkg'
 assert package.is_file(), 'Build the fallback package first'
-dmg = out / f'Meowpuut-{label}-arm64.dmg'
+dmg = out / f'Meowpuut-{label}-universal.dmg'
 instructions = root / '.build/installer-resources/安裝說明.txt'
 instructions.parent.mkdir(parents=True, exist_ok=True)
 instructions.write_text(
-    '把 Meowpuut.app 拖到右側的「輸入法」資料夾，再登出並重新登入。\n'
-    '在「系統設定 → 鍵盤 → 文字輸入 → 編輯」加入 Meowpuut。\n\n'
+    '把 Meowpuut.app 拖到右側的「輸入法」資料夾。\n'
+    '在「系統設定 → 鍵盤 → 文字輸入 → 編輯」加入 Meowpuut；清單裡找不到時，登出再登入一次。\n\n'
     '更新時若系統提示喵撲正在使用，可從發行頁面下載同版本的安裝套件：\n'
     'https://github.com/Krysta1ll/Meowpuut/releases\n'
     f'{package.name}\n',

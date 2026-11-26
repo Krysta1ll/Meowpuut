@@ -1,0 +1,1012 @@
+{
+  "poses": {
+    "mimimo_walk_1": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2222,
+        0.1302,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 1,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.2569,
+          0.8854
+        ],
+        [
+          0.4427,
+          0.8958
+        ],
+        [
+          0.5503,
+          0.901
+        ],
+        [
+          0.7257,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f02": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2257,
+        0.1354,
+        0.7882,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 2,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.5451,
+          0.8906
+        ],
+        [
+          0.7309,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f03": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2292,
+        0.1667,
+        0.7882,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 3,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.4115,
+          0.8906
+        ],
+        [
+          0.5469,
+          0.901
+        ],
+        [
+          0.7378,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_2": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2257,
+        0.1875,
+        0.7882,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 4,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.4045,
+          0.8958
+        ],
+        [
+          0.5469,
+          0.901
+        ],
+        [
+          0.7292,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f05": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2292,
+        0.1667,
+        0.7882,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 5,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.6927,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f06": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2326,
+        0.1354,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 6,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.6441,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_3": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2326,
+        0.125,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 7,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3628,
+          0.901
+        ],
+        [
+          0.6233,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f08": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2257,
+        0.1042,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 8,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3351,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f09": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2188,
+        0.099,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 9,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.2865,
+          0.901
+        ],
+        [
+          0.4462,
+          0.8802
+        ]
+      ]
+    },
+    "mimimo_walk_4": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2118,
+        0.099,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 10,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.2465,
+          0.8958
+        ],
+        [
+          0.4392,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f11": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1979,
+        0.099,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 11,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.2361,
+          0.8906
+        ],
+        [
+          0.4427,
+          0.901
+        ]
+      ]
+    },
+    "mimimo_walk_f12": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2083,
+        0.1146,
+        0.7847,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "mimimo_walk",
+        "frame": 12,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.2448,
+          0.901
+        ],
+        [
+          0.4462,
+          0.901
+        ],
+        [
+          0.5729,
+          0.8802
+        ]
+      ]
+    },
+    "mimimo_turn": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.1927,
+        0.1302,
+        0.7969,
+        0.901
+      ],
+      "source": "3d"
+    },
+    "mimimo_look_up": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.1823,
+        0.026,
+        0.8177,
+        0.901
+      ],
+      "source": "gpt"
+    },
+    "mimimo_lift": {
+      "size": [
+        64,
+        80
+      ],
+      "anchor": [
+        0.5,
+        0.06
+      ],
+      "facing": "front",
+      "bounds": [
+        0.2396,
+        0.0583,
+        0.7604,
+        0.775
+      ],
+      "source": "gpt",
+      "anchorKind": "scruff (nominal: top centre of the canvas; not measured)"
+    },
+    "mimimo_fall": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.2135,
+        0.1771,
+        0.7917,
+        0.901
+      ],
+      "source": "3d"
+    },
+    "momo_walk_1": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1979,
+        0.1042,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 1,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3403,
+          0.8802
+        ],
+        [
+          0.4809,
+          0.8906
+        ],
+        [
+          0.7118,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f02": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2014,
+        0.1146,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 2,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.4392,
+          0.901
+        ],
+        [
+          0.5486,
+          0.8854
+        ],
+        [
+          0.7135,
+          0.8958
+        ]
+      ]
+    },
+    "momo_walk_f03": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2049,
+        0.125,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 3,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.375,
+          0.901
+        ],
+        [
+          0.5573,
+          0.8854
+        ],
+        [
+          0.6944,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_2": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.2049,
+        0.1302,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 4,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.342,
+          0.8906
+        ],
+        [
+          0.5642,
+          0.8802
+        ],
+        [
+          0.6736,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f05": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1979,
+        0.1198,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 5,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.6597,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f06": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1875,
+        0.1094,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 6,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.6493,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_3": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.184,
+        0.099,
+        0.809,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 7,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3872,
+          0.8906
+        ],
+        [
+          0.6389,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f08": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.184,
+        0.0938,
+        0.8056,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 8,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3611,
+          0.8958
+        ],
+        [
+          0.6181,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f09": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1875,
+        0.099,
+        0.8056,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 9,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3438,
+          0.8906
+        ],
+        [
+          0.6042,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_4": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.191,
+        0.099,
+        0.8056,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 10,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3316,
+          0.8854
+        ],
+        [
+          0.6094,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f11": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1944,
+        0.1042,
+        0.8056,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 11,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3212,
+          0.8854
+        ],
+        [
+          0.6389,
+          0.901
+        ]
+      ]
+    },
+    "momo_walk_f12": {
+      "size": [
+        96,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "right",
+      "bounds": [
+        0.1979,
+        0.1042,
+        0.8056,
+        0.901
+      ],
+      "source": "3d",
+      "cycle": {
+        "id": "momo_walk",
+        "frame": 12,
+        "of": 12
+      },
+      "contacts": [
+        [
+          0.3212,
+          0.8906
+        ],
+        [
+          0.6806,
+          0.901
+        ]
+      ]
+    },
+    "momo_turn": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.1927,
+        0.1198,
+        0.8021,
+        0.901
+      ],
+      "source": "3d"
+    },
+    "momo_look_up": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.1771,
+        0.0104,
+        0.8229,
+        0.901
+      ],
+      "source": "gpt"
+    },
+    "momo_lift": {
+      "size": [
+        64,
+        80
+      ],
+      "anchor": [
+        0.4986,
+        0.1278
+      ],
+      "facing": "front",
+      "bounds": [
+        0.2188,
+        0.0417,
+        0.7708,
+        0.7667
+      ],
+      "source": "3d",
+      "anchorKind": "scruff (measured on the rig)"
+    },
+    "momo_fall": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.1719,
+        0.0885,
+        0.8229,
+        0.901
+      ],
+      "source": "3d"
+    },
+    "momo_sleep": {
+      "size": [
+        64,
+        64
+      ],
+      "anchor": [
+        0.5,
+        0.9
+      ],
+      "facing": "front",
+      "bounds": [
+        0.2031,
+        0.3125,
+        0.7969,
+        0.901
+      ],
+      "source": "gpt"
+    }
+  },
+  "cycles": {
+    "mimimo_walk": [
+      "mimimo_walk_1",
+      "mimimo_walk_f02",
+      "mimimo_walk_f03",
+      "mimimo_walk_2",
+      "mimimo_walk_f05",
+      "mimimo_walk_f06",
+      "mimimo_walk_3",
+      "mimimo_walk_f08",
+      "mimimo_walk_f09",
+      "mimimo_walk_4",
+      "mimimo_walk_f11",
+      "mimimo_walk_f12"
+    ],
+    "momo_walk": [
+      "momo_walk_1",
+      "momo_walk_f02",
+      "momo_walk_f03",
+      "momo_walk_2",
+      "momo_walk_f05",
+      "momo_walk_f06",
+      "momo_walk_3",
+      "momo_walk_f08",
+      "momo_walk_f09",
+      "momo_walk_4",
+      "momo_walk_f11",
+      "momo_walk_f12"
+    ]
+  },
+  "fps": 12,
+  "playback": {
+    "mimimo_walk": "loop",
+    "momo_walk": "loop"
+  },
+  "note": "anchor and bounds are fractions of the sprite canvas; contacts are [x, y] of each paw on the cycle's floor; right-facing poses are mirrored by the shell for left; a cycle's frames are in order and its key poses walk_1 to walk_4 sit on every (frames / 4)th one: a step driven by a key advances that many frames and lands on a key pose; playback at fps shows every frame"
+}

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds the Rust engine (crates/meowpuut-ffi) as a static library.
 #
-#   bash scripts/build-rust.sh macos              -> .build/rust/macosx/libmeowpuut_ffi.a
+#   bash scripts/build-rust.sh macos              -> .build/rust/macosx/libmeowpuut_ffi.a (arm64 + x86_64)
 #   bash scripts/build-rust.sh iphoneos           -> .build/rust/iphoneos/libmeowpuut_ffi.a
 #   bash scripts/build-rust.sh iphonesimulator    -> .build/rust/iphonesimulator/libmeowpuut_ffi.a (arm64 + x86_64)
 #   bash scripts/build-rust.sh xcode              -> uses $PLATFORM_NAME / $ARCHS / $CONFIGURATION from Xcode
@@ -17,12 +17,15 @@ fi
 mode="${1:-macos}"
 profile="release"
 archs=""
+features=""
 case "$mode" in
   xcode)
     platform="${PLATFORM_NAME:?PLATFORM_NAME is set by Xcode}"
     archs="${ARCHS:-arm64}"
     ;;
-  macos) platform="macosx"; archs="$(uname -m)" ;;
+  # The Mac input method (and 喵撲貓窩, which links the same library) carries the 字景 candidate strip
+  # (mp_glyph_strip_*, MEOWPUUT_GLYPH in Sources/Bridge.h's header); the phone libraries never do.
+  macos) platform="macosx"; archs="arm64 x86_64"; features="--features glyph" ;;
   iphoneos) platform="iphoneos"; archs="arm64" ;;
   iphonesimulator) platform="iphonesimulator"; archs="arm64 x86_64" ;;
   windows)
@@ -44,7 +47,7 @@ triple_for() {
 
 # Rust reads these to stamp the same minimum OS version Xcode links with.
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
-export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-27.0}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.0}"
 # Xcode exports SDKROOT/LIBRARY_PATH for the app's platform; they must not leak
 # into host build scripts or cross targets.
 unset SDKROOT LIBRARY_PATH
@@ -55,7 +58,7 @@ libs=()
 for arch in $archs; do
   triple="$(triple_for "$arch")"
   rustup target list --installed | grep -qx "$triple" || rustup target add "$triple"
-  cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --profile "$profile" -p meowpuut-ffi --target "$triple" --crate-type staticlib
+  cargo rustc --locked --manifest-path Engine/Cargo.toml --target-dir target --profile "$profile" -p meowpuut-ffi $features --target "$triple" --crate-type staticlib
   libs+=("target/$triple/$profile/libmeowpuut_ffi.a")
 done
 if [ "${#libs[@]}" -gt 1 ]; then

@@ -1,0 +1,21 @@
+{
+  "name": "meowpuut-companion",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "喵撲 Meowpuut PC companion app (Tauri 2 thin view): home keyboard, 行旅, 鍵盤衣櫥, 爪印本, 鍵盤設定.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

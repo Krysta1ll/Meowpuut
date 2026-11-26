@@ -1,0 +1,132 @@
+{
+  "artwork": "3D renders, clay-3d-stage1 round-9 (desk-3d.json)",
+  "fps": 12,
+  "playback": {
+    "mimimo_walk": "loop",
+    "momo_walk": "loop"
+  },
+  "cycles": {
+    "mimimo_walk": [
+      "mimimo_walk_1",
+      "mimimo_walk_f02",
+      "mimimo_walk_f03",
+      "mimimo_walk_2",
+      "mimimo_walk_f05",
+      "mimimo_walk_f06",
+      "mimimo_walk_3",
+      "mimimo_walk_f08",
+      "mimimo_walk_f09",
+      "mimimo_walk_4",
+      "mimimo_walk_f11",
+      "mimimo_walk_f12"
+    ],
+    "momo_walk": [
+      "momo_walk_1",
+      "momo_walk_f02",
+      "momo_walk_f03",
+      "momo_walk_2",
+      "momo_walk_f05",
+      "momo_walk_f06",
+      "momo_walk_3",
+      "momo_walk_f08",
+      "momo_walk_f09",
+      "momo_walk_4",
+      "momo_walk_f11",
+      "momo_walk_f12"
+    ]
+  },
+  "poses": {
+    "mimimo_walk_1": {
+      "source": "3d"
+    },
+    "mimimo_walk_f02": {
+      "source": "3d"
+    },
+    "mimimo_walk_f03": {
+      "source": "3d"
+    },
+    "mimimo_walk_2": {
+      "source": "3d"
+    },
+    "mimimo_walk_f05": {
+      "source": "3d"
+    },
+    "mimimo_walk_f06": {
+      "source": "3d"
+    },
+    "mimimo_walk_3": {
+      "source": "3d"
+    },
+    "mimimo_walk_f08": {
+      "source": "3d"
+    },
+    "mimimo_walk_f09": {
+      "source": "3d"
+    },
+    "mimimo_walk_4": {
+      "source": "3d"
+    },
+    "mimimo_walk_f11": {
+      "source": "3d"
+    },
+    "mimimo_walk_f12": {
+      "source": "3d"
+    },
+    "mimimo_turn": {
+      "source": "3d"
+    },
+    "mimimo_fall": {
+      "source": "3d"
+    },
+    "momo_walk_1": {
+      "source": "3d"
+    },
+    "momo_walk_f02": {
+      "source": "3d"
+    },
+    "momo_walk_f03": {
+      "source": "3d"
+    },
+    "momo_walk_2": {
+      "source": "3d"
+    },
+    "momo_walk_f05": {
+      "source": "3d"
+    },
+    "momo_walk_f06": {
+      "source": "3d"
+    },
+    "momo_walk_3": {
+      "source": "3d"
+    },
+    "momo_walk_f08": {
+      "source": "3d"
+    },
+    "momo_walk_f09": {
+      "source": "3d"
+    },
+    "momo_walk_4": {
+      "source": "3d"
+    },
+    "momo_walk_f11": {
+      "source": "3d"
+    },
+    "momo_walk_f12": {
+      "source": "3d"
+    },
+    "momo_turn": {
+      "source": "3d"
+    },
+    "momo_fall": {
+      "source": "3d"
+    },
+    "momo_lift": {
+      "source": "3d",
+      "anchor": [
+        0.4986,
+        0.1278
+      ],
+      "anchorKind": "scruff"
+    }
+  }
+}

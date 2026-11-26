@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds the macOS input method into .build/Meowpuut.app. It does not install it.
+# Builds the macOS input method (universal: arm64 + x86_64, macOS 15 and later) into .build/Meowpuut.app.
+# It does not install it.
 #
 #   bash scripts/build.sh            build
 #   bash scripts/build.sh --test     build, then run every macOS check (the app's --smoke)
@@ -8,14 +9,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Engine, appearance and candidate window. Sources/InterfaceText.swift is the
 # Traditional/Simplified text helper both Apple clients use.
-SOURCES="Sources/Engine.swift Sources/FirstRunDefaults.swift Sources/EngineKeyHandler.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/NeverVolunteer.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift Sources/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/PaperTokens.swift Sources/PaperStudio.swift Sources/Interface.swift Sources/CandidateWindow.swift Sources/SystemInput.swift Sources/KeySounds.swift"
+SOURCES="Sources/Engine.swift Sources/SettingsStore.swift Sources/FirstRunDefaults.swift Sources/EngineKeyHandler.swift Sources/InputSourceRegistration.swift Sources/InputBackend.swift Sources/ChineseWithJapaneseBackend.swift Sources/JapaneseBackend.swift Sources/ChoiceMemory.swift Sources/PetLedger.swift Sources/DeskPulse.swift Sources/NeverVolunteer.swift Sources/Symbols.swift Sources/Brand.swift Sources/Appearance.swift Sources/CandidatePalette.swift Sources/GlassShapes.swift Sources/CatSprites.swift Sources/CatSpriteData.swift Sources/Festivals.swift Sources/FestivalTrim.swift Sources/InterfaceText.swift Sources/CatFigures.swift Sources/CatGlass.swift Sources/PaperTokens.swift Sources/PaperStudio.swift Sources/Interface.swift Sources/FullScreen.swift Sources/GlyphStrip.swift Sources/CandidateWindow.swift Sources/SystemInput.swift Sources/KeySounds.swift"
 if [ "${1:-}" = "--sources" ]; then
   echo "$SOURCES"
   exit 0
 fi
 export DEVELOPER_DIR="${MEOWPUUT_XCODE_DIR:-/Applications/Xcode.app/Contents/Developer}"
 APP="$PWD/.build/Meowpuut.app"
-TARGET="$(uname -m)-apple-macosx27.0"
+MIN_MACOS="15.0"
+TARGETS="arm64-apple-macosx$MIN_MACOS x86_64-apple-macosx$MIN_MACOS"
+TARGET="$(uname -m)-apple-macosx$MIN_MACOS"
 JOBS="${MEOWPUUT_JOBS:-4}"
 LEXICON="${MEOWPUUT_LEXICON_DIR:-$PWD/.build/macos-lexicon}"
 # Recreate only generated resources so no retired dictionary survives an incremental build.
@@ -54,16 +57,32 @@ cp assets/brand/paper/grain.png "$APP/Contents/Resources/paper_grain.png"
 # App-page fonts and their licences (scripts/subset_app_fonts.py); PaperFont registers them in the Studio only.
 mkdir -p "$APP/Contents/Resources/Fonts"
 cp Resources/Fonts/* "$APP/Contents/Resources/Fonts/"
+# The 字景 candidate window's type: 俐方體 11 and the fusion face behind it (SIL OFL 1.1, THIRD_PARTY.md §10), the same
+# files Android ships (scripts/subset_glyph_fonts.py), and their licence text.
+cp Android/app/src/main/assets/fonts/pixel_a.ttf Android/app/src/main/assets/fonts/pixel_b.otf "$APP/Contents/Resources/Fonts/"
+cp Android/app/src/main/assets/font-licenses/OFL-pixel-fonts.txt "$APP/Contents/Resources/Licenses/OFL-pixel-fonts.txt"
 .build/icon assets/brand/MeowpuutMark.png .build/Meowpuut.iconset
 iconutil -c icns .build/Meowpuut.iconset -o "$APP/Contents/Resources/Meowpuut.icns"
 cp .build/MeowpuutCatTemplate.tiff "$APP/Contents/Resources/"
 swiftc -target "$TARGET" scripts/Register.swift -o .build/register-input-source
 bash scripts/build-rust.sh macos
 # The checks ship in the app: Sources/Smoke*.swift and Tests/ run under --smoke.
-swiftc -j "$JOBS" $SOURCES Sources/Smoke.swift Sources/SmokePinyin.swift Sources/SmokeMixed.swift Sources/SmokeLayout.swift Tests/CandidateLayoutTests.swift Sources/main.swift .build/rust/macosx/libmeowpuut_ffi.a \
-  -target "$TARGET" -import-objc-header Sources/Bridge.h -lsqlite3 \
-  -framework AppKit -framework SwiftUI -framework InputMethodKit \
-  -o "$APP/Contents/MacOS/Meowpuut"
+# Universal binary (Apple silicon + Intel), macOS 15 and later: one compile per architecture, then lipo.
+mkdir -p .build/slices
+SLICES=()
+for T in $TARGETS; do
+  slice=".build/slices/Meowpuut-${T%%-*}"
+  # -O: the 字景 window sets its words and draws its layers on every key (Sources/GlyphStrip.swift); unoptimised Swift is
+  # an order of magnitude slower there.
+  swiftc -O -j "$JOBS" $SOURCES Sources/Smoke.swift Sources/SmokePinyin.swift Sources/SmokeMixed.swift Sources/SmokeLayout.swift Sources/SmokeLedger.swift Sources/SmokeSettings.swift Sources/SmokeGlyph.swift Tests/CandidateLayoutTests.swift Sources/main.swift .build/rust/macosx/libmeowpuut_ffi.a \
+    -target "$T" -import-objc-header Sources/Bridge.h -lsqlite3 \
+    -D MEOWPUUT_GLYPH -Xcc -DMEOWPUUT_GLYPH \
+    -framework AppKit -framework SwiftUI -framework InputMethodKit -framework CoreText \
+    -o "$slice"
+  SLICES+=("$slice")
+done
+lipo -create "${SLICES[@]}" -output "$APP/Contents/MacOS/Meowpuut"
+# Ad-hoc signature for local use. scripts/notarize-macos.sh re-signs with Developer ID and the hardened runtime.
 codesign --force --sign - "$APP"
 echo "已構建：$APP"
 if [ "${1:-}" = "--test" ]; then

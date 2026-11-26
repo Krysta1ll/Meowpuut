@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  喵撲貓窩 as a login item (SMAppService.agent(plistName: "app.meowpuut.desk.plist"), run by
+  "Meowpuut Desk" --register). launchd starts it at login in the user's GUI session and reserves the
+  Mach service app.meowpuut.desk.pulse for it: only this job can check the name in, and the input
+  method reaches it with NSXPCConnection (Sources/DeskPulse.swift). Also app.meowpuut.desk.activity:
+  the companion app's read of the current activity category (Desk/Sources/ActivityService.swift).
+  Restarted after a crash, not after a clean quit; a pulse from the input method starts it again on demand.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>app.meowpuut.desk</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/Meowpuut Desk</string>
+	<key>MachServices</key>
+	<dict>
+		<key>app.meowpuut.desk.pulse</key>
+		<true/>
+		<key>app.meowpuut.desk.activity</key>
+		<true/>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>app.meowpuut.desk</string>
+	</array>
+</dict>
+</plist>

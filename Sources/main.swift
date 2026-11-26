@@ -6,6 +6,8 @@ import InputMethodKit
 class MeowpuutInputController: IMKInputController {
     private let engine = Engine(Preferences.shared.keyboardBackend, mode: Preferences.shared.inputMode)
     private var shiftTap = ShiftTapTracker()
+    /// Takes in a settings change made by another process (the companion app): the same steps as a change from the menu.
+    private var settingsObserver: NSObjectProtocol?
     /// Set when `deliver` hands text to the app; the typing sound uses it to tell a pick from a key.
     private var committed = false
     private lazy var candidates: CandidatePanelController = {
@@ -40,6 +42,10 @@ class MeowpuutInputController: IMKInputController {
     private var pointerAnchor: NSRect?
     private var composing = false
     private var candidatesExpanded = false
+    /// The candidate window opened above the caret line (one of the pulse's two candidate bits).
+    private var candidatesAbove = false
+    /// Inside `handle`: the key's pulse goes out once, when the key is done, not from `deliver`.
+    private var inKey = false
 
     /// The menu follows the system language, like the settings window it opens.
     private var t: InterfaceText { .system }
@@ -84,6 +90,11 @@ class MeowpuutInputController: IMKInputController {
             return false
         }
         guard event.type == .keyDown, let client = activeClient else { return false }
+        // The desk pets' pulse (Sources/DeskPulse.swift): this key is counted (never which key) and the pulse
+        // leaves once the key is handled. Encoding only; no waiting, no allocation.
+        DeskPulseSender.shared.key()
+        inKey = true
+        defer { inKey = false; publishPulse() }
         // 中日混打 was switched: the next composition starts with the new setting.
         if engine.snapshot.input.isEmpty { engine.applyMixJapanese() }
         // Typing sounds (docs/SOUNDS.md).
@@ -204,10 +215,13 @@ class MeowpuutInputController: IMKInputController {
         candidates.candidateChosen()
     }
     private func deliver(_ client: IMKTextInput) {
+        // A pick with the pointer, a page or a focus change: their own pulse. A key sends its pulse in `handle`.
+        defer { if !inKey { publishPulse() } }
         let commit = engine.takeCommit()
         if !commit.isEmpty {
             committed = true
             client.insertText(commit, replacementRange: NSRange(location: NSNotFound, length: 0))
+            DeskPulseSender.shared.committed(graphemes: PetLedger.shared.committed(commit))
         }
         let preedit = engine.snapshot.preedit
         if !commit.isEmpty || preedit.isEmpty { setCandidatesExpanded(false) }
@@ -215,6 +229,7 @@ class MeowpuutInputController: IMKInputController {
         if !preedit.isEmpty && (!composing || !commit.isEmpty) {
             compositionStart = caret(client)
             anchor = compositionStart
+            DeskPulseSender.shared.measured(compositionStart)
         }
         composing = !preedit.isEmpty
         client.setMarkedText(preedit, selectionRange: NSRange(location: (preedit as NSString).length, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -222,6 +237,7 @@ class MeowpuutInputController: IMKInputController {
             anchor = nil
             compositionStart = nil
             pointerAnchor = nil
+            candidatesAbove = false
             candidates.hide()
             return
         }
@@ -229,6 +245,7 @@ class MeowpuutInputController: IMKInputController {
         if let start = compositionStart, let anchor, !candidateSameLine(start, anchor) {
             // The text scrolled or wrapped: ask again where the marked text begins.
             compositionStart = caret(client) ?? start
+            DeskPulseSender.shared.measured(compositionStart)
         }
         // Without a usable caret the window goes to the pointer and stays there
         // for this composition. The height stands for one line of text.
@@ -237,6 +254,23 @@ class MeowpuutInputController: IMKInputController {
         }
         guard let rect = anchor ?? pointerAnchor else { return }
         candidates.show(expanded: candidatesExpanded, canExpand: canExpandCandidates, caret: rect, start: compositionStart)
+        candidatesAbove = (candidates.panel?.frame.midY ?? rect.midY) > rect.maxY
+    }
+
+    private func publishPulse() {
+        DeskPulseSender.shared.publish(composing: composing, expanded: candidatesExpanded, above: candidatesAbove)
+    }
+
+    /// 桌面貓 (docs/SETTINGS.md `deskPets`, under 米米莫與莫莫 `catGlassSkin`): pulses go out only while both are
+    /// on; never under --smoke or from the engine preview build. Off, the glass forgets what 喵撲貓窩 said (both
+    /// cats on it); on, a focus change sends its pulse, so the connection (and the cats' seats) is there before the
+    /// first key.
+    private func refreshDeskPulse() {
+        let preferences = Preferences.shared
+        let on = !Preferences.testing && !Preferences.enginePreview && preferences.catGlassSkin
+            && (preferences.defaults.object(forKey: "deskPets") as? Bool ?? true)
+        DeskPulseSender.shared.enabled = on
+        if on { publishPulse() } else { GlassSeats.shared.update(nil) }
     }
 
     override func deactivateServer(_ sender: Any!) {
@@ -246,6 +280,8 @@ class MeowpuutInputController: IMKInputController {
             if engine.isReady { engine.finishComposition(); deliver(client) }
         }
         ChoiceMemory.shared.flush()
+        PetLedger.shared.flushNow()
+        Preferences.shared.flushSettings()
         engine.clear(); anchor = nil; compositionStart = nil; pointerAnchor = nil; composing = false; setCandidatesExpanded(false); candidates.hide()
     }
     override func commitComposition(_ sender: Any!) {
@@ -253,9 +289,21 @@ class MeowpuutInputController: IMKInputController {
     }
     override func activateServer(_ sender: Any!) {
         shiftTap.reset()
+        if settingsObserver == nil {
+            settingsObserver = NotificationCenter.default.addObserver(forName: Preferences.externalChange, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.engine.selectMode(Preferences.shared.inputMode)
+                self.engine.applyMixJapanese()
+                self.engine.modeChanged()
+                self.refreshDeskPulse()
+                if let client = self.client() { self.deliver(client) }
+            }
+        }
+        Preferences.shared.refreshSettings()
         engine.selectMode(Preferences.shared.inputMode)
         engine.applyMixJapanese()
         engine.modeChanged()
+        refreshDeskPulse()
     }
     override func menu() -> NSMenu! {
         let t = self.t
@@ -342,6 +390,14 @@ final class Application: NSObject, NSApplicationDelegate {
         return true
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let at = CommandLine.arguments.firstIndex(of: "--glyph-shots") {
+            // The 字景 window rendered offscreen to PNG, with the per-key cost (Sources/SmokeGlyph.swift).
+            #if MEOWPUUT_GLYPH
+            exit(runGlyphShots(directory: CommandLine.arguments.dropFirst(at + 1).first ?? "glyph-shots"))
+            #else
+            exit(2)
+            #endif
+        }
         if CommandLine.arguments.contains("--smoke-languages") { smoke(); return }
         if CommandLine.arguments.contains("--smoke") { smoke(); return }
         if Preferences.enginePreview || CommandLine.arguments.contains("--settings") { showStudio() }
@@ -349,6 +405,7 @@ final class Application: NSObject, NSApplicationDelegate {
     func showStudio() {
         NSApp.setActivationPolicy(.regular)
         if window == nil {
+            if !Preferences.testing { InputSourceRegistration.registerOnFirstLaunch() }
             let t = InterfaceText.system
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 710), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window?.title = Preferences.enginePreview ? t("Meowpuut 引擎試打", "Meowpuut 引擎试打") : "Meowpuut"
@@ -369,6 +426,8 @@ final class Application: NSObject, NSApplicationDelegate {
     }
 
 }
+// Installer postinstall and scripts: add the input source without a logout, then exit.
+if CommandLine.arguments.contains("--register") { exit(InputSourceRegistration.runCommandLine(CommandLine.arguments)) }
 let app = NSApplication.shared
 let delegate = Application()
 app.delegate = delegate

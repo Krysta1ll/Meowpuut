@@ -35,7 +35,7 @@
 更新說明和 SHA-256 校驗檔：[Mac](https://github.com/Krysta1ll/Meowpuut/releases/tag/macos-sill-26a034) · [Android](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-prism-26a025) · [Windows](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-porch-26a003)。[歷史版本](https://github.com/Krysta1ll/Meowpuut/releases)。
 
 - **iPhone、iPad**：從 [App Store](https://apps.apple.com/app/id6832432299) 安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
-- **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好要登出再登入，再到系統設定加入輸入法。
+- **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好後到系統設定加入輸入法；清單裡沒有時才需要登出再登入。
 - **Android**：0.8.0、0.9.0 和 0.9.1 發布版可直接更新。裝過 0.1.0 的話，Android 會要求先移除舊版。
 - **Windows**：安裝包未簽署，Windows 可能會先跳出警告。一般電腦用 x64；Arm 處理器的電腦（例如 Snapdragon 筆電）用 Arm64，它只在原生 Arm64 的程式裡有效，像記事本、Edge、檔案總管、終端機，在模擬執行的 x64 程式裡打不出中文。安裝步驟見[安裝說明](docs/INSTALL.md#windows)。
 
@@ -135,12 +135,13 @@ iPhone 鍵盤的按鍵也是玻璃，跟著配色走。iOS 26 起用系統的液
 - iPhone 鍵盤可離線打字，自訂按鍵聲和支援 iCloud 選詞同步的版本需要「允許完整取用」。Android 鍵盤不需要網路權限。
 - 不收集任何資料，沒有帳號、廣告和分析工具。
 - 選詞記憶預設留在這台裝置。Android 可以在設定裡關閉、清除，或匯出和匯入選詞記錄。
+- Mac 和 Windows 的輸入法在本機記打字紀錄：字數、哪幾天、一天裡的哪個時段，不記打了什麼。Mac 在設定的「選詞記憶」頁、Windows 在工作列輸入指示的右鍵選單可以清除。
 
 完整的說明在[隱私政策](docs/PRIVACY.md)。
 
 ## 從原始碼建置
 
-Mac 版需要含 macOS 27 SDK 的完整 Xcode、Python 3 和 Rust。建置腳本預設用 `/Applications/Xcode.app`，其他位置可以設 `MEOWPUUT_XCODE_DIR`。
+Mac 版（macOS 15 以上，universal）需要含 macOS 27 SDK 的完整 Xcode、Python 3 和 Rust。建置腳本預設用 `/Applications/Xcode.app`，其他位置可以設 `MEOWPUUT_XCODE_DIR`。
 
 ```sh
 git clone --recurse-submodules https://github.com/Krysta1ll/Meowpuut.git
