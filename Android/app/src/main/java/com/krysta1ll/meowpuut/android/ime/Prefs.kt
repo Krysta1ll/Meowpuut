@@ -218,6 +218,10 @@ class Prefs(context: Context) {
     var petMoments: PetMoments
         get() = PetMoments.of(store.getString(PET_MOMENTS, null))
         set(value) = store.edit().putString(PET_MOMENTS, value.key).apply()
+    /** Pet visual form decoupled from keyboard skin: auto, 3d, or pixel. */
+    var petForm: PetFormPreference
+        get() = PetFormPreference.of(store.getString(PET_FORM, null))
+        set(value) = store.edit().putString(PET_FORM, value.key).apply()
     var festivals: Boolean
         get() = store.getBoolean(FESTIVALS, true)
         set(value) = store.edit().putBoolean(FESTIVALS, value).apply()
@@ -251,6 +255,7 @@ class Prefs(context: Context) {
         const val CLEAR_CHOICE_MEMORY = "clearChoiceMemory"
         const val CUSTOM_DICTIONARY = "customDictionary"
         const val PET_MOMENTS = "petMoments"
+        const val PET_FORM = "petForm"
         /** Written by the app when the cat records are cleared; the running keyboard clears its copy on seeing it. */
         const val CLEAR_PETS = "clearPetsRequest"
         const val CLIPBOARD = "clipboard"

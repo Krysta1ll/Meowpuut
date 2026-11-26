@@ -353,4 +353,11 @@
     <string name="stats_festivals_count">遇見 %1$d 個。</string>
     <string name="stats_festivals_count_more">遇見 %1$d 個。往左滑，看更早的。</string>
     <string name="home_festival_desc">今天是%1$s。</string>
+    <string name="pet_form">寵物形態</string>
+    <string name="pet_form_auto">跟隨皮膚</string>
+    <string name="pet_form_3d">3D 形態</string>
+    <string name="pet_form_pixel">像素形態</string>
+    <string name="pet_form_note">可在所有皮膚間自由切換 3D 或像素形態，並支援各皮膚專屬畫風資產。</string>
+    <string name="pet_hub_open">寵物成就與跨平台同步（82）</string>
+    <string name="pet_hub_title">寵物成就與同步</string>
 </resources>

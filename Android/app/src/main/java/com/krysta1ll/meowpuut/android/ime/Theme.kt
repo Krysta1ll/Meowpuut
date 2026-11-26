@@ -109,7 +109,11 @@ data class Look(
     val skin: KeyboardSkin = KeyboardSkin.CURRENT,
     /** A verified custom skin (CustomSkin.kt), or null. Its colours replace the palette's. */
     val overlay: SkinOverlay? = null,
+    /** Decoupled pet visual form preference (`auto`, `3d`, `pixel`), shared across all skins. */
+    val petForm: PetFormPreference = PetFormPreference.AUTO,
 ) {
+    val resolvedPetForm: PetForm get() = petForm.resolved(skin)
+    val resolvedCatArtwork: SkinCatArtwork get() = petForm.resolvedArtwork(skin)
     val usesSteppedMaterial get() = skin.material == SkinMaterial.PIXEL || skin.material == SkinMaterial.GLYPH
     /** 字景: the paper-and-ink skin whose keys, bar and land are all set in type (its own colours are [glyphPalette]). */
     val isGlyph get() = skin == KeyboardSkin.GLYPH && overlay == null
@@ -119,8 +123,10 @@ data class Look(
      */
     val groundPlate: Int? get() = if (isGlyph) (if (dark) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()) else null
     /** The classic skin's edge-hugging cats; an overlay asks for them only where the base has that artwork. */
-    val edgeHuggingCats get() = if (overlay != null) overlay.seatingEdges && skin.catArtwork == SkinCatArtwork.LEGACY
+    val edgeHuggingCats get() = resolvedPetForm == PetForm.THREE_D && (
+        if (overlay != null) overlay.seatingEdges && skin.catArtwork == SkinCatArtwork.LEGACY
         else skin.catSeating == CatSeating.EDGE_HUGGING
+    )
     val supportsFestivals get() = overlay?.festivalsAllowed ?: skin.supportsFestivals
     val isCentenary get() = skin == KeyboardSkin.CENTENARY && overlay == null
     private val colors: SkinPalette? = overlay?.palette(dark) ?: if (isGlyph) {

@@ -1428,7 +1428,7 @@ class MeowpuutIME : InputMethodService(),
         if (festival?.id != festivalArt?.theme?.id) festivalArt = festival?.let { FestivalArt.load(it, assets) }
         look = Look(dark, overlay?.shape(prefs.shape, prefs.hasShape) ?: skin.shape(prefs.shape), prefs.palette,
             overlay?.strength ?: prefs.strength, catsOn, festivalPill,
-            wantsMoreContrast(this), prefs.effects, skin, overlay)
+            wantsMoreContrast(this), prefs.effects, skin, overlay, prefs.petForm)
         keyboard?.let {
             it.glyphDistance = journeyStart()
             it.glyphCrab = prefs.glyphCrab

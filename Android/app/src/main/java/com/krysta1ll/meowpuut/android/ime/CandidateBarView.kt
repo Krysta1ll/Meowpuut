@@ -144,7 +144,7 @@ class CandidateBarView(
         set(value) {
             if (field == value) return
             val effectsChanged = field.effects != value.effects
-            val catsChanged = field.cats != value.cats
+            val catsChanged = field.cats != value.cats || field.petForm != value.petForm
             val skinChanged = field.skin != value.skin
             field = value
             if (effectsChanged || skinChanged) {
@@ -604,7 +604,7 @@ class CandidateBarView(
         val glass = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val glassCanvas = Canvas(glass)
         glassCanvas.scale(density, density)
-        val black = if (look.edgeHuggingCats && look.skin.catArtwork == SkinCatArtwork.LEGACY && !look.opaque) {
+        val black = if (look.edgeHuggingCats && look.resolvedCatArtwork == SkinCatArtwork.LEGACY && !look.opaque) {
             seats().firstOrNull { it.actor.id == Cat.MIMIMO }?.place?.frame
         } else null
         if (black != null) {
@@ -658,7 +658,7 @@ class CandidateBarView(
         val seats = seats()
         if (seats.isEmpty()) for (cat in actors) cat.motion = null
         if (look.supportsFestivals || look.overlay?.rightEnd != null) drawFestivalEnd(canvas)
-        if (fullEffects && !look.opaque && look.skin.catArtwork == SkinCatArtwork.SCULPTED) pawShadows(canvas, seats)
+        if (fullEffects && !look.opaque && look.resolvedCatArtwork == SkinCatArtwork.SCULPTED) pawShadows(canvas, seats)
         catsAnimating = false
         drawRipple(canvas, now)
         for (seat in seats) if (seat.actor !== liftedCat?.actor) drawCat(canvas, seat, now)
@@ -784,12 +784,13 @@ class CandidateBarView(
             return emptyList()
         }
         val stage = region.stage(look.shape)
-        val artwork = look.skin.catArtwork
+        val form = look.resolvedPetForm
+        val artwork = look.resolvedCatArtwork
         val sculpted = artwork == SkinCatArtwork.SCULPTED
         // The scheduler only needs geometry; decode the sculpted image after seating.
         fun place(mimimo: CatSprites.Art?, momo: CatSprites.Art?) = catSchedule.seats(stage) { cat, pose ->
             val themed = if (cat == Cat.MIMIMO) mimimo else momo
-            themed?.sprite ?: if (sculpted) skinSprite(cat, pose) else sprites.art(cat, pose, artwork).sprite
+            themed?.sprite ?: if (sculpted) skinSprite(cat, pose) else sprites.art(cat, pose, look.skin, form).sprite
         }
         val mimimo = if (sculpted) japaneseMimimo ?: festival?.mimimo else null
         val momo = if (sculpted) festival?.momo else null
@@ -807,7 +808,7 @@ class CandidateBarView(
             val themed = if (place.cat == Cat.MIMIMO) mimimo else momo
             val themedArt = themed?.takeIf { it.sprite === place.sprite }
             val art = themedArt ?: if (sculpted || artwork == SkinCatArtwork.CENTENARY) sprites.art(place.sprite)
-                else sprites.art(place.cat, CatPose.PEEK, artwork)
+                else sprites.art(place.cat, CatPose.PEEK, look.skin, form)
             if (!sculpted) return@map Seat(actor(place.cat), place, fitted.petTarget(place), art.bitmap, Path(), null,
                 artwork != SkinCatArtwork.CENTENARY)
             val frame = place.frame
@@ -899,7 +900,7 @@ class CandidateBarView(
         var wide = pose?.wide ?: 1f
         var tall = pose?.tall ?: 1f
         if (cat.pressed && motionEnabled) { wide *= 1.06f; tall *= 0.93f }
-        val artwork = look.skin.catArtwork
+        val artwork = look.resolvedCatArtwork
         if (artwork != SkinCatArtwork.SCULPTED || look.edgeHuggingCats) {
             canvas.save()
             if (look.edgeHuggingCats || artwork == SkinCatArtwork.CENTENARY) {
@@ -939,7 +940,7 @@ class CandidateBarView(
     }
 
     private fun drawSkinCat(canvas: Canvas, seat: Seat, frame: Box, pose: CatBodyPose?, bodyOpacity: Float = 1f) {
-        val artwork = look.skin.catArtwork
+        val artwork = look.resolvedCatArtwork
         val bitmap = if (artwork == SkinCatArtwork.CENTENARY) {
             if (seat.actor.sleeping) sprites.centenaryBody(seat.actor.id, CatBodyPose.SLEEP)
             else if (pose != null) sprites.centenaryBody(seat.actor.id, pose) else seat.bitmap

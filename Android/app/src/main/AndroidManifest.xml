@@ -43,6 +43,12 @@
             android:exported="false"
             android:label="@string/stats_title" />
 
+        <!-- Pet achievements (82) and Route A cross-platform .mpsync sync hub. -->
+        <activity
+            android:name=".app.PetHubActivity"
+            android:exported="false"
+            android:label="@string/pet_hub_title" />
+
         <!-- The custom-skins page. Its filters name only our own MIME types and file extensions (never */* or
              application/octet-stream); only content:// is read, with a size cap, and a package must still be
              signed by the developer and issued for this phone (plans/custom-skins.md §8.3). The in-app file

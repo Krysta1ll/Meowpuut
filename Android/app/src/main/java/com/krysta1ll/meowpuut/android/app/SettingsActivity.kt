@@ -42,6 +42,7 @@ import com.krysta1ll.meowpuut.android.app.home.HomeEntry
 import com.krysta1ll.meowpuut.android.app.home.HomeHero
 import com.krysta1ll.meowpuut.android.app.stats.JourneyStats
 import com.krysta1ll.meowpuut.android.app.stats.BundledFestivals
+import com.krysta1ll.meowpuut.android.app.stats.PetSyncStore
 import com.krysta1ll.meowpuut.android.app.stats.StatsStore
 import com.krysta1ll.meowpuut.android.engine.Candidate
 import com.krysta1ll.meowpuut.android.engine.CandidateKind
@@ -65,6 +66,7 @@ import com.krysta1ll.meowpuut.android.ime.KeyContext
 import com.krysta1ll.meowpuut.android.ime.KeyMetrics
 import com.krysta1ll.meowpuut.android.ime.KeySound
 import com.krysta1ll.meowpuut.android.ime.LocalCatAffinity
+import com.krysta1ll.meowpuut.android.ime.PetFormPreference
 import com.krysta1ll.meowpuut.android.ime.PetMoments
 import com.krysta1ll.meowpuut.android.ime.KeysView
 import com.krysta1ll.meowpuut.android.ime.KeyboardHeight
@@ -327,18 +329,26 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             R.string.strength_balanced to GlassStrength.BALANCED, R.string.strength_vivid to GlassStrength.VIVID), { prefs.strength }) { prefs.strength = it }
         glassRow = look.getChildAt(look.childCount - 1)
         catsSwitch = toggle(look, R.string.cats, prefs.cats) { prefs.cats = it }
+        choice(look, R.string.pet_form, Prefs.PET_FORM, listOf(
+            R.string.pet_form_auto to PetFormPreference.AUTO,
+            R.string.pet_form_3d to PetFormPreference.THREE_D,
+            R.string.pet_form_pixel to PetFormPreference.PIXEL,
+        ), { prefs.petForm }) { prefs.petForm = it }
+        note(look, R.string.pet_form_note)
         festivalSwitch = toggle(look, R.string.festivals, prefs.festivals) { prefs.festivals = it }
         festivalHint = note(look, R.string.festivals_note)
         // The guest crab of 字景 is Anthropic's mascot: off, and offered in debug builds only, until it is licensed.
         glyphCrabSwitch = toggle(look, R.string.glyph_crab_title, prefs.glyphCrab) { prefs.glyphCrab = it }
         choice(look, R.string.pet_moments, Prefs.PET_MOMENTS, PetMoments.entries.map { it.label to it }, { prefs.petMoments }) { prefs.petMoments = it }
         note(look, R.string.pet_moments_note)
+        look.addView(action(R.string.pet_hub_open) { startActivity(Intent(this, PetHubActivity::class.java)) })
         look.addView(action(R.string.clear_pets) {
             AlertDialog.Builder(this)
                 .setMessage(R.string.clear_pets_confirm)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.clear_pets) { _, _ ->
                     // The records and the statistics go together: the file is emptied (at a higher epoch), the ledger starts over, the journey too.
+                    PetSyncStore(filesDir).resetEpoch()
                     statsStore.forget()
                     // A keyboard that is running clears its own copy, so it cannot write the old counts back.
                     prefs.store.edit().putLong(Prefs.CLEAR_PETS, System.nanoTime()).apply()
@@ -1072,7 +1082,7 @@ private class BarPreview(context: Context, private val prefs: Prefs, private val
         val skin = overlay?.base ?: prefs.skin
         return Look(dark, overlay?.shape(prefs.shape, prefs.hasShape) ?: skin.shape(prefs.shape), prefs.palette,
             overlay?.strength ?: prefs.strength, prefs.cats,
-            opaque = wantsMoreContrast(context), effects = effects, skin = skin, overlay = overlay)
+            opaque = wantsMoreContrast(context), effects = effects, skin = skin, overlay = overlay, petForm = prefs.petForm)
     }
 
     /** Verifies and reads the applied custom skin off the main thread, then shows it; the built-in skin shows meanwhile. */

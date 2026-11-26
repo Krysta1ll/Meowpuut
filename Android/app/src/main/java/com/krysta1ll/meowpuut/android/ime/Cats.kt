@@ -54,6 +54,7 @@ class CatSprites(private val resources: Resources) {
     class Art(val sprite: CatSprite, val bitmap: Bitmap)
 
     private val arts = HashMap<String, Art>()
+    private val resolvedDrawables = HashMap<String, Int>()
     /** A custom skin's decoded pictures, set once its files are verified (CustomSkinLoader); never read from disk here. */
     private var skinArts: Map<String, Art> = emptyMap()
     private var skinEnd: Pair<SkinEnd, Bitmap>? = null
@@ -67,6 +68,20 @@ class CatSprites(private val resources: Resources) {
     private val bodies = HashMap<Int, Bitmap>()
     private val held = arrayOfNulls<HeldCatArt>(Cat.entries.size)
 
+    fun hasAsset(name: String): Boolean = skinArts.containsKey(name) || drawableId(name) != 0
+
+    fun art(cat: Cat, pose: CatPose, skin: KeyboardSkin, form: PetForm): Art {
+        val sprite = PetAssetResolver.resolveSeatedSprite(
+            form = form,
+            skin = skin,
+            cat = cat,
+            pose = pose,
+            customSprite = if (form == PetForm.THREE_D) skinArts[pose.sprite(cat).name]?.sprite else null,
+            exists = ::hasAsset,
+        )
+        return art(sprite)
+    }
+
     fun art(cat: Cat, pose: CatPose, artwork: SkinCatArtwork): Art {
         if (artwork == SkinCatArtwork.SCULPTED) return art(pose.sprite(cat))
         if (artwork == SkinCatArtwork.CENTENARY) return art(CentenaryCats.sprite(cat, pose))
@@ -75,8 +90,7 @@ class CatSprites(private val resources: Resources) {
             val (id, sprite) = when {
                 artwork == SkinCatArtwork.PIXEL -> {
                     val drawable = if (cat == Cat.MIMIMO) R.drawable.cat_pixel_mimimo else R.drawable.cat_pixel_momo
-                    drawable to CatSprite(name, 44f, 44f, 0.5f, 0.92f, 0.07f, 0.035f, 0.965f, 1f, 0.18f, 0.82f,
-                        listOf(floatArrayOf(0.32f, 0.12f, 0.075f), floatArrayOf(0.68f, 0.12f, 0.075f)))
+                    drawable to PetAssetResolver.pixelSprite(name, cat)
                 }
                 else -> (if (cat == Cat.MIMIMO) R.drawable.cat_classic_mimimo_open else R.drawable.cat_classic_momo_open) to cat.classicSprite()
             }
@@ -99,13 +113,23 @@ class CatSprites(private val resources: Resources) {
 
     /** Decode only the poses the keyboard has actually shown. */
     fun art(sprite: CatSprite): Art = skinArts[sprite.name]?.takeIf { it.sprite === sprite } ?: arts.getOrPut(sprite.name) {
-        val id = when (sprite.name) {
+        val id = drawableId(sprite.name).takeIf { it != 0 }
+            ?: error("Unknown keyboard cat pose ${sprite.name}")
+        Art(sprite, decode(id))
+    }
+
+    private fun drawableId(name: String): Int = resolvedDrawables.getOrPut(name) {
+        when (name) {
             "mimimo_edge_peek" -> R.drawable.cat_mimimo_edge_peek
             "mimimo_edge_rest" -> R.drawable.cat_mimimo_edge_rest
             "mimimo_edge_lounge" -> R.drawable.cat_mimimo_edge_lounge
             "momo_edge_peek" -> R.drawable.cat_momo_edge_peek
             "momo_edge_rest" -> R.drawable.cat_momo_edge_rest
             "momo_edge_lounge" -> R.drawable.cat_momo_edge_lounge
+            "pixel_mimimo" -> R.drawable.cat_pixel_mimimo
+            "pixel_momo" -> R.drawable.cat_pixel_momo
+            "classic_mimimo_open", "LEGACY_mimimo" -> R.drawable.cat_classic_mimimo_open
+            "classic_momo_open", "LEGACY_momo" -> R.drawable.cat_classic_momo_open
             "centenary_mimimo_idle" -> R.drawable.centenary_mimimo_idle
             "centenary_mimimo_bow" -> R.drawable.centenary_mimimo_bow
             "centenary_mimimo_cheer" -> R.drawable.centenary_mimimo_cheer
@@ -114,9 +138,16 @@ class CatSprites(private val resources: Resources) {
             "centenary_momo_bow" -> R.drawable.centenary_momo_bow
             "centenary_momo_cheer" -> R.drawable.centenary_momo_cheer
             "centenary_momo_doze" -> R.drawable.centenary_momo_doze
-            else -> error("Unknown keyboard cat pose ${sprite.name}")
+            else -> lookupDynamicDrawable(name)
         }
-        Art(sprite, decode(id))
+    }
+
+    @Suppress("DiscouragedApi")
+    private fun lookupDynamicDrawable(name: String): Int {
+        val pkg = "com.krysta1ll.meowpuut.android"
+        val direct = resources.getIdentifier(name, "drawable", pkg)
+        if (direct != 0) return direct
+        return resources.getIdentifier("cat_$name", "drawable", pkg)
     }
 
     fun body(cat: Cat, pose: CatBodyPose): Bitmap {
