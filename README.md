@@ -29,10 +29,10 @@
 | --- | --- | --- |
 | iPhone、iPad（iOS 17 以上） | 正式版 | [App Store](https://apps.apple.com/app/apple-store/id6832432299?pt=129766469&ct=github&mt=8) |
 | Mac（macOS 27 以上，Apple 晶片） | 窗臺 · 26A035 | [安裝盤 .dmg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-26a035/Meowpuut-Sill-26A035-arm64.dmg) · [安裝套件 .pkg](https://github.com/Krysta1ll/Meowpuut/releases/download/macos-sill-26a035/Meowpuut-Sill-26A035-arm64.pkg) |
-| Android（8.0 以上） | 稜鏡 · 26A026 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-26a026/Meowpuut-Prism-26A026.apk) |
+| Android（8.0 以上） | 稜鏡 · 26A028 | [APK](https://github.com/Krysta1ll/Meowpuut/releases/download/android-prism-26a028/Meowpuut-Prism-26A028.apk) |
 | Windows 10、11 | 門廊 · 26A003 | [x64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-26a003/Meowpuut-Porch-26A003-x64.zip) · [Arm64 zip](https://github.com/Krysta1ll/Meowpuut/releases/download/windows-porch-26a003/Meowpuut-Porch-26A003-arm64.zip) |
 
-更新說明和 SHA-256 校驗檔：[Mac](https://github.com/Krysta1ll/Meowpuut/releases/tag/macos-sill-26a035) · [Android](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-prism-26a026) · [Windows](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-porch-26a003)。[歷史版本](https://github.com/Krysta1ll/Meowpuut/releases)。
+更新說明和 SHA-256 校驗檔：[Mac](https://github.com/Krysta1ll/Meowpuut/releases/tag/macos-sill-26a035) · [Android](https://github.com/Krysta1ll/Meowpuut/releases/tag/android-prism-26a028) · [Windows](https://github.com/Krysta1ll/Meowpuut/releases/tag/windows-porch-26a003)。[歷史版本](https://github.com/Krysta1ll/Meowpuut/releases)。
 
 - **iPhone、iPad**：從 [App Store](https://apps.apple.com/app/apple-store/id6832432299?pt=129766469&ct=github&mt=8) 安裝喵撲。裝好後到「設定 → 一般 → 鍵盤 → 鍵盤 → 新增鍵盤」加入喵撲。不用打開「允許完整取用」。
 - **Mac**：沒有經過 Apple 公證，第一次打開可能被系統擋下，請先讀[安裝說明](docs/INSTALL.md#mac)。裝好後到系統設定加入輸入法；清單裡沒有時才需要登出再登入。
@@ -154,7 +154,7 @@ bash scripts/package-macos.sh
 `Engine` 子模組固定了引擎與詞庫的版本。已有 clone 可執行 `git submodule update --init Engine`。`--smoke` 的測試用獨立的偏好設定，不會動到你平常的選詞記錄。安裝檔輸出在 `.build/releases/`。
 
 - iPhone、iPad：由獨立的私人客戶端倉庫維護。
-- Android：見 [Android/README.md](Android/README.md)。
+- Android：由獨立的私人客戶端倉庫維護（公開 APK 下載於[Releases](https://github.com/Krysta1ll/Meowpuut/releases)）。
 - Windows：見 [Windows/README.md](Windows/README.md)。
 
 選字和詞庫怎麼做的，見[引擎與詞庫](docs/ENGINE.md)。[Meowpuut-Core](https://github.com/Krysta1ll/Meowpuut-Core) 收錄 Rust 核心、詞庫和測試。[倉庫分工](docs/REPOSITORIES.md)

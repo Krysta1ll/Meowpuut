@@ -6,7 +6,7 @@ Android、macOS 和 Windows 的正式版使用「**名稱 · 構建代碼**」�
 
 | 平台 | 名稱 | 正式版 |
 | --- | --- | --- |
-| Android | 稜鏡 Prism | 26A026 |
+| Android | 稜鏡 Prism | 26A028 |
 | macOS | 窗臺 Sill | 26A035 |
 | Windows | 門廊 Porch | 26A003 |
 | iPhone、iPad | 露珠 Dew | App Store／TestFlight 使用 Apple 的數字版號 |
